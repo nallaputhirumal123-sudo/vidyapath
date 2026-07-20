@@ -1,0 +1,8 @@
+# Local testing only — no Postgres driver needed (local uses SQLite).
+# Railway installs the full requirements.txt inside Docker on Python 3.11.
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic[email]
+bcrypt
+pyjwt

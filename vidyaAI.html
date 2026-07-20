@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VidyaAI — Zero to AI Engineer</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#283040;
+  --text:#e6edf3; --muted:#8b949e; --accent:#ff9933; --accent2:#4d9fff;
+  --green:#3fb950; --red:#f85149; --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.6}
+code,pre,textarea.code{font-family:"SF Mono",Menlo,Consolas,monospace}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+
+/* layout */
+.app{display:flex;min-height:100vh}
+.sidebar{width:270px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);padding:20px 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{flex:1;padding:32px 40px;max-width:1100px}
+.brand{padding:0 20px 20px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.brand h1{font-size:20px;font-weight:700;letter-spacing:-.4px}
+.brand h1 span{color:var(--accent)}
+.brand p{font-size:12px;color:var(--muted);margin-top:2px}
+
+.navsec{padding:14px 20px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:600}
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 20px;font-size:14px;color:var(--muted);width:100%;text-align:left;border-left:2px solid transparent}
+.navitem:hover{background:var(--panel2);color:var(--text)}
+.navitem.active{background:var(--panel2);color:var(--text);border-left-color:var(--accent)}
+.navitem .dot{width:7px;height:7px;border-radius:50%;background:var(--line);flex-shrink:0}
+.navitem .dot.done{background:var(--green)}
+.navitem .dot.partial{background:var(--accent)}
+
+/* generic */
+.h2{font-size:26px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.sub{color:var(--muted);margin-bottom:26px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.grid{display:grid;gap:16px}
+.g3{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.pill{display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+.pill.hot{background:rgba(255,153,51,.12);color:var(--accent);border-color:rgba(255,153,51,.3)}
+.pill.ok{background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)}
+.btn{background:var(--accent);color:#111;padding:9px 18px;border-radius:8px;font-weight:600;font-size:14px}
+.btn:hover{opacity:.88}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* progress */
+.bar{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#ffc078);border-radius:99px;transition:width .4s}
+.stat{font-size:30px;font-weight:700;letter-spacing:-1px}
+.statlbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+
+/* track cards */
+.track{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;text-align:left;width:100%;transition:.15s}
+.track:hover{border-color:var(--accent);transform:translateY(-2px)}
+.track h3{font-size:16px;margin:8px 0 4px}
+.track p{font-size:13px;color:var(--muted);min-height:38px}
+.track .ico{font-size:22px}
+.track .meta{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--muted)}
+
+/* lesson */
+.lesson-body{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:26px;margin-bottom:16px}
+.lesson-body h3{font-size:18px;margin:22px 0 8px}
+.lesson-body h3:first-child{margin-top:0}
+.lesson-body p{margin-bottom:12px;color:#c9d1d9}
+.lesson-body ul{margin:0 0 14px 20px;color:#c9d1d9}
+.lesson-body li{margin-bottom:5px}
+.lesson-body pre{background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font-size:13px;margin-bottom:14px;color:#a5d6ff}
+.lesson-body code{background:var(--panel2);padding:2px 5px;border-radius:4px;font-size:13px;color:var(--accent)}
+.lesson-body pre code{background:none;padding:0;color:inherit}
+.callout{border-left:3px solid var(--accent2);background:rgba(77,159,255,.07);padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:14px}
+
+/* lab */
+.lab{background:var(--panel);border:1px solid var(--accent);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+.lab-head{padding:14px 20px;background:rgba(255,153,51,.08);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.lab-head strong{font-size:14px}
+.lab-body{padding:18px 20px}
+textarea.code{width:100%;min-height:150px;background:#0a0e14;color:#a5d6ff;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;resize:vertical;outline:none}
+textarea.code:focus{border-color:var(--accent)}
+.out{background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap;min-height:44px;margin-top:12px;color:var(--muted);font-family:"SF Mono",Menlo,Consolas,monospace}
+.out.pass{border-color:var(--green);color:var(--green)}
+.out.fail{border-color:var(--red);color:var(--red)}
+
+/* quiz */
+.q{margin-bottom:20px}
+.q p{font-weight:600;margin-bottom:10px}
+.opt{display:block;width:100%;text-align:left;padding:10px 14px;border:1px solid var(--line);border-radius:8px;margin-bottom:7px;font-size:14px;background:var(--panel2)}
+.opt:hover{border-color:var(--accent2)}
+.opt.sel{border-color:var(--accent2);background:rgba(77,159,255,.1)}
+.opt.correct{border-color:var(--green);background:rgba(63,185,80,.12)}
+.opt.wrong{border-color:var(--red);background:rgba(248,81,73,.12)}
+
+.lessonlist{display:flex;flex-direction:column;gap:8px}
+.lrow{display:flex;align-items:center;gap:12px;padding:13px 16px;background:var(--panel);border:1px solid var(--line);border-radius:9px;text-align:left;width:100%}
+.lrow:hover{border-color:var(--accent)}
+.lrow .n{width:26px;height:26px;border-radius:50%;background:var(--panel2);display:grid;place-items:center;font-size:12px;flex-shrink:0;color:var(--muted)}
+.lrow.done .n{background:var(--green);color:#0d1117;font-weight:700}
+.lrow .t{flex:1}
+.lrow .t b{display:block;font-size:14px;font-weight:500}
+.lrow .t small{color:var(--muted);font-size:12px}
+.crumb{font-size:13px;color:var(--muted);margin-bottom:14px}
+.crumb button{color:var(--accent2)}
+.crumb button:hover{text-decoration:underline}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+@media(max-width:820px){.app{flex-direction:column}.sidebar{width:100%;height:auto;position:static}.main{padding:22px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="brand">
+      <h1>Vidya<span>AI</span></h1>
+      <p>Zero to AI Engineer · India</p>
+    </div>
+    <div id="nav"></div>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+/* ============================ CURRICULUM ============================ */
+const TRACKS = [
+  {
+    id:"found", icon:"🧱", name:"Foundations: Computers & Code",
+    desc:"For absolute beginners from any degree. How a computer thinks, then your first Python program.",
+    weeks:4,
+    lessons:[
+      { id:"f1", title:"How a computer actually works", mins:25,
+        content:`<h3>You do not need a CS degree</h3>
+<p>Everything a computer does reduces to four things: <b>store</b> data, <b>move</b> data, <b>compare</b> data, and <b>repeat</b>. Every AI system you will ever build is those four operations stacked millions of times per second.</p>
+<h3>The three layers</h3>
+<ul>
+<li><b>Hardware</b> — CPU (does the thinking), RAM (short-term memory, erased when power goes off), Disk (long-term memory), GPU (does thousands of small maths at once — this is why AI runs on GPUs).</li>
+<li><b>Operating System</b> — Windows / Linux / macOS. Decides which program gets the CPU next.</li>
+<li><b>Your program</b> — the instructions you write.</li>
+</ul>
+<div class="callout"><b>Why AI needs GPUs:</b> Training a model is millions of small multiplications happening at the same time. A CPU has ~8 fast workers. A GPU has ~10,000 slower workers. For this job, 10,000 slow workers win overwhelmingly.</div>
+<h3>What is a program?</h3>
+<p>A recipe. Ingredients are <b>variables</b>. Steps are <b>statements</b>. "Do this 10 times" is a <b>loop</b>. "Only if it is raining" is a <b>condition</b>. That is 90% of programming.</p>`,
+        lab:{ prompt:"Print your name and the year you plan to get an AI job. Output must contain both.",
+              starter:'name = "Thirumal"\nyear = 2027\nprint(name, year)',
+              check:(o)=> o.trim().length>0 && /\d{4}/.test(o), hint:"Use print() with a 4-digit year." }
+      },
+      { id:"f2", title:"Python variables, types and logic", mins:35,
+        content:`<h3>Python is the language of AI</h3>
+<p>Not because it is fastest — it is slow. Because it is readable, and because every AI library (PyTorch, TensorFlow, pandas, LangChain) is written for it.</p>
+<h3>The five types you use daily</h3>
+<pre><code>age    = 22          # int    — whole number
+score  = 91.5        # float  — decimal
+name   = "Priya"     # str    — text
+passed = True        # bool   — True / False
+marks  = [88, 91, 76]# list   — ordered collection</code></pre>
+<h3>Conditions</h3>
+<pre><code>if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+else:
+    grade = "C"</code></pre>
+<h3>Loops</h3>
+<pre><code>total = 0
+for m in marks:
+    total = total + m
+print(total / len(marks))   # average</code></pre>
+<div class="callout">Indentation is not decoration in Python — it is syntax. Four spaces. Always.</div>`,
+        lab:{ prompt:"Given marks = [45, 78, 92, 61, 88], print how many are 60 or above.",
+              starter:'marks = [45, 78, 92, 61, 88]\ncount = 0\nfor m in marks:\n    # your code here\n    pass\nprint(count)',
+              check:(o)=> o.trim()==="4", hint:"Add 1 to count when m >= 60. Answer is 4." }
+      },
+      { id:"f3", title:"Functions, files and errors", mins:30,
+        content:`<h3>Functions = reusable recipes</h3>
+<pre><code>def average(numbers):
+    if len(numbers) == 0:
+        return 0
+    return sum(numbers) / len(numbers)
+
+print(average([10, 20, 30]))   # 20.0</code></pre>
+<h3>Reading data from a file</h3>
+<pre><code>with open("students.csv") as f:
+    for line in f:
+        print(line.strip())</code></pre>
+<h3>Errors are normal</h3>
+<p>Professional engineers see errors hundreds of times a day. The skill is not avoiding them — it is <b>reading the last line of the traceback</b>, which names the file, the line number and the problem.</p>
+<pre><code>try:
+    value = int("abc")
+except ValueError:
+    print("That was not a number")</code></pre>`,
+        lab:{ prompt:"Write a function fizz(n) that returns 'Fizz' if n is divisible by 3, else the number as a string. Print fizz(9) and fizz(7) on separate lines.",
+              starter:'def fizz(n):\n    # your code here\n    pass\n\nprint(fizz(9))\nprint(fizz(7))',
+              check:(o)=> /fizz/i.test(o) && /7/.test(o), hint:"Use n % 3 == 0. Expected output: Fizz then 7." }
+      }
+    ],
+    quiz:[
+      {q:"Why is a GPU better than a CPU for training AI models?",o:["It has more memory","It does thousands of small calculations in parallel","It runs at a higher clock speed","It is cheaper"],a:1},
+      {q:"What happens to data in RAM when the computer powers off?",o:["It is saved to disk automatically","It is lost","It moves to the GPU","It is encrypted"],a:1},
+      {q:"In Python, what does indentation control?",o:["Only readability","Code blocks — it is required syntax","Variable naming","Nothing"],a:1}
+    ]
+  },
+  {
+    id:"data", icon:"🗄️", name:"Data & Databases",
+    desc:"SQL, NoSQL, vector databases. AI is 80% data work — this is the track most people skip and then fail interviews on.",
+    weeks:5,
+    lessons:[
+      { id:"d1", title:"SQL: the language you will use forever", mins:40,
+        content:`<h3>Tables, rows, columns</h3>
+<p>A relational database stores data in tables — like an Excel sheet with strict rules. SQL is how you ask it questions.</p>
+<pre><code>SELECT name, city, salary
+FROM employees
+WHERE salary > 500000
+ORDER BY salary DESC
+LIMIT 10;</code></pre>
+<h3>The six clauses, in execution order</h3>
+<ul>
+<li><code>FROM</code> — which table</li>
+<li><code>WHERE</code> — filter individual rows</li>
+<li><code>GROUP BY</code> — bucket rows together</li>
+<li><code>HAVING</code> — filter the buckets</li>
+<li><code>SELECT</code> — choose columns</li>
+<li><code>ORDER BY</code> / <code>LIMIT</code> — sort and cut</li>
+</ul>
+<h3>JOIN — the interview favourite</h3>
+<pre><code>SELECT s.name, c.course_name
+FROM students s
+INNER JOIN courses c ON s.course_id = c.id;</code></pre>
+<p><b>INNER</b> keeps only matches. <b>LEFT</b> keeps every row from the left table, filling NULL where there is no match. Interviewers ask this constantly.</p>
+<div class="callout">Rule of thumb: if a query is slow, you are probably missing an <b>index</b> on the column in your WHERE or JOIN.</div>`,
+        lab:{ prompt:"Simulate it in Python: from the list of dicts below, print the names of employees earning above 500000, one per line.",
+              starter:'emps = [\n  {"name":"Asha","sal":600000},\n  {"name":"Ravi","sal":420000},\n  {"name":"Meena","sal":750000},\n]\nfor e in emps:\n    # your code here\n    pass',
+              check:(o)=> /Asha/.test(o) && /Meena/.test(o) && !/Ravi/.test(o), hint:"if e['sal'] > 500000: print(e['name'])" }
+      },
+      { id:"d2", title:"NoSQL, JSON and when tables break down", mins:30,
+        content:`<h3>Not everything fits in rows</h3>
+<p>Chat logs, product catalogues with different fields per item, user preferences — forcing these into rigid tables is painful. NoSQL databases store flexible documents.</p>
+<pre><code>{
+  "user_id": "u_881",
+  "name": "Karthik",
+  "skills": ["python", "sql"],
+  "profile": { "city": "Chennai", "exp_years": 0 }
+}</code></pre>
+<h3>The four families</h3>
+<ul>
+<li><b>Document</b> (MongoDB) — JSON blobs. Flexible schema.</li>
+<li><b>Key-Value</b> (Redis) — extremely fast lookups, used for caching.</li>
+<li><b>Wide-column</b> (Cassandra) — huge write volumes.</li>
+<li><b>Graph</b> (Neo4j) — relationships, e.g. "friends of friends".</li>
+</ul>
+<div class="callout"><b>Interview line:</b> "SQL when the shape of data is known and consistency matters — payments, orders. NoSQL when the shape varies or write volume is enormous."</div>`,
+        lab:{ prompt:"Given the nested dict, print the city and the number of skills, separated by a space.",
+              starter:'user = {"name":"Karthik","skills":["python","sql","git"],"profile":{"city":"Chennai"}}\n# your code here',
+              check:(o)=> /Chennai/.test(o) && /3/.test(o), hint:"user['profile']['city'] and len(user['skills'])" }
+      },
+      { id:"d3", title:"Vector databases — the AI-specific one", mins:35,
+        content:`<h3>Meaning as coordinates</h3>
+<p>An <b>embedding</b> turns text into a list of numbers (typically 768 or 1536 of them) such that similar meanings land close together in space. "dog" and "puppy" sit near each other; "dog" and "spreadsheet" sit far apart.</p>
+<pre><code>"I love chai"  ->  [0.21, -0.88, 0.44, ... ]
+"Tea is great" ->  [0.19, -0.85, 0.41, ... ]   # very close
+"GDP fell 2%"  ->  [-0.71, 0.32, -0.09, ...]   # far away</code></pre>
+<h3>Cosine similarity</h3>
+<p>Measures the angle between two vectors. 1.0 = identical meaning, 0 = unrelated. This single number powers semantic search, recommendations and RAG.</p>
+<h3>Why a special database</h3>
+<p>Comparing your query against 10 million vectors one by one is too slow. Vector DBs (Pinecone, Qdrant, Chroma, pgvector) use approximate nearest-neighbour indexes to return the top 5 in milliseconds.</p>
+<div class="callout">This is the backbone of <b>RAG</b> — the pattern behind almost every company AI chatbot. You will build one in the LLM track.</div>`,
+        lab:{ prompt:"Compute cosine similarity between a and b. Print the result rounded to 2 decimals (expected 1.0 or 0.99).",
+              starter:'import math\na = [1, 2, 3]\nb = [2, 4, 6]\n\ndot = sum(x*y for x, y in zip(a, b))\nmag_a = math.sqrt(sum(x*x for x in a))\nmag_b = math.sqrt(sum(y*y for y in b))\nprint(round(dot / (mag_a * mag_b), 2))',
+              check:(o)=> /1\.0|0\.99|1/.test(o.trim()), hint:"Just run it — b is a scaled version of a, so similarity is 1.0." }
+      }
+    ],
+    quiz:[
+      {q:"Which JOIN keeps all rows from the first table even without a match?",o:["INNER JOIN","LEFT JOIN","CROSS JOIN","SELF JOIN"],a:1},
+      {q:"A cosine similarity of 1.0 between two embeddings means:",o:["Unrelated meaning","Nearly identical meaning","Opposite meaning","An error"],a:1},
+      {q:"Redis is best used for:",o:["Complex multi-table reports","Fast caching and key-value lookups","Storing relationships","Long-term archival"],a:1}
+    ]
+  },
+  {
+    id:"net", icon:"🌐", name:"Networking, APIs & The Cloud",
+    desc:"How your model on a laptop becomes something a million users can call. HTTP, REST, auth, Docker, deployment.",
+    weeks:4,
+    lessons:[
+      { id:"n1", title:"HTTP and REST APIs from scratch", mins:35,
+        content:`<h3>The request/response cycle</h3>
+<p>Your app sends a <b>request</b>; a server sends back a <b>response</b>. That is the entire internet.</p>
+<pre><code>POST /v1/predict HTTP/1.1
+Host: api.vidyaai.in
+Authorization: Bearer sk_live_xxx
+Content-Type: application/json
+
+{"text": "This movie was fantastic"}
+
+--- response ---
+200 OK
+{"sentiment": "positive", "score": 0.97}</code></pre>
+<h3>Methods and status codes worth memorising</h3>
+<ul>
+<li><code>GET</code> read · <code>POST</code> create · <code>PUT</code> replace · <code>PATCH</code> edit · <code>DELETE</code> remove</li>
+<li><b>200</b> fine · <b>201</b> created · <b>400</b> your fault, bad input · <b>401</b> not logged in · <b>403</b> logged in but not allowed · <b>404</b> not found · <b>429</b> too many requests · <b>500</b> server crashed</li>
+</ul>
+<div class="callout"><b>401 vs 403</b> is a classic interview trap. 401 = we do not know who you are. 403 = we know exactly who you are, and no.</div>`,
+        lab:{ prompt:"Write a function status_message(code) returning the right text for 200, 404 and 500. Print all three.",
+              starter:'def status_message(code):\n    # your code here\n    pass\n\nfor c in [200, 404, 500]:\n    print(c, status_message(c))',
+              check:(o)=> /200/.test(o) && /404/.test(o) && /500/.test(o) && o.trim().split("\n").length>=3, hint:"Use a dict: {200:'OK', 404:'Not Found', 500:'Server Error'}" }
+      },
+      { id:"n2", title:"Serving a model with FastAPI", mins:40,
+        content:`<h3>From notebook to service</h3>
+<p>A model sitting in a Jupyter notebook helps nobody. Wrap it in an API.</p>
+<pre><code>from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class Input(BaseModel):
+    text: str
+
+@app.post("/predict")
+def predict(item: Input):
+    score = model.predict(item.text)
+    return {"sentiment": "positive" if score > 0.5 else "negative",
+            "score": float(score)}</code></pre>
+<p>Run it: <code>uvicorn main:app --reload</code>. FastAPI gives you free interactive docs at <code>/docs</code> — use this in every interview demo.</p>
+<h3>Things juniors forget</h3>
+<ul>
+<li><b>Load the model once</b> at startup, not on every request.</li>
+<li><b>Validate input</b> — Pydantic does it for you.</li>
+<li><b>Timeouts and rate limits</b> — an unprotected LLM endpoint can cost lakhs overnight.</li>
+<li><b>Never commit API keys</b> — use environment variables.</li>
+</ul>`,
+        lab:{ prompt:"Simulate the endpoint: write predict(text) returning a dict with 'sentiment' = positive if 'good' or 'great' is in the text, else negative. Print predict('a great film').",
+              starter:'def predict(text):\n    # your code here\n    pass\n\nprint(predict("a great film"))',
+              check:(o)=> /positive/i.test(o), hint:"return {'sentiment': 'positive' if 'great' in text or 'good' in text else 'negative'}" }
+      },
+      { id:"n3", title:"Docker, cloud and going live", mins:35,
+        content:`<h3>"It works on my machine" — solved</h3>
+<p>Docker packages your code, your Python version and every library into one image that runs identically anywhere.</p>
+<pre><code>FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["uvicorn","main:app","--host","0.0.0.0","--port","80"]</code></pre>
+<pre><code>docker build -t sentiment-api .
+docker run -p 8000:80 sentiment-api</code></pre>
+<h3>Where to deploy</h3>
+<ul>
+<li><b>Render / Railway / Fly.io</b> — easiest, great for your portfolio projects.</li>
+<li><b>AWS ECS, GCP Cloud Run, Azure Container Apps</b> — what employers actually use.</li>
+<li><b>GPU hosting</b> — Modal, RunPod, SageMaker, when you serve your own model weights.</li>
+</ul>
+<div class="callout"><b>Cost trap:</b> a GPU instance left running is roughly ₹80–250 per hour. Always set auto-shutdown while learning.</div>`,
+        lab:{ prompt:"Print the Docker command that builds an image tagged 'myapi' from the current directory.",
+              starter:'print("your command here")',
+              check:(o)=> /docker\s+build/.test(o) && /myapi/.test(o) && /\./.test(o), hint:'print("docker build -t myapi .")' }
+      }
+    ],
+    quiz:[
+      {q:"A user is logged in but lacks permission. Which status code?",o:["401","403","404","500"],a:1},
+      {q:"What is the main purpose of Docker?",o:["To speed up Python","To package code and dependencies so it runs identically anywhere","To store data","To train models"],a:1},
+      {q:"Where should the model be loaded in a FastAPI service?",o:["Inside every request handler","Once at application startup","In the Dockerfile","In the database"],a:1}
+    ]
+  },
+  {
+    id:"ml", icon:"📈", name:"Machine Learning Core",
+    desc:"The maths you actually need, classical ML, and how to tell a working model from a lying one.",
+    weeks:6,
+    lessons:[
+      { id:"m1", title:"What learning actually means", mins:35,
+        content:`<h3>Fitting a line, then fitting everything</h3>
+<p>Machine learning is: guess a function, measure how wrong it is, adjust, repeat. That loop — <b>predict → loss → gradient → update</b> — is the whole of ML, from linear regression to GPT.</p>
+<pre><code>prediction = w * x + b
+loss       = (prediction - actual) ** 2      # how wrong
+w          = w - learning_rate * gradient    # adjust</code></pre>
+<h3>Three kinds of learning</h3>
+<ul>
+<li><b>Supervised</b> — you have labelled answers. Spam / not spam. 90% of industry work.</li>
+<li><b>Unsupervised</b> — no labels, find structure. Customer segmentation.</li>
+<li><b>Reinforcement</b> — learn from reward. Games, robotics, RLHF in chatbots.</li>
+</ul>
+<h3>The maths you genuinely need</h3>
+<ul>
+<li><b>Linear algebra</b> — vectors, matrix multiplication. Non-negotiable.</li>
+<li><b>Calculus</b> — what a derivative means (slope). You will never compute one by hand.</li>
+<li><b>Probability</b> — distributions, conditional probability, Bayes.</li>
+<li><b>Statistics</b> — mean, variance, correlation ≠ causation.</li>
+</ul>
+<div class="callout">You do not need to be a mathematician. You need to know what these mean well enough to debug a model that is quietly wrong.</div>`,
+        lab:{ prompt:"One step of gradient descent. Given w=0, x=2, actual=10, lr=0.1, compute prediction, gradient = 2*(pred-actual)*x, then new w. Print new w.",
+              starter:'w, x, actual, lr = 0, 2, 10, 0.1\npred = w * x\ngrad = 2 * (pred - actual) * x\nw = w - lr * grad\nprint(w)',
+              check:(o)=> /4/.test(o), hint:"Run it — the answer is 4.0. The model jumped toward the target." }
+      },
+      { id:"m2", title:"Overfitting, and why your 99% is fake", mins:35,
+        content:`<h3>The most common junior mistake</h3>
+<p>You train a model, it scores 99% and you are thrilled. It has memorised the training data and will collapse on real users. This is <b>overfitting</b>.</p>
+<h3>The fix: split your data</h3>
+<ul>
+<li><b>Train (70%)</b> — model learns here.</li>
+<li><b>Validation (15%)</b> — you tune settings here.</li>
+<li><b>Test (15%)</b> — touched exactly once, at the very end.</li>
+</ul>
+<h3>Accuracy is a liar</h3>
+<p>1% of transactions are fraud. A model that always predicts "not fraud" is 99% accurate and completely useless.</p>
+<ul>
+<li><b>Precision</b> — of what I flagged, how much was right? (matters when false alarms are costly)</li>
+<li><b>Recall</b> — of all real cases, how many did I catch? (matters when misses are costly — cancer, fraud)</li>
+<li><b>F1</b> — the balance of the two.</li>
+</ul>
+<div class="callout"><b>Data leakage</b> — the silent killer. If any information about the answer sneaks into your features, scores look brilliant in testing and fail in production. Always ask: "would I have this column at prediction time?"</div>`,
+        lab:{ prompt:"Compute precision, recall and F1 for TP=80, FP=20, FN=40. Print all three rounded to 2 decimals.",
+              starter:'TP, FP, FN = 80, 20, 40\nprecision = TP / (TP + FP)\nrecall = TP / (TP + FN)\nf1 = 2 * precision * recall / (precision + recall)\nprint(round(precision,2), round(recall,2), round(f1,2))',
+              check:(o)=> /0\.8/.test(o) && /0\.67/.test(o), hint:"Run it — precision 0.8, recall 0.67, F1 0.73." }
+      },
+      { id:"m3", title:"Neural networks and PyTorch", mins:45,
+        content:`<h3>A neuron is embarrassingly simple</h3>
+<pre><code>output = activation(w1*x1 + w2*x2 + ... + bias)</code></pre>
+<p>Stack thousands of these in layers and the network learns features nobody programmed: edges, then shapes, then faces.</p>
+<h3>A real PyTorch model</h3>
+<pre><code>import torch.nn as nn
+
+model = nn.Sequential(
+    nn.Linear(784, 128),
+    nn.ReLU(),
+    nn.Dropout(0.2),
+    nn.Linear(128, 10)
+)
+
+loss_fn   = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+for epoch in range(10):
+    for x, y in loader:
+        optimizer.zero_grad()
+        loss = loss_fn(model(x), y)
+        loss.backward()
+        optimizer.step()</code></pre>
+<h3>Terms you must be able to define aloud</h3>
+<ul>
+<li><b>Epoch</b> — one full pass over the training data.</li>
+<li><b>Batch</b> — a chunk processed at once. Bigger = faster but more memory.</li>
+<li><b>Learning rate</b> — step size. Too high, it diverges; too low, it never finishes.</li>
+<li><b>ReLU</b> — max(0, x). Adds non-linearity; without it the whole network collapses to one line.</li>
+<li><b>Dropout</b> — randomly disables neurons in training to prevent overfitting.</li>
+</ul>`,
+        lab:{ prompt:"Implement relu(x) returning 0 for negatives and x otherwise. Print relu applied to [-3, 0, 5].",
+              starter:'def relu(x):\n    # your code here\n    pass\n\nprint([relu(v) for v in [-3, 0, 5]])',
+              check:(o)=> /\[0,\s*0,\s*5\]/.test(o.replace(/\s+/g," ")) || (/0/.test(o)&&/5/.test(o)&&!/-3/.test(o)), hint:"return max(0, x)" }
+      }
+    ],
+    quiz:[
+      {q:"A model scores 99% on training data and 61% on test data. This is:",o:["Underfitting","Overfitting","Data leakage","Good performance"],a:1},
+      {q:"For cancer screening, which metric matters most?",o:["Precision","Recall","Accuracy","Training speed"],a:1},
+      {q:"What does ReLU do?",o:["Normalises inputs","Returns max(0, x), adding non-linearity","Reduces learning rate","Splits the dataset"],a:1}
+    ]
+  },
+  {
+    id:"llm", icon:"🤖", name:"LLMs & AI Engineering",
+    desc:"The track that gets you hired in 2026: prompting, RAG, agents, fine-tuning, evaluation and cost control.",
+    weeks:6,
+    lessons:[
+      { id:"l1", title:"How an LLM actually works", mins:35,
+        content:`<h3>It predicts the next token. That is all.</h3>
+<p>An LLM takes text, splits it into <b>tokens</b> (roughly 4 characters each), and predicts the most likely next token. Repeat, and you get essays, code and arguments.</p>
+<h3>Attention, in one sentence</h3>
+<p>For each word, the model asks "which other words in this sentence should I be looking at?" — that weighting is <b>attention</b>, and it is why Transformers beat everything before them.</p>
+<h3>The knobs you control</h3>
+<ul>
+<li><b>Temperature</b> — 0 for deterministic extraction, 0.7–1.0 for creative writing.</li>
+<li><b>Context window</b> — how much text fits at once. Long contexts cost more and degrade in the middle.</li>
+<li><b>System prompt</b> — persistent instructions defining behaviour.</li>
+</ul>
+<div class="callout"><b>Hallucination</b> is not a bug you can patch away. The model is generating plausible text, not looking up facts. Ground it with retrieval and verify anything that matters.</div>`,
+        lab:{ prompt:"Rough token estimate: tokens ≈ characters / 4. Print the estimated tokens for the given text.",
+              starter:'text = "Machine learning models predict the next token in a sequence."\nprint(len(text) // 4)',
+              check:(o)=> /\d+/.test(o), hint:"Just run it." }
+      },
+      { id:"l2", title:"Prompt engineering that survives production", mins:35,
+        content:`<h3>Vague prompts, vague output</h3>
+<p>Amateur: <i>"Summarise this."</i><br>
+Professional: <i>"Summarise the document below in exactly 3 bullet points for a non-technical hospital administrator. Use no jargon. If the document does not state a figure, write 'not specified' rather than estimating."</i></p>
+<h3>Techniques that measurably work</h3>
+<ul>
+<li><b>Role + audience</b> — "You are a compliance reviewer writing for auditors."</li>
+<li><b>Few-shot</b> — give 2–3 examples of exactly the output shape you want.</li>
+<li><b>Chain of thought</b> — "Work through this step by step before answering."</li>
+<li><b>Structured output</b> — demand strict JSON; then validate it before trusting it.</li>
+<li><b>Explicit escape hatch</b> — "If the answer is not in the context, say 'I don't know'." This single line kills most hallucination.</li>
+</ul>
+<pre><code>SYSTEM: You extract invoice data. Return ONLY valid JSON:
+{"vendor": str, "amount": float, "date": "YYYY-MM-DD"}
+If a field is missing, use null. Never guess.</code></pre>`,
+        lab:{ prompt:"Validate an LLM's JSON output. Parse it and print the vendor name.",
+              starter:'import json\nraw = \'{"vendor":"Infosys","amount":45000.0,"date":"2026-03-11"}\'\ndata = json.loads(raw)\nprint(data["vendor"])',
+              check:(o)=> /Infosys/.test(o), hint:"Run it — json.loads turns the string into a dict." }
+      },
+      { id:"l3", title:"Build a RAG system", mins:50,
+        content:`<h3>The most requested skill in AI job listings</h3>
+<p><b>RAG</b> = Retrieval Augmented Generation. Instead of hoping the model knows your company's policies, you fetch the relevant documents and hand them to it.</p>
+<h3>The pipeline</h3>
+<ul>
+<li><b>1. Chunk</b> — split documents into ~500-token pieces with ~50-token overlap.</li>
+<li><b>2. Embed</b> — convert each chunk to a vector.</li>
+<li><b>3. Store</b> — load vectors into Chroma / Qdrant / pgvector.</li>
+<li><b>4. Retrieve</b> — embed the user's question, fetch the top 5 nearest chunks.</li>
+<li><b>5. Generate</b> — send question + chunks to the LLM with strict instructions to answer only from them.</li>
+</ul>
+<pre><code>context = "\\n\\n".join(retrieve(question, k=5))
+
+prompt = f"""Answer using ONLY the context below.
+If the answer is not present, say "I don't know".
+
+CONTEXT:
+{context}
+
+QUESTION: {question}"""</code></pre>
+<h3>Where RAG goes wrong</h3>
+<ul>
+<li>Chunks too large — retrieval gets noisy. Too small — meaning is lost.</li>
+<li>No <b>citations</b> — users cannot verify, so they will not trust it.</li>
+<li>No reranking — the top vector match is not always the most relevant.</li>
+<li>Never evaluated — you must build a test set of question/answer pairs.</li>
+</ul>`,
+        lab:{ prompt:"Naive retrieval: return the chunk sharing the most words with the query. Print the best chunk.",
+              starter:'chunks = [\n  "Employees get 18 casual leaves per year.",\n  "The office cafeteria opens at 8 am daily.",\n  "Reimbursement claims must be filed within 30 days."\n]\nquery = "how many leaves do employees get"\n\nbest, best_score = "", 0\nfor c in chunks:\n    score = len(set(query.lower().split()) & set(c.lower().split()))\n    if score > best_score:\n        best, best_score = c, score\nprint(best)',
+              check:(o)=> /leave/i.test(o), hint:"Run it — the leave policy chunk wins." }
+      },
+      { id:"l4", title:"Agents, tools and cost control", mins:40,
+        content:`<h3>From answering to doing</h3>
+<p>An <b>agent</b> is an LLM in a loop with tools: it decides which function to call, reads the result, and decides again until the task is done.</p>
+<pre><code>tools = [search_db, send_email, calculate]
+
+while not done:
+    action = llm.decide(goal, history, tools)
+    result = run(action)
+    history.append(result)</code></pre>
+<h3>Guardrails are the job</h3>
+<ul>
+<li><b>Step limit</b> — cap iterations or an agent will loop forever burning money.</li>
+<li><b>Human approval</b> for anything irreversible — payments, emails, deletions.</li>
+<li><b>Prompt injection</b> — a malicious document can say "ignore your instructions". Never let retrieved text become instructions.</li>
+</ul>
+<h3>Cost engineering — what separates senior from junior</h3>
+<ul>
+<li><b>Cache</b> repeated prompts. Huge savings on identical queries.</li>
+<li><b>Route by difficulty</b> — a small cheap model for classification, a large one only for hard reasoning.</li>
+<li><b>Trim context</b> — you pay per token, on the way in and out.</li>
+<li><b>Log every call</b> with tokens and latency, or you will not know what is expensive.</li>
+</ul>
+<div class="callout">A team that cuts inference cost 60% while holding quality is more valuable than one that squeezes out 1% more accuracy.</div>`,
+        lab:{ prompt:"Cost calculator: 2,000,000 input tokens at ₹0.25 per 1000 and 500,000 output tokens at ₹1.00 per 1000. Print the total in rupees.",
+              starter:'in_tokens, out_tokens = 2_000_000, 500_000\ncost = (in_tokens/1000)*0.25 + (out_tokens/1000)*1.00\nprint(cost)',
+              check:(o)=> /1000/.test(o.replace(/\./g,"")), hint:"Run it — ₹1000.0 total." }
+      }
+    ],
+    quiz:[
+      {q:"What is the single most effective prompt line against hallucination?",o:["'Be accurate'","'If the answer is not in the context, say I don't know'","'You are an expert'","'Think carefully'"],a:1},
+      {q:"In RAG, what is stored in the vector database?",o:["The raw PDF files","Embeddings of document chunks","The LLM weights","User passwords"],a:1},
+      {q:"An agent keeps looping and burning API credits. Best first fix?",o:["Use a bigger model","Impose a maximum step limit","Increase temperature","Add more tools"],a:1}
+    ]
+  },
+  {
+    id:"career", icon:"🎯", name:"Career: Portfolio & Interviews",
+    desc:"Indian job market reality — what to build, how to be found, and what interviews actually test.",
+    weeks:3,
+    lessons:[
+      { id:"c1", title:"Four projects that get you interviews", mins:30,
+        content:`<h3>Certificates do not get jobs. Deployed links do.</h3>
+<p>Every project must have: a <b>live URL</b>, a <b>GitHub repo</b>, and a README with the problem, your approach and what you would improve. Not a screenshot. Not a notebook.</p>
+<h3>Build these four, in order</h3>
+<ul>
+<li><b>1. Data cleaning + dashboard</b> — take a messy Indian public dataset (data.gov.in), clean it, ship a Streamlit dashboard. Proves you handle real data.</li>
+<li><b>2. Deployed classifier API</b> — train a model, wrap it in FastAPI, Dockerise, deploy. Proves you ship.</li>
+<li><b>3. RAG over a real corpus</b> — your college's rulebook, an Act, a product manual. With citations. This is the interview centrepiece.</li>
+<li><b>4. An agent that does one useful thing end to end</b> — reads emails and files expense entries, monitors a site and reports changes. Proves you think in systems.</li>
+</ul>
+<div class="callout"><b>Do one thing well over four things half-built.</b> Interviewers dig into a single project for 30 minutes. Depth is what they are testing.</div>`,
+        lab:{ prompt:"Write your one-line project pitch as a string and print it. Format: 'I built X that does Y for Z users'.",
+              starter:'pitch = "I built a RAG assistant that answers questions on my college handbook with citations for 400 students"\nprint(pitch)',
+              check:(o)=> o.trim().length > 25, hint:"Make it specific — include a number." }
+      },
+      { id:"c2", title:"The Indian AI job market, honestly", mins:25,
+        content:`<h3>Where the roles actually are</h3>
+<ul>
+<li><b>Bengaluru</b> — deepest market, product companies and GCCs.</li>
+<li><b>Hyderabad</b> — fast-growing, strong on data engineering.</li>
+<li><b>Pune, Chennai, NCR</b> — services giants plus a solid startup layer.</li>
+<li><b>Remote</b> — realistic once you have one shipped project and can write clearly.</li>
+</ul>
+<h3>Titles to search, in rising order of difficulty</h3>
+<ul>
+<li><b>Data Analyst</b> — SQL heavy. The most realistic first door for a non-CS graduate.</li>
+<li><b>AI/ML Engineer (junior)</b> — Python, model serving, APIs.</li>
+<li><b>AI Application Engineer</b> — LLM apps, RAG, agents. Newest and least crowded.</li>
+<li><b>Data Scientist</b> — usually wants a master's or strong statistics; treat as year two.</li>
+</ul>
+<div class="callout"><b>Non-CS is not a disqualifier — it is a story.</b> A commerce graduate who understands invoices and builds an invoice-extraction agent beats a CS graduate with a Titanic notebook. Your domain is your edge.</div>
+<h3>Being findable</h3>
+<ul>
+<li>GitHub with pinned, documented repos — not empty.</li>
+<li>LinkedIn headline naming your stack: "Python · SQL · FastAPI · RAG".</li>
+<li>Write up one project properly. Public writing is disproportionately effective and almost nobody does it.</li>
+<li>Apply to 15 well-targeted roles with a tailored note, not 300 identical ones.</li>
+</ul>`,
+        lab:{ prompt:"Print your target role and city as one line.",
+              starter:'role = "AI Application Engineer"\ncity = "Bengaluru"\nprint(f"Target: {role} in {city}")',
+              check:(o)=> /Target/.test(o), hint:"Run it, or change the values to your own." }
+      },
+      { id:"c3", title:"What interviews actually test", mins:30,
+        content:`<h3>Four rounds, four different games</h3>
+<ul>
+<li><b>Round 1 — Screening.</b> "Walk me through a project." Two minutes: problem, what you built, one hard thing you solved, the result. Rehearse it aloud.</li>
+<li><b>Round 2 — Coding.</b> Python and SQL. Lists, dicts, string handling, JOINs, GROUP BY. Not competitive programming.</li>
+<li><b>Round 3 — ML/AI concepts.</b> Overfitting, precision vs recall, how RAG works, how you would reduce hallucination. Explain in plain language.</li>
+<li><b>Round 4 — Design.</b> "Build a resume screening system for 10,000 applications." They want structure: data → model → serving → evaluation → cost → failure modes.</li>
+</ul>
+<h3>The answer that wins design rounds</h3>
+<p>Do not jump to a solution. Say: <i>"Let me clarify the requirements first — what volume, what latency, and what is the cost of a wrong answer here?"</i> That one sentence signals seniority more than any technical detail.</p>
+<h3>Saying "I don't know" correctly</h3>
+<p>Wrong: silence, or bluffing. Right: <i>"I haven't used that specifically. Based on what I know about X, I'd expect it works like Y — is that the right direction?"</i> Honest plus reasoning beats confident plus wrong, every time.</p>
+<div class="callout">Always ask two questions at the end. "What does success look like in the first six months?" and "What is the hardest technical problem the team faces right now?"</div>`,
+        lab:{ prompt:"Write your 2-minute project pitch as a multi-line string with 4 lines: problem, approach, hard part, result. Print it.",
+              starter:'pitch = """Problem: Students could not find rules in a 90-page handbook.\nApproach: Chunked it, embedded with Chroma, RAG over FastAPI.\nHard part: Tables were destroyed by naive chunking, so I parsed them separately.\nResult: 400 students used it; 89% of answers rated correct."""\nprint(pitch)',
+              check:(o)=> o.trim().split("\n").length >= 3, hint:"Four lines. Replace with your own project." }
+      }
+    ],
+    quiz:[
+      {q:"What makes a portfolio project credible to an interviewer?",o:["A certificate of completion","A live deployed link plus documented repo","A long Jupyter notebook","Using the newest model"],a:1},
+      {q:"Best first move in a system design round?",o:["Name your tech stack","Clarify requirements, volume and cost of errors","Draw the architecture immediately","Discuss the model choice"],a:1},
+      {q:"For a non-CS graduate, the most realistic first role is usually:",o:["Research Scientist","Data Analyst","ML Infrastructure Lead","AI Architect"],a:1}
+    ]
+  }
+];
+
+/* ============================ STATE ============================ */
+const KEY = "vidyaai_progress_v1";
+let S = { done:{}, quiz:{}, view:{page:"home"} };
+try { const raw = localStorage.getItem(KEY); if(raw) Object.assign(S, JSON.parse(raw)); } catch(e){}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({done:S.done, quiz:S.quiz})); }catch(e){} }
+
+const allLessons = () => TRACKS.flatMap(t=>t.lessons);
+const trackDone = t => t.lessons.filter(l=>S.done[l.id]).length;
+const totalDone = () => allLessons().filter(l=>S.done[l.id]).length;
+const totalLessons = () => allLessons().length;
+const totalHours = () => Math.round(allLessons().reduce((a,l)=>a+l.mins,0)/60);
+
+/* ============================ PYTHON RUNTIME ============================ */
+let pyodide=null, pyState="idle";
+async function ensurePy(statusEl){
+  if(pyodide) return pyodide;
+  if(pyState==="failed") return null;
+  pyState="loading";
+  if(statusEl) statusEl.textContent = "Loading Python runtime (first time only, ~10s)...";
+  try{
+    if(!window.loadPyodide){
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js";
+        s.onload=res; s.onerror=rej; document.head.appendChild(s);
+      });
+    }
+    pyodide = await window.loadPyodide({indexURL:"https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"});
+    pyState="ready";
+    return pyodide;
+  }catch(e){ pyState="failed"; return null; }
+}
+async function runPython(code){
+  const py = await ensurePy();
+  if(!py) throw new Error("OFFLINE");
+  py.runPython(`
+import sys, io
+_buf = io.StringIO()
+sys.stdout = _buf
+`);
+  try{ py.runPython(code); }
+  catch(err){
+    py.runPython("sys.stdout = sys.__stdout__");
+    const msg = String(err).split("\n").filter(l=>l.trim()).slice(-3).join("\n");
+    return {out:"", err:msg};
+  }
+  const out = py.runPython("sys.stdout = sys.__stdout__\n_buf.getvalue()");
+  return {out:String(out), err:null};
+}
+
+/* ============================ RENDER ============================ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function renderNav(){
+  const pct = Math.round(totalDone()/totalLessons()*100);
+  let h = `<button class="navitem ${S.view.page==="home"?"active":""}" data-nav="home"><span>🏠</span> Dashboard</button>
+  <div class="navsec">Learning Tracks</div>`;
+  TRACKS.forEach(t=>{
+    const d = trackDone(t), n = t.lessons.length;
+    const cls = d===n ? "done" : d>0 ? "partial" : "";
+    h += `<button class="navitem ${S.view.page==="track"&&S.view.track===t.id?"active":""}" data-nav="track" data-id="${t.id}">
+      <span class="dot ${cls}"></span><span style="flex:1">${t.name}</span><small style="font-size:11px">${d}/${n}</small></button>`;
+  });
+  h += `<div class="navsec">Overall</div>
+    <div style="padding:0 20px 20px">
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:7px">${totalDone()} of ${totalLessons()} lessons · ${pct}%</div>
+    </div>`;
+  $("#nav").innerHTML = h;
+}
+
+function renderHome(){
+  const pct = Math.round(totalDone()/totalLessons()*100);
+  const weeks = TRACKS.reduce((a,t)=>a+t.weeks,0);
+  const quizzesDone = Object.keys(S.quiz).length;
+  const next = allLessons().find(l=>!S.done[l.id]);
+  const nextTrack = next ? TRACKS.find(t=>t.lessons.includes(next)) : null;
+
+  $("#main").innerHTML = `
+  <div class="h2">Zero to AI Engineer</div>
+  <p class="sub">Built for Indian graduates from <b>any</b> degree — commerce, arts, mechanical, biotech. No prior coding assumed. Self-paced, every lesson ends in a hands-on lab that runs real Python in your browser.</p>
+
+  <div class="grid g3" style="margin-bottom:22px">
+    <div class="card"><div class="statlbl">Progress</div><div class="stat">${pct}%</div>
+      <div class="bar" style="margin-top:8px"><i style="width:${pct}%"></i></div></div>
+    <div class="card"><div class="statlbl">Lessons done</div><div class="stat">${totalDone()}<span style="font-size:16px;color:var(--muted)">/${totalLessons()}</span></div></div>
+    <div class="card"><div class="statlbl">Quizzes passed</div><div class="stat">${quizzesDone}<span style="font-size:16px;color:var(--muted)">/${TRACKS.length}</span></div></div>
+    <div class="card"><div class="statlbl">Programme length</div><div class="stat">${weeks}<span style="font-size:16px;color:var(--muted)"> wks</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">~${totalHours()}h of core content</div></div>
+  </div>
+
+  ${next ? `<div class="card" style="border-color:var(--accent);background:linear-gradient(180deg,rgba(255,153,51,.07),transparent)">
+    <div class="row">
+      <div>
+        <span class="pill hot">Continue where you left off</span>
+        <div style="font-size:17px;font-weight:600;margin-top:9px">${next.title}</div>
+        <div style="font-size:13px;color:var(--muted)">${nextTrack.icon} ${nextTrack.name} · ${next.mins} min</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn" data-nav="lesson" data-track="${nextTrack.id}" data-id="${next.id}">Resume →</button>
+    </div></div>`
+  : `<div class="card" style="border-color:var(--green)"><b style="color:var(--green)">🎉 All lessons complete.</b><br>
+     <span style="color:var(--muted);font-size:14px">Now build the four portfolio projects and start applying.</span></div>`}
+
+  <div style="font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:600;margin:28px 0 12px">The six tracks</div>
+  <div class="grid g2">
+    ${TRACKS.map(t=>{
+      const d=trackDone(t), n=t.lessons.length, p=Math.round(d/n*100);
+      return `<button class="track" data-nav="track" data-id="${t.id}">
+        <div class="ico">${t.icon}</div>
+        <h3>${t.name}</h3>
+        <p>${t.desc}</p>
+        <div class="bar"><i style="width:${p}%"></i></div>
+        <div class="meta"><span>${d}/${n} lessons · ${t.weeks} weeks</span>
+        ${d===n?'<span class="pill ok">Complete</span>':d>0?'<span class="pill hot">In progress</span>':'<span class="pill">Not started</span>'}</div>
+      </button>`;
+    }).join("")}
+  </div>
+
+  <div class="card" style="margin-top:26px">
+    <b>How this programme is meant to be used</b>
+    <ul style="margin:10px 0 0 20px;color:var(--muted);font-size:14px">
+      <li>Go in order. Foundations → Data → Networking → ML → LLMs → Career. Skipping Foundations is the main reason people drop out.</li>
+      <li>Do not read the lab solution. Type it wrong first. Struggling for ten minutes teaches more than reading for an hour.</li>
+      <li>Two hours a day, six days a week, finishes the programme in about seven months.</li>
+      <li>Start building portfolio project #1 the day you finish the Data track — do not wait until the end.</li>
+    </ul>
+  </div>`;
+}
+
+function renderTrack(id){
+  const t = TRACKS.find(x=>x.id===id);
+  const d = trackDone(t), n = t.lessons.length;
+  const quizPassed = S.quiz[t.id];
+  $("#main").innerHTML = `
+  <div class="crumb"><button data-nav="home">Dashboard</button> / ${t.name}</div>
+  <div class="h2">${t.icon} ${t.name}</div>
+  <p class="sub">${t.desc}</p>
+  <div class="card"><div class="row" style="margin-bottom:10px">
+      <b>${d} of ${n} lessons complete</b><div class="spacer"></div><span class="pill">${t.weeks} weeks · ${t.lessons.reduce((a,l)=>a+l.mins,0)} min content</span></div>
+    <div class="bar"><i style="width:${Math.round(d/n*100)}%"></i></div></div>
+
+  <div class="lessonlist">
+    ${t.lessons.map((l,i)=>`
+      <button class="lrow ${S.done[l.id]?"done":""}" data-nav="lesson" data-track="${t.id}" data-id="${l.id}">
+        <span class="n">${S.done[l.id]?"✓":i+1}</span>
+        <span class="t"><b>${l.title}</b><small>${l.mins} min · lesson + hands-on lab</small></span>
+        <span style="color:var(--muted)">→</span>
+      </button>`).join("")}
+  </div>
+
+  <div class="card" style="margin-top:18px;${quizPassed?"border-color:var(--green)":""}">
+    <div class="row"><div>
+      <b>Track assessment</b> ${quizPassed?'<span class="pill ok">Passed</span>':''}
+      <div style="font-size:13px;color:var(--muted)">${t.quiz.length} questions. ${d<n?"Finish all lessons first for best results.":"You are ready."}</div>
+    </div><div class="spacer"></div>
+    <button class="btn ${d<n?"ghost":""}" data-nav="quiz" data-id="${t.id}">${quizPassed?"Retake":"Start quiz"}</button></div>
+  </div>`;
+}
+
+function renderLesson(trackId, lessonId){
+  const t = TRACKS.find(x=>x.id===trackId);
+  const idx = t.lessons.findIndex(l=>l.id===lessonId);
+  const l = t.lessons[idx];
+  const prev = t.lessons[idx-1], nxt = t.lessons[idx+1];
+  $("#main").innerHTML = `
+  <div class="crumb"><button data-nav="home">Dashboard</button> / <button data-nav="track" data-id="${t.id}">${t.name}</button> / ${l.title}</div>
+  <div class="h2">${l.title}</div>
+  <p class="sub">${t.icon} ${t.name} · Lesson ${idx+1} of ${t.lessons.length} · ${l.mins} min</p>
+
+  <div class="lesson-body">${l.content}</div>
+
+  <div class="lab">
+    <div class="lab-head"><strong>🧪 Hands-on lab</strong><span class="pill">Real Python · runs in your browser</span></div>
+    <div class="lab-body">
+      <p style="margin-bottom:12px;font-size:14px">${l.lab.prompt}</p>
+      <textarea class="code" id="code" spellcheck="false">${esc(l.lab.starter)}</textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="run">▶ Run code</button>
+        <button class="btn ghost" id="hint">Show hint</button>
+        <button class="btn ghost" id="reset">Reset</button>
+      </div>
+      <div class="out" id="out">Output will appear here.</div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:18px">
+    ${prev?`<button class="btn ghost" data-nav="lesson" data-track="${t.id}" data-id="${prev.id}">← Previous</button>`:""}
+    <div class="spacer"></div>
+    <button class="btn ${S.done[l.id]?"ghost":""}" id="mark">${S.done[l.id]?"✓ Completed — unmark":"Mark complete"}</button>
+    ${nxt?`<button class="btn" data-nav="lesson" data-track="${t.id}" data-id="${nxt.id}">Next lesson →</button>`
+        :`<button class="btn" data-nav="quiz" data-id="${t.id}">Take track quiz →</button>`}
+  </div>`;
+
+  const out = $("#out"), ta = $("#code");
+  $("#reset").onclick = ()=>{ ta.value = l.lab.starter; out.className="out"; out.textContent="Output will appear here."; };
+  $("#hint").onclick = ()=>{ out.className="out"; out.textContent="💡 "+l.lab.hint; };
+  $("#mark").onclick = ()=>{ S.done[l.id] = !S.done[l.id]; save(); renderLesson(trackId, lessonId); renderNav(); };
+  $("#run").onclick = async ()=>{
+    const btn = $("#run"); btn.disabled=true; btn.textContent="Running...";
+    out.className="out"; out.textContent = pyodide ? "Executing..." : "Loading Python runtime (first time only)...";
+    try{
+      const r = await runPython(ta.value);
+      if(r.err){ out.className="out fail"; out.textContent="❌ "+r.err; }
+      else{
+        const pass = l.lab.check(r.out);
+        out.className = "out "+(pass?"pass":"fail");
+        out.textContent = (r.out||"(no output)") + "\n\n" + (pass?"✅ Correct — lab passed.":"❌ Not quite. Try the hint.");
+        if(pass && !S.done[l.id]){ S.done[l.id]=true; save(); renderNav(); $("#mark").textContent="✓ Completed — unmark"; $("#mark").classList.add("ghost"); }
+      }
+    }catch(e){
+      out.className="out fail";
+      out.textContent = "⚠️ Could not load the Python runtime (needs an internet connection the first time).\n\nRead the code above and click 'Mark complete' to continue.";
+    }
+    btn.disabled=false; btn.textContent="▶ Run code";
+  };
+}
+
+function renderQuiz(trackId){
+  const t = TRACKS.find(x=>x.id===trackId);
+  const picks = {};
+  $("#main").innerHTML = `
+  <div class="crumb"><button data-nav="home">Dashboard</button> / <button data-nav="track" data-id="${t.id}">${t.name}</button> / Quiz</div>
+  <div class="h2">${t.icon} Track assessment</div>
+  <p class="sub">${t.quiz.length} questions. You need all correct to pass.</p>
+  <div class="card">
+    ${t.quiz.map((q,qi)=>`<div class="q" data-q="${qi}">
+      <p>${qi+1}. ${q.q}</p>
+      ${q.o.map((o,oi)=>`<button class="opt" data-q="${qi}" data-o="${oi}">${o}</button>`).join("")}
+    </div>`).join("")}
+    <div class="row"><button class="btn" id="submit">Submit answers</button>
+      <div class="spacer"></div><div id="score" style="font-weight:600"></div></div>
+  </div>`;
+
+  $("#main").querySelectorAll(".opt").forEach(b=>{
+    b.onclick = ()=>{
+      const qi = b.dataset.q;
+      $("#main").querySelectorAll(`.opt[data-q="${qi}"]`).forEach(x=>x.classList.remove("sel"));
+      b.classList.add("sel"); picks[qi] = +b.dataset.o;
+    };
+  });
+
+  $("#submit").onclick = ()=>{
+    let right = 0;
+    t.quiz.forEach((q,qi)=>{
+      $("#main").querySelectorAll(`.opt[data-q="${qi}"]`).forEach(b=>{
+        const oi = +b.dataset.o;
+        b.classList.remove("sel");
+        if(oi===q.a) b.classList.add("correct");
+        else if(picks[qi]===oi) b.classList.add("wrong");
+      });
+      if(picks[qi]===q.a) right++;
+    });
+    const pass = right===t.quiz.length;
+    $("#score").innerHTML = `<span style="color:${pass?"var(--green)":"var(--red)"}">${right}/${t.quiz.length} ${pass?"— passed ✅":"— review and retry"}</span>`;
+    if(pass){ S.quiz[t.id]=true; save(); renderNav(); }
+  };
+}
+
+/* ============================ ROUTER ============================ */
+function render(){
+  const v = S.view;
+  if(v.page==="home") renderHome();
+  else if(v.page==="track") renderTrack(v.track);
+  else if(v.page==="lesson") renderLesson(v.track, v.lesson);
+  else if(v.page==="quiz") renderQuiz(v.track);
+  renderNav();
+  window.scrollTo(0,0);
+}
+document.addEventListener("click", e=>{
+  const b = e.target.closest("[data-nav]");
+  if(!b) return;
+  const nav = b.dataset.nav;
+  if(nav==="home") S.view = {page:"home"};
+  else if(nav==="track") S.view = {page:"track", track:b.dataset.id};
+  else if(nav==="lesson") S.view = {page:"lesson", track:b.dataset.track, lesson:b.dataset.id};
+  else if(nav==="quiz") S.view = {page:"quiz", track:b.dataset.id};
+  render();
+});
+render();
+</script>
+</body>
+</html>

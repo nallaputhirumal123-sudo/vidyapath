@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VidyaPath — Admin</title>
+<style>
+:root{
+  --bg:#0b0f16;--panel:#131923;--panel2:#1a2230;--line:#252e3d;
+  --text:#e8eef6;--muted:#8896a8;--dim:#5d6b7d;
+  --accent:#ff9933;--accent2:#4d9fff;--green:#3fb950;--red:#f85149;--r:13px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14.5px;line-height:1.6}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{font-family:inherit}
+a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+code,pre,textarea.mono{font-family:"SF Mono",Menlo,Consolas,monospace}
+
+.wrap{display:flex;min-height:100vh}
+.side{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{flex:1;padding:30px 36px 70px;min-width:0;max-width:1400px}
+.brand{padding:20px;border-bottom:1px solid var(--line)}
+.brand h1{font-size:18px;font-weight:800;letter-spacing:-.4px}
+.brand h1 span{color:var(--accent)}
+.brand p{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
+.nav{padding:12px 0}
+.nv{display:flex;align-items:center;gap:10px;padding:10px 20px;width:100%;text-align:left;font-size:13.5px;color:var(--muted);border-left:2px solid transparent}
+.nv:hover{background:var(--panel2);color:var(--text)}
+.nv.on{background:var(--panel2);color:var(--text);border-left-color:var(--accent)}
+
+.h1{font-size:26px;font-weight:800;letter-spacing:-.7px;margin-bottom:5px}
+.sub{color:var(--muted);margin-bottom:24px;font-size:14px}
+.eyebrow{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);font-weight:700;margin:28px 0 11px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.grid{display:grid;gap:14px}
+.g5{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+.stat{font-size:28px;font-weight:800;letter-spacing:-1px;line-height:1.1}
+.statlbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.9px;font-weight:700;margin-bottom:4px}
+.statsub{font-size:11.5px;color:var(--dim);margin-top:3px}
+
+.btn{background:var(--accent);color:#10151c;padding:8px 16px;border-radius:8px;font-weight:650;font-size:13.5px}
+.btn:hover{filter:brightness(1.09)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent);filter:none}
+.btn.danger{background:transparent;border:1px solid rgba(248,81,73,.4);color:#ff8b84}
+.btn.danger:hover{background:rgba(248,81,73,.12);filter:none}
+.btn.sm{padding:5px 11px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.inp{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13.5px;outline:none;width:100%}
+.inp:focus{border-color:var(--accent)}
+textarea.inp{min-height:90px;resize:vertical;line-height:1.55}
+textarea.mono{font-size:12.5px;line-height:1.6;background:#070b11;color:#9ecbff}
+label.fl{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);font-weight:700;margin:12px 0 4px}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.click:hover{background:var(--panel2);cursor:pointer}
+.tbl{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow-x:auto}
+
+.pill{display:inline-block;font-size:10.5px;padding:2px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.pill.ok{background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)}
+.pill.hot{background:rgba(255,153,51,.12);color:var(--accent);border-color:rgba(255,153,51,.3)}
+.pill.off{background:rgba(248,81,73,.12);color:#ff8b84;border-color:rgba(248,81,73,.3)}
+
+.mini{height:5px;background:var(--panel2);border-radius:99px;overflow:hidden;min-width:70px}
+.mini i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#ffc078)}
+
+.spark{display:flex;align-items:flex-end;gap:2px;height:56px}
+.spark div{flex:1;background:var(--accent2);border-radius:2px 2px 0 0;min-height:2px;opacity:.75}
+.spark div:hover{opacity:1}
+
+.fbar{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.fbar:last-child{border-bottom:none}
+.fbar .lbl{width:250px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ccd6e2}
+.fbar .track{width:26px;flex-shrink:0}
+.fbar .g{flex:1;height:16px;background:var(--panel2);border-radius:4px;overflow:hidden;min-width:60px}
+.fbar .g i{display:block;height:100%;background:var(--accent2);opacity:.7}
+.fbar .v{width:82px;text-align:right;flex-shrink:0;color:var(--dim);font-size:12px}
+
+.modal{position:fixed;inset:0;background:rgba(3,6,11,.82);display:none;place-items:center;padding:22px;z-index:50;overflow-y:auto}
+.modal.on{display:grid}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:820px;max-height:90vh;overflow-y:auto}
+.mhead{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:var(--panel);z-index:2}
+.mhead h3{font-size:17px;font-weight:700;flex:1}
+.mbody{padding:22px}
+
+.gate{min-height:100vh;display:grid;place-items:center;padding:24px}
+.gbox{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:34px;width:100%;max-width:400px}
+.msg{font-size:13px;padding:9px 12px;border-radius:8px;margin-bottom:12px;display:none}
+.msg.err{display:block;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:#ff9b95}
+.msg.ok{display:block;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:#7ee08f}
+.empty{padding:36px;text-align:center;color:var(--dim);font-size:13.5px}
+.hidden{display:none!important}
+@media(max-width:900px){.wrap{flex-direction:column}.side{width:100%;height:auto;position:static}.main{padding:20px 16px 60px}.fbar .lbl{width:140px}}
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate" style="display:none">
+  <div class="gbox">
+    <h1 style="font-size:19px;font-weight:800;margin-bottom:4px">Vidya<span style="color:var(--accent)">Path</span> Admin</h1>
+    <p style="color:var(--dim);font-size:12.5px;margin-bottom:20px">Administrator sign-in required.</p>
+    <div class="msg" id="gmsg"></div>
+    <form id="gform">
+      <label class="fl">Email</label><input class="inp" type="email" id="g_email" required/>
+      <label class="fl">Password</label><input class="inp" type="password" id="g_pw" required/>
+      <button class="btn" style="width:100%;margin-top:16px" type="submit" id="g_btn">Sign in</button>
+    </form>
+    <p style="font-size:12px;color:var(--dim);margin-top:16px;text-align:center"><a href="/">← Back to the learning platform</a></p>
+  </div>
+</div>
+
+<div class="wrap hidden" id="wrap">
+  <nav class="side">
+    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Admin</p></div>
+    <div class="nav">
+      <button class="nv on" data-p="dash"><span>📊</span> Dashboard</button>
+      <button class="nv" data-p="students"><span>👥</span> Students</button>
+      <button class="nv" data-p="funnel"><span>📉</span> Drop-off</button>
+      <button class="nv" data-p="content"><span>📝</span> Content</button>
+      <a class="nv" href="/api/admin/export.csv"><span>⬇️</span> Export CSV</a>
+      <a class="nv" href="/"><span>🎓</span> Student view</a>
+      <button class="nv" id="signout"><span>↪</span> Sign out</button>
+    </div>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+
+<div class="modal" id="modal"><div class="mbox">
+  <div class="mhead"><h3 id="mtitle"></h3><button class="btn ghost sm" id="mclose">Close</button></div>
+  <div class="mbody" id="mbody"></div>
+</div></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtDate=s=>{ if(!s) return "—"; const d=new Date(s);
+  return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"2-digit"}); };
+const ago=s=>{ if(!s) return "never"; const m=(Date.now()-new Date(s))/60000;
+  if(m<60) return Math.max(1,Math.round(m))+"m ago";
+  if(m<1440) return Math.round(m/60)+"h ago";
+  const d=Math.round(m/1440); return d<30? d+"d ago" : fmtDate(s); };
+
+const api={
+  async call(p,o={}){
+    const r=await fetch(p,{credentials:"same-origin",headers:{"Content-Type":"application/json"},...o,
+      body:o.body!==undefined?JSON.stringify(o.body):undefined});
+    if(r.status===401||r.status===403){ showGate(r.status===403?"That account is not an administrator.":""); throw new Error("auth"); }
+    const t=await r.text(); let d; try{d=t?JSON.parse(t):{}}catch(e){d={detail:t}}
+    if(!r.ok) throw new Error(d.detail||"Request failed");
+    return d;
+  },
+  get:p=>api.call(p), post:(p,b)=>api.call(p,{method:"POST",body:b}),
+  put:(p,b)=>api.call(p,{method:"PUT",body:b}), del:p=>api.call(p,{method:"DELETE"}),
+};
+
+let PAGE="dash", STATS=null, CONTENT=null;
+
+function showGate(msg){ $("#wrap").classList.add("hidden"); $("#gate").style.display="grid";
+  if(msg){ const m=$("#gmsg"); m.className="msg err"; m.textContent=msg; } }
+function showApp(){ $("#gate").style.display="none"; $("#wrap").classList.remove("hidden"); }
+
+$("#gform").onsubmit=async e=>{
+  e.preventDefault(); const b=$("#g_btn"); b.disabled=true; b.textContent="Signing in…";
+  $("#gmsg").className="msg";
+  try{
+    const u=await api.post("/api/auth/login",{email:$("#g_email").value,password:$("#g_pw").value});
+    if(!u.is_admin){ showGate("That account is not an administrator."); }
+    else { showApp(); go("dash"); }
+  }catch(err){ if(err.message!=="auth"){ const m=$("#gmsg"); m.className="msg err"; m.textContent=err.message; } }
+  b.disabled=false; b.textContent="Sign in";
+};
+$("#signout").onclick=async()=>{ await api.post("/api/auth/logout",{}).catch(()=>{}); location.href="/"; };
+$("#mclose").onclick=()=>$("#modal").classList.remove("on");
+$("#modal").onclick=e=>{ if(e.target.id==="modal") $("#modal").classList.remove("on"); };
+document.querySelectorAll(".nv[data-p]").forEach(b=>b.onclick=()=>go(b.dataset.p));
+
+function go(p){
+  PAGE=p;
+  document.querySelectorAll(".nv[data-p]").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
+  $("#main").innerHTML='<div class="empty">Loading…</div>';
+  ({dash:renderDash,students:renderStudents,funnel:renderFunnel,content:renderContent}[p])();
+  window.scrollTo(0,0);
+}
+
+/* ===================== DASHBOARD ===================== */
+async function renderDash(){
+  const s=STATS=await api.get("/api/admin/stats");
+  const days={}; (s.signups||[]).forEach(x=>days[x.date]=x.count);
+  const series=[]; for(let i=29;i>=0;i--){
+    const d=new Date(Date.now()-i*86400000).toISOString().slice(0,10);
+    series.push({d,c:days[d]||0});
+  }
+  const max=Math.max(1,...series.map(x=>x.c));
+  const top=[...s.funnel].sort((a,b)=>b.completions-a.completions).slice(0,6);
+  const cold=s.funnel.filter(f=>f.completions===0).length;
+
+  $("#main").innerHTML=`
+  <div class="h1">Dashboard</div>
+  <p class="sub">Live figures from your database. Everything here updates as students use the platform.</p>
+
+  <div class="grid g5" style="margin-bottom:24px">
+    <div class="card"><div class="statlbl">Total students</div><div class="stat">${s.total_users}</div>
+      <div class="statsub">${s.new_7d} joined this week</div></div>
+    <div class="card"><div class="statlbl">Active (7 days)</div><div class="stat">${s.active_7d}</div>
+      <div class="statsub">${s.total_users?Math.round(s.active_7d/s.total_users*100):0}% of all students</div></div>
+    <div class="card"><div class="statlbl">Lessons completed</div><div class="stat">${s.completions}</div>
+      <div class="statsub">${s.avg_per_user} average per student</div></div>
+    <div class="card"><div class="statlbl">Published lessons</div><div class="stat">${s.total_lessons}</div>
+      <div class="statsub">${cold} with no completions yet</div></div>
+    <div class="card"><div class="statlbl">Quiz attempts</div><div class="stat">${(s.quiz||[]).reduce((a,q)=>a+q.attempts,0)}</div>
+      <div class="statsub">${(s.quiz||[]).reduce((a,q)=>a+q.passed,0)} passed</div></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="statlbl">Signups — last 30 days</div>
+      <div class="spark" style="margin:14px 0 8px">
+        ${series.map(x=>`<div style="height:${Math.round(x.c/max*100)}%" title="${x.d}: ${x.c}"></div>`).join("")}
+      </div>
+      <div class="row" style="font-size:11.5px;color:var(--dim)">
+        <span>${series[0].d}</span><div class="spacer"></div>
+        <span>peak ${max}/day</span><div class="spacer"></div><span>today</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="statlbl">Biggest drop-off point</div>
+      ${s.biggest_drop?`
+        <div style="margin-top:12px;font-size:14px;color:#ccd6e2">
+          <b style="color:var(--red)">${s.biggest_drop.lost} students</b> stopped after
+          <b>“${esc(s.biggest_drop.after)}”</b> and never started
+          <b>“${esc(s.biggest_drop.before)}”</b>.
+        </div>
+        <p style="font-size:12.5px;color:var(--dim);margin-top:12px">
+          This is where your curriculum is losing people. Look at that lesson's difficulty,
+          length and lab — a lab that's too hard early is the usual cause.
+        </p>
+        <button class="btn ghost sm" style="margin-top:12px" onclick="go('funnel')">See the full funnel →</button>`
+      :`<p style="color:var(--dim);margin-top:12px;font-size:13.5px">Not enough data yet — this appears once students start completing lessons.</p>`}
+    </div>
+  </div>
+
+  <div class="eyebrow">Most completed lessons</div>
+  <div class="card">
+    ${top.length?top.map(f=>`<div class="fbar">
+      <span class="track">${f.icon}</span>
+      <span class="lbl">${esc(f.title)}</span>
+      <span class="g"><i style="width:${f.rate}%"></i></span>
+      <span class="v">${f.completions} · ${f.rate}%</span></div>`).join("")
+    :`<div class="empty">No completions recorded yet.</div>`}
+  </div>
+
+  <div class="eyebrow">Quiz performance by track</div>
+  <div class="tbl">
+    <table><thead><tr><th>Track</th><th>Attempts</th><th>Passed</th><th>Pass rate</th></tr></thead><tbody>
+      ${(s.quiz||[]).length?s.quiz.map(q=>`<tr>
+        <td>${esc(q.track)}</td><td>${q.attempts}</td><td>${q.passed}</td>
+        <td>${q.attempts?Math.round(q.passed/q.attempts*100):0}%</td></tr>`).join("")
+      :`<tr><td colspan="4" class="empty">No quiz attempts yet.</td></tr>`}
+    </tbody></table>
+  </div>`;
+}
+
+/* ===================== STUDENTS ===================== */
+let studentQuery="";
+async function renderStudents(){
+  const d=await api.get("/api/admin/students?q="+encodeURIComponent(studentQuery));
+  $("#main").innerHTML=`
+  <div class="h1">Students</div>
+  <p class="sub">${d.students.length} shown. Click any row for their full lesson-by-lesson history and saved lab code.</p>
+  <div class="row" style="margin-bottom:16px">
+    <input class="inp" id="sq" placeholder="Search name or email…" value="${esc(studentQuery)}" style="max-width:320px"/>
+    <a class="btn ghost" href="/api/admin/export.csv">⬇️ Export CSV</a>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Name</th><th>Email</th><th>College / City</th><th>Path</th>
+      <th style="width:150px">Progress</th><th>Joined</th><th>Last seen</th><th></th></tr></thead>
+    <tbody>${d.students.length?d.students.map(s=>`
+      <tr class="click" data-uid="${s.id}">
+        <td><b>${esc(s.name)}</b> ${s.is_admin?'<span class="pill hot">admin</span>':''}
+            ${!s.is_active?'<span class="pill off">disabled</span>':''}</td>
+        <td style="color:var(--muted)">${esc(s.email)}</td>
+        <td style="color:var(--muted);font-size:12.5px">${esc(s.college||"—")}${s.city?" · "+esc(s.city):""}</td>
+        <td>${s.path?`<span class="pill">${esc(s.path)}</span>`:'<span style="color:var(--dim)">—</span>'}</td>
+        <td><div class="row" style="gap:8px"><span class="mini" style="flex:1"><i style="width:${s.pct}%"></i></span>
+            <span style="font-size:12px;color:var(--dim);white-space:nowrap">${s.done}/${d.total_lessons}</span></div></td>
+        <td style="color:var(--muted);font-size:12.5px">${fmtDate(s.joined)}</td>
+        <td style="color:var(--muted);font-size:12.5px">${ago(s.last_seen)}</td>
+        <td><button class="btn ghost sm" data-view="${s.id}">View</button></td>
+      </tr>`).join(""):`<tr><td colspan="8" class="empty">No students found.</td></tr>`}
+    </tbody></table></div>`;
+
+  $("#sq").oninput=e=>{ studentQuery=e.target.value;
+    clearTimeout(window._sq); window._sq=setTimeout(renderStudents,320); };
+  $("#main").querySelectorAll("[data-uid]").forEach(tr=>tr.onclick=()=>openStudent(tr.dataset.uid));
+}
+
+async function openStudent(uid){
+  const d=await api.get("/api/admin/student/"+uid);
+  const s=d.student;
+  const done=d.progress.filter(p=>p.completed).length;
+  $("#mtitle").textContent=s.name;
+  $("#mbody").innerHTML=`
+    <div class="row" style="margin-bottom:16px">
+      <div><div style="color:var(--muted);font-size:13px">${esc(s.email)}</div>
+        <div style="font-size:12.5px;color:var(--dim);margin-top:3px">
+          ${esc(s.degree||"Degree not given")} · ${esc(s.college||"College not given")}${s.city?" · "+esc(s.city):""}</div>
+        <div style="font-size:12.5px;color:var(--dim)">Joined ${fmtDate(s.joined)} · last seen ${ago(s.last_seen)}
+          ${s.path?` · path: <b>${esc(s.path)}</b>`:""}</div></div>
+      <div class="spacer"></div>
+      <div style="text-align:right"><div class="stat">${done}</div>
+        <div class="statlbl">lessons done</div></div>
+    </div>
+
+    <div class="row" style="margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)">
+      <button class="btn ghost sm" id="toggleAct">${s.is_active?"Deactivate account":"Reactivate account"}</button>
+      <button class="btn danger sm" id="delUser">Delete student</button>
+      <div class="spacer"></div>
+      ${s.is_admin?'<span class="pill hot">administrator</span>':''}
+    </div>
+
+    <div class="statlbl">Quiz results</div>
+    ${d.quizzes.length?`<div class="tbl" style="margin:8px 0 18px"><table>
+      <thead><tr><th>Track</th><th>Score</th><th>Result</th><th>When</th></tr></thead><tbody>
+      ${d.quizzes.map(q=>`<tr><td>${esc(q.track)}</td><td>${q.score}/${q.total}</td>
+        <td>${q.passed?'<span class="pill ok">passed</span>':'<span class="pill off">failed</span>'}</td>
+        <td style="color:var(--muted);font-size:12.5px">${fmtDate(q.at)}</td></tr>`).join("")}
+      </tbody></table></div>`:`<p style="color:var(--dim);font-size:13px;margin:8px 0 18px">No quiz attempts yet.</p>`}
+
+    <div class="statlbl">Lesson activity — most recent first</div>
+    ${d.progress.length?`<div class="tbl" style="margin-top:8px"><table>
+      <thead><tr><th>Lesson</th><th>Status</th><th>Run attempts</th><th>Code</th></tr></thead><tbody>
+      ${d.progress.map((p,i)=>`<tr>
+        <td>${esc(p.title)}</td>
+        <td>${p.completed?'<span class="pill ok">complete</span>':'<span class="pill">in progress</span>'}</td>
+        <td>${p.attempts||0}${p.attempts>=8?' <span class="pill off">struggling</span>':''}</td>
+        <td>${p.has_code?`<button class="btn ghost sm" data-code="${i}">View</button>`:'<span style="color:var(--dim)">—</span>'}</td>
+      </tr>`).join("")}</tbody></table></div>`
+    :`<p style="color:var(--dim);font-size:13px;margin-top:8px">This student hasn't started any lessons yet.</p>`}
+
+    <div id="codeview"></div>`;
+
+  $("#modal").classList.add("on");
+
+  $("#toggleAct").onclick=async()=>{
+    await api.post(`/api/admin/student/${uid}/toggle`,{});
+    $("#modal").classList.remove("on"); renderStudents();
+  };
+  $("#delUser").onclick=async()=>{
+    if(!confirm(`Permanently delete ${s.name} and all their progress? This cannot be undone.`)) return;
+    try{ await api.del("/api/admin/student/"+uid); $("#modal").classList.remove("on"); renderStudents(); }
+    catch(e){ alert(e.message); }
+  };
+  $("#mbody").querySelectorAll("[data-code]").forEach(b=>b.onclick=()=>{
+    const p=d.progress[+b.dataset.code];
+    $("#codeview").innerHTML=`<div class="eyebrow">Saved lab code — ${esc(p.title)}</div>
+      <textarea class="inp mono" rows="14" readonly>${esc(p.code)}</textarea>`;
+    $("#codeview").scrollIntoView({behavior:"smooth"});
+  });
+}
+
+/* ===================== FUNNEL ===================== */
+async function renderFunnel(){
+  const s=STATS||await api.get("/api/admin/stats");
+  const f=s.funnel;
+  const max=Math.max(1,...f.map(x=>x.completions));
+  $("#main").innerHTML=`
+  <div class="h1">Drop-off analysis</div>
+  <p class="sub">Lessons in course order with completion counts. Every sharp fall is a place students give up — that's where to shorten a lesson, soften a lab, or add an explanation.</p>
+  ${s.biggest_drop?`<div class="card" style="border-color:var(--red);margin-bottom:20px">
+    <b style="color:var(--red)">Biggest single drop:</b>
+    <span style="color:#ccd6e2">${s.biggest_drop.lost} students completed “${esc(s.biggest_drop.after)}” but never completed “${esc(s.biggest_drop.before)}”.</span>
+  </div>`:""}
+  <div class="card">
+    ${f.map((x,i)=>{
+      const prev=i>0?f[i-1].completions:x.completions;
+      const drop=prev-x.completions;
+      const sharp=prev>0 && drop/prev>0.25 && drop>1;
+      return `<div class="fbar">
+        <span class="track" title="${esc(x.track)}">${x.icon}</span>
+        <span class="lbl">${esc(x.title)}</span>
+        <span class="g"><i style="width:${Math.round(x.completions/max*100)}%;${sharp?"background:var(--red)":""}"></i></span>
+        <span class="v">${x.completions} · ${x.rate}%</span>
+        ${sharp?`<span class="pill off">−${drop}</span>`:`<span style="width:44px"></span>`}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+/* ===================== CONTENT ===================== */
+async function renderContent(){
+  CONTENT=await api.get("/api/admin/content");
+  $("#main").innerHTML=`
+  <div class="h1">Content</div>
+  <p class="sub">Edit lessons, labs and quizzes directly. Changes go live for students immediately — there is no draft state beyond the published toggle.</p>
+  <div class="row" style="margin-bottom:16px">
+    <button class="btn" id="newTrack">+ New track</button>
+    <span style="font-size:12.5px;color:var(--dim)">${CONTENT.tracks.length} tracks ·
+      ${CONTENT.tracks.reduce((a,t)=>a+t.lessons.length,0)} lessons</span>
+  </div>
+  ${CONTENT.tracks.map((t,ti)=>`
+    <div class="card" style="margin-bottom:14px">
+      <div class="row">
+        <span style="font-size:20px">${t.icon}</span>
+        <div style="flex:1;min-width:180px">
+          <div style="font-weight:650">${esc(t.name)} ${!t.published?'<span class="pill off">hidden</span>':''}</div>
+          <div style="font-size:12px;color:var(--dim)">${t.lessons.length} lessons · ${esc(t.level)} · ${t.weeks} weeks</div>
+        </div>
+        <button class="btn ghost sm" data-etrack="${ti}">Edit track</button>
+        <button class="btn ghost sm" data-newlesson="${ti}">+ Lesson</button>
+      </div>
+      <div style="margin-top:12px">
+        ${t.lessons.map((l,li)=>`<div class="fbar">
+          <span class="lbl" style="width:auto;flex:1">${esc(l.title)}
+            ${!l.published?'<span class="pill off">hidden</span>':''}
+            <span class="pill">${l.lang}</span></span>
+          <span style="font-size:12px;color:var(--dim);width:56px;text-align:right">${l.mins} min</span>
+          <button class="btn ghost sm" data-elesson="${ti}:${li}">Edit</button>
+          <button class="btn danger sm" data-dlesson="${l.id}">Delete</button>
+        </div>`).join("")||'<div class="empty">No lessons in this track yet.</div>'}
+      </div>
+    </div>`).join("")}`;
+
+  $("#newTrack").onclick=()=>editTrack(null);
+  $("#main").querySelectorAll("[data-etrack]").forEach(b=>b.onclick=()=>editTrack(+b.dataset.etrack));
+  $("#main").querySelectorAll("[data-newlesson]").forEach(b=>b.onclick=()=>editLesson(+b.dataset.newlesson,null));
+  $("#main").querySelectorAll("[data-elesson]").forEach(b=>b.onclick=()=>{
+    const [ti,li]=b.dataset.elesson.split(":").map(Number); editLesson(ti,li);
+  });
+  $("#main").querySelectorAll("[data-dlesson]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Delete this lesson? Student progress records for it will remain but the lesson disappears.")) return;
+    await api.del("/api/admin/lesson/"+b.dataset.dlesson); renderContent();
+  });
+}
+
+function editTrack(ti){
+  const t = ti===null ? {icon:"📘",name:"",level:"",color:"#ff9933",weeks:4,lang:"",desc:"",outcomes:[],quiz:[],published:true} : CONTENT.tracks[ti];
+  $("#mtitle").textContent = ti===null ? "New track" : "Edit track — "+t.name;
+  $("#mbody").innerHTML=`
+    <div class="row" style="gap:12px">
+      <div style="width:80px"><label class="fl">Icon</label><input class="inp" id="f_icon" value="${esc(t.icon)}"/></div>
+      <div style="flex:1;min-width:200px"><label class="fl">Name</label><input class="inp" id="f_name" value="${esc(t.name)}"/></div>
+    </div>
+    <div class="row" style="gap:12px">
+      <div style="flex:1"><label class="fl">Level</label><input class="inp" id="f_level" value="${esc(t.level)}"/></div>
+      <div style="flex:1"><label class="fl">Language label</label><input class="inp" id="f_lang" value="${esc(t.lang)}"/></div>
+      <div style="width:100px"><label class="fl">Weeks</label><input class="inp" type="number" id="f_weeks" value="${t.weeks}"/></div>
+    </div>
+    <label class="fl">Description</label><textarea class="inp" id="f_desc">${esc(t.desc)}</textarea>
+    <label class="fl">Outcomes — one per line</label>
+    <textarea class="inp" id="f_out">${esc((t.outcomes||[]).join("\n"))}</textarea>
+    <label class="fl">Quiz — JSON array of {q, o:[…], a:index}</label>
+    <textarea class="inp mono" id="f_quiz" rows="8">${esc(JSON.stringify(t.quiz||[],null,1))}</textarea>
+    <label class="fl" style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--text)">
+      <input type="checkbox" id="f_pub" ${t.published?"checked":""} style="accent-color:var(--accent)"/> Published — visible to students</label>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" id="saveTrack">Save track</button>
+      ${ti!==null?`<button class="btn danger" id="delTrack">Delete track</button>`:""}
+      <div class="spacer"></div><span id="tmsg" style="font-size:12.5px"></span>
+    </div>`;
+  $("#modal").classList.add("on");
+
+  $("#saveTrack").onclick=async()=>{
+    let quiz;
+    try{ quiz=JSON.parse($("#f_quiz").value||"[]"); }
+    catch(e){ $("#tmsg").innerHTML='<span style="color:var(--red)">Quiz JSON is invalid</span>'; return; }
+    const body={icon:$("#f_icon").value,name:$("#f_name").value,level:$("#f_level").value,
+      color:t.color||"#ff9933",weeks:+$("#f_weeks").value||1,lang:$("#f_lang").value,
+      desc:$("#f_desc").value,outcomes:$("#f_out").value.split("\n").map(s=>s.trim()).filter(Boolean),
+      quiz,published:$("#f_pub").checked,position:ti===null?0:ti};
+    try{
+      if(ti===null) await api.post("/api/admin/track",body);
+      else await api.put("/api/admin/track/"+t.id,body);
+      $("#modal").classList.remove("on"); renderContent();
+    }catch(e){ $("#tmsg").innerHTML=`<span style="color:var(--red)">${esc(e.message)}</span>`; }
+  };
+  if($("#delTrack")) $("#delTrack").onclick=async()=>{
+    if(!confirm(`Delete "${t.name}" and all ${t.lessons.length} of its lessons? This cannot be undone.`)) return;
+    await api.del("/api/admin/track/"+t.id); $("#modal").classList.remove("on"); renderContent();
+  };
+}
+
+function editLesson(ti,li){
+  const track=CONTENT.tracks[ti];
+  const l = li===null
+    ? {title:"",mins:20,lang:"read",content:"",videos:[],refs:[],published:true,
+       lab:{prompt:"",starter:"",hint:"",solution:"",answer:"",check:null}}
+    : track.lessons[li];
+  const lab=l.lab||{};
+  $("#mtitle").textContent = li===null ? "New lesson in "+track.name : "Edit — "+l.title;
+  $("#mbody").innerHTML=`
+    <div class="row" style="gap:12px">
+      <div style="flex:1;min-width:200px"><label class="fl">Title</label><input class="inp" id="f_title" value="${esc(l.title)}"/></div>
+      <div style="width:100px"><label class="fl">Minutes</label><input class="inp" type="number" id="f_mins" value="${l.mins}"/></div>
+      <div style="width:150px"><label class="fl">Lab type</label>
+        <select class="inp" id="f_lang">
+          <option value="read"${l.lang==="read"?" selected":""}>Written</option>
+          <option value="py"${l.lang==="py"?" selected":""}>Python</option>
+          <option value="js"${l.lang==="js"?" selected":""}>JavaScript</option>
+        </select></div>
+    </div>
+
+    <label class="fl">Lesson content — HTML (h3, p, ul, pre&gt;code, div.callout)</label>
+    <textarea class="inp mono" id="f_content" rows="14">${esc(l.content)}</textarea>
+
+    <label class="fl">Videos — JSON array of {t: title, u: url}</label>
+    <textarea class="inp mono" id="f_videos" rows="4">${esc(JSON.stringify(l.videos||[],null,1))}</textarea>
+
+    <label class="fl">References — JSON array of {t: title, u: url}</label>
+    <textarea class="inp mono" id="f_refs" rows="5">${esc(JSON.stringify(l.refs||[],null,1))}</textarea>
+
+    <div style="border-top:1px solid var(--line);margin-top:20px;padding-top:8px">
+      <div class="eyebrow" style="margin-top:8px">The lab</div>
+      <label class="fl">Prompt shown to the student</label>
+      <textarea class="inp" id="f_prompt" rows="2">${esc(lab.prompt||"")}</textarea>
+      <label class="fl">Starter code</label>
+      <textarea class="inp mono" id="f_starter" rows="7">${esc(lab.starter||"")}</textarea>
+      <label class="fl">Hint</label><input class="inp" id="f_hint" value="${esc(lab.hint||"")}"/>
+      <label class="fl">Solution — for Python / JavaScript labs</label>
+      <textarea class="inp mono" id="f_solution" rows="7">${esc(lab.solution||"")}</textarea>
+      <label class="fl">Model answer — for written labs</label>
+      <textarea class="inp mono" id="f_answer" rows="6">${esc(lab.answer||"")}</textarea>
+      <label class="fl">Auto-grader — JSON, or null for written labs</label>
+      <textarea class="inp mono" id="f_check" rows="4">${esc(JSON.stringify(lab.check||null,null,1))}</textarea>
+      <p style="font-size:11.5px;color:var(--dim);margin-top:6px">
+        Keys: <code>all</code> (every regex must match output), <code>none</code> (no regex may match),
+        <code>lines</code> (exact trimmed output lines in order), <code>minLines</code>.
+        Example: <code>{"all":["80\\\\.75","True"]}</code>
+      </p>
+    </div>
+
+    <label class="fl" style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--text)">
+      <input type="checkbox" id="f_pub" ${l.published?"checked":""} style="accent-color:var(--accent)"/> Published — visible to students</label>
+
+    <div class="row" style="margin-top:18px">
+      <button class="btn" id="saveLesson">Save lesson</button>
+      <div class="spacer"></div><span id="lmsg" style="font-size:12.5px"></span>
+    </div>`;
+  $("#modal").classList.add("on");
+
+  $("#saveLesson").onclick=async()=>{
+    let videos,refs,check;
+    try{ videos=JSON.parse($("#f_videos").value||"[]"); }catch(e){ return fail("Videos JSON is invalid"); }
+    try{ refs=JSON.parse($("#f_refs").value||"[]"); }catch(e){ return fail("References JSON is invalid"); }
+    try{ check=JSON.parse($("#f_check").value||"null"); }catch(e){ return fail("Auto-grader JSON is invalid"); }
+    const body={
+      title:$("#f_title").value, mins:+$("#f_mins").value||20, lang:$("#f_lang").value,
+      content:$("#f_content").value, videos, refs, published:$("#f_pub").checked,
+      position: li===null ? track.lessons.length : li,
+      track: track.id,
+      lab:{ prompt:$("#f_prompt").value, starter:$("#f_starter").value, hint:$("#f_hint").value,
+            solution:$("#f_solution").value, answer:$("#f_answer").value, check },
+    };
+    try{
+      if(li===null) await api.post("/api/admin/lesson",body);
+      else await api.put("/api/admin/lesson/"+l.id,body);
+      $("#modal").classList.remove("on"); renderContent();
+    }catch(e){ fail(e.message); }
+  };
+  function fail(m){ $("#lmsg").innerHTML=`<span style="color:var(--red)">${esc(m)}</span>`; }
+}
+
+/* ===================== INIT ===================== */
+(async function(){
+  try{
+    const u=await api.get("/api/auth/me");
+    if(!u.is_admin){ showGate("That account is not an administrator."); return; }
+    showApp(); go("dash");
+  }catch(e){ showGate(); }
+})();
+</script>
+</body>
+</html>

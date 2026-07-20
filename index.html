@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VidyaPath — Learn to Code, Data & AI</title>
+<meta name="description" content="Hands-on learning platform for Indian students. Python, JavaScript, SQL, Java, C, Data Science and AI — with runnable labs, videos and references."/>
+<style>
+:root{
+  --bg:#0b0f16; --panel:#131923; --panel2:#1a2230; --line:#252e3d;
+  --text:#e8eef6; --muted:#8896a8; --dim:#5d6b7d;
+  --accent:#ff9933; --accent2:#4d9fff; --green:#3fb950; --red:#f85149;
+  --r:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
+code,pre,textarea.code,.out{font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+input,select{font-family:inherit}
+
+/* ---------- auth screen ---------- */
+.gate{min-height:100vh;display:grid;place-items:center;padding:24px}
+.gatebox{width:100%;max-width:940px;display:grid;grid-template-columns:1.1fr .9fr;gap:0;background:var(--panel);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.gateleft{padding:44px 40px;background:linear-gradient(155deg,rgba(255,153,51,.12),rgba(77,159,255,.06) 60%,transparent)}
+.gateleft h1{font-size:31px;font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:12px}
+.gateleft h1 span{color:var(--accent)}
+.gateleft p{color:var(--muted);font-size:14.5px;margin-bottom:22px}
+.gateleft ul{list-style:none;font-size:13.5px;color:#ccd6e2}
+.gateleft li{margin-bottom:9px;display:flex;gap:9px}
+.gateleft li b{color:var(--accent);flex-shrink:0}
+.gateright{padding:40px 36px;border-left:1px solid var(--line)}
+.tabs{display:flex;gap:4px;background:var(--panel2);padding:4px;border-radius:10px;margin-bottom:20px}
+.tab{flex:1;padding:8px;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--muted);text-align:center}
+.tab.on{background:var(--panel);color:var(--text)}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);font-weight:700;margin-bottom:5px}
+.field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 13px;color:var(--text);font-size:14px;outline:none}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.msg{font-size:13px;padding:10px 13px;border-radius:9px;margin-bottom:13px;display:none}
+.msg.err{display:block;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:#ff9b95}
+.msg.ok{display:block;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:#7ee08f}
+
+/* ---------- layout ---------- */
+.app{display:none;min-height:100vh}
+.app.on{display:flex}
+.sidebar{width:280px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow-y:auto;padding-bottom:30px}
+.main{flex:1;padding:34px 44px 80px;max-width:1120px;min-width:0}
+.brand{padding:22px 20px 18px;border-bottom:1px solid var(--line)}
+.brand h1{font-size:21px;font-weight:800;letter-spacing:-.5px}
+.brand h1 span{color:var(--accent)}
+.brand p{font-size:11.5px;color:var(--dim);margin-top:1px}
+
+.who{padding:13px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#10151c;display:grid;place-items:center;font-weight:800;font-size:13px;flex-shrink:0}
+.who .info{flex:1;min-width:0}
+.who .info b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .info small{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+
+.navsec{padding:16px 20px 7px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);font-weight:700}
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 20px;font-size:13.5px;color:var(--muted);width:100%;text-align:left;border-left:2px solid transparent;transition:.12s}
+.navitem:hover{background:var(--panel2);color:var(--text)}
+.navitem.active{background:var(--panel2);color:var(--text);border-left-color:var(--accent)}
+.navitem .ic{width:18px;text-align:center;flex-shrink:0}
+.navitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navitem .ct{font-size:11px;color:var(--dim);flex-shrink:0}
+.navitem.done .ct{color:var(--green)}
+
+.h1{font-size:32px;font-weight:800;letter-spacing:-.9px;line-height:1.2;margin-bottom:8px}
+.h2{font-size:25px;font-weight:700;letter-spacing:-.6px;margin-bottom:6px}
+.sub{color:var(--muted);margin-bottom:26px;max-width:760px}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--dim);font-weight:700;margin:32px 0 12px}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.grid{display:grid;gap:15px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}
+.row{display:flex;gap:11px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+
+.pill{display:inline-block;font-size:10.5px;padding:3px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.pill.hot{background:rgba(255,153,51,.12);color:var(--accent);border-color:rgba(255,153,51,.3)}
+.pill.ok{background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)}
+.pill.blue{background:rgba(77,159,255,.12);color:var(--accent2);border-color:rgba(77,159,255,.3)}
+
+.btn{background:var(--accent);color:#10151c;padding:10px 20px;border-radius:9px;font-weight:650;font-size:14px;transition:.12s;display:inline-block;text-align:center}
+.btn:hover{filter:brightness(1.09);text-decoration:none}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent);filter:none}
+.btn.sm{padding:7px 14px;font-size:13px}
+.btn.wide{width:100%}
+.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+
+.bar{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#ffc078);border-radius:99px;transition:width .45s}
+.stat{font-size:29px;font-weight:800;letter-spacing:-1px;line-height:1.1}
+.statlbl{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.9px;font-weight:600;margin-bottom:5px}
+
+.hero{background:linear-gradient(150deg,rgba(255,153,51,.11),rgba(77,159,255,.06) 55%,transparent);border:1px solid var(--line);border-radius:18px;padding:34px 32px;margin-bottom:26px}
+.hero h1{font-size:33px;font-weight:800;letter-spacing:-1.2px;line-height:1.15;margin-bottom:11px}
+.hero p{color:var(--muted);max-width:620px;margin-bottom:20px}
+
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;text-align:left;width:100%;transition:.15s;display:block}
+.tile:hover{border-color:var(--accent);transform:translateY(-2px)}
+.tile .ic{font-size:24px;line-height:1}
+.tile h3{font-size:15.5px;margin:9px 0 4px;font-weight:650}
+.tile p{font-size:12.8px;color:var(--muted);line-height:1.55}
+.tile .foot{display:flex;justify-content:space-between;align-items:center;margin-top:13px;font-size:11.5px;color:var(--dim);gap:8px}
+.tile.sel{border-color:var(--accent);background:linear-gradient(180deg,rgba(255,153,51,.07),transparent)}
+
+.lrow{display:flex;align-items:center;gap:13px;padding:13px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;text-align:left;width:100%;margin-bottom:8px;transition:.12s}
+.lrow:hover{border-color:var(--accent)}
+.lrow .n{width:27px;height:27px;border-radius:50%;background:var(--panel2);display:grid;place-items:center;font-size:12px;flex-shrink:0;color:var(--muted);font-weight:600}
+.lrow.done .n{background:var(--green);color:#0b0f16}
+.lrow .t{flex:1;min-width:0}
+.lrow .t b{display:block;font-size:14px;font-weight:550}
+.lrow .t small{color:var(--dim);font-size:11.5px}
+
+.lesson{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:28px 30px;margin-bottom:16px}
+.lesson h3{font-size:18px;margin:24px 0 9px;font-weight:650;letter-spacing:-.3px}
+.lesson h3:first-child{margin-top:0}
+.lesson h4{font-size:15px;margin:18px 0 6px;font-weight:650;color:var(--accent)}
+.lesson p{margin-bottom:13px;color:#ccd6e2}
+.lesson ul{margin:0 0 15px 21px;color:#ccd6e2}
+.lesson li{margin-bottom:6px}
+.lesson pre{background:#070b11;border:1px solid var(--line);border-radius:9px;padding:15px;overflow-x:auto;font-size:12.8px;line-height:1.62;margin-bottom:15px;color:#9ecbff}
+.lesson code{background:var(--panel2);padding:2px 6px;border-radius:4px;font-size:12.8px;color:var(--accent)}
+.lesson pre code{background:none;padding:0;color:inherit}
+.callout{border-left:3px solid var(--accent2);background:rgba(77,159,255,.07);padding:13px 17px;border-radius:0 9px 9px 0;margin-bottom:15px;font-size:14px;color:#ccd6e2}
+
+.res{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;margin-bottom:16px}
+.res h4{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);font-weight:700;margin-bottom:11px}
+.reslist{display:flex;flex-direction:column;gap:7px}
+.reslink{display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--panel2);border:1px solid transparent;border-radius:9px;font-size:13.5px;color:var(--text);transition:.12s}
+.reslink:hover{border-color:var(--accent2);text-decoration:none;background:rgba(77,159,255,.07)}
+.reslink .ex{margin-left:auto;color:var(--dim);font-size:11px;flex-shrink:0}
+
+.lab{background:var(--panel);border:1px solid var(--accent);border-radius:var(--r);overflow:hidden;margin-bottom:16px}
+.lab-head{padding:13px 20px;background:rgba(255,153,51,.08);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.lab-body{padding:18px 20px}
+textarea.code{width:100%;min-height:170px;background:#070b11;color:#9ecbff;border:1px solid var(--line);border-radius:9px;padding:13px;font-size:12.8px;line-height:1.65;resize:vertical;outline:none;tab-size:4}
+textarea.code:focus{border-color:var(--accent)}
+.out{background:#070b11;border:1px solid var(--line);border-radius:9px;padding:13px;font-size:12.8px;white-space:pre-wrap;min-height:46px;margin-top:12px;color:var(--muted);line-height:1.6;overflow-x:auto}
+.out.pass{border-color:var(--green);color:#7ee08f}
+.out.fail{border-color:var(--red);color:#ff8b84}
+.out.info{border-color:var(--accent2);color:#a8ceff}
+
+.q{margin-bottom:22px}
+.q>p{font-weight:600;margin-bottom:10px}
+.opt{display:block;width:100%;text-align:left;padding:11px 15px;border:1px solid var(--line);border-radius:9px;margin-bottom:7px;font-size:13.8px;background:var(--panel2);transition:.1s}
+.opt:hover{border-color:var(--accent2)}
+.opt.sel{border-color:var(--accent2);background:rgba(77,159,255,.1)}
+.opt.correct{border-color:var(--green);background:rgba(63,185,80,.12)}
+.opt.wrong{border-color:var(--red);background:rgba(248,81,73,.12)}
+
+.crumb{font-size:12.5px;color:var(--dim);margin-bottom:15px}
+.crumb button{color:var(--accent2)}
+.crumb button:hover{text-decoration:underline}
+
+.search{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 13px;color:var(--text);font-size:13.5px;outline:none;font-family:inherit}
+.search:focus{border-color:var(--accent)}
+.searchwrap{padding:14px 20px 4px}
+.chk{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#ccd6e2;margin-bottom:7px}
+.chk input{margin-top:5px;accent-color:var(--accent);flex-shrink:0}
+.loading{min-height:100vh;display:grid;place-items:center;color:var(--dim);font-size:14px}
+footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-size:12.5px;color:var(--dim)}
+
+@media(max-width:860px){
+  .gatebox{grid-template-columns:1fr}
+  .gateleft{padding:30px 24px}
+  .gateright{padding:28px 24px;border-left:none;border-top:1px solid var(--line)}
+  .app.on{flex-direction:column}
+  .sidebar{width:100%;height:auto;position:static}
+  .main{padding:22px 18px 60px}
+  .hero{padding:24px 20px}.hero h1{font-size:26px}
+  .h1{font-size:25px}
+  .lesson{padding:20px 18px}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= LOADING ================= -->
+<div class="loading" id="loading">Loading…</div>
+
+<!-- ================= AUTH GATE ================= -->
+<div class="gate" id="gate" style="display:none">
+  <div class="gatebox">
+    <div class="gateleft">
+      <h1>Vidya<span>Path</span></h1>
+      <p>Nine tracks from absolute beginner to AI engineer. Python, JavaScript, SQL, Java, C, data analysis, machine learning and LLM engineering — every lesson runs real code in your browser.</p>
+      <ul>
+        <li><b>✓</b><span>34 lessons, 34 hands-on labs, 195 curated free resources</span></li>
+        <li><b>✓</b><span>Real Python and JavaScript execution — no setup needed</span></li>
+        <li><b>✓</b><span>Built for Indian students from any degree, CS or not</span></li>
+        <li><b>✓</b><span>Progress saved to your account, on any device</span></li>
+        <li><b>✓</b><span>Four portfolio projects that actually get interviews</span></li>
+      </ul>
+    </div>
+    <div class="gateright">
+      <div class="tabs">
+        <button class="tab on" id="tabLogin">Sign in</button>
+        <button class="tab" id="tabSignup">Create account</button>
+      </div>
+      <div class="msg" id="authMsg"></div>
+
+      <form id="loginForm">
+        <div class="field"><label>Email</label><input type="email" id="li_email" required autocomplete="email"/></div>
+        <div class="field"><label>Password</label><input type="password" id="li_pw" required autocomplete="current-password"/></div>
+        <button class="btn wide" type="submit" id="li_btn">Sign in →</button>
+      </form>
+
+      <form id="signupForm" style="display:none">
+        <div class="field"><label>Full name</label><input type="text" id="su_name" required minlength="2"/></div>
+        <div class="field"><label>Email</label><input type="email" id="su_email" required autocomplete="email"/></div>
+        <div class="field"><label>Password — 8 characters minimum</label><input type="password" id="su_pw" required minlength="8" autocomplete="new-password"/></div>
+        <div class="two">
+          <div class="field"><label>College (optional)</label><input type="text" id="su_college"/></div>
+          <div class="field"><label>City (optional)</label><input type="text" id="su_city"/></div>
+        </div>
+        <div class="field"><label>Your degree (optional)</label>
+          <select id="su_degree">
+            <option value="">Prefer not to say</option>
+            <option>B.E / B.Tech — CS or IT</option>
+            <option>B.E / B.Tech — other branch</option>
+            <option>B.Sc</option><option>B.Com</option><option>B.A</option>
+            <option>BCA / MCA</option><option>Diploma</option>
+            <option>Postgraduate</option><option>Other</option>
+          </select>
+        </div>
+        <button class="btn wide" type="submit" id="su_btn">Create account →</button>
+      </form>
+
+      <p style="font-size:11.5px;color:var(--dim);margin-top:15px;text-align:center">
+        Your progress is stored against your account so you can pick up on any device.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div class="app" id="app">
+  <nav class="sidebar">
+    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Code · Data · AI — built for India</p></div>
+    <div class="who" id="who"></div>
+    <div class="searchwrap"><input class="search" id="search" placeholder="Search lessons…" autocomplete="off"/></div>
+    <div id="nav"></div>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+/* ===================== API ===================== */
+const api = {
+  async call(path, opts={}){
+    const r = await fetch(path, {
+      credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      ...opts,
+      body: opts.body!==undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
+    const txt = await r.text();
+    let data; try{ data = txt?JSON.parse(txt):{}; }catch(e){ data={detail:txt}; }
+    if(!r.ok) throw new Error(data.detail || ("Request failed ("+r.status+")"));
+    return data;
+  },
+  get:  p       => api.call(p),
+  post: (p,b)   => api.call(p,{method:"POST",body:b}),
+};
+
+/* ===================== STATE ===================== */
+let AUTHED=false, USER=null, TRACKS=[], PATHS=[];
+let S={done:{},quiz:{},notes:{},code:{},path:null,view:{page:"home"}};
+
+const PATH_PRESETS=[
+  {id:"ai",name:"AI Engineer",icon:"🤖",months:"7–9 months",desc:"Zero to building and deploying real AI applications.",tracks:["basics","python","sql","data","ml","llm","career"]},
+  {id:"analyst",name:"Data Analyst",icon:"📊",months:"4–5 months",desc:"Fastest realistic path to a first job for a non-CS graduate.",tracks:["basics","python","sql","data","career"]},
+  {id:"web",name:"Web Developer",icon:"🌐",months:"5–6 months",desc:"Build the interfaces and services everything else plugs into.",tracks:["basics","js","python","sql","career"]},
+  {id:"placement",name:"Campus Placement",icon:"🎓",months:"4–6 months",desc:"Java, DSA and SQL — what on-campus recruitment actually tests.",tracks:["basics","javac","python","sql","career"]},
+  {id:"full",name:"Everything",icon:"🚀",months:"12+ months",desc:"Every track, in the recommended order.",tracks:["basics","python","js","sql","javac","data","ml","llm","career"]},
+];
+
+const T = id => TRACKS.find(t=>t.id===id);
+const allLessons = () => TRACKS.flatMap(t=>t.lessons);
+const trackDone = t => t.lessons.filter(l=>S.done[l.id]).length;
+const totalDone = () => allLessons().filter(l=>S.done[l.id]).length;
+const totalLessons = () => allLessons().length || 1;
+const totalRefs = () => TRACKS.reduce((a,t)=>a+t.lessons.reduce((b,l)=>b+(l.refs||[]).length+(l.videos||[]).length,0),0);
+const activePaths = () => PATH_PRESETS.filter(p=>p.tracks.some(id=>T(id)));
+const activeTracks = () => {
+  if(!S.path) return TRACKS;
+  const p=PATH_PRESETS.find(x=>x.id===S.path);
+  return p ? p.tracks.map(T).filter(Boolean) : TRACKS;
+};
+
+/* ===================== LAB CHECK (declarative) ===================== */
+function evalCheck(spec, output){
+  if(!spec) return true;
+  const lines = output.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(spec.lines){
+    if(lines.length < spec.lines.length) return false;
+    for(let i=0;i<spec.lines.length;i++) if(lines[i]!==spec.lines[i]) return false;
+  }
+  if(spec.minLines && lines.length < spec.minLines) return false;
+  for(const p of spec.all||[])  if(!new RegExp(p,"im").test(output)) return false;
+  for(const p of spec.none||[]) if( new RegExp(p,"im").test(output)) return false;
+  return true;
+}
+
+/* ===================== RUNTIMES ===================== */
+let pyodide=null, pyFailed=false;
+async function ensurePy(){
+  if(pyodide) return pyodide;
+  if(pyFailed) return null;
+  try{
+    if(!window.loadPyodide){
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js";
+        s.onload=res;s.onerror=rej;document.head.appendChild(s);
+      });
+    }
+    pyodide=await window.loadPyodide({indexURL:"https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"});
+    return pyodide;
+  }catch(e){ pyFailed=true; return null; }
+}
+async function runPython(code){
+  const py=await ensurePy();
+  if(!py) throw new Error("OFFLINE");
+  py.runPython("import sys, io\n_buf = io.StringIO()\nsys.stdout = _buf\nsys.stderr = _buf");
+  try{ py.runPython(code); }
+  catch(err){
+    py.runPython("sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__");
+    return {out:"",err:String(err).split("\n").filter(l=>l.trim()).slice(-4).join("\n")};
+  }
+  const out=py.runPython("sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__\n_buf.getvalue()");
+  return {out:String(out),err:null};
+}
+function runJS(code){
+  return new Promise(resolve=>{
+    let out="";
+    const log=(...a)=>{out+=a.map(v=>typeof v==="string"?v:(()=>{try{return JSON.stringify(v)}catch(e){return String(v)}})()).join(" ")+"\n";};
+    try{
+      new Function("console",`"use strict";\n${code}`)({log,error:log,warn:log,info:log});
+      setTimeout(()=>resolve({out,err:null}),400);
+    }catch(e){ resolve({out,err:e.name+": "+e.message}); }
+  });
+}
+
+/* ===================== HELPERS ===================== */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const langPill=l=> l==="py"?'<span class="pill hot">Python · runs live</span>'
+  : l==="js"?'<span class="pill hot">JavaScript · runs live</span>'
+  : '<span class="pill blue">Written exercise</span>';
+
+/* debounced server sync for saved code */
+let codeTimer=null;
+function syncCode(lesson, code){
+  S.code[lesson]=code;
+  clearTimeout(codeTimer);
+  codeTimer=setTimeout(()=>api.post("/api/progress",{lesson,code}).catch(()=>{}),700);
+}
+function setDone(lesson, done){
+  S.done[lesson]=done;
+  if(!done) delete S.done[lesson];
+  api.post("/api/progress",{lesson,completed:done}).catch(()=>{});
+}
+
+/* ===================== AUTH FLOW ===================== */
+function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#gate").style.display="grid"; }
+function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); }
+function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
+
+$("#tabLogin").onclick=()=>{$("#tabLogin").classList.add("on");$("#tabSignup").classList.remove("on");$("#loginForm").style.display="";$("#signupForm").style.display="none";authMsg("");};
+$("#tabSignup").onclick=()=>{$("#tabSignup").classList.add("on");$("#tabLogin").classList.remove("on");$("#signupForm").style.display="";$("#loginForm").style.display="none";authMsg("");};
+
+$("#loginForm").onsubmit=async e=>{
+  e.preventDefault(); const b=$("#li_btn"); b.disabled=true; b.textContent="Signing in…"; authMsg("");
+  try{
+    USER=await api.post("/api/auth/login",{email:$("#li_email").value,password:$("#li_pw").value});
+    AUTHED=true; await boot();
+  }catch(err){ authMsg(err.message); }
+  b.disabled=false; b.textContent="Sign in →";
+};
+
+$("#signupForm").onsubmit=async e=>{
+  e.preventDefault(); const b=$("#su_btn"); b.disabled=true; b.textContent="Creating…"; authMsg("");
+  try{
+    USER=await api.post("/api/auth/signup",{
+      name:$("#su_name").value, email:$("#su_email").value, password:$("#su_pw").value,
+      college:$("#su_college").value, city:$("#su_city").value, degree:$("#su_degree").value,
+    });
+    AUTHED=true; await boot();
+  }catch(err){ authMsg(err.message); }
+  b.disabled=false; b.textContent="Create account →";
+};
+
+async function logout(){
+  await api.post("/api/auth/logout",{}).catch(()=>{});
+  AUTHED=false; USER=null; S={done:{},quiz:{},notes:{},code:{},path:null,view:{page:"home"}};
+  showGate();
+}
+
+/* ===================== BOOT ===================== */
+async function boot(){
+  const [cur, prog] = await Promise.all([api.get("/api/curriculum"), api.get("/api/progress")]);
+  TRACKS = cur.tracks;
+  S.done = prog.done||{}; S.quiz=prog.quiz||{}; S.notes=prog.notes||{};
+  S.code = prog.code||{}; S.path = prog.path||null;
+  S.view = {page:"home"};
+  showApp(); render();
+}
+
+(async function init(){
+  try{ USER = await api.get("/api/auth/me"); AUTHED=true; await boot(); }
+  catch(e){ showGate(); }
+})();
+
+/* ===================== NAV ===================== */
+function renderWho(){
+  $("#who").innerHTML=`
+    <div class="avatar">${(USER.name||"?").trim()[0].toUpperCase()}</div>
+    <div class="info"><b>${esc(USER.name)}</b><small>${esc(USER.email)}</small></div>
+    <button class="btn ghost sm" id="logout" title="Sign out">↪</button>`;
+  $("#logout").onclick=logout;
+}
+
+function renderNav(){
+  const q=($("#search")?.value||"").trim().toLowerCase();
+  let h="";
+  if(q){
+    const hits=[];
+    TRACKS.forEach(t=>t.lessons.forEach(l=>{
+      if((l.title+" "+t.name+" "+l.content).toLowerCase().includes(q)) hits.push({t,l});
+    }));
+    h+=`<div class="navsec">${hits.length} result${hits.length===1?"":"s"}</div>`;
+    hits.slice(0,25).forEach(({t,l})=>{
+      h+=`<button class="navitem" data-nav="lesson" data-track="${t.id}" data-id="${l.id}"><span class="ic">${t.icon}</span><span class="nm">${esc(l.title)}</span></button>`;
+    });
+    $("#nav").innerHTML=h; return;
+  }
+  h+=`<button class="navitem ${S.view.page==="home"?"active":""}" data-nav="home"><span class="ic">🏠</span><span class="nm">Home</span></button>
+      <button class="navitem ${S.view.page==="paths"?"active":""}" data-nav="paths"><span class="ic">🧭</span><span class="nm">Choose a path</span></button>
+      <button class="navitem ${S.view.page==="projects"?"active":""}" data-nav="projects"><span class="ic">🛠️</span><span class="nm">Projects</span></button>
+      <button class="navitem ${S.view.page==="resources"?"active":""}" data-nav="resources"><span class="ic">🔗</span><span class="nm">All resources</span></button>`;
+  if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
+
+  const list=activeTracks();
+  h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
+  list.forEach(t=>{
+    const d=trackDone(t),n=t.lessons.length;
+    h+=`<button class="navitem ${d===n&&n?"done":""} ${S.view.page==="track"&&S.view.track===t.id?"active":""}" data-nav="track" data-id="${t.id}">
+      <span class="ic">${t.icon}</span><span class="nm">${esc(t.name)}</span><span class="ct">${d}/${n}</span></button>`;
+  });
+  if(S.path) h+=`<button class="navitem" data-nav="clearpath"><span class="ic">↺</span><span class="nm">Show all tracks</span></button>`;
+
+  const pct=Math.round(totalDone()/totalLessons()*100);
+  h+=`<div class="navsec">Your progress</div>
+    <div style="padding:0 20px 18px"><div class="bar"><i style="width:${pct}%"></i></div>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:7px">${totalDone()} of ${totalLessons()} lessons · ${pct}%</div></div>`;
+  $("#nav").innerHTML=h;
+}
+
+/* ===================== HOME ===================== */
+function renderHome(){
+  const pct=Math.round(totalDone()/totalLessons()*100);
+  const next=allLessons().find(l=>!S.done[l.id]);
+  const nt=next?TRACKS.find(t=>t.lessons.includes(next)):null;
+  const list=activeTracks();
+  const first=(USER.name||"").trim().split(" ")[0];
+
+  $("#main").innerHTML=`
+  <div class="hero">
+    <h1>${totalDone()?`Welcome back, ${esc(first)}.`:`Welcome, ${esc(first)}.`}</h1>
+    <p>${totalDone()?`You've completed ${totalDone()} of ${totalLessons()} lessons. Keep the streak going — two hours a day finishes a full path in about eight months.`:`Nine tracks from absolute beginner to AI engineer. Every lesson ends with a lab that runs real code in your browser and grades itself. Start at the top and go in order.`}</p>
+    <div class="row">
+      <button class="btn" data-nav="${next?"lesson":"projects"}" ${next?`data-track="${nt.id}" data-id="${next.id}"`:""}>${totalDone()?"Continue learning →":"Start the first lesson →"}</button>
+      <button class="btn ghost" data-nav="paths">Choose your path</button>
+    </div>
+  </div>
+
+  <div class="grid g4" style="margin-bottom:26px">
+    <div class="card"><div class="statlbl">Progress</div><div class="stat">${pct}%</div><div class="bar" style="margin-top:9px"><i style="width:${pct}%"></i></div></div>
+    <div class="card"><div class="statlbl">Lessons</div><div class="stat">${totalDone()}<span style="font-size:15px;color:var(--dim)">/${totalLessons()}</span></div></div>
+    <div class="card"><div class="statlbl">Quizzes passed</div><div class="stat">${Object.keys(S.quiz).length}<span style="font-size:15px;color:var(--dim)">/${TRACKS.length}</span></div></div>
+    <div class="card"><div class="statlbl">Curated links</div><div class="stat">${totalRefs()}</div><div style="font-size:11.5px;color:var(--dim);margin-top:3px">videos + docs</div></div>
+  </div>
+
+  ${next?`<div class="card" style="border-color:var(--accent);background:linear-gradient(180deg,rgba(255,153,51,.07),transparent);margin-bottom:26px">
+    <div class="row"><div style="min-width:200px">
+      <span class="pill hot">Up next</span>
+      <div style="font-size:17px;font-weight:650;margin-top:9px">${esc(next.title)}</div>
+      <div style="font-size:12.5px;color:var(--dim)">${nt.icon} ${esc(nt.name)} · ${next.mins} min</div>
+    </div><div class="spacer"></div>
+    <button class="btn" data-nav="lesson" data-track="${nt.id}" data-id="${next.id}">Resume →</button></div></div>`
+  :`<div class="card" style="border-color:var(--green);margin-bottom:26px">
+      <b style="color:var(--green)">🎉 Every lesson complete.</b><br>
+      <span style="color:var(--muted);font-size:14px">Now build the four portfolio projects and start applying.</span>
+      <div style="margin-top:12px"><button class="btn sm" data-nav="projects">Go to projects →</button></div></div>`}
+
+  <div class="eyebrow">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path — "+list.length+" tracks":"All tracks"}</div>
+  <div class="grid g2">
+    ${list.map(t=>{
+      const d=trackDone(t),n=t.lessons.length||1,p=Math.round(d/n*100);
+      return `<button class="tile" data-nav="track" data-id="${t.id}">
+        <div class="row" style="gap:9px;align-items:flex-start"><span class="ic">${t.icon}</span><div class="spacer"></div><span class="pill">${esc(t.lang)}</span></div>
+        <h3>${esc(t.name)}</h3><p>${esc(t.desc)}</p>
+        <div class="bar" style="margin-top:12px"><i style="width:${p}%"></i></div>
+        <div class="foot"><span>${d}/${t.lessons.length} lessons · ${t.weeks} weeks</span>
+        ${d===t.lessons.length&&d?'<span class="pill ok">Done</span>':d>0?'<span class="pill hot">Active</span>':''}</div>
+      </button>`;
+    }).join("")}
+  </div>
+
+  <div class="eyebrow">How to actually finish this</div>
+  <div class="card"><ul style="margin-left:19px;color:#ccd6e2;font-size:14px">
+    <li><b>Go in order within a path.</b> Skipping Foundations is the biggest reason people drop out at week three.</li>
+    <li><b>Type the lab wrong first.</b> Ten minutes of struggling teaches more than an hour of reading solutions.</li>
+    <li><b>Two hours a day, six days a week</b> finishes the AI Engineer path in roughly eight months.</li>
+    <li><b>Start portfolio project #1 the day you finish the Data track.</b> Employers want evidence, not completion.</li>
+  </ul></div>
+
+  <footer>VidyaPath · All videos and reference links point to free public resources — official docs, MDN, freeCodeCamp, Kaggle, Harvard CS50 and similar.<br>
+  Salary and job-market figures change constantly; always check current live sources before making decisions.</footer>`;
+}
+
+/* ===================== PATHS ===================== */
+function renderPaths(){
+  $("#main").innerHTML=`
+  <div class="h1">Choose your path</div>
+  <p class="sub">A path filters the tracks into a focused sequence with a realistic timeline. Change or clear it any time — progress is shared across all paths, nothing is lost.</p>
+  <div class="grid g2">
+    ${activePaths().map(p=>{
+      const ts=p.tracks.map(T).filter(Boolean);
+      const d=ts.reduce((a,t)=>a+trackDone(t),0), n=ts.reduce((a,t)=>a+t.lessons.length,0)||1;
+      return `<button class="tile ${S.path===p.id?"sel":""}" data-nav="setpath" data-id="${p.id}">
+        <div class="row"><span class="ic">${p.icon}</span><div class="spacer"></div>${S.path===p.id?'<span class="pill hot">Active</span>':''}</div>
+        <h3>${p.name}</h3><p>${p.desc}</p>
+        <div style="margin-top:11px;display:flex;gap:5px;flex-wrap:wrap">${ts.map(t=>`<span class="pill">${t.icon} ${esc(t.name.split(" ")[0])}</span>`).join("")}</div>
+        <div class="foot"><span>${p.months} · ${n} lessons</span><span>${d}/${n} done</span></div></button>`;
+    }).join("")}
+  </div>
+  <div class="card" style="margin-top:20px"><b>Not sure?</b>
+    <p style="color:var(--muted);font-size:14px;margin-top:6px">
+      Never written code and want a job as fast as realistically possible → <b>Data Analyst</b>.<br>
+      Want to work on AI specifically → <b>AI Engineer</b>.<br>
+      Final-year student with campus placements coming → <b>Campus Placement</b>.</p></div>`;
+}
+
+/* ===================== TRACK ===================== */
+function renderTrack(id){
+  const t=T(id); if(!t){S.view={page:"home"};return render();}
+  const d=trackDone(t), n=t.lessons.length||1;
+  $("#main").innerHTML=`
+  <div class="crumb"><button data-nav="home">Home</button> / ${esc(t.name)}</div>
+  <div class="h1">${t.icon} ${esc(t.name)}</div><p class="sub">${esc(t.desc)}</p>
+  <div class="card" style="margin-bottom:18px">
+    <div class="row" style="margin-bottom:11px"><b>${d} of ${t.lessons.length} lessons complete</b><div class="spacer"></div>
+      <span class="pill">${esc(t.level)}</span><span class="pill">${t.weeks} weeks</span>
+      <span class="pill">${t.lessons.reduce((a,l)=>a+l.mins,0)} min</span></div>
+    <div class="bar"><i style="width:${Math.round(d/n*100)}%"></i></div></div>
+  ${(t.outcomes||[]).length?`<div class="card" style="margin-bottom:20px">
+    <div class="statlbl">By the end of this track you will be able to</div>
+    <ul style="margin:8px 0 0 19px;color:#ccd6e2;font-size:14px">${t.outcomes.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></div>`:""}
+  <div class="eyebrow">Lessons</div>
+  ${t.lessons.map((l,i)=>`<button class="lrow ${S.done[l.id]?"done":""}" data-nav="lesson" data-track="${t.id}" data-id="${l.id}">
+    <span class="n">${S.done[l.id]?"✓":i+1}</span>
+    <span class="t"><b>${esc(l.title)}</b><small>${l.mins} min · ${(l.videos||[]).length} videos · ${(l.refs||[]).length} references · 1 lab</small></span>
+    <span style="color:var(--dim)">→</span></button>`).join("")}
+  ${(t.quiz||[]).length?`<div class="card" style="margin-top:16px;${S.quiz[t.id]?"border-color:var(--green)":""}">
+    <div class="row"><div><b>Track assessment</b> ${S.quiz[t.id]?'<span class="pill ok">Passed</span>':''}
+      <div style="font-size:12.5px;color:var(--dim)">${t.quiz.length} questions · ${d<t.lessons.length?"finish the lessons first for best results":"you're ready"}</div>
+    </div><div class="spacer"></div>
+    <button class="btn ${d<t.lessons.length?"ghost":""}" data-nav="quiz" data-id="${t.id}">${S.quiz[t.id]?"Retake":"Start quiz"}</button></div></div>`:""}`;
+}
+
+/* ===================== LESSON ===================== */
+function renderLesson(tid,lid){
+  const t=T(tid); if(!t){S.view={page:"home"};return render();}
+  const i=t.lessons.findIndex(l=>l.id===lid);
+  if(i<0){S.view={page:"track",track:tid};return render();}
+  const l=t.lessons[i], prev=t.lessons[i-1], next=t.lessons[i+1];
+  const runnable=l.lang==="py"||l.lang==="js";
+  const saved=S.code[l.id];
+
+  $("#main").innerHTML=`
+  <div class="crumb"><button data-nav="home">Home</button> / <button data-nav="track" data-id="${t.id}">${esc(t.name)}</button> / ${esc(l.title)}</div>
+  <div class="h2">${esc(l.title)}</div>
+  <p class="sub">${t.icon} ${esc(t.name)} · Lesson ${i+1} of ${t.lessons.length} · ${l.mins} min read</p>
+  <div class="lesson">${l.content}</div>
+
+  ${(l.videos||[]).length?`<div class="res"><h4>▶ Video lessons</h4><div class="reslist">
+    ${l.videos.map(v=>`<a class="reslink" href="${v.u}" target="_blank" rel="noopener"><span>📺</span><span>${esc(v.t)}</span><span class="ex">YouTube ↗</span></a>`).join("")}</div>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:10px">These open a YouTube search so results stay current — pick the highest-rated full course.</div></div>`:""}
+
+  ${(l.refs||[]).length?`<div class="res"><h4>🔗 Reference material</h4><div class="reslist">
+    ${l.refs.map(r=>`<a class="reslink" href="${r.u}" target="_blank" rel="noopener"><span>📄</span><span>${esc(r.t)}</span><span class="ex">↗</span></a>`).join("")}</div></div>`:""}
+
+  <div class="lab">
+    <div class="lab-head"><strong>🧪 Hands-on lab</strong>${langPill(l.lang)}</div>
+    <div class="lab-body">
+      <p style="margin-bottom:12px;font-size:14px;color:#ccd6e2">${esc(l.lab.prompt||"")}</p>
+      <textarea class="code" id="code" spellcheck="false">${esc(saved!==undefined?saved:(l.lab.starter||""))}</textarea>
+      <div class="row" style="margin-top:12px">
+        ${runnable?`<button class="btn" id="run">▶ Run ${l.lang==="py"?"Python":"JavaScript"}</button>`:`<button class="btn" id="reveal">Show model answer</button>`}
+        ${l.lab.hint?`<button class="btn ghost sm" id="hint">💡 Hint</button>`:""}
+        ${l.lab.solution?`<button class="btn ghost sm" id="sol">Show solution</button>`:""}
+        <button class="btn ghost sm" id="reset">Reset</button>
+        <div class="spacer"></div><span id="savestate" style="font-size:11.5px;color:var(--dim)"></span>
+      </div>
+      <div class="out" id="out">${runnable?"Output appears here. Python labs load a runtime on first run — about 10 seconds, once per session.":"Write your answer above, then reveal the model answer to compare."}</div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:18px">
+    ${prev?`<button class="btn ghost" data-nav="lesson" data-track="${t.id}" data-id="${prev.id}">← Previous</button>`:""}
+    <div class="spacer"></div>
+    <button class="btn ${S.done[l.id]?"ghost":""}" id="mark">${S.done[l.id]?"✓ Completed — unmark":"Mark complete"}</button>
+    ${next?`<button class="btn" data-nav="lesson" data-track="${t.id}" data-id="${next.id}">Next lesson →</button>`
+          :`<button class="btn" data-nav="${(t.quiz||[]).length?"quiz":"home"}" data-id="${t.id}">${(t.quiz||[]).length?"Track quiz →":"Back home"}</button>`}
+  </div>`;
+
+  const out=$("#out"), ta=$("#code");
+  ta.addEventListener("input",()=>{ syncCode(l.id,ta.value); $("#savestate").textContent="saved"; setTimeout(()=>{const s=$("#savestate"); if(s)s.textContent="";},1400); });
+  $("#reset").onclick=()=>{ta.value=l.lab.starter||"";syncCode(l.id,"");delete S.code[l.id];out.className="out";out.textContent="Reset to the starting code.";};
+  if($("#hint")) $("#hint").onclick=()=>{out.className="out info";out.textContent="💡 "+l.lab.hint;};
+  if($("#sol"))  $("#sol").onclick =()=>{ta.value=l.lab.solution;syncCode(l.id,ta.value);out.className="out info";out.textContent="Solution loaded above. Read it, click Reset, then type it from memory — that's where the learning happens.";};
+  if($("#reveal"))$("#reveal").onclick=()=>{
+    out.className="out info"; out.textContent="MODEL ANSWER\n\n"+(l.lab.answer||"");
+    if(!S.done[l.id]){ setDone(l.id,true); renderNav(); $("#mark").textContent="✓ Completed — unmark"; $("#mark").classList.add("ghost"); }
+  };
+  $("#mark").onclick=()=>{ setDone(l.id,!S.done[l.id]); renderLesson(tid,lid); renderNav(); };
+
+  if($("#run")) $("#run").onclick=async()=>{
+    const b=$("#run"); b.disabled=true; const orig=b.textContent; b.textContent="Running…";
+    out.className="out"; out.textContent=(l.lang==="py"&&!pyodide)?"Loading the Python runtime — first run only, about 10 seconds…":"Executing…";
+    api.post("/api/progress",{lesson:l.id,attempt:true}).catch(()=>{});
+    try{
+      const r = l.lang==="py" ? await runPython(ta.value) : await runJS(ta.value);
+      if(r.err){ out.className="out fail"; out.textContent="❌ "+r.err; }
+      else{
+        const ok=evalCheck(l.lab.check,r.out);
+        out.className="out "+(ok?"pass":"fail");
+        out.textContent=(r.out||"(no output — did you forget print / console.log?)")+"\n\n"+(ok?"✅ Correct — lab passed.":"❌ Not quite. Try the hint.");
+        if(ok&&!S.done[l.id]){ setDone(l.id,true); renderNav(); $("#mark").textContent="✓ Completed — unmark"; $("#mark").classList.add("ghost"); }
+      }
+    }catch(e){
+      out.className="out fail";
+      out.textContent="⚠️ Couldn't load the Python runtime — it needs an internet connection the first time.\n\nRead the code, check the solution, then click 'Mark complete' to carry on. JavaScript labs work offline.";
+    }
+    b.disabled=false; b.textContent=orig;
+  };
+}
+
+/* ===================== QUIZ ===================== */
+function renderQuiz(tid){
+  const t=T(tid); if(!t||!(t.quiz||[]).length){S.view={page:"track",track:tid};return render();}
+  const picks={};
+  $("#main").innerHTML=`
+  <div class="crumb"><button data-nav="home">Home</button> / <button data-nav="track" data-id="${t.id}">${esc(t.name)}</button> / Quiz</div>
+  <div class="h2">${t.icon} Track assessment</div>
+  <p class="sub">${t.quiz.length} questions. All correct to pass. Wrong answers show the right one — retake as often as you like.</p>
+  <div class="card">
+    ${t.quiz.map((q,qi)=>`<div class="q"><p>${qi+1}. ${esc(q.q)}</p>
+      ${q.o.map((o,oi)=>`<button class="opt" data-q="${qi}" data-o="${oi}">${esc(o)}</button>`).join("")}</div>`).join("")}
+    <div class="row"><button class="btn" id="submit">Submit answers</button><div class="spacer"></div><div id="score" style="font-weight:650"></div></div>
+  </div>
+  <div class="row" style="margin-top:16px"><button class="btn ghost" data-nav="track" data-id="${t.id}">← Back to track</button></div>`;
+
+  $("#main").querySelectorAll(".opt").forEach(b=>{
+    b.onclick=()=>{const qi=b.dataset.q;
+      $("#main").querySelectorAll(`.opt[data-q="${qi}"]`).forEach(x=>x.classList.remove("sel"));
+      b.classList.add("sel");picks[qi]=+b.dataset.o;};
+  });
+  $("#submit").onclick=async()=>{
+    let right=0;
+    t.quiz.forEach((q,qi)=>{
+      $("#main").querySelectorAll(`.opt[data-q="${qi}"]`).forEach(b=>{
+        const oi=+b.dataset.o;b.classList.remove("sel");
+        if(oi===q.a)b.classList.add("correct");
+        else if(picks[qi]===oi)b.classList.add("wrong");
+      });
+      if(picks[qi]===q.a)right++;
+    });
+    const pass=right===t.quiz.length;
+    $("#score").innerHTML=`<span style="color:${pass?"var(--green)":"var(--red)"}">${right}/${t.quiz.length} ${pass?"— passed ✅":"— review and retry"}</span>`;
+    try{ await api.post("/api/quiz",{track:t.id,score:right,total:t.quiz.length}); }catch(e){}
+    if(pass){ S.quiz[t.id]=true; renderNav(); }
+  };
+}
+
+/* ===================== PROJECTS ===================== */
+const PROJECTS=[
+  {n:1,icon:"📊",title:"Data cleaning + dashboard",after:"After the Data Analysis track",
+   what:"Take a genuinely messy public dataset, clean it properly in pandas, find three real insights, and ship a Streamlit dashboard with filters and charts.",
+   proves:"You can handle real data, not tutorial data.",
+   steps:["Pick a dataset from data.gov.in or Kaggle that you actually care about","Document what's wrong with it before you touch it — nulls, duplicates, wrong types","Clean it, recording every decision and why","Find 3 insights that are specific and quantified","Streamlit dashboard: 2+ filters, 3+ charts, key metrics at the top","Deploy free on Streamlit Community Cloud","README: the question you asked, what you found, what you'd do next"],
+   links:[{t:"data.gov.in — Indian open data",u:"https://data.gov.in/"},{t:"Kaggle datasets",u:"https://www.kaggle.com/datasets"},{t:"Streamlit docs",u:"https://docs.streamlit.io/"}]},
+  {n:2,icon:"⚡",title:"Deployed model API",after:"After the Machine Learning track",
+   what:"Train or load a model, wrap it in FastAPI, containerise it with Docker, deploy it with a live URL.",
+   proves:"You can ship — the single biggest gap between students and hires.",
+   steps:["Train a simple model (sentiment, classification, price prediction)","FastAPI with /health and /predict, Pydantic input validation","Load the model once at startup, never per request","Secrets from environment variables — never in the repo","Dockerfile, built and tested locally","Deploy to Railway, Render or Hugging Face Spaces","Log latency and request count","README with a copy-pasteable curl example that works first try"],
+   links:[{t:"FastAPI docs",u:"https://fastapi.tiangolo.com/"},{t:"Docker get started",u:"https://docs.docker.com/get-started/"},{t:"Hugging Face Spaces",u:"https://huggingface.co/docs/hub/spaces"}]},
+  {n:3,icon:"🔍",title:"RAG assistant with citations",after:"After the AI Engineering track",
+   what:"Question-answering over a real document set — your college handbook, an Act, a product manual — that cites sources and admits when it doesn't know.",
+   proves:"The most requested AI skill in 2026 job listings. Your interview centrepiece.",
+   steps:["Choose a corpus people genuinely need answers from","Chunk carefully — tables and headings break naive chunking","Embed and store in Chroma or pgvector","Retrieval with top-k, then add a reranker and compare","Strict grounding: cite sources, say 'I don't know' when absent","Build an eval set of 30-50 real questions and MEASURE accuracy","Simple chat UI, deployed","README: accuracy numbers before and after each improvement"],
+   links:[{t:"LangChain RAG tutorial",u:"https://python.langchain.com/docs/tutorials/rag/"},{t:"Chroma docs",u:"https://docs.trychroma.com/"},{t:"Ragas — RAG evaluation",u:"https://docs.ragas.io/"}]},
+  {n:4,icon:"🤖",title:"An agent that does one useful thing",after:"After the AI Engineering track",
+   what:"An LLM in a loop with tools that completes a real multi-step task end to end — with proper guardrails.",
+   proves:"You think in systems, and understand safety and cost, not just prompting.",
+   steps:["Pick a narrow, genuinely useful task — expense filing, site monitoring, inbox triage","Define 2-4 tools with strict schemas. No general shell access.","Hard step limit, timeouts on every tool call","Human approval before anything irreversible","Log every decision so you can reconstruct any run","Handle failure: what happens when a tool errors mid-task?","Track token cost per run and put it in the README","Demo GIF showing a full successful run"],
+   links:[{t:"OpenAI function calling",u:"https://platform.openai.com/docs/guides/function-calling"},{t:"LangGraph",u:"https://langchain-ai.github.io/langgraph/"},{t:"OWASP Top 10 for LLM apps",u:"https://owasp.org/www-project-top-10-for-large-language-model-applications/"}]},
+];
+
+function renderProjects(){
+  $("#main").innerHTML=`
+  <div class="h1">🛠️ Portfolio projects</div>
+  <p class="sub">Four projects, in this order. These are what actually get you interviews — a live URL and a README explaining a hard decision beats any certificate. Tick items as you go; they save to your account.</p>
+  <div class="card" style="border-color:var(--accent);margin-bottom:22px"><b>The rule:</b>
+    <span style="color:#ccd6e2">every project needs a live URL, a public repo, and a README with a "what was hard" section. One deep project beats four shallow ones — interviewers pick one and dig for thirty minutes.</span></div>
+  ${PROJECTS.map(p=>`<div class="card" style="margin-bottom:16px">
+    <div class="row" style="align-items:flex-start"><span style="font-size:24px">${p.icon}</span>
+      <div style="flex:1;min-width:200px"><div style="font-size:17px;font-weight:650">Project ${p.n} — ${p.title}</div>
+      <div style="font-size:12px;color:var(--dim)">${p.after}</div></div></div>
+    <p style="color:#ccd6e2;font-size:14px;margin:12px 0 8px">${p.what}</p>
+    <p style="font-size:13px;color:var(--accent);margin-bottom:14px"><b>Proves:</b> ${p.proves}</p>
+    <div style="margin-bottom:12px">${p.steps.map((s,i)=>{
+      const k=`proj${p.n}_${i}`;
+      return `<label class="chk"><input type="checkbox" data-chk="${k}" ${S.notes[k]?"checked":""}/><span>${s}</span></label>`;
+    }).join("")}</div>
+    <div class="reslist">${p.links.map(x=>`<a class="reslink" href="${x.u}" target="_blank" rel="noopener"><span>🔗</span><span>${x.t}</span><span class="ex">↗</span></a>`).join("")}</div>
+  </div>`).join("")}
+  <div class="card"><b>What interviewers check when they open your link</b>
+    <ul style="margin:9px 0 0 19px;color:#ccd6e2;font-size:14px">
+      <li>Does it load, in under five seconds?</li>
+      <li>Does the README's example command work first try?</li>
+      <li>Are your API keys committed to the repo? (They will look.)</li>
+      <li>Can you explain, out loud, one decision you were genuinely unsure about?</li>
+    </ul></div>`;
+
+  $("#main").querySelectorAll("[data-chk]").forEach(c=>{
+    c.onchange=()=>{
+      const k=c.dataset.chk;
+      if(c.checked) S.notes[k]="1"; else delete S.notes[k];
+      api.post("/api/note",{key:k,value:c.checked?"1":""}).catch(()=>{});
+    };
+  });
+}
+
+/* ===================== RESOURCES ===================== */
+function renderResources(){
+  $("#main").innerHTML=`
+  <div class="h1">🔗 All resources</div>
+  <p class="sub">Every video and reference across the platform, grouped by track. All free. Videos open a YouTube search so results stay current rather than rotting into dead links.</p>
+  ${TRACKS.map(t=>`<div class="eyebrow">${t.icon} ${esc(t.name)}</div>
+    <div class="res" style="margin-bottom:18px"><div class="reslist">
+      ${t.lessons.flatMap(l=>[
+        ...(l.videos||[]).map(v=>`<a class="reslink" href="${v.u}" target="_blank" rel="noopener"><span>📺</span><span>${esc(v.t)}</span><span class="ex">video ↗</span></a>`),
+        ...(l.refs||[]).map(r=>`<a class="reslink" href="${r.u}" target="_blank" rel="noopener"><span>📄</span><span>${esc(r.t)}</span><span class="ex">↗</span></a>`)
+      ]).join("")}</div></div>`).join("")}`;
+}
+
+/* ===================== ROUTER ===================== */
+function render(){
+  if(!AUTHED) return showGate();
+  renderWho();
+  const v=S.view;
+  if(v.page==="home")           renderHome();
+  else if(v.page==="paths")     renderPaths();
+  else if(v.page==="projects")  renderProjects();
+  else if(v.page==="resources") renderResources();
+  else if(v.page==="track")     renderTrack(v.track);
+  else if(v.page==="lesson")    renderLesson(v.track,v.lesson);
+  else if(v.page==="quiz")      renderQuiz(v.track);
+  renderNav();
+  window.scrollTo(0,0);
+}
+
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-nav]");
+  if(!b) return;
+  const n=b.dataset.nav;
+  if(n==="home")           S.view={page:"home"};
+  else if(n==="paths")     S.view={page:"paths"};
+  else if(n==="projects")  S.view={page:"projects"};
+  else if(n==="resources") S.view={page:"resources"};
+  else if(n==="track")     S.view={page:"track",track:b.dataset.id};
+  else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};
+  else if(n==="quiz")      S.view={page:"quiz",track:b.dataset.id};
+  else if(n==="setpath"){  S.path=S.path===b.dataset.id?null:b.dataset.id;
+                           api.post("/api/note",{key:"__path__",value:S.path||""}).catch(()=>{});
+                           S.view={page:"home"}; }
+  else if(n==="clearpath"){S.path=null;api.post("/api/note",{key:"__path__",value:""}).catch(()=>{});S.view={page:"home"};}
+  const s=$("#search"); if(s) s.value="";
+  render();
+});
+document.addEventListener("input",e=>{ if(e.target.id==="search") renderNav(); });
+</script>
+</body>
+</html>
