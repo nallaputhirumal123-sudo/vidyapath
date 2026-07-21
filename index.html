@@ -9,9 +9,31 @@
 :root{
   --bg:#0b0f16; --panel:#131923; --panel2:#1a2230; --line:#252e3d;
   --text:#e8eef6; --muted:#8896a8; --dim:#5d6b7d;
+  --body:#ccd6e2;
+  --glass:rgba(19,25,35,.86);
   --accent:#ff9933; --accent2:#4d9fff; --green:#3fb950; --red:#f85149;
+  --codebg:#070b11; --codetext:#9ecbff;
   --r:14px;
 }
+/* Light theme — code areas deliberately stay dark, which reads better */
+[data-theme="light"]{
+  --bg:#f6f5f1; --panel:#ffffff; --panel2:#efede8; --line:#e0ded8;
+  --text:#1c1c1a; --muted:#63635e; --dim:#8b8b85;
+  --body:#3a3a36;
+  --glass:rgba(255,255,255,.88);
+  --accent2:#1e5fa8;
+}
+body,.card,.tile,.sidebar,.topbar,.lesson,.res,.lrow,.authcard,.lstep,
+.faq details,.lab,.navitem,.opt,.pill{
+  transition:background-color .25s ease,border-color .25s ease,color .25s ease}
+
+/* theme toggle — visible on every screen */
+#themeFab{position:fixed;top:14px;right:14px;z-index:60;width:42px;height:42px;
+  border-radius:50%;background:var(--panel);border:1px solid var(--line);
+  font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 16px rgba(0,0,0,.18)}
+#themeFab:hover{border-color:var(--accent)}
+@media print{#themeFab{display:none}}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
@@ -144,13 +166,13 @@ input,select{font-family:inherit}
 .lesson h3{font-size:18px;margin:24px 0 9px;font-weight:650;letter-spacing:-.3px}
 .lesson h3:first-child{margin-top:0}
 .lesson h4{font-size:15px;margin:18px 0 6px;font-weight:650;color:var(--accent)}
-.lesson p{margin-bottom:13px;color:#ccd6e2}
-.lesson ul{margin:0 0 15px 21px;color:#ccd6e2}
+.lesson p{margin-bottom:13px;color:var(--body)}
+.lesson ul{margin:0 0 15px 21px;color:var(--body)}
 .lesson li{margin-bottom:6px}
-.lesson pre{background:#070b11;border:1px solid var(--line);border-radius:9px;padding:15px;overflow-x:auto;font-size:12.8px;line-height:1.62;margin-bottom:15px;color:#9ecbff}
+.lesson pre{background:var(--codebg);border:1px solid var(--line);border-radius:9px;padding:15px;overflow-x:auto;font-size:12.8px;line-height:1.62;margin-bottom:15px;color:var(--codetext)}
 .lesson code{background:var(--panel2);padding:2px 6px;border-radius:4px;font-size:12.8px;color:var(--accent)}
 .lesson pre code{background:none;padding:0;color:inherit}
-.callout{border-left:3px solid var(--accent2);background:rgba(77,159,255,.07);padding:13px 17px;border-radius:0 9px 9px 0;margin-bottom:15px;font-size:14px;color:#ccd6e2}
+.callout{border-left:3px solid var(--accent2);background:rgba(77,159,255,.07);padding:13px 17px;border-radius:0 9px 9px 0;margin-bottom:15px;font-size:14px;color:var(--body)}
 
 .res{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;margin-bottom:16px}
 .res h4{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);font-weight:700;margin-bottom:11px}
@@ -162,9 +184,9 @@ input,select{font-family:inherit}
 .lab{background:var(--panel);border:1px solid var(--accent);border-radius:var(--r);overflow:hidden;margin-bottom:16px}
 .lab-head{padding:13px 20px;background:rgba(255,153,51,.08);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .lab-body{padding:18px 20px}
-textarea.code{width:100%;min-height:170px;background:#070b11;color:#9ecbff;border:1px solid var(--line);border-radius:9px;padding:13px;font-size:12.8px;line-height:1.65;resize:vertical;outline:none;tab-size:4}
+textarea.code{width:100%;min-height:170px;background:var(--codebg);color:var(--codetext);border:1px solid var(--line);border-radius:9px;padding:13px;font-size:12.8px;line-height:1.65;resize:vertical;outline:none;tab-size:4}
 textarea.code:focus{border-color:var(--accent)}
-.out{background:#070b11;border:1px solid var(--line);border-radius:9px;padding:13px;font-size:12.8px;white-space:pre-wrap;min-height:46px;margin-top:12px;color:var(--muted);line-height:1.6;overflow-x:auto}
+.out{background:var(--codebg);border:1px solid var(--line);border-radius:9px;padding:13px;font-size:12.8px;white-space:pre-wrap;min-height:46px;margin-top:12px;color:var(--muted);line-height:1.6;overflow-x:auto}
 .out.pass{border-color:var(--green);color:#7ee08f}
 .out.fail{border-color:var(--red);color:#ff8b84}
 .out.info{border-color:var(--accent2);color:#a8ceff}
@@ -184,13 +206,13 @@ textarea.code:focus{border-color:var(--accent)}
 .search{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 13px;color:var(--text);font-size:13.5px;outline:none;font-family:inherit}
 .search:focus{border-color:var(--accent)}
 .searchwrap{padding:14px 20px 4px}
-.chk{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#ccd6e2;margin-bottom:7px}
+.chk{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:var(--body);margin-bottom:7px}
 .chk input{margin-top:5px;accent-color:var(--accent);flex-shrink:0}
 .loading{min-height:100vh;display:grid;place-items:center;color:var(--dim);font-size:14px}
 footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-size:12.5px;color:var(--dim)}
 
 @media(max-width:860px){
-  .topbar{display:flex;position:sticky;top:0;z-index:40;background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;align-items:center;gap:12px;width:100%}
+  .topbar{display:flex;position:sticky;top:0;z-index:40;background:var(--glass);backdrop-filter:blur(12px) saturate(1.3);-webkit-backdrop-filter:blur(12px) saturate(1.3);border-bottom:1px solid var(--line);padding:12px 16px;align-items:center;gap:12px;width:100%}
   .topbar .tb-brand{font-weight:800;font-size:17px}
   .topbar .tb-brand span{color:var(--accent)}
   .hamb{font-size:22px;padding:4px 10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line)}
@@ -216,6 +238,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 
 <!-- ================= LOADING ================= -->
 <div class="loading" id="loading">Loading…</div>
+
+<button id="themeFab" title="Switch light / dark">🌙</button>
 
 <!-- ================= LANDING + AUTH ================= -->
 <div class="gate" id="gate" style="display:none">
@@ -724,7 +748,7 @@ function renderHome(){
   ${trackGroupHTML(list)}
 
   <div class="eyebrow">How to actually finish this</div>
-  <div class="card"><ul style="margin-left:19px;color:#ccd6e2;font-size:14px">
+  <div class="card"><ul style="margin-left:19px;color:var(--body);font-size:14px">
     <li><b>Go in order within a path.</b> Skipping Foundations is the biggest reason people drop out at week three.</li>
     <li><b>Type the lab wrong first.</b> Ten minutes of struggling teaches more than an hour of reading solutions.</li>
     <li><b>Two hours a day, six days a week</b> finishes the AI Engineer path in roughly eight months.</li>
@@ -772,7 +796,7 @@ function renderTrack(id){
     <div class="bar"><i style="width:${Math.round(d/n*100)}%"></i></div></div>
   ${(t.outcomes||[]).length?`<div class="card" style="margin-bottom:20px">
     <div class="statlbl">By the end of this track you will be able to</div>
-    <ul style="margin:8px 0 0 19px;color:#ccd6e2;font-size:14px">${t.outcomes.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></div>`:""}
+    <ul style="margin:8px 0 0 19px;color:var(--body);font-size:14px">${t.outcomes.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></div>`:""}
   <div class="eyebrow">Lessons</div>
   ${t.lessons.map((l,i)=>{
     const nEx=(l.exercises||[]).length || 1;
@@ -860,7 +884,7 @@ function exerciseHTML(l,e,k){
       ${runnable?langPill(l.lang):'<span class="pill blue">Written answer</span>'}
     </div>
     <div class="lab-body">
-      <p style="margin-bottom:12px;font-size:14px;color:#ccd6e2">${e.q||""}</p>
+      <p style="margin-bottom:12px;font-size:14px;color:var(--body)">${e.q||""}</p>
       <textarea class="code" id="code${k}" spellcheck="false">${esc(saved!==undefined?saved:(e.starter||""))}</textarea>
       <div class="row" style="margin-top:12px">
         ${runnable?`<button class="btn" id="run${k}">▶ Run</button>`
@@ -1009,12 +1033,12 @@ function renderProjects(){
   <div class="h1">🛠️ Portfolio projects</div>
   <p class="sub">Four projects, in this order. These are what actually get you interviews — a live URL and a README explaining a hard decision beats any certificate. Tick items as you go; they save to your account.</p>
   <div class="card" style="border-color:var(--accent);margin-bottom:22px"><b>The rule:</b>
-    <span style="color:#ccd6e2">every project needs a live URL, a public repo, and a README with a "what was hard" section. One deep project beats four shallow ones — interviewers pick one and dig for thirty minutes.</span></div>
+    <span style="color:var(--body)">every project needs a live URL, a public repo, and a README with a "what was hard" section. One deep project beats four shallow ones — interviewers pick one and dig for thirty minutes.</span></div>
   ${PROJECTS.map(p=>`<div class="card" style="margin-bottom:16px">
     <div class="row" style="align-items:flex-start"><span style="font-size:24px">${p.icon}</span>
       <div style="flex:1;min-width:200px"><div style="font-size:17px;font-weight:650">Project ${p.n} — ${p.title}</div>
       <div style="font-size:12px;color:var(--dim)">${p.after}</div></div></div>
-    <p style="color:#ccd6e2;font-size:14px;margin:12px 0 8px">${p.what}</p>
+    <p style="color:var(--body);font-size:14px;margin:12px 0 8px">${p.what}</p>
     <p style="font-size:13px;color:var(--accent);margin-bottom:14px"><b>Proves:</b> ${p.proves}</p>
     <div style="margin-bottom:12px">${p.steps.map((s,i)=>{
       const k=`proj${p.n}_${i}`;
@@ -1023,7 +1047,7 @@ function renderProjects(){
     <div class="reslist">${p.links.map(x=>`<a class="reslink" href="${x.u}" target="_blank" rel="noopener"><span>🔗</span><span>${x.t}</span><span class="ex">↗</span></a>`).join("")}</div>
   </div>`).join("")}
   <div class="card"><b>What interviewers check when they open your link</b>
-    <ul style="margin:9px 0 0 19px;color:#ccd6e2;font-size:14px">
+    <ul style="margin:9px 0 0 19px;color:var(--body);font-size:14px">
       <li>Does it load, in under five seconds?</li>
       <li>Does the README's example command work first try?</li>
       <li>Are your API keys committed to the repo? (They will look.)</li>
@@ -1069,7 +1093,20 @@ function render(){
   window.scrollTo(0,0);
 }
 
+/* ---------------- theme ---------------- */
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  const fab=$("#themeFab");
+  if(fab) fab.textContent = t==="light" ? "☀️" : "🌙";
+  try{ localStorage.setItem("vp_theme", t); }catch(e){}
+}
+applyTheme((()=>{try{return localStorage.getItem("vp_theme")||"dark"}catch(e){return "dark"}})());
+
 document.addEventListener("click",e=>{
+  if(e.target.closest("#themeFab")){
+    applyTheme(document.documentElement.dataset.theme==="light" ? "dark" : "light");
+    return;
+  }
   if(e.target.closest("#hamb")){
     document.querySelector(".sidebar").classList.toggle("open");
     $("#scrim").classList.toggle("on");
