@@ -44,20 +44,41 @@ GIT_SHA = (os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7]
            or os.environ.get("SOURCE_COMMIT", "")[:7] or "local")
 BUILT_AT = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./vidyapath.db")
+def env(name, default=""):
+    """Read an environment variable, treating empty/whitespace as absent.
+
+    os.environ.get(name, default) only falls back when the variable is
+    MISSING. A variable that exists but is empty returns "" — which is how
+    an unresolved Railway reference arrives, and it crashed the app on
+    import with "Could not parse SQLAlchemy URL from string ''".
+    """
+    return (os.environ.get(name) or "").strip() or default
+
+
+DATABASE_URL = env("DATABASE_URL", "sqlite:///./vidyapath.db")
+
 # Railway hands out postgres:// ; SQLAlchemy 2 needs postgresql://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-JWT_SECRET = os.environ.get("JWT_SECRET")
+# An unresolved Railway reference arrives literally as "${{ ... }}"
+if "${{" in DATABASE_URL or not DATABASE_URL.strip():
+    print("WARNING: DATABASE_URL is empty or unresolved — falling back to "
+          "SQLite. Data will NOT survive a redeploy. In Railway, add "
+          "DATABASE_URL via '+ New Variable' > 'Add Reference' > Postgres.")
+    DATABASE_URL = "sqlite:///./vidyapath.db"
+
+JWT_SECRET = env("JWT_SECRET")
 if not JWT_SECRET:
     # Fine for local dev; on Railway you MUST set this or sessions reset on redeploy.
     JWT_SECRET = "dev-only-insecure-secret-change-me"
     print("WARNING: JWT_SECRET not set — using an insecure development value.")
 
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "").strip().lower()
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") != "0"
+ADMIN_EMAIL = env("ADMIN_EMAIL").lower()
+if "${{" in ADMIN_EMAIL:
+    ADMIN_EMAIL = ""
+ADMIN_PASSWORD = env("ADMIN_PASSWORD")
+COOKIE_SECURE = env("COOKIE_SECURE", "1") != "0"
 SESSION_DAYS = 30
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -1220,4 +1241,4 @@ def not_found(request: Request, exc):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run("main:app", host="0.0.0.0", port=int(env("PORT", "8000")))

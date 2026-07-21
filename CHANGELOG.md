@@ -14,6 +14,27 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.4.3 — Empty environment variables
+
+- **Fixed the app crashing on import with "Could not parse SQLAlchemy URL
+  from string ''".** `os.environ.get(name, default)` only falls back when a
+  variable is MISSING. A variable that exists but is EMPTY returns `""` —
+  which is exactly how an unresolved Railway reference arrives.
+- All environment variables now go through `env()`, which treats empty and
+  whitespace-only values as absent.
+- An unresolved `${{ ... }}` reference is detected and falls back to SQLite
+  with a clear warning, rather than crashing the container.
+
+## 1.4.2 — Line endings fix
+
+- **Fixed the container dying with no log output.** Git on Windows rewrites
+  line endings, turning `#!/bin/sh` into `#!/bin/sh\r`. Linux then looks for
+  an interpreter literally named `sh\r`, fails, and the container exits
+  before printing anything — so the healthcheck had nothing to reach.
+- Added `.gitattributes` forcing LF on `.sh`, `Dockerfile` and `VERSION`.
+- Dockerfile strips carriage returns and runs `sh /app/start.sh` rather than
+  relying on the shebang or the executable bit.
+
 ## 1.4.1 — Deployment fix
 
 - **Fixed repeated healthcheck failures.** `railway.json` set a `startCommand`

@@ -1,0 +1,13 @@
+# Shell scripts MUST keep Unix line endings, even when edited on Windows.
+# A CRLF here turns "#!/bin/sh" into "#!/bin/sh\r", and Linux then looks for
+# an interpreter literally named "sh\r" — the container dies with no output.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+VERSION     text eol=lf
+
+# Everything else: normalise in the repo, let Windows do what it likes locally.
+*.py    text
+*.js    text
+*.json  text
+*.html  text
+*.md    text
