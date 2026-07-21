@@ -1,0 +1,857 @@
+{
+ "tracks": [
+  {
+   "id": "s3-sql",
+   "icon": "🗄️",
+   "name": "SQL & Databases",
+   "level": "Stage 3 · after Stage 2",
+   "color": "#0f766e",
+   "weeks": 4,
+   "lang": "SQL",
+   "desc": "The highest-paying skill you can learn for the least effort. SQL alone qualifies you for data analyst jobs, and every application you will ever build sits on a database. Every exercise here runs real SQL.",
+   "outcomes": [
+    "Write SELECT queries with filtering and sorting",
+    "Summarise data with COUNT, SUM, AVG and GROUP BY",
+    "Combine information from multiple tables with JOIN",
+    "Design sensible tables with proper keys",
+    "Write queries that are safe from SQL injection"
+   ],
+   "position": 0,
+   "audience": "stage3a",
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "q1",
+     "title": "What a database is, and asking it questions",
+     "mins": 35,
+     "lang": "py",
+     "position": 0,
+     "content": "\n<h3>Where we are, and why this matters</h3>\n<p>In Stage 2 you stored records as a list of dictionaries:</p>\n<pre><code>students = [\n    {\"name\": \"Asha\", \"marks\": 88, \"city\": \"Chennai\"},\n    {\"name\": \"Ravi\", \"marks\": 65, \"city\": \"Pune\"},\n]</code></pre>\n<p>That works perfectly — for a few hundred records, that exist only while your program is running, and that only one person uses.</p>\n<p>Now consider a real situation. A school with 4,000 students. The data must survive the computer being switched off. Twenty teachers need to read it at the same time. Two of them might edit the same record at the same instant. You need to find \"all students in Chennai scoring above 75\" in under a second.</p>\n<p>A Python list cannot do any of that. <b>A database can.</b> That is the entire reason databases exist.</p>\n\n<h3>A table is a list of dictionaries, made permanent</h3>\n<p>Look at how similar these are:</p>\n<pre><code>Python                              Database\n------------------------------      ------------------------------\na list                         =    a TABLE\none dictionary in the list     =    one ROW  (also called a record)\na key in the dictionary        =    a COLUMN (also called a field)\nthe value                      =    the value in that cell</code></pre>\n<p>The <code>students</code> table looks exactly like a spreadsheet:</p>\n<pre><code>id | name    | marks | city\n---+---------+-------+---------\n 1 | Asha    |    88 | Chennai\n 2 | Ravi    |    65 | Pune\n 3 | Meena   |    92 | Chennai\n 4 | Karthik |    45 | Delhi\n 5 | Divya   |    78 | Pune</code></pre>\n<p>One important difference from a Python list: <b>every row must have exactly the same columns.</b> You cannot give Ravi an extra field that Asha does not have. This strictness is a feature — it means the database can check your data and search it extremely fast.</p>\n\n<h3>SQL is how you ask questions</h3>\n<p>SQL stands for Structured Query Language. It is not a general programming language like Python — you cannot write a game in it. It does one job: getting information in and out of tables. And it has barely changed in fifty years, so what you learn now will still be true for your whole career.</p>\n<p>The remarkable thing about SQL is that you describe <b>what you want</b>, not how to get it. In Python you would write a loop. In SQL you just say what you are looking for and the database works out the fastest way to find it.</p>\n\n<h3>Your first query</h3>\n<pre><code>SELECT name FROM students;</code></pre>\n<p>Read it as plain English: <i>select the name column, from the students table</i>.</p>\n<p>Result:</p>\n<pre><code>Asha\nRavi\nMeena\nKarthik\nDivya</code></pre>\n<p>Two rules of style, worth adopting from your very first query:</p>\n<ul>\n<li><b>SQL keywords in CAPITALS</b> — SELECT, FROM, WHERE. Your own names stay lowercase. SQL does not require this, but every workplace does it, because it makes queries scannable.</li>\n<li><b>A semicolon at the end.</b> It marks where the statement finishes.</li>\n</ul>\n\n<h3>Choosing columns</h3>\n<pre><code>SELECT name FROM students;               one column\nSELECT name, marks FROM students;        two columns, in that order\nSELECT * FROM students;                  the star means EVERY column</code></pre>\n<div class=\"callout\"><b>A habit worth forming now:</b> use <code>SELECT *</code> when you are exploring and want to see what is in a table. But in real code, always name the columns you actually need. If someone later adds fifteen columns to that table, <code>SELECT *</code> silently starts dragging all of them across the network on every single query.</div>\n\n<h4>Worked example 1 — selecting specific columns</h4>\n<pre><code>SELECT name, city FROM students;</code></pre>\n<p>Result:</p>\n<pre><code>Asha Chennai\nRavi Pune\nMeena Chennai\nKarthik Delhi\nDivya Pune</code></pre>\n<p>Notice the database gave back the columns in the order you asked for them, and left <code>marks</code> and <code>id</code> out entirely. You get exactly what you requested, nothing more.</p>\n\n<h3>WHERE — keeping only the rows you want</h3>\n<p>This is where SQL becomes genuinely useful.</p>\n<pre><code>SELECT name, marks\nFROM students\nWHERE marks > 75;</code></pre>\n<p>Result:</p>\n<pre><code>Asha 88\nMeena 92\nDivya 78</code></pre>\n<p>The database went through every row, kept only those where marks was above 75, and returned the columns you asked for. In Python that would be a loop with an <code>if</code> inside. Here it is one line, and it stays one line whether the table has 5 rows or 50 million.</p>\n\n<h3>The comparison operators</h3>\n<pre><code>marks = 88        equal to        (ONE equals sign, not two!)\nmarks != 88       not equal to\nmarks > 75        greater than\nmarks < 50        less than\nmarks >= 75       greater than or equal\nmarks <= 40       less than or equal</code></pre>\n<div class=\"callout\"><b>Careful — this trips up every Python programmer.</b> In Python you use <code>==</code> to compare. In SQL you use a <b>single</b> <code>=</code>. SQL has no assignment operator inside a query, so there is no ambiguity to worry about. Just remember: Python <code>==</code>, SQL <code>=</code>.</div>\n\n<h3>Comparing text</h3>\n<pre><code>WHERE city = 'Chennai'</code></pre>\n<p>Text goes in <b>single quotes</b> in SQL. Not double quotes — those mean something different (they refer to column names). Single quotes for text values, always.</p>\n\n<h4>Worked example 2 — filtering on text</h4>\n<pre><code>SELECT name, marks\nFROM students\nWHERE city = 'Chennai';</code></pre>\n<p>Result:</p>\n<pre><code>Asha 88\nMeena 92</code></pre>\n\n<h3>Combining conditions with AND and OR</h3>\n<pre><code>WHERE marks > 75 AND city = 'Chennai'     both must be true\nWHERE city = 'Pune' OR city = 'Delhi'     either one is enough\nWHERE NOT city = 'Chennai'                flips it around</code></pre>\n<p>These are the same <code>and</code> / <code>or</code> / <code>not</code> ideas you learned in Stage 1, just written in capitals.</p>\n\n<h4>Worked example 3 — two conditions at once</h4>\n<pre><code>SELECT name, marks, city\nFROM students\nWHERE marks > 75 AND city = 'Chennai';</code></pre>\n<p>Let us trace it row by row, exactly as the database does:</p>\n<pre><code>Asha    88 Chennai  ->  88>75 yes, Chennai yes  ->  KEEP\nRavi    65 Pune     ->  65>75 NO                ->  skip\nMeena   92 Chennai  ->  92>75 yes, Chennai yes  ->  KEEP\nKarthik 45 Delhi    ->  45>75 NO                ->  skip\nDivya   78 Pune     ->  78>75 yes, Chennai NO   ->  skip</code></pre>\n<p>Result:</p>\n<pre><code>Asha 88 Chennai\nMeena 92 Chennai</code></pre>\n\n<h3>Three more filters you will use constantly</h3>\n<pre><code>WHERE city IN ('Pune', 'Delhi')          matches any in the list\nWHERE marks BETWEEN 60 AND 80            inclusive at BOTH ends\nWHERE name LIKE 'A%'                     starts with A\nWHERE name LIKE '%a'                     ends with a\nWHERE name LIKE '%ee%'                   contains 'ee' anywhere</code></pre>\n<p>In <code>LIKE</code>, the <code>%</code> symbol means \"any number of any characters\". It is SQL's wildcard.</p>\n<p><code>IN</code> is much nicer than writing <code>city = 'Pune' OR city = 'Delhi' OR city = 'Mumbai'</code> — same meaning, far more readable.</p>\n<p><b>Watch out for BETWEEN:</b> it includes both ends. <code>BETWEEN 60 AND 80</code> includes a student with exactly 60 and one with exactly 80. This differs from Python's <code>range()</code>, which excludes the end — so do not carry that assumption across.</p>\n\n<h3>Running SQL from Python</h3>\n<p>Every exercise here uses this pattern. Python has a small database called SQLite built into it, so nothing needs installing:</p>\n<pre><code>import sqlite3\ndb = sqlite3.connect(\":memory:\")      a temporary database in RAM\n\nquery = \"\"\"\nSELECT name FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)</code></pre>\n<p>Two small Python details worth understanding:</p>\n<ul>\n<li><b>Triple quotes</b> <code>\"\"\"</code> let a string run across several lines. SQL queries are much easier to read spread over multiple lines, so this is the normal way to write them.</li>\n<li><b>The star in <code>print(*row)</code></b> unpacks the row. Each row comes back as a tuple like <code>('Asha', 88)</code>. Without the star you would see the brackets and quotes; with it you see <code>Asha 88</code>.</li>\n</ul>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Select just the <b>name</b> column from the students table. You should see all five names.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT ____ FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "Replace the blank with name. The full query is: SELECT name FROM students",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha",
+         "Ravi",
+         "Meena",
+         "Karthik",
+         "Divya"
+        ]
+       }
+      },
+      {
+       "q": "Select <b>two</b> columns — name and marks — for every student.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "Separate the columns with a comma: SELECT name, marks FROM students",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha 88",
+         "Ravi 65",
+         "Meena 92",
+         "Karthik 45",
+         "Divya 78"
+        ]
+       }
+      },
+      {
+       "q": "Show only the students scoring <b>more than 75</b>. Show name and marks.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "Add a WHERE line: WHERE marks > 75",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nWHERE marks > 75\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha 88",
+         "Meena 92",
+         "Divya 78"
+        ]
+       }
+      },
+      {
+       "q": "Show the names of students from <b>Chennai</b>. Remember: text goes in single quotes.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name\nFROM students\nWHERE city = ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE city = 'Chennai' — single quotes, not double.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name\nFROM students\nWHERE city = 'Chennai'\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha",
+         "Meena"
+        ]
+       }
+      },
+      {
+       "q": "Use <b>AND</b>: show name and marks for students scoring above 75 <b>and</b> from Chennai.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nWHERE marks > 75\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE marks > 75 AND city = 'Chennai'",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nWHERE marks > 75 AND city = 'Chennai'\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha 88",
+         "Meena 92"
+        ]
+       }
+      },
+      {
+       "q": "Use <b>IN</b>: show the names of students from either <b>Pune</b> or <b>Delhi</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name\nFROM students\nWHERE city IN (____)\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE city IN ('Pune', 'Delhi')",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name\nFROM students\nWHERE city IN ('Pune', 'Delhi')\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Ravi",
+         "Karthik",
+         "Divya"
+        ]
+       }
+      },
+      {
+       "q": "Use <b>BETWEEN</b>: show name and marks for students scoring between 60 and 80. Remember both ends are included.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nWHERE marks BETWEEN ____ AND ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE marks BETWEEN 60 AND 80 — this catches Ravi (65) and Divya (78).",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nWHERE marks BETWEEN 60 AND 80\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Ravi 65",
+         "Divya 78"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: use <b>LIKE</b> to find students whose name contains the letters <b>ee</b>. Show the name and city.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, city\nFROM students\nWHERE name LIKE ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE name LIKE '%ee%' — the % means any characters before and after.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, city\nFROM students\nWHERE name LIKE '%ee%'\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Meena Chennai"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Why can a Python list of dictionaries not replace a database for a real school with 4,000 students?",
+       "a": "The data disappears when the program stops. Many people cannot read and write it at the same time. There is no protection when two people edit the same record at once. And searching gets slow as it grows."
+      },
+      {
+       "q": "Match the Python idea to the database word: a list, one dictionary, a key.",
+       "a": "a list = a TABLE\none dictionary = a ROW (or record)\na key = a COLUMN (or field)"
+      },
+      {
+       "q": "What is one important way a table is stricter than a Python list of dictionaries?",
+       "a": "Every row must have exactly the same columns. You cannot give one row an extra field. This strictness lets the database check the data and search it very fast."
+      },
+      {
+       "q": "What does SQL stand for, and what is it for?",
+       "a": "Structured Query Language. It does one job: getting information in and out of tables. It is not a general programming language."
+      },
+      {
+       "q": "Write the query to select all columns from a table called orders.",
+       "a": "SELECT * FROM orders;"
+      },
+      {
+       "q": "Why should you avoid SELECT * in real production code?",
+       "a": "If someone later adds fifteen columns to that table, your query silently starts pulling all of them across the network every time. Name the columns you actually need."
+      },
+      {
+       "q": "What is the single biggest difference between comparing in Python and comparing in SQL?",
+       "a": "Python uses == (two equals signs). SQL uses = (one equals sign)."
+      },
+      {
+       "q": "Should text values use single or double quotes in SQL? Why does it matter?",
+       "a": "Single quotes. Double quotes mean something different in SQL - they refer to column names, not text values."
+      },
+      {
+       "q": "Write a query to find employees earning more than 50000 in the city Pune.",
+       "a": "SELECT name, salary\nFROM employees\nWHERE salary > 50000 AND city = 'Pune';"
+      },
+      {
+       "q": "Explain BETWEEN 60 AND 80. How does it differ from Python's range(60, 80)?",
+       "a": "BETWEEN includes BOTH ends - a value of exactly 60 and exactly 80 both match. Python's range(60, 80) excludes the end, stopping at 79. Do not carry the Python assumption across."
+      },
+      {
+       "q": "What does the % symbol mean inside LIKE? Give an example.",
+       "a": "It is a wildcard meaning 'any number of any characters'.\nLIKE 'A%' means starts with A.\nLIKE '%a' means ends with a.\nLIKE '%ee%' means contains ee anywhere."
+      }
+     ]
+    },
+    {
+     "id": "q2",
+     "title": "Sorting, limiting, and summarising",
+     "mins": 35,
+     "lang": "py",
+     "position": 1,
+     "content": "\n<h3>ORDER BY — putting rows in order</h3>\n<p>Rows come back in whatever order the database finds convenient. If you want a specific order, you must ask for it.</p>\n<pre><code>SELECT name, marks\nFROM students\nORDER BY marks;</code></pre>\n<p>Result — lowest first, because ascending is the default:</p>\n<pre><code>Karthik 45\nRavi 65\nDivya 78\nAsha 88\nMeena 92</code></pre>\n<p>To flip it, add <code>DESC</code> (short for descending):</p>\n<pre><code>SELECT name, marks\nFROM students\nORDER BY marks DESC;</code></pre>\n<pre><code>Meena 92\nAsha 88\nDivya 78\nRavi 65\nKarthik 45</code></pre>\n<p>You can also write <code>ASC</code> for ascending, but since it is the default, most people leave it out.</p>\n\n<h3>Sorting by more than one column</h3>\n<pre><code>SELECT name, city, marks\nFROM students\nORDER BY city, marks DESC;</code></pre>\n<p>This sorts by city first. Then, <b>within each city</b>, it sorts by marks highest-first. The second column only matters when the first one ties.</p>\n<pre><code>Karthik Delhi   45\nMeena   Chennai 92     Chennai group, highest first\nAsha    Chennai 88\nDivya   Pune    78     Pune group, highest first\nRavi    Pune    65</code></pre>\n<p>(Cities sort alphabetically: Chennai, Delhi, Pune.)</p>\n\n<h3>LIMIT — only the first few</h3>\n<pre><code>SELECT name, marks\nFROM students\nORDER BY marks DESC\nLIMIT 3;</code></pre>\n<p>Result — the top three:</p>\n<pre><code>Meena 92\nAsha 88\nDivya 78</code></pre>\n<div class=\"callout\"><b>ORDER BY and LIMIT belong together.</b> <code>LIMIT 3</code> on its own gives you three rows, but arbitrary ones — whichever the database happened to reach first. Only when you sort first does \"LIMIT 3\" mean something meaningful like \"the top three\".</div>\n\n<h3>DISTINCT — removing duplicates</h3>\n<pre><code>SELECT city FROM students;              gives Chennai, Pune, Chennai, Delhi, Pune\nSELECT DISTINCT city FROM students;     gives Chennai, Pune, Delhi</code></pre>\n<p>Useful whenever you want to know \"what different values exist in this column?\"</p>\n\n<h3>Aggregate functions — turning many rows into one number</h3>\n<p>Everything so far returned rows. These return a <b>single value</b> calculated from all the rows.</p>\n<pre><code>COUNT(*)        how many rows\nSUM(marks)      add them all up\nAVG(marks)      the average\nMAX(marks)      the largest\nMIN(marks)      the smallest</code></pre>\n<p>You already know these from Python — <code>len()</code>, <code>sum()</code>, <code>max()</code>, <code>min()</code>. Same ideas, different names.</p>\n\n<h4>Worked example 1 — counting</h4>\n<pre><code>SELECT COUNT(*) FROM students;</code></pre>\n<p>Result: <code>5</code></p>\n<p>One row, one number. The five rows were collapsed into a single answer.</p>\n\n<h4>Worked example 2 — counting with a filter</h4>\n<pre><code>SELECT COUNT(*)\nFROM students\nWHERE marks >= 75;</code></pre>\n<p>Result: <code>3</code></p>\n<p>The <code>WHERE</code> runs first, keeping Asha, Meena and Divya. Then <code>COUNT(*)</code> counts what survived. <b>Filter first, then summarise</b> — that order matters and it is always this way round.</p>\n\n<h4>Worked example 3 — several summaries at once</h4>\n<pre><code>SELECT COUNT(*), AVG(marks), MAX(marks), MIN(marks)\nFROM students;</code></pre>\n<p>Result:</p>\n<pre><code>5 73.6 92 45</code></pre>\n<p>One row containing four different summaries. The database read the table once and calculated all four as it went.</p>\n\n<h3>Naming your results with AS</h3>\n<p>A column called <code>COUNT(*)</code> is ugly and hard to work with. Rename it:</p>\n<pre><code>SELECT COUNT(*) AS total_students,\n       AVG(marks) AS average_marks\nFROM students;</code></pre>\n<p>The result is the same numbers, but the columns now have proper names. This is called an <b>alias</b>. It matters enormously once you start writing bigger queries or feeding results into other programs.</p>\n\n<h3>Rounding</h3>\n<p><code>AVG</code> often gives long decimals. <code>ROUND</code> tidies it:</p>\n<pre><code>SELECT ROUND(AVG(marks), 1) AS average\nFROM students;</code></pre>\n<p>Result: <code>73.6</code></p>\n<p>The <code>1</code> is how many decimal places you want — the same thinking as <code>:.1f</code> in Python f-strings.</p>\n\n<h3>A subtle but important detail about COUNT</h3>\n<pre><code>COUNT(*)          counts every row\nCOUNT(city)       counts rows where city is NOT empty</code></pre>\n<p>Databases have a special value called <b>NULL</b>, which means \"no value here\" — nobody filled it in. NULL is not zero and not an empty string; it is the absence of information.</p>\n<p><code>COUNT(*)</code> counts rows regardless. <code>COUNT(column)</code> skips NULLs. So comparing the two tells you how much data is missing:</p>\n<pre><code>SELECT COUNT(*), COUNT(phone) FROM students;\n5  2       -- means three students have no phone number recorded</code></pre>\n<div class=\"callout\"><b>NULL behaves strangely and it catches people out.</b> <code>WHERE phone = NULL</code> does not work — it returns nothing at all, even when there are NULLs. This is because NULL means \"unknown\", and asking whether an unknown equals an unknown gives... unknown. You must write <code>WHERE phone IS NULL</code> or <code>WHERE phone IS NOT NULL</code>. Remember <b>IS</b>, not <b>=</b>.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Sort all students by <b>marks</b>, lowest first. Show name and marks.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nORDER BY ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ORDER BY marks — ascending is the default, so nothing else is needed.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nORDER BY marks\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Karthik 45",
+         "Ravi 65",
+         "Divya 78",
+         "Asha 88",
+         "Meena 92"
+        ]
+       }
+      },
+      {
+       "q": "Now sort by marks <b>highest first</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nORDER BY marks\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "Add DESC at the end: ORDER BY marks DESC",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nORDER BY marks DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Meena 92",
+         "Asha 88",
+         "Divya 78",
+         "Ravi 65",
+         "Karthik 45"
+        ]
+       }
+      },
+      {
+       "q": "Show only the <b>top 3</b> students by marks.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nORDER BY marks DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "Add LIMIT 3 on a new line at the end.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT name, marks\nFROM students\nORDER BY marks DESC\nLIMIT 3\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Meena 92",
+         "Asha 88",
+         "Divya 78"
+        ]
+       }
+      },
+      {
+       "q": "List each <b>different</b> city, with no repeats.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT ____ city\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "SELECT DISTINCT city FROM students",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT DISTINCT city\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai",
+         "Pune",
+         "Delhi"
+        ]
+       }
+      },
+      {
+       "q": "Count <b>how many students</b> there are in total.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT ____ FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "SELECT COUNT(*) FROM students",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT COUNT(*) FROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "5"
+        ]
+       }
+      },
+      {
+       "q": "Count how many students scored <b>75 or above</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT COUNT(*)\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "Add WHERE marks >= 75. The WHERE runs first, then the counting.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT COUNT(*)\nFROM students\nWHERE marks >= 75\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "Show the <b>highest</b> and <b>lowest</b> marks in one query.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT ____, ____\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "SELECT MAX(marks), MIN(marks) FROM students",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT MAX(marks), MIN(marks)\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "92 45"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: show the <b>count</b> and the <b>average marks rounded to 1 decimal place</b>, giving both columns proper names with AS.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT COUNT(*) AS total,\n       ____ AS average\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ROUND(AVG(marks), 1) AS average — the answer is 5 and 73.6",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT COUNT(*) AS total,\n       ROUND(AVG(marks), 1) AS average\nFROM students\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "5 73.6"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "What order do rows come back in if you do not use ORDER BY?",
+       "a": "Whatever order the database finds convenient. It is not guaranteed and can change. If you need a specific order, you must ask for it."
+      },
+      {
+       "q": "What is the default sort direction, and how do you reverse it?",
+       "a": "Ascending (smallest first) is the default. Add DESC to reverse it."
+      },
+      {
+       "q": "Explain ORDER BY city, marks DESC in your own words.",
+       "a": "Sort by city first. Then, within each city group, sort by marks highest first. The second column only matters when the first one ties."
+      },
+      {
+       "q": "Why is LIMIT 3 on its own almost always a mistake?",
+       "a": "Without ORDER BY you get three arbitrary rows - whichever the database reached first. Only after sorting does 'the first 3' mean something meaningful like 'the top 3'."
+      },
+      {
+       "q": "What does DISTINCT do?",
+       "a": "Removes duplicate values, so you see each different value only once."
+      },
+      {
+       "q": "Name the five aggregate functions and their Python equivalents.",
+       "a": "COUNT(*) = len()\nSUM() = sum()\nAVG() = sum()/len()\nMAX() = max()\nMIN() = min()"
+      },
+      {
+       "q": "In a query with both WHERE and COUNT, which happens first?",
+       "a": "WHERE runs first, keeping only the matching rows. Then COUNT counts what survived. Filter first, summarise second - always."
+      },
+      {
+       "q": "What does AS do and why does it matter?",
+       "a": "It renames a result column (an alias). It matters because COUNT(*) is an ugly column name, and proper names are essential when queries get bigger or feed into other programs."
+      },
+      {
+       "q": "Write a query showing the average salary rounded to 2 decimal places, named avg_pay.",
+       "a": "SELECT ROUND(AVG(salary), 2) AS avg_pay\nFROM employees;"
+      },
+      {
+       "q": "What is the difference between COUNT(*) and COUNT(phone)?",
+       "a": "COUNT(*) counts every row. COUNT(phone) counts only rows where phone is not NULL. Comparing the two tells you how much data is missing."
+      },
+      {
+       "q": "What is NULL, and why does WHERE phone = NULL fail?",
+       "a": "NULL means 'no value / unknown'. It is not zero and not an empty string.\nComparing an unknown to an unknown gives unknown, not true - so nothing ever matches. You must write WHERE phone IS NULL (using IS, not =)."
+      }
+     ]
+    },
+    {
+     "id": "q3",
+     "title": "GROUP BY — summarising by category",
+     "mins": 40,
+     "lang": "py",
+     "position": 2,
+     "content": "\n<h3>The question aggregates cannot answer yet</h3>\n<p>You can now find the average marks of the whole school:</p>\n<pre><code>SELECT AVG(marks) FROM students;      one number for everybody</code></pre>\n<p>But the real question a head teacher asks is different: <b>\"what is the average in each city?\"</b> Not one number — one number per city.</p>\n<p>You could run three separate queries, one per city. But you would need to know the cities in advance, and it would break the moment a new city appeared.</p>\n\n<h3>GROUP BY does it in one query</h3>\n<pre><code>SELECT city, AVG(marks)\nFROM students\nGROUP BY city;</code></pre>\n<p>Result:</p>\n<pre><code>Chennai 90.0\nDelhi 45.0\nPune 71.5</code></pre>\n\n<h3>What GROUP BY actually does — picture it</h3>\n<p>Imagine the database physically sorting the rows into piles, one pile per city:</p>\n<pre><code>PILE \"Chennai\"          PILE \"Pune\"            PILE \"Delhi\"\nAsha    88              Ravi    65             Karthik 45\nMeena   92              Divya   78</code></pre>\n<p>Then it applies your aggregate function <b>to each pile separately</b>, and gives you one row back per pile:</p>\n<pre><code>Chennai -> AVG(88, 92) = 90.0\nPune    -> AVG(65, 78) = 71.5\nDelhi   -> AVG(45)     = 45.0</code></pre>\n<p>That mental picture — <b>sort into piles, summarise each pile</b> — is the whole of GROUP BY. Hold on to it and the rest follows.</p>\n\n<h4>Worked example 1 — counting per group</h4>\n<pre><code>SELECT city, COUNT(*)\nFROM students\nGROUP BY city;</code></pre>\n<p>Result:</p>\n<pre><code>Chennai 2\nDelhi 1\nPune 2</code></pre>\n<p>This is exactly the counting-dictionary pattern from Stage 2, where you wrote:</p>\n<pre><code>counts[city] = counts.get(city, 0) + 1</code></pre>\n<p>Four lines of Python, or one line of SQL. And the SQL version works just as fast on ten million rows.</p>\n\n<h4>Worked example 2 — several summaries per group</h4>\n<pre><code>SELECT city,\n       COUNT(*) AS students,\n       ROUND(AVG(marks), 1) AS average,\n       MAX(marks) AS best\nFROM students\nGROUP BY city\nORDER BY average DESC;</code></pre>\n<p>Result:</p>\n<pre><code>Chennai 2 90.0 92\nPune 2 71.5 78\nDelhi 1 45.0 45</code></pre>\n<p>Read that result as a genuine report: Chennai has 2 students averaging 90, best mark 92. This is real data analysis, and you wrote it in six lines.</p>\n\n<h3>The rule that catches everybody</h3>\n<p>Every column in your SELECT must either be <b>in the GROUP BY</b>, or <b>inside an aggregate function</b>. Nothing else is allowed.</p>\n<pre><code>SELECT city, name, AVG(marks)      WRONG\nFROM students\nGROUP BY city;</code></pre>\n<p>Why is this wrong? Think about the piles. The Chennai pile contains Asha and Meena. You asked for one row per city, and one <code>name</code> value in it. Which name should the database put — Asha or Meena? There is no sensible answer, so the question itself is broken.</p>\n<div class=\"callout\"><b>Whenever you get an error mentioning GROUP BY,</b> go through your SELECT columns one at a time and ask of each: is this in the GROUP BY, or wrapped in COUNT/SUM/AVG/MAX/MIN? If it is neither, that column is your problem. This single check resolves almost every GROUP BY error you will ever hit.</div>\n\n<h3>HAVING — filtering the groups</h3>\n<p>Now a harder question: <b>\"which cities have an average above 70?\"</b></p>\n<p>Your instinct is to use WHERE. It does not work:</p>\n<pre><code>SELECT city, AVG(marks)\nFROM students\nWHERE AVG(marks) > 70        ERROR\nGROUP BY city;</code></pre>\n<p>The reason is about <b>timing</b>. WHERE runs while the database is still looking at individual rows — before any piles have been made. At that moment no average exists yet. You cannot filter on something that has not been calculated.</p>\n<p><code>HAVING</code> is the filter that runs <b>after</b> grouping:</p>\n<pre><code>SELECT city, AVG(marks)\nFROM students\nGROUP BY city\nHAVING AVG(marks) > 70;</code></pre>\n<p>Result:</p>\n<pre><code>Chennai 90.0\nPune 71.5</code></pre>\n<p>Delhi is gone — its average of 45 did not survive the HAVING.</p>\n\n<h3>The order the database does things</h3>\n<p>This is worth memorising. It explains most SQL confusion:</p>\n<pre><code>1. FROM       which table\n2. WHERE      throw away individual rows\n3. GROUP BY   sort what remains into piles\n4. HAVING     throw away whole piles\n5. SELECT     work out the columns to show\n6. ORDER BY   sort the final result\n7. LIMIT      keep only the first few</code></pre>\n<p>Notice that <code>SELECT</code> — which you write first — actually happens fifth. That is why you cannot use a column alias in WHERE: at that point in the process, the alias does not exist yet.</p>\n\n<h4>Worked example 3 — WHERE and HAVING together</h4>\n<p>They are not alternatives. Serious queries often use both:</p>\n<pre><code>SELECT city, COUNT(*) AS passed\nFROM students\nWHERE marks >= 60\nGROUP BY city\nHAVING COUNT(*) >= 2;</code></pre>\n<p>Trace it step by step:</p>\n<pre><code>Step 2 - WHERE marks >= 60 keeps:\n   Asha 88 Chennai, Ravi 65 Pune, Meena 92 Chennai, Divya 78 Pune\n   (Karthik with 45 is thrown out here)\n\nStep 3 - GROUP BY city makes two piles:\n   Chennai: Asha, Meena   ->  count 2\n   Pune:    Ravi, Divya   ->  count 2\n\nStep 4 - HAVING COUNT(*) >= 2 keeps both piles</code></pre>\n<p>Result:</p>\n<pre><code>Chennai 2\nPune 2</code></pre>\n<p>Read the query as one sentence: <i>of the students who passed, show me the cities that have at least two of them.</i></p>\n<div class=\"callout\"><b>The one-line summary that will get you through interviews:</b> WHERE filters rows before grouping. HAVING filters groups after grouping. This is asked constantly and most candidates fumble it.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Show the <b>number of students in each city</b>. Two columns: city and the count.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*)\nFROM students\nGROUP BY ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "GROUP BY city",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*)\nFROM students\nGROUP BY city\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2",
+         "Delhi 1",
+         "Pune 2"
+        ]
+       }
+      },
+      {
+       "q": "Show the <b>average marks in each city</b>, rounded to 1 decimal place.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, ____\nFROM students\nGROUP BY city\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ROUND(AVG(marks), 1)",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, ROUND(AVG(marks), 1)\nFROM students\nGROUP BY city\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 90.0",
+         "Delhi 45.0",
+         "Pune 71.5"
+        ]
+       }
+      },
+      {
+       "q": "Show the <b>highest mark</b> in each city.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, ____\nFROM students\nGROUP BY city\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "MAX(marks)",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, MAX(marks)\nFROM students\nGROUP BY city\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 92",
+         "Delhi 45",
+         "Pune 78"
+        ]
+       }
+      },
+      {
+       "q": "Show city, count and rounded average together, sorted by <b>average highest first</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*) AS students, ROUND(AVG(marks),1) AS average\nFROM students\nGROUP BY city\nORDER BY ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ORDER BY average DESC — you can sort by the alias here, because ORDER BY runs after SELECT.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*) AS students, ROUND(AVG(marks),1) AS average\nFROM students\nGROUP BY city\nORDER BY average DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2 90.0",
+         "Pune 2 71.5",
+         "Delhi 1 45.0"
+        ]
+       }
+      },
+      {
+       "q": "Use <b>HAVING</b>: show only the cities whose average marks are above 70.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, ROUND(AVG(marks),1)\nFROM students\nGROUP BY city\n____ AVG(marks) > 70\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "HAVING AVG(marks) > 70 — not WHERE, because the average does not exist yet at WHERE time.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, ROUND(AVG(marks),1)\nFROM students\nGROUP BY city\nHAVING AVG(marks) > 70\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 90.0",
+         "Pune 71.5"
+        ]
+       }
+      },
+      {
+       "q": "Show only the cities that have <b>2 or more</b> students.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*)\nFROM students\nGROUP BY city\nHAVING ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "HAVING COUNT(*) >= 2",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*)\nFROM students\nGROUP BY city\nHAVING COUNT(*) >= 2\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2",
+         "Pune 2"
+        ]
+       }
+      },
+      {
+       "q": "Use <b>WHERE and HAVING together</b>: among students scoring 60 or more, show cities having at least 2 such students.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*) AS passed\nFROM students\nWHERE ____\nGROUP BY city\nHAVING ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE marks >= 60 then HAVING COUNT(*) >= 2. Karthik is removed by WHERE before grouping.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city, COUNT(*) AS passed\nFROM students\nWHERE marks >= 60\nGROUP BY city\nHAVING COUNT(*) >= 2\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2",
+         "Pune 2"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: show each city with its student count, average and top mark, but only for cities averaging above 60, sorted by average descending.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city,\n       COUNT(*) AS n,\n       ROUND(AVG(marks),1) AS avg_marks,\n       MAX(marks) AS best\nFROM students\nGROUP BY city\n____\n____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "HAVING AVG(marks) > 60 then ORDER BY avg_marks DESC",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, city TEXT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\",    88, \"Chennai\"),\n    (2, \"Ravi\",    65, \"Pune\"),\n    (3, \"Meena\",   92, \"Chennai\"),\n    (4, \"Karthik\", 45, \"Delhi\"),\n    (5, \"Divya\",   78, \"Pune\"),\n])\n\nquery = \"\"\"\nSELECT city,\n       COUNT(*) AS n,\n       ROUND(AVG(marks),1) AS avg_marks,\n       MAX(marks) AS best\nFROM students\nGROUP BY city\nHAVING AVG(marks) > 60\nORDER BY avg_marks DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2 90.0 92",
+         "Pune 2 71.5 78"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Describe what GROUP BY does using the 'piles' picture.",
+       "a": "It sorts the rows into piles, one pile per distinct value. Then it applies your aggregate function to each pile separately, giving one result row per pile."
+      },
+      {
+       "q": "Write a query showing how many employees work in each department.",
+       "a": "SELECT department, COUNT(*)\nFROM employees\nGROUP BY department;"
+      },
+      {
+       "q": "Why is this query wrong?\nSELECT city, name, AVG(marks) FROM students GROUP BY city;",
+       "a": "Because the Chennai pile contains two different names. You asked for one row per city with one name in it, but there is no way to choose between Asha and Meena. Every SELECT column must be either in the GROUP BY or inside an aggregate function."
+      },
+      {
+       "q": "What check should you run when you get a GROUP BY error?",
+       "a": "Go through each SELECT column and ask: is it in the GROUP BY, or wrapped in COUNT/SUM/AVG/MAX/MIN? If neither, that is the problem column."
+      },
+      {
+       "q": "Why can you not write WHERE AVG(marks) > 70?",
+       "a": "Because WHERE runs while the database is still looking at individual rows, before any groups have been formed. At that moment no average exists yet."
+      },
+      {
+       "q": "What is HAVING and when do you use it?",
+       "a": "A filter that runs AFTER grouping. Use it to throw away whole groups based on an aggregate value."
+      },
+      {
+       "q": "Write out the order in which a database actually processes a query.",
+       "a": "1. FROM - which table\n2. WHERE - throw away rows\n3. GROUP BY - sort into piles\n4. HAVING - throw away piles\n5. SELECT - work out columns\n6. ORDER BY - sort the result\n7. LIMIT - keep the first few"
+      },
+      {
+       "q": "Why can you use a column alias in ORDER BY but not in WHERE?",
+       "a": "Because SELECT (where the alias is created) happens at step 5. WHERE is step 2, so the alias does not exist yet. ORDER BY is step 6, which is after SELECT, so it does."
+      },
+      {
+       "q": "Give the one-line summary of WHERE vs HAVING.",
+       "a": "WHERE filters rows before grouping. HAVING filters groups after grouping."
+      },
+      {
+       "q": "Write a query: among orders over 500, show customers who placed at least 3 such orders.",
+       "a": "SELECT customer_id, COUNT(*) AS n\nFROM orders\nWHERE amount > 500\nGROUP BY customer_id\nHAVING COUNT(*) >= 3;"
+      },
+      {
+       "q": "How does GROUP BY relate to the counting-dictionary pattern from Stage 2?",
+       "a": "They do the same job. In Python you wrote counts[city] = counts.get(city, 0) + 1 in a loop - four lines. In SQL it is GROUP BY city with COUNT(*) - one line, and it stays fast on millions of rows."
+      }
+     ]
+    },
+    {
+     "id": "q4",
+     "title": "JOIN — combining two tables",
+     "mins": 40,
+     "lang": "py",
+     "position": 3,
+     "content": "\n<h3>Why data gets split across tables</h3>\n<p>Suppose each student has a class teacher. The lazy approach puts everything in one table:</p>\n<pre><code>id | name  | marks | city    | teacher_name | teacher_subject\n 1 | Asha  |    88 | Chennai | Mrs Rao      | Maths\n 2 | Ravi  |    65 | Pune    | Mr Iyer      | Science\n 3 | Meena |    92 | Chennai | Mrs Rao      | Maths</code></pre>\n<p>Look at the problem. \"Mrs Rao\" and \"Maths\" are written twice. With 200 students she might appear 40 times.</p>\n<p>Now Mrs Rao changes surname. You must update 40 rows. Miss one and your data is permanently inconsistent — the same person recorded under two names, and no way to tell which is right.</p>\n\n<h3>The fix: separate tables, connected by an id</h3>\n<pre><code>TABLE teachers                    TABLE students\nid | name     | subject           id | name  | marks | teacher_id\n 1 | Mrs Rao  | Maths              1 | Asha  |    88 |          1\n 2 | Mr Iyer  | Science            2 | Ravi  |    65 |          2\n 3 | Ms Nair  | English            3 | Meena |    92 |          1</code></pre>\n<p>Mrs Rao's details now exist in exactly <b>one place</b>. Students point at her using her id number. Change her name once and every student automatically reflects it.</p>\n<p>Two pieces of vocabulary:</p>\n<ul>\n<li><b>Primary key</b> — the column that uniquely identifies a row. <code>teachers.id</code>. Every table should have one.</li>\n<li><b>Foreign key</b> — a column pointing at another table's primary key. <code>students.teacher_id</code>. The word \"foreign\" just means \"belongs to a different table\".</li>\n</ul>\n\n<h3>JOIN puts them back together</h3>\n<pre><code>SELECT students.name, teachers.name\nFROM students\nJOIN teachers ON students.teacher_id = teachers.id;</code></pre>\n<p>Result:</p>\n<pre><code>Asha Mrs Rao\nRavi Mr Iyer\nMeena Mrs Rao</code></pre>\n<p>The important part is <code>ON students.teacher_id = teachers.id</code>. That tells the database <b>how the two tables connect</b> — match a student to the teacher whose id equals that student's teacher_id.</p>\n\n<h3>How to read a JOIN, mechanically</h3>\n<p>Take it one student at a time:</p>\n<pre><code>Asha has teacher_id 1  ->  find teacher with id 1  ->  Mrs Rao   ->  join them\nRavi has teacher_id 2  ->  find teacher with id 2  ->  Mr Iyer   ->  join them\nMeena has teacher_id 1 ->  find teacher with id 1  ->  Mrs Rao   ->  join them</code></pre>\n<p>The database builds a temporary combined table with columns from both, then your SELECT picks what to show from it.</p>\n\n<h3>Short names make joins readable</h3>\n<p>Writing <code>students.name</code> everywhere gets long. Give the tables short aliases:</p>\n<pre><code>SELECT s.name, t.name, t.subject\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id;</code></pre>\n<p><code>students s</code> means \"call this table s from now on\". Every real-world query does this. Notice you still need the prefix — both tables have a column called <code>name</code>, so <code>s.name</code> and <code>t.name</code> are how you say which one you mean.</p>\n\n<h4>Worked example 1 — join plus filter plus sort</h4>\n<pre><code>SELECT s.name, s.marks, t.subject\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\nWHERE s.marks > 70\nORDER BY s.marks DESC;</code></pre>\n<p>Everything you learned still works. The join simply gives you more columns to work with.</p>\n\n<h3>INNER JOIN and LEFT JOIN — the crucial difference</h3>\n<p>Plain <code>JOIN</code> is short for <code>INNER JOIN</code>. It keeps <b>only rows that have a match on both sides</b>.</p>\n<p>So a student with no teacher assigned simply vanishes from the results. Often that is not what you want — you may not even notice they are missing.</p>\n<pre><code>SELECT s.name, t.name\nFROM students s\nLEFT JOIN teachers t ON s.teacher_id = t.id;</code></pre>\n<p><code>LEFT JOIN</code> keeps <b>every row from the left table</b> (the one after FROM), whether or not it found a match. Where there is no match, the right-hand columns come back as NULL.</p>\n<pre><code>Asha    Mrs Rao\nRavi    Mr Iyer\nMeena   Mrs Rao\nKarthik None        &lt;-- no teacher assigned, but the student still appears</code></pre>\n<div class=\"callout\"><b>This is the most consequential decision in a JOIN.</b> Use INNER JOIN when a missing match means the row is irrelevant. Use LEFT JOIN when you need to see everything from the main table, including the gaps. Quietly losing rows to an INNER JOIN is one of the most common causes of wrong numbers in business reports — the total looks plausible, so nobody checks.</div>\n\n<h4>Worked example 2 — the \"find what is missing\" pattern</h4>\n<p>LEFT JOIN has a second use that is worth memorising as a shape. How do you find students with <b>no</b> teacher?</p>\n<pre><code>SELECT s.name\nFROM students s\nLEFT JOIN teachers t ON s.teacher_id = t.id\nWHERE t.id IS NULL;</code></pre>\n<p>The logic: keep every student, then keep only those where the teacher side came back empty. Those are exactly the unmatched ones.</p>\n<p>This pattern — <b>LEFT JOIN then filter for NULL</b> — answers a whole family of questions: customers who never ordered, products never sold, students not enrolled. Learn it as a shape and you will reuse it constantly.</p>\n\n<h4>Worked example 3 — joining then grouping</h4>\n<p>Everything combines. Here is how many students each teacher has:</p>\n<pre><code>SELECT t.name, COUNT(*) AS student_count\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\nGROUP BY t.name\nORDER BY student_count DESC;</code></pre>\n<p>Result:</p>\n<pre><code>Mrs Rao 2\nMr Iyer 1</code></pre>\n<p>The database joins the tables first, then sorts the combined rows into piles by teacher name, then counts each pile. Every step you have learned, stacked together.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Join students to teachers and show each <b>student name</b> with their <b>teacher name</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, t.name\nFROM students s\nJOIN teachers t ON ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ON s.teacher_id = t.id",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, t.name\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha Mrs Rao",
+         "Ravi Mr Iyer",
+         "Meena Mrs Rao"
+        ]
+       }
+      },
+      {
+       "q": "Show each student's name, marks and their teacher's <b>subject</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, s.marks, ____\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "t.subject",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, s.marks, t.subject\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha 88 Maths",
+         "Ravi 65 Science",
+         "Meena 92 Maths"
+        ]
+       }
+      },
+      {
+       "q": "Notice <b>Karthik is missing</b> from the results above — he has no teacher. Use <b>LEFT JOIN</b> so every student appears.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, t.name\nFROM students s\n____ JOIN teachers t ON s.teacher_id = t.id\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "LEFT JOIN — Karthik will show with None for the teacher.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, t.name\nFROM students s\nLEFT JOIN teachers t ON s.teacher_id = t.id\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "all": [
+         "Asha Mrs Rao",
+         "Karthik None"
+        ]
+       }
+      },
+      {
+       "q": "Use the <b>LEFT JOIN then filter for NULL</b> pattern to find students with <b>no teacher</b>.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name\nFROM students s\nLEFT JOIN teachers t ON s.teacher_id = t.id\nWHERE ____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE t.id IS NULL — remember IS NULL, never = NULL.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name\nFROM students s\nLEFT JOIN teachers t ON s.teacher_id = t.id\nWHERE t.id IS NULL\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Karthik"
+        ]
+       }
+      },
+      {
+       "q": "Find teachers with <b>no students</b>. Same pattern, but start FROM teachers.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT t.name\nFROM teachers t\nLEFT JOIN students s ON ____\nWHERE s.id IS NULL\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ON s.teacher_id = t.id — Ms Nair has nobody.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT t.name\nFROM teachers t\nLEFT JOIN students s ON s.teacher_id = t.id\nWHERE s.id IS NULL\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Ms Nair"
+        ]
+       }
+      },
+      {
+       "q": "Join, then filter: show name, marks and subject for students scoring <b>above 70</b>, highest marks first.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, s.marks, t.subject\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\n____\n____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "WHERE s.marks > 70 then ORDER BY s.marks DESC",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT s.name, s.marks, t.subject\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\nWHERE s.marks > 70\nORDER BY s.marks DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Meena 92 Maths",
+         "Asha 88 Maths"
+        ]
+       }
+      },
+      {
+       "q": "Join then <b>GROUP BY</b>: show how many students each teacher has, most first.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT t.name, COUNT(*) AS n\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\n____\nORDER BY n DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "GROUP BY t.name",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT t.name, COUNT(*) AS n\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\nGROUP BY t.name\nORDER BY n DESC\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Mrs Rao 2",
+         "Mr Iyer 1"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: show each teacher's name and the <b>average marks</b> of their students, rounded to 1 decimal, only for teachers whose students average above 70.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT t.name, ____\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\nGROUP BY t.name\n____\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "hint": "ROUND(AVG(s.marks),1) then HAVING AVG(s.marks) > 70. Only Mrs Rao qualifies, at 90.0",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE teachers (id INT, name TEXT, subject TEXT)\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT, teacher_id INT)\")\ndb.executemany(\"INSERT INTO teachers VALUES (?,?,?)\", [\n    (1, \"Mrs Rao\", \"Maths\"), (2, \"Mr Iyer\", \"Science\"), (3, \"Ms Nair\", \"English\"),\n])\ndb.executemany(\"INSERT INTO students VALUES (?,?,?,?)\", [\n    (1, \"Asha\", 88, 1), (2, \"Ravi\", 65, 2), (3, \"Meena\", 92, 1), (4, \"Karthik\", 45, None),\n])\n\nquery = \"\"\"\nSELECT t.name, ROUND(AVG(s.marks),1)\nFROM students s\nJOIN teachers t ON s.teacher_id = t.id\nGROUP BY t.name\nHAVING AVG(s.marks) > 70\n\"\"\"\n\nfor row in db.execute(query):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Mrs Rao 90.0"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Why is it a bad idea to store a teacher's name and subject inside the students table?",
+       "a": "It repeats the same information many times. When the teacher's details change you must update every copy, and if you miss one the data becomes permanently inconsistent - the same person recorded two different ways."
+      },
+      {
+       "q": "What is a primary key?",
+       "a": "The column that uniquely identifies a row in a table. Every table should have one."
+      },
+      {
+       "q": "What is a foreign key?",
+       "a": "A column that points at another table's primary key. 'Foreign' just means it belongs to a different table."
+      },
+      {
+       "q": "What does the ON part of a JOIN do?",
+       "a": "It tells the database how the two tables connect - which column in one table matches which column in the other."
+      },
+      {
+       "q": "Write a query joining orders to customers to show the customer name and order amount.",
+       "a": "SELECT c.name, o.amount\nFROM orders o\nJOIN customers c ON o.customer_id = c.id;"
+      },
+      {
+       "q": "Why do we write 'FROM students s' instead of just 'FROM students'?",
+       "a": "It gives the table a short alias so you can write s.name instead of students.name. Real queries always do this because it keeps them readable."
+      },
+      {
+       "q": "What is the difference between INNER JOIN and LEFT JOIN?",
+       "a": "INNER JOIN keeps only rows that have a match on both sides.\nLEFT JOIN keeps every row from the left table, filling the right side with NULL where there is no match."
+      },
+      {
+       "q": "Why is quietly losing rows to an INNER JOIN dangerous in a business report?",
+       "a": "Because the total still looks plausible, so nobody checks. Rows silently disappear and the number is simply wrong."
+      },
+      {
+       "q": "Write the 'find what is missing' pattern to find customers who have never placed an order.",
+       "a": "SELECT c.name\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE o.id IS NULL;"
+      },
+      {
+       "q": "Why must you write WHERE t.id IS NULL rather than WHERE t.id = NULL?",
+       "a": "Because NULL means 'unknown', and comparing an unknown to an unknown with = never returns true. SQL requires IS NULL / IS NOT NULL."
+      },
+      {
+       "q": "Write a query showing how many orders each customer has placed, most first.",
+       "a": "SELECT c.name, COUNT(*) AS n\nFROM orders o\nJOIN customers c ON o.customer_id = c.id\nGROUP BY c.name\nORDER BY n DESC;"
+      }
+     ]
+    },
+    {
+     "id": "q5",
+     "title": "Designing tables, and writing safe SQL",
+     "mins": 35,
+     "lang": "py",
+     "position": 4,
+     "content": "\n<h3>Creating a table</h3>\n<pre><code>CREATE TABLE students (\n    id       INTEGER PRIMARY KEY,\n    name     TEXT NOT NULL,\n    marks    INTEGER,\n    city     TEXT,\n    email    TEXT UNIQUE\n);</code></pre>\n<p>Each line is a column: its name, its type, and any rules attached.</p>\n\n<h3>The types you actually need</h3>\n<pre><code>INTEGER    whole numbers\nREAL       decimal numbers\nTEXT       any text\nDATE       a date, stored as 'YYYY-MM-DD'\nBOOLEAN    true or false</code></pre>\n<p>Different database systems have slightly different type names, but these five cover the overwhelming majority of real columns.</p>\n\n<h3>Constraints — rules the database enforces for you</h3>\n<pre><code>PRIMARY KEY     uniquely identifies the row; cannot be empty or duplicated\nNOT NULL        this column must always have a value\nUNIQUE          no two rows may have the same value here\nDEFAULT 0       if nobody supplies a value, use this\nCHECK (marks >= 0 AND marks <= 100)     the value must satisfy this</code></pre>\n<div class=\"callout\"><b>Put your rules in the database, not only in your program.</b> If the rule lives only in your Python code, then a different script, a colleague's tool, or a manual fix can all bypass it and insert nonsense. A constraint in the database can never be bypassed by anything. It is the last line of defence, and it never gets tired or forgets.</div>\n\n<h4>Worked example 1 — a well-designed table</h4>\n<pre><code>CREATE TABLE students (\n    id         INTEGER PRIMARY KEY,\n    name       TEXT NOT NULL,\n    email      TEXT UNIQUE,\n    marks      INTEGER CHECK (marks >= 0 AND marks <= 100),\n    city       TEXT,\n    joined_at  DATE DEFAULT CURRENT_DATE\n);</code></pre>\n<p>Read what this guarantees, without any application code being involved:</p>\n<ul>\n<li>Every student has an id, and no two share it</li>\n<li>Nobody can be inserted without a name</li>\n<li>No two students can register the same email</li>\n<li>Marks of 150 or -20 are rejected outright</li>\n<li>The join date fills itself in automatically</li>\n</ul>\n\n<h3>Putting data in, changing it, removing it</h3>\n<pre><code>INSERT INTO students (name, marks, city)\nVALUES ('Asha', 88, 'Chennai');\n\nUPDATE students\nSET marks = 90\nWHERE id = 1;\n\nDELETE FROM students\nWHERE id = 4;</code></pre>\n<div class=\"callout\"><b>The most expensive mistake in this entire course:</b> forgetting the WHERE on an UPDATE or DELETE.\n<pre><code>UPDATE students SET marks = 90;    changes EVERY row in the table\nDELETE FROM students;              deletes EVERY row</code></pre>\nThere is no undo. Professionals protect themselves with a habit: <b>write the query as a SELECT first</b>, look at exactly which rows come back, and only then change the word SELECT to UPDATE or DELETE. Do this every single time, even when you are certain. Especially when you are certain.</div>\n\n<h3>Indexes — why queries get slow, and how to fix it</h3>\n<p>Imagine finding a word in a 500-page book with no index. You read every page. That is what a database does without an index — it checks every single row. Fine for 100 rows, unusable for 10 million.</p>\n<pre><code>CREATE INDEX idx_students_city ON students(city);</code></pre>\n<p>An index is a sorted lookup structure the database maintains separately. Now finding all students in Chennai jumps straight to them instead of scanning everything.</p>\n<p><b>What to index:</b> columns you frequently use in <code>WHERE</code>, in <code>JOIN ... ON</code>, and in <code>ORDER BY</code>.</p>\n<p><b>Why not index everything:</b> every index must be updated on every insert, update and delete. So indexes make reads faster and writes slower, and they consume disk space. Index the columns you actually search on — not all of them.</p>\n<p>To see what the database is really doing:</p>\n<pre><code>EXPLAIN QUERY PLAN\nSELECT * FROM students WHERE city = 'Chennai';</code></pre>\n<p>If the output mentions <b>SCAN</b> on a large table, you are reading every row and probably need an index. If it says <b>SEARCH ... USING INDEX</b>, the index is being used.</p>\n\n<h3>Transactions — all or nothing</h3>\n<p>Consider moving 1000 rupees between two bank accounts. It takes two statements:</p>\n<pre><code>UPDATE accounts SET balance = balance - 1000 WHERE id = 1;\nUPDATE accounts SET balance = balance + 1000 WHERE id = 2;</code></pre>\n<p>Now imagine the power fails between them. The money has left one account and arrived nowhere. It has simply vanished.</p>\n<pre><code>BEGIN;\n    UPDATE accounts SET balance = balance - 1000 WHERE id = 1;\n    UPDATE accounts SET balance = balance + 1000 WHERE id = 2;\nCOMMIT;</code></pre>\n<p>Wrapped in a transaction, both statements succeed together or neither takes effect at all. If anything fails in between, the database rolls the whole thing back as if it never started.</p>\n<p>This guarantee is the main reason banks, hospitals and airlines run on relational databases rather than spreadsheets.</p>\n\n<h3>SQL injection — the security lesson you must not skip</h3>\n<p>Here is how a beginner builds a query from user input:</p>\n<pre><code>name = input(\"Name: \")\nquery = f\"SELECT * FROM students WHERE name = '{name}'\"     NEVER DO THIS</code></pre>\n<p>It works fine while people type ordinary names. Now suppose someone types:</p>\n<pre><code>' OR '1'='1</code></pre>\n<p>Your query becomes:</p>\n<pre><code>SELECT * FROM students WHERE name = '' OR '1'='1'</code></pre>\n<p>Since <code>'1'='1'</code> is always true, this returns <b>every row in the table</b>. The attacker has just read your entire student database.</p>\n<p>Worse input is possible. A carefully crafted value can end your statement and start a new one — deleting tables, changing passwords, or extracting data.</p>\n\n<h3>The fix, which is easy</h3>\n<pre><code>name = input(\"Name: \")\nquery = \"SELECT * FROM students WHERE name = ?\"\ndb.execute(query, (name,))                             SAFE</code></pre>\n<p>The <code>?</code> is a <b>placeholder</b>. You hand the value separately, and the database treats it strictly as data — never as SQL to be executed. Someone typing <code>' OR '1'='1</code> simply gets no results, because no student is literally named that.</p>\n<div class=\"callout\"><b>The rule, with no exceptions:</b> never build SQL by joining strings together with user input. Always use placeholders. This vulnerability has been in the OWASP top ten of security risks for over twenty years and still causes major breaches every year — not because it is hard to prevent, but because people keep taking the shortcut. It takes the same amount of typing to do it correctly.</div>\n\n<h3>Where to go next with SQL</h3>\n<p>You now know enough to do real work. When you are ready for more:</p>\n<ul>\n<li><b>Window functions</b> — ranking rows within groups without collapsing them. This is the dividing line between a junior and a mid-level analyst.</li>\n<li><b>CTEs</b> (<code>WITH ... AS</code>) — naming a sub-query so complex logic reads clearly, top to bottom.</li>\n<li><b>Subqueries</b> — a query nested inside another.</li>\n</ul>\n<p>All three build directly on what you have here. None of them make sense without it.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Create a table called <b>books</b> with an id primary key, a title that cannot be empty, and a price. Then insert one book and show it.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\n\ndb.execute(\"\"\"\nCREATE TABLE books (\n    id    INTEGER PRIMARY KEY,\n    title TEXT ____,\n    price REAL\n)\n\"\"\")\n\ndb.execute(\"INSERT INTO books (id, title, price) VALUES (1, 'Wings of Fire', 250.0)\")\n\nfor row in db.execute(\"SELECT title, price FROM books\"):\n    print(*row)",
+       "hint": "TEXT NOT NULL",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\n\ndb.execute(\"\"\"\nCREATE TABLE books (\n    id    INTEGER PRIMARY KEY,\n    title TEXT NOT NULL,\n    price REAL\n)\n\"\"\")\n\ndb.execute(\"INSERT INTO books (id, title, price) VALUES (1, 'Wings of Fire', 250.0)\")\n\nfor row in db.execute(\"SELECT title, price FROM books\"):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Wings of Fire 250.0"
+        ]
+       }
+      },
+      {
+       "q": "Add a <b>CHECK</b> so marks must be between 0 and 100. The bad insert is already wrapped in try/except — run it and confirm the database rejects 150.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\n\ndb.execute(\"\"\"\nCREATE TABLE students (\n    id    INTEGER PRIMARY KEY,\n    name  TEXT NOT NULL,\n    marks INTEGER ____ (marks >= 0 AND marks <= 100)\n)\n\"\"\")\n\ndb.execute(\"INSERT INTO students VALUES (1, 'Asha', 88)\")\n\ntry:\n    db.execute(\"INSERT INTO students VALUES (2, 'Bad', 150)\")\n    print(\"accepted 150 - constraint missing\")\nexcept Exception:\n    print(\"rejected 150\")\n\nfor row in db.execute(\"SELECT name, marks FROM students\"):\n    print(*row)",
+       "hint": "The keyword is CHECK",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\n\ndb.execute(\"\"\"\nCREATE TABLE students (\n    id    INTEGER PRIMARY KEY,\n    name  TEXT NOT NULL,\n    marks INTEGER CHECK (marks >= 0 AND marks <= 100)\n)\n\"\"\")\n\ndb.execute(\"INSERT INTO students VALUES (1, 'Asha', 88)\")\n\ntry:\n    db.execute(\"INSERT INTO students VALUES (2, 'Bad', 150)\")\n    print(\"accepted 150 - constraint missing\")\nexcept Exception:\n    print(\"rejected 150\")\n\nfor row in db.execute(\"SELECT name, marks FROM students\"):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "rejected 150",
+         "Asha 88"
+        ]
+       }
+      },
+      {
+       "q": "<b>UPDATE</b> Asha's marks to 95 — and only Asha's. Then show everyone.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65),\n])\n\ndb.execute(\"UPDATE students SET marks = 95 ____\")\n\nfor row in db.execute(\"SELECT name, marks FROM students ORDER BY id\"):\n    print(*row)",
+       "hint": "WHERE name = 'Asha' — without the WHERE, everyone gets 95.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65),\n])\n\ndb.execute(\"UPDATE students SET marks = 95 WHERE name = 'Asha'\")\n\nfor row in db.execute(\"SELECT name, marks FROM students ORDER BY id\"):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha 95",
+         "Ravi 65"
+        ]
+       }
+      },
+      {
+       "q": "See the danger for yourself. This UPDATE has <b>no WHERE</b>. Run it and look at what happened to Ravi.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65),\n])\n\ndb.execute(\"UPDATE students SET marks = 95\")\n\nfor row in db.execute(\"SELECT name, marks FROM students ORDER BY id\"):\n    print(*row)",
+       "hint": "Just run it. Every row changed. There is no undo for this in a real database.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65),\n])\n\ndb.execute(\"UPDATE students SET marks = 95\")\n\nfor row in db.execute(\"SELECT name, marks FROM students ORDER BY id\"):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha 95",
+         "Ravi 95"
+        ]
+       }
+      },
+      {
+       "q": "<b>DELETE</b> only the student named Karthik, then show who is left.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65), (3, \"Karthik\", 45),\n])\n\ndb.execute(\"DELETE FROM students ____\")\n\nfor row in db.execute(\"SELECT name FROM students ORDER BY id\"):\n    print(*row)",
+       "hint": "WHERE name = 'Karthik'",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65), (3, \"Karthik\", 45),\n])\n\ndb.execute(\"DELETE FROM students WHERE name = 'Karthik'\")\n\nfor row in db.execute(\"SELECT name FROM students ORDER BY id\"):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha",
+         "Ravi"
+        ]
+       }
+      },
+      {
+       "q": "Create an <b>index</b> on the city column, then confirm it exists.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, city TEXT)\")\n\ndb.execute(\"CREATE ____ idx_students_city ON students(city)\")\n\nfor row in db.execute(\"SELECT name FROM sqlite_master WHERE type='index'\"):\n    print(*row)",
+       "hint": "CREATE INDEX idx_students_city ON students(city)",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, city TEXT)\")\n\ndb.execute(\"CREATE INDEX idx_students_city ON students(city)\")\n\nfor row in db.execute(\"SELECT name FROM sqlite_master WHERE type='index'\"):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "idx_students_city"
+        ]
+       }
+      },
+      {
+       "q": "See the <b>SQL injection</b> attack work. Run this unsafe code and notice it returns every student, not one.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65), (3, \"Meena\", 92),\n])\n\nattacker_input = \"' OR '1'='1\"\n\nunsafe = \"SELECT name FROM students WHERE name = '\" + attacker_input + \"'\"\n\nfor row in db.execute(unsafe):\n    print(*row)",
+       "hint": "Just run it. All three names appear - the attacker read the whole table.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65), (3, \"Meena\", 92),\n])\n\nattacker_input = \"' OR '1'='1\"\n\nunsafe = \"SELECT name FROM students WHERE name = '\" + attacker_input + \"'\"\n\nfor row in db.execute(unsafe):\n    print(*row)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Asha",
+         "Ravi",
+         "Meena"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: now <b>fix it</b> with a placeholder. The same attack input should return nothing, so only the word <b>safe</b> is printed.",
+       "starter": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65), (3, \"Meena\", 92),\n])\n\nattacker_input = \"' OR '1'='1\"\n\nsafe = \"SELECT name FROM students WHERE name = ____\"\n\nfor row in db.execute(safe, (attacker_input,)):\n    print(*row)\n\nprint(\"safe\")",
+       "hint": "Replace the blank with a single ? — the value is passed separately as the second argument.",
+       "solution": "import sqlite3\ndb = sqlite3.connect(\":memory:\")\ndb.execute(\"CREATE TABLE students (id INT, name TEXT, marks INT)\")\ndb.executemany(\"INSERT INTO students VALUES (?,?,?)\", [\n    (1, \"Asha\", 88), (2, \"Ravi\", 65), (3, \"Meena\", 92),\n])\n\nattacker_input = \"' OR '1'='1\"\n\nsafe = \"SELECT name FROM students WHERE name = ?\"\n\nfor row in db.execute(safe, (attacker_input,)):\n    print(*row)\n\nprint(\"safe\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "safe"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Name the five column types you will use most often.",
+       "a": "INTEGER (whole numbers)\nREAL (decimals)\nTEXT (any text)\nDATE (stored as YYYY-MM-DD)\nBOOLEAN (true/false)"
+      },
+      {
+       "q": "What do PRIMARY KEY, NOT NULL and UNIQUE each guarantee?",
+       "a": "PRIMARY KEY - uniquely identifies the row, cannot be empty or duplicated\nNOT NULL - this column must always have a value\nUNIQUE - no two rows may share this value"
+      },
+      {
+       "q": "Why put rules in the database rather than only in your program code?",
+       "a": "A rule in your code can be bypassed by a different script, a colleague's tool, or a manual fix. A database constraint can never be bypassed by anything. It is the last line of defence and it never forgets."
+      },
+      {
+       "q": "Write a CREATE TABLE for products with an id, a name that cannot be empty, and a price that cannot be negative.",
+       "a": "CREATE TABLE products (\n    id    INTEGER PRIMARY KEY,\n    name  TEXT NOT NULL,\n    price REAL CHECK (price >= 0)\n);"
+      },
+      {
+       "q": "What happens if you run: UPDATE students SET marks = 90;",
+       "a": "Every single row in the table is changed to 90. There is no undo. This is the most expensive mistake in the whole course."
+      },
+      {
+       "q": "What habit protects you from that mistake?",
+       "a": "Write the query as a SELECT first. Look at exactly which rows come back. Only then change the word SELECT to UPDATE or DELETE. Do it every time, especially when you feel certain."
+      },
+      {
+       "q": "What is an index and why does it make queries faster?",
+       "a": "A sorted lookup structure the database maintains separately. Without one, the database reads every row - like finding a word in a book with no index. With one, it jumps straight to the matching rows."
+      },
+      {
+       "q": "Which columns should you index, and why not index everything?",
+       "a": "Index columns used in WHERE, JOIN ON, and ORDER BY. Do not index everything because every index must be updated on every write, so indexes make reads faster but writes slower and use disk space."
+      },
+      {
+       "q": "What is a transaction and why do banks need them?",
+       "a": "A group of statements that all succeed together or none take effect. Moving money is two updates - if the power fails between them, money would vanish. A transaction guarantees that cannot happen."
+      },
+      {
+       "q": "Explain SQL injection. What does typing ' OR '1'='1 achieve?",
+       "a": "It closes the quote early and adds a condition that is always true. The query becomes WHERE name = '' OR '1'='1' which matches every row, so the attacker reads the entire table."
+      },
+      {
+       "q": "Write the safe version of a query that looks up a student by name.",
+       "a": "query = \"SELECT * FROM students WHERE name = ?\"\ndb.execute(query, (name,))\n\nThe ? is a placeholder. The value is passed separately and treated strictly as data, never as SQL."
+      },
+      {
+       "q": "Why is SQL injection still causing breaches after twenty years?",
+       "a": "Not because it is hard to prevent - the safe version takes the same amount of typing. People keep taking the shortcut of building query strings by joining text together."
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

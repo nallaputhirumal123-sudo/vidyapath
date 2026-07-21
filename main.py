@@ -82,6 +82,7 @@ class Track(Base):
     slug = Column(String(60), unique=True, nullable=False, index=True)
     icon = Column(String(16), default="")
     name = Column(String(160), nullable=False)
+    audience = Column(String(20), default="graduate")   # "school" | "graduate"
     level = Column(String(80), default="")
     color = Column(String(20), default="")
     weeks = Column(Integer, default=1)
@@ -107,7 +108,9 @@ class Lesson(Base):
     content = Column(Text, default="")
     videos = Column(Text, default="[]")         # JSON list
     refs = Column(Text, default="[]")           # JSON list
-    lab = Column(Text, default="{}")            # JSON object
+    lab = Column(Text, default="{}")            # JSON object (graduate tracks)
+    exercises = Column(Text, default="[]")      # JSON list   (school tracks)
+    worksheet = Column(Text, default="[]")      # JSON list   (printable questions)
     position = Column(Integer, default=0)
     published = Column(Boolean, default=True, nullable=False)
     track = relationship("Track", back_populates="lessons")
@@ -266,6 +269,8 @@ class LessonIn(BaseModel):
     videos: list = []
     refs: list = []
     lab: dict = {}
+    exercises: list = []
+    worksheet: list = []
     published: bool = True
     position: int = 0
     track: Optional[str] = None
@@ -277,41 +282,67 @@ class LessonIn(BaseModel):
 app = FastAPI(title="VidyaPath", docs_url="/api/docs", redoc_url=None)
 
 
+# Tracks replaced by a rewritten version — skipped so nothing appears twice
+SUPERSEDED_TRACKS = {"sql", "data", "ml", "llm", "basics", "python"}
+
+
+def _seed_file(db, filename, audience, position_offset):
+    """Load one curriculum file into the database. Returns tracks added."""
+    path = BASE_DIR / filename
+    if not path.exists():
+        print(f"NOTE: {filename} not found, skipping.")
+        return 0
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tracks = [t for t in data["tracks"] if t["id"] not in SUPERSEDED_TRACKS]
+    for t in tracks:
+        track = Track(
+            slug=t["id"], icon=t.get("icon", ""), name=t["name"],
+            audience=t.get("audience", audience),
+            level=t.get("level", ""), color=t.get("color", ""),
+            weeks=t.get("weeks", 1), lang=t.get("lang", ""),
+            desc=t.get("desc", ""),
+            outcomes=json.dumps(t.get("outcomes", [])),
+            quiz=json.dumps(t.get("quiz", [])),
+            position=position_offset + t.get("position", 0),
+        )
+        db.add(track)
+        db.flush()
+        for l in t["lessons"]:
+            db.add(Lesson(
+                slug=l["id"], track_id=track.id, title=l["title"],
+                mins=l.get("mins", 20), lang=l.get("lang", "read"),
+                content=l.get("content", ""),
+                videos=json.dumps(l.get("videos", [])),
+                refs=json.dumps(l.get("refs", [])),
+                lab=json.dumps(l.get("lab", {})),
+                exercises=json.dumps(l.get("exercises", [])),
+                worksheet=json.dumps(l.get("worksheet", [])),
+                position=l.get("position", 0),
+            ))
+    return len(tracks)
+
+
 def seed_if_empty():
-    """Create tables, load curriculum.json on first boot, ensure admin exists."""
+    """Create tables, load curriculum on first boot, ensure admin exists."""
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:
         if db.query(Track).count() == 0:
-            path = BASE_DIR / "curriculum.json"
-            if path.exists():
-                data = json.loads(path.read_text(encoding="utf-8"))
-                for t in data["tracks"]:
-                    track = Track(
-                        slug=t["id"], icon=t.get("icon", ""), name=t["name"],
-                        level=t.get("level", ""), color=t.get("color", ""),
-                        weeks=t.get("weeks", 1), lang=t.get("lang", ""),
-                        desc=t.get("desc", ""),
-                        outcomes=json.dumps(t.get("outcomes", [])),
-                        quiz=json.dumps(t.get("quiz", [])),
-                        position=t.get("position", 0),
-                    )
-                    db.add(track)
-                    db.flush()
-                    for l in t["lessons"]:
-                        db.add(Lesson(
-                            slug=l["id"], track_id=track.id, title=l["title"],
-                            mins=l.get("mins", 20), lang=l.get("lang", "read"),
-                            content=l.get("content", ""),
-                            videos=json.dumps(l.get("videos", [])),
-                            refs=json.dumps(l.get("refs", [])),
-                            lab=json.dumps(l.get("lab", {})),
-                            position=l.get("position", 0),
-                        ))
-                db.commit()
-                print(f"Seeded {len(data['tracks'])} tracks from curriculum.json")
+            # One continuous ladder. Position ranges keep the stages in order.
+            counts = [
+                _seed_file(db, "school.json",     "school",   0),    # Stage 1
+                _seed_file(db, "stage2.json",     "stage2",   50),   # Stage 2
+                _seed_file(db, "stage3a.json",    "stage3a",  80),   # Stage 3
+                _seed_file(db, "stage3b.json",    "stage3b",  90),   # Stage 4
+                _seed_file(db, "stage4.json",     "stage4",   95),   # Stage 5
+                _seed_file(db, "curriculum.json", "graduate", 120),  # Stage 6
+            ]
+            db.commit()
+            total = sum(counts)
+            if total:
+                print(f"Seeded {total} tracks across 6 stages: {counts}")
             else:
-                print("WARNING: curriculum.json not found — starting with empty content.")
+                print("WARNING: no curriculum files found - content is empty.")
 
         # Admin bootstrap
         if ADMIN_EMAIL and ADMIN_PASSWORD:
@@ -399,6 +430,7 @@ def serialise_track(t: Track, include_unpublished=False):
     return {
         "id": t.slug, "icon": t.icon, "name": t.name, "level": t.level,
         "color": t.color, "weeks": t.weeks, "lang": t.lang, "desc": t.desc,
+        "audience": t.audience or "graduate",
         "outcomes": json.loads(t.outcomes or "[]"),
         "quiz": json.loads(t.quiz or "[]"),
         "published": t.published,
@@ -408,6 +440,8 @@ def serialise_track(t: Track, include_unpublished=False):
             "videos": json.loads(l.videos or "[]"),
             "refs": json.loads(l.refs or "[]"),
             "lab": json.loads(l.lab or "{}"),
+            "exercises": json.loads(l.exercises or "[]"),
+            "worksheet": json.loads(l.worksheet or "[]"),
             "published": l.published,
         } for l in lessons],
     }
@@ -419,18 +453,63 @@ def curriculum(user: User = Depends(current_user), db: Session = Depends(get_db)
     return {"tracks": [serialise_track(t) for t in tracks]}
 
 
+XP_PER_EXERCISE = 10
+XP_PER_LESSON = 25
+XP_PER_QUIZ = 50
+XP_PER_LEVEL = 250
+
+
+def _compute_stats(rows, all_quizzes, notes):
+    """XP, level and streak, derived from existing records.
+
+    Derived rather than stored: it can never be double-awarded, and it
+    stays correct even if progress rows are edited or deleted.
+    """
+    lessons_done = sum(1 for r in rows if r.completed)
+    ex_passed = sum(1 for n in notes if n.k.startswith("ex_") and n.v == "1")
+    quiz_passed = len({q.track_slug for q in all_quizzes if q.passed})
+
+    xp = (ex_passed * XP_PER_EXERCISE
+          + lessons_done * XP_PER_LESSON
+          + quiz_passed * XP_PER_QUIZ)
+    level = 1 + xp // XP_PER_LEVEL
+
+    # Streak: consecutive days (ending today or yesterday) with any activity.
+    days = set()
+    for r in rows:
+        d = r.updated_at or r.completed_at
+        if d:
+            days.add(d.date())
+    for q in all_quizzes:
+        if q.created_at:
+            days.add(q.created_at.date())
+
+    today = now().date()
+    day = today if today in days else today - dt.timedelta(days=1)
+    streak = 0
+    while day in days:
+        streak += 1
+        day -= dt.timedelta(days=1)
+
+    return {
+        "xp": xp, "level": level, "streak": streak,
+        "level_progress": (xp % XP_PER_LEVEL) / XP_PER_LEVEL,
+        "next_level_at": (xp // XP_PER_LEVEL + 1) * XP_PER_LEVEL,
+    }
+
+
 @app.get("/api/progress")
 def get_progress(user: User = Depends(current_user), db: Session = Depends(get_db)):
     rows = db.query(Progress).filter(Progress.user_id == user.id).all()
-    quizzes = db.query(QuizResult).filter(
-        QuizResult.user_id == user.id, QuizResult.passed == True).all()  # noqa: E712
+    all_quizzes = db.query(QuizResult).filter(QuizResult.user_id == user.id).all()
     notes = db.query(Note).filter(Note.user_id == user.id).all()
     return {
         "done": {r.lesson_slug: True for r in rows if r.completed},
         "code": {r.lesson_slug: r.code for r in rows if r.code},
-        "quiz": {q.track_slug: True for q in quizzes},
+        "quiz": {q.track_slug: True for q in all_quizzes if q.passed},
         "notes": {n.k: n.v for n in notes},
         "path": user.path,
+        "stats": _compute_stats(rows, all_quizzes, notes),
     }
 
 
@@ -679,6 +758,8 @@ def admin_update_lesson(slug: str, body: LessonIn,
     l.videos = json.dumps(body.videos)
     l.refs = json.dumps(body.refs)
     l.lab = json.dumps(body.lab)
+    l.exercises = json.dumps(body.exercises)
+    l.worksheet = json.dumps(body.worksheet)
     l.published, l.position = body.published, body.position
     db.commit()
     return {"ok": True}
@@ -697,7 +778,10 @@ def admin_create_lesson(body: LessonIn, user: User = Depends(admin_user),
     db.add(Lesson(slug=slug, track_id=t.id, title=body.title, mins=body.mins,
                   lang=body.lang, content=body.content,
                   videos=json.dumps(body.videos), refs=json.dumps(body.refs),
-                  lab=json.dumps(body.lab), position=pos, published=body.published))
+                  lab=json.dumps(body.lab),
+                  exercises=json.dumps(body.exercises),
+                  worksheet=json.dumps(body.worksheet),
+                  position=pos, published=body.published))
     db.commit()
     return {"slug": slug}
 
@@ -735,6 +819,223 @@ def admin_delete_track(slug: str, user: User = Depends(admin_user),
     db.delete(t)
     db.commit()
     return {"ok": True}
+
+
+# ---------------------------- worksheets ----------------------------------
+WORKSHEET_CSS = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,'Times New Roman',serif;font-size:12pt;line-height:1.65;
+     color:#111;background:#fff;max-width:800px;margin:0 auto;padding:30px 34px}
+.head{border-bottom:3px solid #111;padding-bottom:14px;margin-bottom:8px}
+.head h1{font-size:20pt;letter-spacing:-.5px}
+.head .sub{font-size:10pt;color:#555;margin-top:3px}
+.meta{display:flex;gap:26px;font-size:10pt;margin:16px 0 24px;
+      border-bottom:1px solid #bbb;padding-bottom:14px}
+.meta span{flex:1}
+.meta b{font-weight:normal;color:#666}
+.q{margin-bottom:20px;page-break-inside:avoid}
+.q .n{font-weight:bold;float:left;width:26px}
+.q .t{margin-left:26px}
+.q .t p{white-space:pre-wrap}
+.lines{margin:8px 0 0 26px}
+.lines div{border-bottom:1px solid #ccc;height:24px}
+.ans{margin-left:26px;margin-top:6px;padding:9px 12px;background:#f4f4f4;
+     border-left:3px solid #888;font-size:10.5pt;white-space:pre-wrap;font-family:monospace}
+.key{page-break-before:always;border-top:3px solid #111;padding-top:16px;margin-top:26px}
+.key h2{font-size:15pt;margin-bottom:14px}
+.foot{margin-top:34px;padding-top:12px;border-top:1px solid #bbb;
+      font-size:9pt;color:#777;text-align:center}
+.bar{background:#f0f0f0;border:1px solid #ccc;padding:11px 15px;margin-bottom:20px;
+     font-size:10.5pt;border-radius:5px}
+.bar a{color:#0645ad;margin-right:14px}
+@media print{ .bar{display:none} body{padding:0} @page{margin:16mm} }
+"""
+
+
+def _worksheet_html(lesson: Lesson, track: Track, with_answers: bool, lines: int = 4):
+    qs = json.loads(lesson.worksheet or "[]")
+    if not qs:
+        return "<p>This lesson has no worksheet.</p>"
+
+    def esc(s):
+        return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    body = []
+    for i, item in enumerate(qs, 1):
+        block = [f'<div class="q"><span class="n">{i}.</span><div class="t">'
+                 f'<p>{esc(item.get("q", ""))}</p></div>']
+        if with_answers:
+            block.append(f'<div class="ans">{esc(item.get("a", ""))}</div>')
+        else:
+            block.append('<div class="lines">' + ('<div></div>' * lines) + '</div>')
+        block.append('</div>')
+        body.append("".join(block))
+
+    title = "ANSWER KEY - " + lesson.title if with_answers else lesson.title
+    other = ("worksheet" if with_answers else "answers")
+    other_label = ("Student version" if with_answers else "Answer key (teachers)")
+
+    meta = ("" if with_answers else
+            '<div class="meta"><span><b>Name:</b> ________________________</span>'
+            '<span><b>Class:</b> ____________</span>'
+            '<span><b>Date:</b> ____________</span></div>')
+
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>{esc(title)}</title><style>{WORKSHEET_CSS}</style></head><body>
+<div class="bar">
+  <a href="javascript:window.print()">Print / Save as PDF</a>
+  <a href="/worksheet/{lesson.slug}?{other}=1">{other_label}</a>
+  <a href="/">Back to VidyaPath</a>
+</div>
+<div class="head">
+  <h1>{esc(title)}</h1>
+  <div class="sub">{esc(track.icon)} {esc(track.name)} &middot; {len(qs)} questions
+    &middot; VidyaPath</div>
+</div>
+{meta}
+{"".join(body)}
+<div class="foot">VidyaPath &middot; Free to print and photocopy for classroom use</div>
+</body></html>"""
+
+
+@app.get("/worksheet/{slug}")
+def worksheet(slug: str, answers: int = 0, worksheet: int = 0,
+              db: Session = Depends(get_db)):
+    """Printable worksheet. Public so teachers can print without signing in."""
+    l = db.query(Lesson).filter(Lesson.slug == slug).first()
+    if not l:
+        raise HTTPException(404, "Lesson not found")
+    t = db.get(Track, l.track_id)
+    show_answers = bool(answers) and not worksheet
+    return Response(content=_worksheet_html(l, t, show_answers),
+                    media_type="text/html")
+
+
+# ---------------------------- certificates --------------------------------
+STAGE_NAMES = {
+    "school":  "Stage 1 — Absolute Beginner",
+    "stage2":  "Stage 2 — Getting Fluent in Python",
+    "stage3a": "Stage 3 — Databases & SQL",
+    "stage3b": "Stage 4 — Data Analysis",
+    "stage4":  "Stage 5 — Machine Learning & AI Engineering",
+    "graduate": "Stage 6 — Languages & Career",
+}
+
+CERT_CSS = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,'Times New Roman',serif;background:#efece6;
+     display:grid;place-items:center;min-height:100vh;padding:24px}
+.cert{background:#fffdf8;width:100%;max-width:880px;border:3px solid #b4530a;
+      box-shadow:0 20px 60px rgba(0,0,0,.15);padding:26px;text-align:center}
+.inner{border:1px solid #d9b48a;padding:48px 40px}
+.brand{font-size:13px;letter-spacing:5px;color:#b4530a;font-weight:700}
+h1{font-size:32px;margin:20px 0 4px;letter-spacing:1px;font-weight:600}
+.sub{color:#8a8a86;font-size:11.5px;letter-spacing:2.5px;text-transform:uppercase}
+.name{font-size:38px;margin:30px 0 6px;font-style:italic}
+.rule{width:320px;max-width:80%;border-top:1px solid #aaa;margin:0 auto 22px}
+.body{font-size:15px;color:#4a4a46;max-width:560px;margin:0 auto;line-height:1.75}
+.stagename{font-size:20px;font-weight:700;color:#b4530a;margin:16px 0 4px}
+.detail{font-size:13px;color:#8a8a86}
+.meta{display:flex;justify-content:space-between;margin-top:48px;
+      font-size:12px;color:#6b6b66;padding:0 20px}
+.meta b{display:block;font-size:13px;color:#333;font-weight:600;margin-bottom:2px;
+        border-top:1px solid #999;padding-top:7px;min-width:150px}
+.btnp{position:fixed;top:18px;right:18px;padding:10px 20px;background:#b4530a;
+      color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;
+      font-family:inherit}
+@media print{.btnp{display:none}body{background:#fff;padding:0}
+  .cert{box-shadow:none;border-width:3px}@page{size:landscape;margin:10mm}}
+"""
+
+
+def _esc(s):
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+@app.get("/certificate/{stage_key}")
+def certificate(stage_key: str, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    if stage_key not in STAGE_NAMES:
+        raise HTTPException(404, "Unknown stage")
+
+    tracks = db.query(Track).filter(
+        Track.audience == stage_key, Track.published == True).all()  # noqa: E712
+    slugs = [l.slug for t in tracks for l in t.lessons if l.published]
+    if not slugs:
+        raise HTTPException(404, "This stage has no lessons")
+
+    done = {r.lesson_slug for r in db.query(Progress).filter(
+        Progress.user_id == user.id, Progress.completed == True)}  # noqa: E712
+    remaining = [s for s in slugs if s not in done]
+
+    if remaining:
+        return Response(content=f"""<!DOCTYPE html><html><head>
+<meta charset="utf-8"><title>Not yet</title><style>{CERT_CSS}</style></head>
+<body><div class="cert"><div class="inner">
+<div class="brand">VIDYAPATH</div>
+<h1>Almost there</h1>
+<p class="body" style="margin-top:18px">
+You have completed <b>{len(slugs) - len(remaining)} of {len(slugs)}</b> lessons in
+<b>{_esc(STAGE_NAMES[stage_key])}</b>.<br><br>
+Finish the remaining {len(remaining)} and this page becomes your certificate.</p>
+<p style="margin-top:26px"><a href="/" style="color:#b4530a">Back to lessons</a></p>
+</div></div></body></html>""", media_type="text/html")
+
+    n_ex = 0
+    for t in tracks:
+        for l in t.lessons:
+            n_ex += len(json.loads(l.exercises or "[]"))
+
+    date_str = now().strftime("%d %B %Y")
+    return Response(content=f"""<!DOCTYPE html><html><head>
+<meta charset="utf-8"><title>Certificate — {_esc(user.name)}</title>
+<style>{CERT_CSS}</style></head><body>
+<button class="btnp" onclick="window.print()">Print / Save as PDF</button>
+<div class="cert"><div class="inner">
+<div class="brand">VIDYAPATH</div>
+<h1>Certificate of Completion</h1>
+<div class="sub">This certifies that</div>
+<div class="name">{_esc(user.name)}</div>
+<div class="rule"></div>
+<p class="body">has successfully completed every lesson and exercise in</p>
+<div class="stagename">{_esc(STAGE_NAMES[stage_key])}</div>
+<div class="detail">{len(slugs)} lessons &middot; {n_ex} hands-on exercises
+&middot; all auto-graded work passed</div>
+<div class="meta">
+  <div><b>{date_str}</b>Date of completion</div>
+  <div><b>VidyaPath</b>Learn to code, then build with AI</div>
+</div>
+</div></div></body></html>""", media_type="text/html")
+
+
+# ---------------------------- static files --------------------------------
+# Served explicitly. Without these, requests fall through to the catch-all
+# 404 handler and get index.html back, which breaks silently in the browser.
+STATIC_TYPES = {
+    ".js":   "application/javascript",
+    ".css":  "text/css",
+    ".json": "application/json",
+    ".svg":  "image/svg+xml",
+    ".png":  "image/png",
+    ".jpg":  "image/jpeg",
+    ".ico":  "image/x-icon",
+}
+
+
+@app.get("/{filename}.{ext}")
+def static_file(filename: str, ext: str):
+    suffix = "." + ext.lower()
+    if suffix not in STATIC_TYPES:
+        raise HTTPException(404, "Not found")
+
+    # Resolve and confirm the file really sits in our own directory,
+    # so a crafted name cannot reach outside it.
+    path = (BASE_DIR / f"{filename}{suffix}").resolve()
+    if path.parent != BASE_DIR.resolve() or not path.is_file():
+        raise HTTPException(404, "Not found")
+
+    return FileResponse(path, media_type=STATIC_TYPES[suffix])
 
 
 # ---------------------------- static pages --------------------------------

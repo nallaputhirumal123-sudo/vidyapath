@@ -21,17 +21,38 @@ a{color:var(--accent2);text-decoration:none}
 a:hover{text-decoration:underline}
 input,select{font-family:inherit}
 
-/* ---------- auth screen ---------- */
-.gate{min-height:100vh;display:grid;place-items:center;padding:24px}
-.gatebox{width:100%;max-width:940px;display:grid;grid-template-columns:1.1fr .9fr;gap:0;background:var(--panel);border:1px solid var(--line);border-radius:20px;overflow:hidden}
-.gateleft{padding:44px 40px;background:linear-gradient(155deg,rgba(255,153,51,.12),rgba(77,159,255,.06) 60%,transparent)}
-.gateleft h1{font-size:31px;font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:12px}
-.gateleft h1 span{color:var(--accent)}
-.gateleft p{color:var(--muted);font-size:14.5px;margin-bottom:22px}
-.gateleft ul{list-style:none;font-size:13.5px;color:#ccd6e2}
-.gateleft li{margin-bottom:9px;display:flex;gap:9px}
-.gateleft li b{color:var(--accent);flex-shrink:0}
-.gateright{padding:40px 36px;border-left:1px solid var(--line)}
+/* ---------- landing page ---------- */
+.gate{min-height:100vh;overflow-y:auto}
+.land{max-width:1020px;margin:0 auto;padding:0 22px 60px}
+.lbadge{display:inline-block;background:rgba(63,185,80,.14);color:var(--green);border:1px solid rgba(63,185,80,.3);font-size:11px;font-weight:700;padding:5px 14px;border-radius:99px;letter-spacing:.6px}
+.lhero{text-align:center;padding:64px 0 44px}
+.lhero h1{font-size:46px;font-weight:800;letter-spacing:-1.6px;line-height:1.08;margin-top:20px}
+.lhero h1 span{background:linear-gradient(90deg,#ffb347,#ff7a18);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lhero>p{color:var(--muted);max-width:620px;margin:18px auto 28px;font-size:16.5px}
+.lstats{display:flex;justify-content:center;gap:42px;margin-top:44px;flex-wrap:wrap}
+.lstats div{text-align:center}
+.lstats b{display:block;font-size:30px;font-weight:800;letter-spacing:-1px}
+.lstats span{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.9px}
+.lsec{padding:46px 0;border-top:1px solid var(--line)}
+.lsec>h2{font-size:26px;font-weight:800;letter-spacing:-.7px;margin-bottom:24px;text-align:center}
+.lfeat{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.lfeat .card h3{font-size:15.5px;margin:9px 0 5px;font-weight:650}
+.lfeat .card p{font-size:13.5px;color:var(--muted)}
+.lfeat .ic{font-size:24px}
+.lstep{display:flex;gap:15px;align-items:flex-start;padding:14px 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
+.lstep .n{background:linear-gradient(135deg,#ffb347,#f08a1d);color:#10151c;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:13px;flex-shrink:0}
+.lstep b{display:block;font-size:15px}
+.lstep small{color:var(--muted);font-size:13px}
+.faq details{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:15px 19px;margin-bottom:9px}
+.faq summary{cursor:pointer;font-weight:600;font-size:14.5px;user-select:none}
+.faq details p{color:var(--muted);font-size:14px;margin-top:10px;line-height:1.65}
+.authcard{max-width:440px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:32px 30px}
+.lfoot{padding-top:30px;border-top:1px solid var(--line);color:var(--dim);font-size:12.5px;text-align:center}
+.btn.big{padding:14px 28px;font-size:16px;border-radius:11px}
+
+/* ---------- mobile top bar & drawer ---------- */
+.topbar{display:none}
+.scrim{display:none}
 .tabs{display:flex;gap:4px;background:var(--panel2);padding:4px;border-radius:10px;margin-bottom:20px}
 .tab{flex:1;padding:8px;border-radius:7px;font-size:13.5px;font-weight:600;color:var(--muted);text-align:center}
 .tab.on{background:var(--panel);color:var(--text)}
@@ -86,8 +107,8 @@ input,select{font-family:inherit}
 .pill.ok{background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)}
 .pill.blue{background:rgba(77,159,255,.12);color:var(--accent2);border-color:rgba(77,159,255,.3)}
 
-.btn{background:var(--accent);color:#10151c;padding:10px 20px;border-radius:9px;font-weight:650;font-size:14px;transition:.12s;display:inline-block;text-align:center}
-.btn:hover{filter:brightness(1.09);text-decoration:none}
+.btn{background:linear-gradient(135deg,#ffb347,#f08a1d);color:#10151c;padding:10px 20px;border-radius:9px;font-weight:650;font-size:14px;transition:.15s;display:inline-block;text-align:center;box-shadow:0 2px 10px rgba(255,153,51,.15)}
+.btn:hover{filter:brightness(1.08);text-decoration:none;transform:translateY(-1px);box-shadow:0 5px 18px rgba(255,153,51,.3)}
 .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
 .btn.ghost:hover{border-color:var(--accent);color:var(--accent);filter:none}
 .btn.sm{padding:7px 14px;font-size:13px}
@@ -104,7 +125,7 @@ input,select{font-family:inherit}
 .hero p{color:var(--muted);max-width:620px;margin-bottom:20px}
 
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;text-align:left;width:100%;transition:.15s;display:block}
-.tile:hover{border-color:var(--accent);transform:translateY(-2px)}
+.tile:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 10px 30px rgba(255,153,51,.12)}
 .tile .ic{font-size:24px;line-height:1}
 .tile h3{font-size:15.5px;margin:9px 0 4px;font-weight:650}
 .tile p{font-size:12.8px;color:var(--muted);line-height:1.55}
@@ -169,15 +190,25 @@ textarea.code:focus{border-color:var(--accent)}
 footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-size:12.5px;color:var(--dim)}
 
 @media(max-width:860px){
-  .gatebox{grid-template-columns:1fr}
-  .gateleft{padding:30px 24px}
-  .gateright{padding:28px 24px;border-left:none;border-top:1px solid var(--line)}
+  .topbar{display:flex;position:sticky;top:0;z-index:40;background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;align-items:center;gap:12px;width:100%}
+  .topbar .tb-brand{font-weight:800;font-size:17px}
+  .topbar .tb-brand span{color:var(--accent)}
+  .hamb{font-size:22px;padding:4px 10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line)}
+  .scrim.on{display:block;position:fixed;inset:0;background:rgba(3,6,11,.6);z-index:45}
   .app.on{flex-direction:column}
-  .sidebar{width:100%;height:auto;position:static}
-  .main{padding:22px 18px 60px}
-  .hero{padding:24px 20px}.hero h1{font-size:26px}
+  .sidebar{position:fixed;top:0;left:0;bottom:0;width:290px;height:100vh;transform:translateX(-105%);transition:transform .25s ease;z-index:50;box-shadow:12px 0 40px rgba(0,0,0,.4)}
+  .sidebar.open{transform:none}
+  .main{padding:20px 16px 70px}
+  .hero{padding:24px 18px}.hero h1{font-size:26px}
   .h1{font-size:25px}
-  .lesson{padding:20px 18px}
+  .lesson{padding:20px 16px}
+  .lhero h1{font-size:30px}
+  .lhero{padding:40px 0 30px}
+  .lstats{gap:26px}
+  /* 16px stops phones auto-zooming into inputs */
+  textarea.code,.field input,.field select,.search{font-size:16px}
+  .btn{padding:12px 20px}
+  .opt{padding:13px 15px}
 }
 </style>
 </head>
@@ -186,62 +217,127 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 <!-- ================= LOADING ================= -->
 <div class="loading" id="loading">Loading…</div>
 
-<!-- ================= AUTH GATE ================= -->
+<!-- ================= LANDING + AUTH ================= -->
 <div class="gate" id="gate" style="display:none">
-  <div class="gatebox">
-    <div class="gateleft">
-      <h1>Vidya<span>Path</span></h1>
-      <p>Nine tracks from absolute beginner to AI engineer. Python, JavaScript, SQL, Java, C, data analysis, machine learning and LLM engineering — every lesson runs real code in your browser.</p>
-      <ul>
-        <li><b>✓</b><span>34 lessons, 34 hands-on labs, 195 curated free resources</span></li>
-        <li><b>✓</b><span>Real Python and JavaScript execution — no setup needed</span></li>
-        <li><b>✓</b><span>Built for Indian students from any degree, CS or not</span></li>
-        <li><b>✓</b><span>Progress saved to your account, on any device</span></li>
-        <li><b>✓</b><span>Four portfolio projects that actually get interviews</span></li>
-      </ul>
-    </div>
-    <div class="gateright">
-      <div class="tabs">
-        <button class="tab on" id="tabLogin">Sign in</button>
-        <button class="tab" id="tabSignup">Create account</button>
+  <div class="land">
+
+    <section class="lhero">
+      <span class="lbadge">100% FREE · NO ADS · BUILT FOR INDIAN STUDENTS</span>
+      <h1>Learn to code.<br>Then build with <span>AI</span>.</h1>
+      <p>One continuous path from "what is a computer?" to building real AI systems.
+         Every lesson taught in full, every exercise runs real code in your browser
+         and marks itself. Nothing assumed, at any point.</p>
+      <div class="row" style="justify-content:center">
+        <a class="btn big" href="#join">Start learning free →</a>
+        <a class="btn ghost big" href="#how">How it works</a>
       </div>
-      <div class="msg" id="authMsg"></div>
+      <div class="lstats">
+        <div><b>6</b><span>Stages</span></div>
+        <div><b>41</b><span>Lessons</span></div>
+        <div><b>257</b><span>Coding exercises</span></div>
+        <div><b>319</b><span>Written questions</span></div>
+        <div><b>~9</b><span>Months to job-ready</span></div>
+      </div>
+    </section>
 
-      <form id="loginForm">
-        <div class="field"><label>Email</label><input type="email" id="li_email" required autocomplete="email"/></div>
-        <div class="field"><label>Password</label><input type="password" id="li_pw" required autocomplete="current-password"/></div>
-        <button class="btn wide" type="submit" id="li_btn">Sign in →</button>
-      </form>
+    <section class="lsec" id="how">
+      <h2>Why students actually finish this course</h2>
+      <div class="lfeat">
+        <div class="card"><div class="ic">🌱</div><h3>Starts from absolute zero</h3>
+          <p>Written for class 8 upwards and for adults who never coded. The first lesson explains what a program even is — with a tea recipe.</p></div>
+        <div class="card"><div class="ic">▶️</div><h3>Real code, in your browser</h3>
+          <p>Python and SQL genuinely execute and auto-grade as you type. No installing anything to begin.</p></div>
+        <div class="card"><div class="ic">🗣️</div><h3>Vidya, your voice guide</h3>
+          <p>An on-screen tutor who explains each lesson, reads notes aloud, and helps when an exercise fails.</p></div>
+        <div class="card"><div class="ic">⚡</div><h3>XP, levels and streaks</h3>
+          <p>Every exercise earns XP. Daily practice builds a streak. Progress you can see keeps you going.</p></div>
+        <div class="card"><div class="ic">🎓</div><h3>Certificates per stage</h3>
+          <p>Complete every lesson in a stage and print your certificate — earned by passing real auto-graded work, not by watching videos.</p></div>
+        <div class="card"><div class="ic">🖨️</div><h3>Printable worksheets</h3>
+          <p>Every lesson has a paper worksheet with an answer key — for classrooms, or study without a screen.</p></div>
+      </div>
+    </section>
 
-      <form id="signupForm" style="display:none">
-        <div class="field"><label>Full name</label><input type="text" id="su_name" required minlength="2"/></div>
-        <div class="field"><label>Email</label><input type="email" id="su_email" required autocomplete="email"/></div>
-        <div class="field"><label>Password — 8 characters minimum</label><input type="password" id="su_pw" required minlength="8" autocomplete="new-password"/></div>
-        <div class="two">
-          <div class="field"><label>College (optional)</label><input type="text" id="su_college"/></div>
-          <div class="field"><label>City (optional)</label><input type="text" id="su_city"/></div>
+    <section class="lsec">
+      <h2>The six stages</h2>
+      <div class="lstep"><span class="n">1</span><div><b>🌱 Absolute beginner</b><small> — what a program is, variables, decisions, loops, lists, functions, and what AI really is</small></div></div>
+      <div class="lstep"><span class="n">2</span><div><b>📘 Getting fluent in Python</b><small> — real text handling, dictionaries, writing code like a professional</small></div></div>
+      <div class="lstep"><span class="n">3</span><div><b>🗄️ Databases &amp; SQL</b><small> — real queries on a real database. This skill alone gets data analyst interviews</small></div></div>
+      <div class="lstep"><span class="n">4</span><div><b>📊 Data analysis</b><small> — clean messy real data and report it honestly</small></div></div>
+      <div class="lstep"><span class="n">5</span><div><b>📈 Machine learning &amp; AI engineering</b><small> — build the learning loop by hand, then RAG, agents and cost control</small></div></div>
+      <div class="lstep"><span class="n">6</span><div><b>🧰 Languages &amp; career</b><small> — JavaScript, Java/C for placements, portfolio projects, interviews</small></div></div>
+    </section>
+
+    <section class="lsec faq">
+      <h2>Common questions</h2>
+      <details><summary>Is it really free?</summary>
+        <p>Yes. Every lesson, exercise, worksheet and certificate. No trial, no locked content, no ads.</p></details>
+      <details><summary>I have never written code. Can I do this?</summary>
+        <p>You are exactly who Stage 1 was written for. It assumes nothing — not even knowing what a file is. Thousands of words of it exist purely to explain things other courses skip.</p></details>
+      <details><summary>What do I need?</summary>
+        <p>Any browser, on a phone or computer. Python runs inside the page. Later lessons show you how to set up real tools on a computer, when you are ready.</p></details>
+      <details><summary>Will this get me a job?</summary>
+        <p>Honest answer: the course takes you to genuinely employable skills — Python, SQL, data analysis and AI engineering are what real job listings ask for. But finishing lessons alone hires nobody; the course ends with four portfolio projects, and those plus interview preparation are what convert learning into offers.</p></details>
+      <details><summary>Can I build something like ChatGPT after this?</summary>
+        <p>You will understand how it works and be able to build real applications on top of models like it — which is what AI jobs actually are. Building a foundation model from scratch needs a research lab and tens of millions of dollars; any course claiming to teach that is selling something.</p></details>
+    </section>
+
+    <section class="lsec" id="join">
+      <div class="authcard">
+        <div class="tabs">
+          <button class="tab on" id="tabLogin">Sign in</button>
+          <button class="tab" id="tabSignup">Create account</button>
         </div>
-        <div class="field"><label>Your degree (optional)</label>
-          <select id="su_degree">
-            <option value="">Prefer not to say</option>
-            <option>B.E / B.Tech — CS or IT</option>
-            <option>B.E / B.Tech — other branch</option>
-            <option>B.Sc</option><option>B.Com</option><option>B.A</option>
-            <option>BCA / MCA</option><option>Diploma</option>
-            <option>Postgraduate</option><option>Other</option>
-          </select>
-        </div>
-        <button class="btn wide" type="submit" id="su_btn">Create account →</button>
-      </form>
+        <div class="msg" id="authMsg"></div>
 
-      <p style="font-size:11.5px;color:var(--dim);margin-top:15px;text-align:center">
-        Your progress is stored against your account so you can pick up on any device.
-      </p>
-    </div>
+        <form id="loginForm">
+          <div class="field"><label>Email</label><input type="email" id="li_email" required autocomplete="email"/></div>
+          <div class="field"><label>Password</label><input type="password" id="li_pw" required autocomplete="current-password"/></div>
+          <button class="btn wide" type="submit" id="li_btn">Sign in →</button>
+        </form>
+
+        <form id="signupForm" style="display:none">
+          <div class="field"><label>Full name</label><input type="text" id="su_name" required minlength="2"/></div>
+          <div class="field"><label>Email</label><input type="email" id="su_email" required autocomplete="email"/></div>
+          <div class="field"><label>Password — 8 characters minimum</label><input type="password" id="su_pw" required minlength="8" autocomplete="new-password"/></div>
+          <div class="two">
+            <div class="field"><label>College (optional)</label><input type="text" id="su_college"/></div>
+            <div class="field"><label>City (optional)</label><input type="text" id="su_city"/></div>
+          </div>
+          <div class="field"><label>Your degree (optional)</label>
+            <select id="su_degree">
+              <option value="">Prefer not to say</option>
+              <option>School student — class 8-12</option>
+              <option>B.E / B.Tech — CS or IT</option>
+              <option>B.E / B.Tech — other branch</option>
+              <option>B.Sc</option><option>B.Com</option><option>B.A</option>
+              <option>BCA / MCA</option><option>Diploma</option>
+              <option>Postgraduate</option><option>Other</option>
+            </select>
+          </div>
+          <button class="btn wide" type="submit" id="su_btn">Create account →</button>
+        </form>
+
+        <p style="font-size:11.5px;color:var(--dim);margin-top:15px;text-align:center">
+          Progress is saved to your account, so you can continue on any device.
+        </p>
+      </div>
+    </section>
+
+    <footer class="lfoot">
+      VidyaPath · Free learning for Indian students · Every exercise verified to run
+    </footer>
   </div>
 </div>
 
 <!-- ================= APP ================= -->
+<div class="topbar" id="topbar" style="display:none">
+  <button class="hamb" id="hamb" title="Menu">☰</button>
+  <div class="tb-brand">Vidya<span>Path</span></div>
+  <div class="spacer"></div>
+  <span class="pill hot" id="topxp"></span>
+</div>
+<div class="scrim" id="scrim"></div>
 <div class="app" id="app">
   <nav class="sidebar">
     <div class="brand"><h1>Vidya<span>Path</span></h1><p>Code · Data · AI — built for India</p></div>
@@ -252,7 +348,14 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   <main class="main" id="main"></main>
 </div>
 
+<script src="tutor.js"></script>
 <script>
+/* Tutor is optional — the app works fine if tutor.js is missing */
+var TUTOR = window.Tutor || {
+  init(){}, say(){}, onLesson(){}, onTrack(){},
+  onExercisePass(){}, onExerciseFail(){}, onError(){}, readAloud(){}, stop(){}
+};
+
 /* ===================== API ===================== */
 const api = {
   async call(path, opts={}){
@@ -277,11 +380,24 @@ let AUTHED=false, USER=null, TRACKS=[], PATHS=[];
 let S={done:{},quiz:{},notes:{},code:{},path:null,view:{page:"home"}};
 
 const PATH_PRESETS=[
-  {id:"ai",name:"AI Engineer",icon:"🤖",months:"7–9 months",desc:"Zero to building and deploying real AI applications.",tracks:["basics","python","sql","data","ml","llm","career"]},
-  {id:"analyst",name:"Data Analyst",icon:"📊",months:"4–5 months",desc:"Fastest realistic path to a first job for a non-CS graduate.",tracks:["basics","python","sql","data","career"]},
-  {id:"web",name:"Web Developer",icon:"🌐",months:"5–6 months",desc:"Build the interfaces and services everything else plugs into.",tracks:["basics","js","python","sql","career"]},
-  {id:"placement",name:"Campus Placement",icon:"🎓",months:"4–6 months",desc:"Java, DSA and SQL — what on-campus recruitment actually tests.",tracks:["basics","javac","python","sql","career"]},
-  {id:"full",name:"Everything",icon:"🚀",months:"12+ months",desc:"Every track, in the recommended order.",tracks:["basics","python","js","sql","javac","data","ml","llm","career"]},
+  {id:"school",name:"Absolute beginner only",icon:"🌱",months:"7 weeks",
+   desc:"Class 8 to 12, or anyone starting from zero. Full notes, 71 exercises, printable worksheets.",
+   tracks:["s-start","s-think","s-build"]},
+  {id:"fluent",name:"Get fluent in Python",icon:"📘",months:"3 months",
+   desc:"From zero to writing Python properly. The foundation before any specialisation.",
+   tracks:["s-start","s-think","s-build","p2-text","p2-data"]},
+  {id:"analyst",name:"Data Analyst",icon:"📊",months:"5–6 months",
+   desc:"The most realistic first job for someone starting from nothing. Python, SQL, then real analysis.",
+   tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","career"]},
+  {id:"ai",name:"AI Engineer",icon:"🤖",months:"9–12 months",
+   desc:"The complete ladder, zero to building and deploying real AI systems.",
+   tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","s4-ml","s5-ai","career"]},
+  {id:"web",name:"Web Developer",icon:"🌐",months:"5–6 months",
+   desc:"Build the interfaces and services everything else plugs into.",
+   tracks:["s-start","s-think","s-build","js","p2-text","s3-sql","career"]},
+  {id:"placement",name:"Campus Placement",icon:"🎓",months:"4–6 months",
+   desc:"Java, DSA and SQL — what on-campus recruitment actually tests.",
+   tracks:["s-start","s-think","s-build","javac","s3-sql","career"]},
 ];
 
 const T = id => TRACKS.find(t=>t.id===id);
@@ -369,11 +485,35 @@ function setDone(lesson, done){
   S.done[lesson]=done;
   if(!done) delete S.done[lesson];
   api.post("/api/progress",{lesson,completed:done}).catch(()=>{});
+  if(done) bumpXP(25);
+}
+
+/* Optimistic local XP so the number moves instantly; the server recomputes
+   the true value from records on every /api/progress fetch. */
+function bumpXP(n){
+  if(!S.stats) return;
+  S.stats.xp += n;
+  S.stats.level = 1 + Math.floor(S.stats.xp / 250);
+  S.stats.level_progress = (S.stats.xp % 250) / 250;
+  S.stats.next_level_at = (Math.floor(S.stats.xp / 250) + 1) * 250;
+  if(S.stats.streak === 0) S.stats.streak = 1;
+  updateTopbar();
+}
+
+function updateTopbar(){
+  const t=$("#topxp");
+  if(t && S.stats) t.textContent = "Lv "+S.stats.level+" · ⚡"+S.stats.xp;
+}
+
+function closeDrawer(){
+  const sb=document.querySelector(".sidebar");
+  if(sb) sb.classList.remove("open");
+  $("#scrim").classList.remove("on");
 }
 
 /* ===================== AUTH FLOW ===================== */
-function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#gate").style.display="grid"; }
-function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); }
+function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#topbar").style.display="none"; $("#gate").style.display="block"; }
+function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); }
 function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
 
 $("#tabLogin").onclick=()=>{$("#tabLogin").classList.add("on");$("#tabSignup").classList.remove("on");$("#loginForm").style.display="";$("#signupForm").style.display="none";authMsg("");};
@@ -412,8 +552,17 @@ async function boot(){
   TRACKS = cur.tracks;
   S.done = prog.done||{}; S.quiz=prog.quiz||{}; S.notes=prog.notes||{};
   S.code = prog.code||{}; S.path = prog.path||null;
+  S.stats = prog.stats||{xp:0,level:1,streak:0,level_progress:0,next_level_at:250};
   S.view = {page:"home"};
   showApp(); render();
+
+  TUTOR.init();
+  const first=(USER.name||"").trim().split(" ")[0];
+  setTimeout(()=>{
+    TUTOR.say(totalDone()
+      ? `Welcome back ${first}. You have finished ${totalDone()} lessons. Pick up where you left off.`
+      : `Hello ${first}. I am Vidya, your guide. Start with Stage 1 and go in order. Tap me any time you get stuck.`);
+  }, 800);
 }
 
 (async function init(){
@@ -466,6 +615,72 @@ function renderNav(){
   $("#nav").innerHTML=h;
 }
 
+/* Renders tracks, split into School and Main sections when both are present */
+function trackTile(t){
+  const d=trackDone(t), n=t.lessons.length||1, p=Math.round(d/n*100);
+  const exCount=t.lessons.reduce((a,l)=>a+((l.exercises||[]).length||1),0);
+  return `<button class="tile" data-nav="track" data-id="${t.id}">
+    <div class="row" style="gap:9px;align-items:flex-start"><span class="ic">${t.icon}</span>
+      <div class="spacer"></div><span class="pill">${esc(t.lang)}</span></div>
+    <h3>${esc(t.name)}</h3><p>${esc(t.desc)}</p>
+    <div class="bar" style="margin-top:12px"><i style="width:${p}%"></i></div>
+    <div class="foot"><span>${d}/${t.lessons.length} lessons · ${exCount} exercises · ${t.weeks} weeks</span>
+    ${d===t.lessons.length&&d?'<span class="pill ok">Done</span>':d>0?'<span class="pill hot">Active</span>':''}</div>
+  </button>`;
+}
+
+/* The ladder. One continuous route from knowing nothing to job-ready. */
+const STAGES=[
+  { key:"school",  n:1, icon:"🌱", name:"Absolute beginner",
+    blurb:"You have never written code. Every idea taught from zero in plain language, with worked examples and printable worksheets. Nothing assumed." },
+  { key:"stage2",  n:2, icon:"📘", name:"Getting fluent",
+    blurb:"You can write basic programs. Now handle text, structure real data, and write Python the way working programmers actually write it." },
+  { key:"stage3a", n:3, icon:"🗄️", name:"Databases & SQL",
+    blurb:"The highest-paying skill for the least effort. Every query runs for real against a live database. SQL alone qualifies you for data analyst work." },
+  { key:"stage3b", n:4, icon:"📊", name:"Data analysis",
+    blurb:"Take messy real data, clean it honestly, find something true in it, and report it without misleading anybody. This plus SQL is a Data Analyst job." },
+  { key:"stage4",  n:5, icon:"📈", name:"Machine learning & AI engineering",
+    blurb:"Build the learning loop by hand so it stops being magic. Then prompting, retrieval, agents, and the cost control that is most of the real job." },
+  { key:"graduate",n:6, icon:"🧰", name:"Other languages & career",
+    blurb:"JavaScript and the web, Java and C for placements, portfolio projects and interview preparation." },
+];
+
+function stageStatus(tracks){
+  const total=tracks.reduce((a,t)=>a+t.lessons.length,0);
+  const done=tracks.reduce((a,t)=>a+trackDone(t),0);
+  return {total, done, pct: total?Math.round(done/total*100):0};
+}
+
+function trackGroupHTML(list){
+  let h="", previousComplete=true;
+  STAGES.forEach(st=>{
+    const tracks=list.filter(t=>(t.audience||"graduate")===st.key);
+    if(!tracks.length) return;
+    const s=stageStatus(tracks);
+    const state = s.pct===100 ? "ok" : s.done>0 ? "hot" : "";
+    const locked = !previousComplete && s.done===0;
+
+    h+=`<div style="margin:34px 0 14px">
+      <div class="row" style="gap:12px;align-items:baseline">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.1px;
+                    color:var(--dim);font-weight:700">Stage ${st.n}</div>
+        <div style="font-size:19px;font-weight:700;letter-spacing:-.4px">${st.icon} ${st.name}</div>
+        <div class="spacer"></div>
+        <span class="pill ${state}">${s.done}/${s.total} lessons · ${s.pct}%</span>
+        ${s.pct===100?`<a class="btn sm" href="/certificate/${st.key}" target="_blank">🎓 Certificate</a>`:""}
+      </div>
+      <p style="color:var(--muted);font-size:13.5px;margin-top:6px;max-width:720px">${st.blurb}</p>
+      ${locked?`<p style="color:var(--accent);font-size:12.5px;margin-top:6px">
+        ↑ Finish Stage ${st.n-1} first — this stage assumes everything taught there.</p>`:""}
+      <div class="bar" style="margin-top:10px;max-width:420px"><i style="width:${s.pct}%"></i></div>
+    </div>
+    <div class="grid g2" ${locked?'style="opacity:.55"':""}>${tracks.map(trackTile).join("")}</div>`;
+
+    previousComplete = s.pct===100;
+  });
+  return h;
+}
+
 /* ===================== HOME ===================== */
 function renderHome(){
   const pct=Math.round(totalDone()/totalLessons()*100);
@@ -487,8 +702,11 @@ function renderHome(){
   <div class="grid g4" style="margin-bottom:26px">
     <div class="card"><div class="statlbl">Progress</div><div class="stat">${pct}%</div><div class="bar" style="margin-top:9px"><i style="width:${pct}%"></i></div></div>
     <div class="card"><div class="statlbl">Lessons</div><div class="stat">${totalDone()}<span style="font-size:15px;color:var(--dim)">/${totalLessons()}</span></div></div>
-    <div class="card"><div class="statlbl">Quizzes passed</div><div class="stat">${Object.keys(S.quiz).length}<span style="font-size:15px;color:var(--dim)">/${TRACKS.length}</span></div></div>
-    <div class="card"><div class="statlbl">Curated links</div><div class="stat">${totalRefs()}</div><div style="font-size:11.5px;color:var(--dim);margin-top:3px">videos + docs</div></div>
+    <div class="card"><div class="statlbl">Streak</div><div class="stat">🔥 ${(S.stats||{}).streak||0}<span style="font-size:15px;color:var(--dim)"> day${(S.stats||{}).streak===1?"":"s"}</span></div>
+      <div style="font-size:11.5px;color:var(--dim);margin-top:3px">${(S.stats||{}).streak?"practise today to keep it":"do one exercise to start one"}</div></div>
+    <div class="card"><div class="statlbl">Level ${(S.stats||{}).level||1}</div><div class="stat">⚡ ${(S.stats||{}).xp||0}<span style="font-size:15px;color:var(--dim)"> XP</span></div>
+      <div class="bar" style="margin-top:9px"><i style="width:${Math.round(((S.stats||{}).level_progress||0)*100)}%"></i></div>
+      <div style="font-size:11.5px;color:var(--dim);margin-top:4px">${(S.stats||{}).next_level_at||250} XP reaches level ${((S.stats||{}).level||1)+1}</div></div>
   </div>
 
   ${next?`<div class="card" style="border-color:var(--accent);background:linear-gradient(180deg,rgba(255,153,51,.07),transparent);margin-bottom:26px">
@@ -503,19 +721,7 @@ function renderHome(){
       <span style="color:var(--muted);font-size:14px">Now build the four portfolio projects and start applying.</span>
       <div style="margin-top:12px"><button class="btn sm" data-nav="projects">Go to projects →</button></div></div>`}
 
-  <div class="eyebrow">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path — "+list.length+" tracks":"All tracks"}</div>
-  <div class="grid g2">
-    ${list.map(t=>{
-      const d=trackDone(t),n=t.lessons.length||1,p=Math.round(d/n*100);
-      return `<button class="tile" data-nav="track" data-id="${t.id}">
-        <div class="row" style="gap:9px;align-items:flex-start"><span class="ic">${t.icon}</span><div class="spacer"></div><span class="pill">${esc(t.lang)}</span></div>
-        <h3>${esc(t.name)}</h3><p>${esc(t.desc)}</p>
-        <div class="bar" style="margin-top:12px"><i style="width:${p}%"></i></div>
-        <div class="foot"><span>${d}/${t.lessons.length} lessons · ${t.weeks} weeks</span>
-        ${d===t.lessons.length&&d?'<span class="pill ok">Done</span>':d>0?'<span class="pill hot">Active</span>':''}</div>
-      </button>`;
-    }).join("")}
-  </div>
+  ${trackGroupHTML(list)}
 
   <div class="eyebrow">How to actually finish this</div>
   <div class="card"><ul style="margin-left:19px;color:#ccd6e2;font-size:14px">
@@ -541,7 +747,7 @@ function renderPaths(){
       return `<button class="tile ${S.path===p.id?"sel":""}" data-nav="setpath" data-id="${p.id}">
         <div class="row"><span class="ic">${p.icon}</span><div class="spacer"></div>${S.path===p.id?'<span class="pill hot">Active</span>':''}</div>
         <h3>${p.name}</h3><p>${p.desc}</p>
-        <div style="margin-top:11px;display:flex;gap:5px;flex-wrap:wrap">${ts.map(t=>`<span class="pill">${t.icon} ${esc(t.name.split(" ")[0])}</span>`).join("")}</div>
+        <div style="margin-top:11px;display:flex;gap:5px;flex-wrap:wrap">${ts.map(t=>`<span class="pill">${t.icon} ${esc(t.name)}</span>`).join("")}</div>
         <div class="foot"><span>${p.months} · ${n} lessons</span><span>${d}/${n} done</span></div></button>`;
     }).join("")}
   </div>
@@ -568,10 +774,17 @@ function renderTrack(id){
     <div class="statlbl">By the end of this track you will be able to</div>
     <ul style="margin:8px 0 0 19px;color:#ccd6e2;font-size:14px">${t.outcomes.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></div>`:""}
   <div class="eyebrow">Lessons</div>
-  ${t.lessons.map((l,i)=>`<button class="lrow ${S.done[l.id]?"done":""}" data-nav="lesson" data-track="${t.id}" data-id="${l.id}">
-    <span class="n">${S.done[l.id]?"✓":i+1}</span>
-    <span class="t"><b>${esc(l.title)}</b><small>${l.mins} min · ${(l.videos||[]).length} videos · ${(l.refs||[]).length} references · 1 lab</small></span>
-    <span style="color:var(--dim)">→</span></button>`).join("")}
+  ${t.lessons.map((l,i)=>{
+    const nEx=(l.exercises||[]).length || 1;
+    const bits=[`${l.mins} min`, `${nEx} exercise${nEx===1?"":"s"}`];
+    if((l.worksheet||[]).length) bits.push("printable worksheet");
+    if((l.videos||[]).length) bits.push(`${l.videos.length} videos`);
+    if((l.refs||[]).length) bits.push(`${l.refs.length} references`);
+    return `<button class="lrow ${S.done[l.id]?"done":""}" data-nav="lesson" data-track="${t.id}" data-id="${l.id}">
+      <span class="n">${S.done[l.id]?"✓":i+1}</span>
+      <span class="t"><b>${esc(l.title)}</b><small>${bits.join(" · ")}</small></span>
+      <span style="color:var(--dim)">→</span></button>`;
+  }).join("")}
   ${(t.quiz||[]).length?`<div class="card" style="margin-top:16px;${S.quiz[t.id]?"border-color:var(--green)":""}">
     <div class="row"><div><b>Track assessment</b> ${S.quiz[t.id]?'<span class="pill ok">Passed</span>':''}
       <div style="font-size:12.5px;color:var(--dim)">${t.quiz.length} questions · ${d<t.lessons.length?"finish the lessons first for best results":"you're ready"}</div>
@@ -585,75 +798,148 @@ function renderLesson(tid,lid){
   const i=t.lessons.findIndex(l=>l.id===lid);
   if(i<0){S.view={page:"track",track:tid};return render();}
   const l=t.lessons[i], prev=t.lessons[i-1], next=t.lessons[i+1];
-  const runnable=l.lang==="py"||l.lang==="js";
-  const saved=S.code[l.id];
+
+  // School lessons use an exercises array; graduate lessons use a single lab.
+  const exs = (l.exercises && l.exercises.length)
+    ? l.exercises
+    : (l.lab && (l.lab.prompt || l.lab.starter))
+      ? [{ q:l.lab.prompt, starter:l.lab.starter, hint:l.lab.hint,
+           solution:l.lab.solution, answer:l.lab.answer, check:l.lab.check }]
+      : [];
+
+  const doneCount = exs.filter((e,k)=>S.notes["ex_"+l.id+"_"+k]).length;
 
   $("#main").innerHTML=`
   <div class="crumb"><button data-nav="home">Home</button> / <button data-nav="track" data-id="${t.id}">${esc(t.name)}</button> / ${esc(l.title)}</div>
   <div class="h2">${esc(l.title)}</div>
-  <p class="sub">${t.icon} ${esc(t.name)} · Lesson ${i+1} of ${t.lessons.length} · ${l.mins} min read</p>
+  <p class="sub">${t.icon} ${esc(t.name)} · Lesson ${i+1} of ${t.lessons.length} · ${l.mins} min</p>
+
   <div class="lesson">${l.content}</div>
 
-  ${(l.videos||[]).length?`<div class="res"><h4>▶ Video lessons</h4><div class="reslist">
+  ${(l.videos||[]).length?`<div class="res"><h4>▶ Optional videos</h4><div class="reslist">
     ${l.videos.map(v=>`<a class="reslink" href="${v.u}" target="_blank" rel="noopener"><span>📺</span><span>${esc(v.t)}</span><span class="ex">YouTube ↗</span></a>`).join("")}</div>
-    <div style="font-size:11.5px;color:var(--dim);margin-top:10px">These open a YouTube search so results stay current — pick the highest-rated full course.</div></div>`:""}
+    <div style="font-size:11.5px;color:var(--dim);margin-top:10px">Extra only — everything you need is already in the notes above.</div></div>`:""}
 
   ${(l.refs||[]).length?`<div class="res"><h4>🔗 Reference material</h4><div class="reslist">
     ${l.refs.map(r=>`<a class="reslink" href="${r.u}" target="_blank" rel="noopener"><span>📄</span><span>${esc(r.t)}</span><span class="ex">↗</span></a>`).join("")}</div></div>`:""}
 
-  <div class="lab">
-    <div class="lab-head"><strong>🧪 Hands-on lab</strong>${langPill(l.lang)}</div>
-    <div class="lab-body">
-      <p style="margin-bottom:12px;font-size:14px;color:#ccd6e2">${esc(l.lab.prompt||"")}</p>
-      <textarea class="code" id="code" spellcheck="false">${esc(saved!==undefined?saved:(l.lab.starter||""))}</textarea>
-      <div class="row" style="margin-top:12px">
-        ${runnable?`<button class="btn" id="run">▶ Run ${l.lang==="py"?"Python":"JavaScript"}</button>`:`<button class="btn" id="reveal">Show model answer</button>`}
-        ${l.lab.hint?`<button class="btn ghost sm" id="hint">💡 Hint</button>`:""}
-        ${l.lab.solution?`<button class="btn ghost sm" id="sol">Show solution</button>`:""}
-        <button class="btn ghost sm" id="reset">Reset</button>
-        <div class="spacer"></div><span id="savestate" style="font-size:11.5px;color:var(--dim)"></span>
-      </div>
-      <div class="out" id="out">${runnable?"Output appears here. Python labs load a runtime on first run — about 10 seconds, once per session.":"Write your answer above, then reveal the model answer to compare."}</div>
-    </div>
+  ${exs.length?`
+  <div class="row" style="margin:26px 0 14px;align-items:center">
+    <div class="eyebrow" style="margin:0">Practice · ${exs.length} exercise${exs.length===1?"":"s"}</div>
+    <div class="spacer"></div>
+    <span class="pill ${doneCount===exs.length?"ok":"hot"}" id="exCount">${doneCount} of ${exs.length} done</span>
+    ${(l.worksheet||[]).length?`<a class="btn ghost sm" href="/worksheet/${l.id}" target="_blank">🖨️ Printable worksheet</a>`:""}
   </div>
+  <div id="exList">${exs.map((e,k)=>exerciseHTML(l,e,k)).join("")}</div>
+  `:""}
 
-  <div class="row" style="margin-top:18px">
+  <div class="row" style="margin-top:22px">
     ${prev?`<button class="btn ghost" data-nav="lesson" data-track="${t.id}" data-id="${prev.id}">← Previous</button>`:""}
     <div class="spacer"></div>
-    <button class="btn ${S.done[l.id]?"ghost":""}" id="mark">${S.done[l.id]?"✓ Completed — unmark":"Mark complete"}</button>
+    <button class="btn ${S.done[l.id]?"ghost":""}" id="mark">${S.done[l.id]?"✓ Completed — unmark":"Mark lesson complete"}</button>
     ${next?`<button class="btn" data-nav="lesson" data-track="${t.id}" data-id="${next.id}">Next lesson →</button>`
           :`<button class="btn" data-nav="${(t.quiz||[]).length?"quiz":"home"}" data-id="${t.id}">${(t.quiz||[]).length?"Track quiz →":"Back home"}</button>`}
   </div>`;
 
-  const out=$("#out"), ta=$("#code");
-  ta.addEventListener("input",()=>{ syncCode(l.id,ta.value); $("#savestate").textContent="saved"; setTimeout(()=>{const s=$("#savestate"); if(s)s.textContent="";},1400); });
-  $("#reset").onclick=()=>{ta.value=l.lab.starter||"";syncCode(l.id,"");delete S.code[l.id];out.className="out";out.textContent="Reset to the starting code.";};
-  if($("#hint")) $("#hint").onclick=()=>{out.className="out info";out.textContent="💡 "+l.lab.hint;};
-  if($("#sol"))  $("#sol").onclick =()=>{ta.value=l.lab.solution;syncCode(l.id,ta.value);out.className="out info";out.textContent="Solution loaded above. Read it, click Reset, then type it from memory — that's where the learning happens.";};
-  if($("#reveal"))$("#reveal").onclick=()=>{
-    out.className="out info"; out.textContent="MODEL ANSWER\n\n"+(l.lab.answer||"");
-    if(!S.done[l.id]){ setDone(l.id,true); renderNav(); $("#mark").textContent="✓ Completed — unmark"; $("#mark").classList.add("ghost"); }
-  };
   $("#mark").onclick=()=>{ setDone(l.id,!S.done[l.id]); renderLesson(tid,lid); renderNav(); };
+  exs.forEach((e,k)=>wireExercise(l,e,k,exs.length));
 
-  if($("#run")) $("#run").onclick=async()=>{
-    const b=$("#run"); b.disabled=true; const orig=b.textContent; b.textContent="Running…";
-    out.className="out"; out.textContent=(l.lang==="py"&&!pyodide)?"Loading the Python runtime — first run only, about 10 seconds…":"Executing…";
+  TUTOR.stop();
+  setTimeout(()=>TUTOR.onLesson(l,t), 500);
+}
+
+function exerciseHTML(l,e,k){
+  const key="ex_"+l.id+"_"+k;
+  const done=!!S.notes[key];
+  const runnable=l.lang==="py"||l.lang==="js";
+  const saved=S.code[key];
+  return `
+  <div class="lab" id="ex${k}" style="${done?"border-color:var(--green)":""}">
+    <div class="lab-head" style="${done?"background:rgba(63,185,80,.09)":""}">
+      <strong>${done?"✅":"🧪"} Exercise ${k+1}</strong>
+      ${runnable?langPill(l.lang):'<span class="pill blue">Written answer</span>'}
+    </div>
+    <div class="lab-body">
+      <p style="margin-bottom:12px;font-size:14px;color:#ccd6e2">${e.q||""}</p>
+      <textarea class="code" id="code${k}" spellcheck="false">${esc(saved!==undefined?saved:(e.starter||""))}</textarea>
+      <div class="row" style="margin-top:12px">
+        ${runnable?`<button class="btn" id="run${k}">▶ Run</button>`
+                  :`<button class="btn" id="reveal${k}">Show model answer</button>`}
+        ${e.hint?`<button class="btn ghost sm" id="hint${k}">💡 Hint</button>`:""}
+        ${e.solution?`<button class="btn ghost sm" id="sol${k}">Solution</button>`:""}
+        <button class="btn ghost sm" id="reset${k}">Reset</button>
+      </div>
+      <div class="out" id="out${k}">${runnable?"Click Run to see what your code does.":"Type your answer above, then reveal the model answer."}</div>
+    </div>
+  </div>`;
+}
+
+function wireExercise(l,e,k,total){
+  const key="ex_"+l.id+"_"+k;
+  const out=$("#out"+k), ta=$("#code"+k);
+  if(!ta) return;
+  let tries = 0;
+
+  const markExDone=()=>{
+    if(S.notes[key]) return;
+    S.notes[key]="1";
+    bumpXP(10);
+    api.post("/api/note",{key,value:"1"}).catch(()=>{});
+    const box=$("#ex"+k);
+    if(box){ box.style.borderColor="var(--green)";
+      const h=box.querySelector(".lab-head");
+      if(h){ h.style.background="rgba(63,185,80,.09)";
+             h.querySelector("strong").textContent="✅ Exercise "+(k+1); } }
+    const n=(l.exercises||[]).filter((x,j)=>S.notes["ex_"+l.id+"_"+j]).length;
+    const c=$("#exCount");
+    if(c){ c.textContent=n+" of "+total+" done";
+           if(n===total) c.className="pill ok"; }
+    // finishing every exercise completes the lesson
+    if(n===total && !S.done[l.id]){
+      setDone(l.id,true); renderNav();
+      const m=$("#mark");
+      if(m){ m.textContent="✓ Completed — unmark"; m.classList.add("ghost"); }
+    }
+  };
+
+  ta.addEventListener("input",()=>syncCode(key,ta.value));
+  $("#reset"+k).onclick=()=>{ta.value=e.starter||"";syncCode(key,"");delete S.code[key];
+    out.className="out";out.textContent="Reset to the starting code.";};
+  if($("#hint"+k)) $("#hint"+k).onclick=()=>{out.className="out info";out.textContent="💡 "+e.hint;};
+  if($("#sol"+k))  $("#sol"+k).onclick =()=>{ta.value=e.solution;syncCode(key,ta.value);
+    out.className="out info";
+    out.textContent="Solution loaded above.\n\nRead it, click Reset, then type it yourself from memory. Copying teaches nothing — typing it teaches a lot.";};
+  if($("#reveal"+k)) $("#reveal"+k).onclick=()=>{
+    out.className="out info"; out.textContent="MODEL ANSWER\n\n"+(e.answer||"");
+    markExDone();
+  };
+
+  if($("#run"+k)) $("#run"+k).onclick=async()=>{
+    const b=$("#run"+k); b.disabled=true; b.textContent="Running…";
+    out.className="out";
+    out.textContent=(l.lang==="py"&&!pyodide)?"Loading Python — first run only, about 10 seconds…":"Executing…";
     api.post("/api/progress",{lesson:l.id,attempt:true}).catch(()=>{});
     try{
       const r = l.lang==="py" ? await runPython(ta.value) : await runJS(ta.value);
-      if(r.err){ out.className="out fail"; out.textContent="❌ "+r.err; }
-      else{
-        const ok=evalCheck(l.lab.check,r.out);
-        out.className="out "+(ok?"pass":"fail");
-        out.textContent=(r.out||"(no output — did you forget print / console.log?)")+"\n\n"+(ok?"✅ Correct — lab passed.":"❌ Not quite. Try the hint.");
-        if(ok&&!S.done[l.id]){ setDone(l.id,true); renderNav(); $("#mark").textContent="✓ Completed — unmark"; $("#mark").classList.add("ghost"); }
+      tries++;
+      if(r.err){
+        out.className="out fail";
+        out.textContent="❌ "+r.err+"\n\nRead the last line — it usually names the problem. Errors are normal.";
+        TUTOR.onError(r.err);
       }
-    }catch(e){
+      else{
+        const ok=evalCheck(e.check,r.out);
+        out.className="out "+(ok?"pass":"fail");
+        out.textContent=(r.out||"(no output — did you forget print?)")+"\n\n"+
+          (ok?"✅ Correct!":"❌ Not quite yet. Try the hint, then look at your output above and compare it with what was asked.");
+        if(ok){ markExDone(); TUTOR.onExercisePass(k+1); }
+        else TUTOR.onExerciseFail(k+1, tries);
+      }
+    }catch(err){
       out.className="out fail";
-      out.textContent="⚠️ Couldn't load the Python runtime — it needs an internet connection the first time.\n\nRead the code, check the solution, then click 'Mark complete' to carry on. JavaScript labs work offline.";
+      out.textContent="⚠️ Couldn't load the Python runtime — it needs internet the first time.\n\nRead the notes and the solution, then carry on.";
     }
-    b.disabled=false; b.textContent=orig;
+    b.disabled=false; b.textContent="▶ Run";
   };
 }
 
@@ -690,7 +976,7 @@ function renderQuiz(tid){
     const pass=right===t.quiz.length;
     $("#score").innerHTML=`<span style="color:${pass?"var(--green)":"var(--red)"}">${right}/${t.quiz.length} ${pass?"— passed ✅":"— review and retry"}</span>`;
     try{ await api.post("/api/quiz",{track:t.id,score:right,total:t.quiz.length}); }catch(e){}
-    if(pass){ S.quiz[t.id]=true; renderNav(); }
+    if(pass){ if(!S.quiz[t.id]) bumpXP(50); S.quiz[t.id]=true; renderNav(); }
   };
 }
 
@@ -779,12 +1065,21 @@ function render(){
   else if(v.page==="lesson")    renderLesson(v.track,v.lesson);
   else if(v.page==="quiz")      renderQuiz(v.track);
   renderNav();
+  updateTopbar();
   window.scrollTo(0,0);
 }
 
 document.addEventListener("click",e=>{
+  if(e.target.closest("#hamb")){
+    document.querySelector(".sidebar").classList.toggle("open");
+    $("#scrim").classList.toggle("on");
+    return;
+  }
+  if(e.target.id==="scrim"){ closeDrawer(); return; }
+
   const b=e.target.closest("[data-nav]");
   if(!b) return;
+  closeDrawer();
   const n=b.dataset.nav;
   if(n==="home")           S.view={page:"home"};
   else if(n==="paths")     S.view={page:"paths"};

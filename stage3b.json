@@ -1,0 +1,669 @@
+{
+ "tracks": [
+  {
+   "id": "s3-data",
+   "icon": "📊",
+   "name": "Data Analysis",
+   "level": "Stage 3 · after SQL",
+   "color": "#7c3aed",
+   "weeks": 3,
+   "lang": "Python",
+   "desc": "Take messy real data, clean it, find something true in it, and report it honestly. This plus SQL is a Data Analyst job.",
+   "outcomes": [
+    "Load and inspect a table of records before touching it",
+    "Find and fix the six things wrong with real data",
+    "Group and summarise to answer actual questions",
+    "Choose the right chart and avoid misleading anybody",
+    "Know the pandas method for everything you write by hand"
+   ],
+   "position": 0,
+   "audience": "stage3b",
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "da1",
+     "title": "Looking at data before you touch it",
+     "mins": 30,
+     "lang": "py",
+     "position": 0,
+     "content": "\n<h3>The mistake almost everybody makes</h3>\n<p>You get a data file. You open it, immediately start calculating averages, and produce a report.</p>\n<p>Two weeks later someone notices the average salary is 4 crore rupees, because one row had an extra zero. Your report went to the whole department. Nobody checked, because it looked professional.</p>\n<p><b>Always look at the data before you analyse it.</b> Not a glance — a deliberate inspection. This lesson is that inspection.</p>\n\n<h3>The shape of tabular data in Python</h3>\n<p>You already know it from Stage 2 — a list of dictionaries:</p>\n<pre><code>records = [\n    {\"name\": \"Asha\",  \"marks\": 88, \"city\": \"Chennai\"},\n    {\"name\": \"Ravi\",  \"marks\": 65, \"city\": \"Pune\"},\n]</code></pre>\n<p>This is the same shape as a database table and the same shape as a spreadsheet. One row per record, the same fields on each.</p>\n\n<h3>What real analysts use: pandas</h3>\n<p>pandas is a Python library built exactly for this. Its main object is the <b>DataFrame</b> — a table with named columns.</p>\n<pre><code>import pandas as pd\n\ndf = pd.read_csv(\"students.csv\")     load a file into a DataFrame\n\ndf.head()        first 5 rows        ALWAYS start here\ndf.shape         (rows, columns)\ndf.info()        column types and how many values are missing\ndf.describe()    min, max, mean, quartiles for numeric columns</code></pre>\n<div class=\"callout\"><b>Those four commands are the inspection ritual.</b> Run all four, in that order, on every dataset you ever receive, before writing a single line of analysis. It takes thirty seconds and it catches most disasters.</div>\n\n<h3>What each one tells you</h3>\n<p><b><code>head()</code></b> — do the columns contain what their names promise? Is a \"date\" column actually text like \"12/3/24\"? Are there obvious junk rows at the top?</p>\n<p><b><code>shape</code></b> — is the row count what you expected? If you were told 5,000 students and see 4,213, something was lost before it reached you. Ask before proceeding.</p>\n<p><b><code>info()</code></b> — which columns have missing values, and how many? A column that is 60% empty usually cannot be used at all.</p>\n<p><b><code>describe()</code></b> — this is where the extra zero shows up. If max salary is 40,000,000 and the 75th percentile is 60,000, you have found your problem.</p>\n\n<h4>Worked example 1 — inspecting by hand</h4>\n<p>Here is the same inspection in plain Python, so you can see exactly what pandas is doing for you:</p>\n<pre><code>records = [\n    {\"name\": \"Asha\",  \"marks\": 88, \"city\": \"Chennai\"},\n    {\"name\": \"Ravi\",  \"marks\": 65, \"city\": \"Pune\"},\n    {\"name\": \"Meena\", \"marks\": 92, \"city\": \"Chennai\"},\n]\n\nprint(\"rows:\", len(records))\nprint(\"columns:\", list(records[0].keys()))\n\nmarks = [r[\"marks\"] for r in records]\nprint(\"min:\", min(marks))\nprint(\"max:\", max(marks))\nprint(\"mean:\", round(sum(marks) / len(marks), 1))</code></pre>\n<p>Output:</p>\n<pre><code>rows: 3\ncolumns: ['name', 'marks', 'city']\nmin: 65\nmax: 92\nmean: 81.7</code></pre>\n<p>That is <code>shape</code> and <code>describe()</code>, done by hand. pandas just does it in one line for a hundred columns at once.</p>\n\n<h3>Counting missing values</h3>\n<p>Missing data is the single most common problem you will face. Find it first:</p>\n<pre><code>records = [\n    {\"name\": \"Asha\",  \"marks\": 88,   \"phone\": \"9876543210\"},\n    {\"name\": \"Ravi\",  \"marks\": None, \"phone\": None},\n    {\"name\": \"Meena\", \"marks\": 92,   \"phone\": None},\n]\n\nfor column in [\"marks\", \"phone\"]:\n    missing = 0\n    for r in records:\n        if r[column] is None:\n            missing = missing + 1\n    print(column, \"missing:\", missing)</code></pre>\n<p>Output:</p>\n<pre><code>marks missing: 1\nphone missing: 2</code></pre>\n<p>In pandas this is <code>df.isnull().sum()</code> — one line, every column at once. Same idea.</p>\n<p><b>Note <code>is None</code>, not <code>== None</code>.</b> This is the same distinction as SQL's <code>IS NULL</code> versus <code>= NULL</code> from the last stage. Python is more forgiving here than SQL, but <code>is None</code> is the correct form and you should use it.</p>\n\n<h3>Finding outliers</h3>\n<p>An <b>outlier</b> is a value far outside the normal range. Some are real (one genuinely brilliant student). Some are errors (an extra zero). You must look at each and decide which.</p>\n<pre><code>salaries = [45000, 52000, 48000, 61000, 4500000, 55000]\n\navg = sum(salaries) / len(salaries)\nprint(\"mean:\", round(avg))\n\nordered = sorted(salaries)\nmiddle = ordered[len(ordered) // 2]\nprint(\"median:\", middle)</code></pre>\n<p>Output:</p>\n<pre><code>mean: 786833\nmedian: 55000</code></pre>\n<div class=\"callout\"><b>This gap is your alarm bell.</b> When the mean is wildly higher than the median, a small number of very large values are dragging it up. Nobody in that list earns anywhere near 786,833. The median of 55,000 describes the group honestly; the mean actively misleads.<br><br>\n<b>The rule:</b> whenever mean and median differ a lot, investigate before reporting either one.</div>\n\n<h3>The six things wrong with real data</h3>\n<p>Check for all six, every time:</p>\n<ul>\n<li><b>Missing values</b> — empty cells, None, or placeholder text like \"N/A\" and \"-\"</li>\n<li><b>Duplicates</b> — the same record entered twice</li>\n<li><b>Wrong types</b> — numbers stored as text, dates stored as text</li>\n<li><b>Inconsistent text</b> — \"Chennai\", \"chennai\", \" Chennai \" all meaning the same city</li>\n<li><b>Outliers</b> — the extra zero, the impossible age of 200</li>\n<li><b>Impossible values</b> — negative marks, a future date of birth, 130% attendance</li>\n</ul>\n<p>The next lesson fixes all six. This lesson is about finding them first.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Print the number of <b>rows</b>, then the <b>column names</b> as a list.",
+       "starter": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88, \"city\": \"Chennai\"},\n    {\"name\": \"Ravi\",  \"marks\": 65, \"city\": \"Pune\"},\n    {\"name\": \"Meena\", \"marks\": 92, \"city\": \"Chennai\"},\n]\n\n# rows, then columns\n",
+       "hint": "len(records) then list(records[0].keys())",
+       "solution": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88, \"city\": \"Chennai\"},\n    {\"name\": \"Ravi\",  \"marks\": 65, \"city\": \"Pune\"},\n    {\"name\": \"Meena\", \"marks\": 92, \"city\": \"Chennai\"},\n]\n\nprint(len(records))\nprint(list(records[0].keys()))",
+       "answer": "",
+       "check": {
+        "all": [
+         "^3$",
+         "name.*marks.*city"
+        ]
+       }
+      },
+      {
+       "q": "Do the <code>describe()</code> job by hand: print min, max, then mean rounded to 1 decimal, on three lines.",
+       "starter": "records = [{\"marks\": 88}, {\"marks\": 65}, {\"marks\": 92}]\nmarks = [r[\"marks\"] for r in records]\n\n# min, max, mean\n",
+       "hint": "min(marks), max(marks), round(sum(marks)/len(marks), 1)",
+       "solution": "records = [{\"marks\": 88}, {\"marks\": 65}, {\"marks\": 92}]\nmarks = [r[\"marks\"] for r in records]\nprint(min(marks))\nprint(max(marks))\nprint(round(sum(marks) / len(marks), 1))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "65",
+         "92",
+         "81.7"
+        ]
+       }
+      },
+      {
+       "q": "Count how many records are <b>missing</b> a phone number. Use <code>is None</code>.",
+       "starter": "records = [\n    {\"name\": \"Asha\",  \"phone\": \"9876543210\"},\n    {\"name\": \"Ravi\",  \"phone\": None},\n    {\"name\": \"Meena\", \"phone\": None},\n]\n\nmissing = 0\n# count them\nprint(missing)",
+       "hint": "if r[\"phone\"] is None: missing = missing + 1",
+       "solution": "records = [\n    {\"name\": \"Asha\",  \"phone\": \"9876543210\"},\n    {\"name\": \"Ravi\",  \"phone\": None},\n    {\"name\": \"Meena\", \"phone\": None},\n]\n\nmissing = 0\nfor r in records:\n    if r[\"phone\"] is None:\n        missing = missing + 1\nprint(missing)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2"
+        ]
+       }
+      },
+      {
+       "q": "Report missing counts for <b>both</b> columns, as <b>marks 1</b> and <b>phone 2</b>.",
+       "starter": "records = [\n    {\"marks\": 88,   \"phone\": \"98765\"},\n    {\"marks\": None, \"phone\": None},\n    {\"marks\": 92,   \"phone\": None},\n]\n\nfor column in [\"marks\", \"phone\"]:\n    # count and print\n    pass",
+       "hint": "Inner loop counting r[column] is None, then print(column, missing)",
+       "solution": "records = [\n    {\"marks\": 88,   \"phone\": \"98765\"},\n    {\"marks\": None, \"phone\": None},\n    {\"marks\": 92,   \"phone\": None},\n]\n\nfor column in [\"marks\", \"phone\"]:\n    missing = 0\n    for r in records:\n        if r[column] is None:\n            missing = missing + 1\n    print(column, missing)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "marks 1",
+         "phone 2"
+        ]
+       }
+      },
+      {
+       "q": "Spot the outlier. Print the <b>mean</b> and the <b>median</b>, both as whole numbers, and see how far apart they are.",
+       "starter": "salaries = [45000, 52000, 48000, 61000, 4500000, 55000]\n\n# mean rounded, then median\n",
+       "hint": "round(sum(salaries)/len(salaries)) then sorted(salaries)[len(salaries)//2]. Mean 793500, median 55000.",
+       "solution": "salaries = [45000, 52000, 48000, 61000, 4500000, 55000]\nprint(round(sum(salaries) / len(salaries)))\nprint(sorted(salaries)[len(salaries) // 2])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "793500",
+         "55000"
+        ]
+       }
+      },
+      {
+       "q": "Find the actual outlier value: print any salary more than <b>3 times</b> the median.",
+       "starter": "salaries = [45000, 52000, 48000, 61000, 4500000, 55000]\nmedian = sorted(salaries)[len(salaries) // 2]\n\n# print salaries far above the median\n",
+       "hint": "if s > median * 3: print(s)",
+       "solution": "salaries = [45000, 52000, 48000, 61000, 4500000, 55000]\nmedian = sorted(salaries)[len(salaries) // 2]\nfor s in salaries:\n    if s > median * 3:\n        print(s)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4500000"
+        ]
+       }
+      },
+      {
+       "q": "Find <b>impossible values</b>: print the name of anyone whose marks are below 0 or above 100.",
+       "starter": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": 150},\n    {\"name\": \"Meena\", \"marks\": -5},\n    {\"name\": \"Divya\", \"marks\": 72},\n]\n\n# print names with impossible marks\n",
+       "hint": "if r[\"marks\"] < 0 or r[\"marks\"] > 100: print(r[\"name\"])",
+       "solution": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": 150},\n    {\"name\": \"Meena\", \"marks\": -5},\n    {\"name\": \"Divya\", \"marks\": 72},\n]\n\nfor r in records:\n    if r[\"marks\"] < 0 or r[\"marks\"] > 100:\n        print(r[\"name\"])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Ravi",
+         "Meena"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: write a full inspection report — rows, columns, missing marks, and whether mean and median disagree by more than 20%.",
+       "starter": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": None},\n    {\"name\": \"Meena\", \"marks\": 92},\n    {\"name\": \"Divya\", \"marks\": 70},\n]\n\n# 1. rows\n# 2. missing marks count\n# 3. mean and median of the values that ARE present\n",
+       "hint": "Build a list skipping None. rows=4, missing=1, mean=83.3, median=88",
+       "solution": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": None},\n    {\"name\": \"Meena\", \"marks\": 92},\n    {\"name\": \"Divya\", \"marks\": 70},\n]\n\nprint(len(records))\n\nvalues = [r[\"marks\"] for r in records if r[\"marks\"] is not None]\nprint(len(records) - len(values))\n\nprint(round(sum(values) / len(values), 1))\nprint(sorted(values)[len(values) // 2])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4",
+         "1",
+         "83.3",
+         "88"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Why must you inspect data before analysing it?",
+       "a": "Because errors like an extra zero produce results that look professional but are completely wrong. Nobody downstream checks. Thirty seconds of inspection prevents this."
+      },
+      {
+       "q": "Name the four pandas inspection commands and what each reveals.",
+       "a": "df.head() - do columns contain what their names promise?\ndf.shape - is the row count what you expected?\ndf.info() - which columns have missing values?\ndf.describe() - min/max/mean, where outliers show up"
+      },
+      {
+       "q": "You were told the file has 5,000 rows. df.shape says 4,213. What should you do?",
+       "a": "Stop and ask before doing any analysis. Something was lost before the data reached you, and you need to know what."
+      },
+      {
+       "q": "Why is 'is None' preferred over '== None' in Python?",
+       "a": "It is the correct form for checking identity with None. It is also the same idea as SQL's IS NULL versus = NULL."
+      },
+      {
+       "q": "What is an outlier? Give one real example and one error example.",
+       "a": "A value far outside the normal range.\nReal: one genuinely brilliant student scoring 99.\nError: a salary of 4500000 caused by an extra zero."
+      },
+      {
+       "q": "Mean salary is 786,833 and median is 55,000. What does this tell you?",
+       "a": "A small number of very large values are dragging the mean up. Nobody earns near the mean. The median describes the group honestly; the mean actively misleads. Investigate before reporting either."
+      },
+      {
+       "q": "List the six things wrong with real data.",
+       "a": "1. Missing values\n2. Duplicates\n3. Wrong types (numbers or dates stored as text)\n4. Inconsistent text (Chennai / chennai / ' Chennai ')\n5. Outliers\n6. Impossible values (negative marks, 130% attendance)"
+      },
+      {
+       "q": "Write code counting how many records are missing a value in a column.",
+       "a": "missing = 0\nfor r in records:\n    if r[column] is None:\n        missing = missing + 1"
+      },
+      {
+       "q": "What is the pandas equivalent of counting missing values in every column?",
+       "a": "df.isnull().sum()"
+      },
+      {
+       "q": "A column is 60% empty. What should you probably do?",
+       "a": "Usually you cannot use it at all. Filling in 60% of a column with guesses invents data rather than analysing it. Report that the column is unusable."
+      }
+     ]
+    },
+    {
+     "id": "da2",
+     "title": "Cleaning messy data",
+     "mins": 35,
+     "lang": "py",
+     "position": 1,
+     "content": "\n<h3>This is 80% of the job</h3>\n<p>People imagine data analysis is building clever models. In reality most of your time goes on cleaning. This is not a failure of the profession — it is the profession. Clean data honestly and the analysis is often straightforward.</p>\n<p>Last lesson found the six problems. This one fixes them.</p>\n\n<h3>Problem 1 — inconsistent text</h3>\n<p>You met this in Stage 2. It matters even more here, because inconsistent text silently splits your groups:</p>\n<pre><code>cities = [\"Chennai\", \"chennai\", \" Chennai \", \"CHENNAI\"]</code></pre>\n<p>Group by city and you get four groups of one instead of one group of four. Every number in your report is then wrong, and it will look completely plausible.</p>\n<pre><code>clean = [c.strip().title() for c in cities]\nprint(clean)</code></pre>\n<p>Output: <code>['Chennai', 'Chennai', 'Chennai', 'Chennai']</code></p>\n<p>In pandas: <code>df[\"city\"] = df[\"city\"].str.strip().str.title()</code></p>\n\n<h3>Problem 2 — wrong types</h3>\n<p>Numbers arriving as text is constant, especially from spreadsheets and web forms:</p>\n<pre><code>raw = [\"88\", \"65\", \"92\"]\nmarks = [int(m) for m in raw]\nprint(sum(marks))          245</code></pre>\n<p>But real data has broken entries mixed in, and <code>int()</code> will crash on them:</p>\n<pre><code>raw = [\"88\", \"N/A\", \"65\", \"\", \"92\"]\n\nmarks = []\nfor m in raw:\n    try:\n        marks.append(int(m))\n    except ValueError:\n        pass        skip anything that will not convert\n\nprint(marks)               [88, 65, 92]</code></pre>\n<p>In pandas: <code>pd.to_numeric(df[\"marks\"], errors=\"coerce\")</code> — the <code>coerce</code> turns unconvertible values into missing rather than crashing.</p>\n<div class=\"callout\"><b>Never silently drop data without counting it.</b> If you started with 5,000 rows and your clean list has 3,100, you must know that and say so. \"1,900 rows had unreadable marks and were excluded\" belongs in your report. Quietly losing 38% of the data and presenting the rest as complete is the difference between analysis and misinformation.</div>\n\n<h3>Problem 3 — missing values</h3>\n<p>You have three honest options, and choosing between them is a judgement call you must be able to defend:</p>\n<ul>\n<li><b>Drop the row</b> — fine when few rows are affected and the field is essential.</li>\n<li><b>Fill with the median</b> — reasonable for numbers when you need to keep the row.</li>\n<li><b>Leave it missing and report it</b> — often the most honest choice.</li>\n</ul>\n<pre><code>values = [88, None, 92, None, 70]\n\npresent = [v for v in values if v is not None]\nmedian = sorted(present)[len(present) // 2]\n\nfilled = [v if v is not None else median for v in values]\nprint(filled)</code></pre>\n<p>Output: <code>[88, 88, 92, 88, 70]</code></p>\n<p><b>Use the median, not the mean.</b> One outlier of 4,500,000 would drag the mean up and you would then insert that wrong number into every gap, spreading the error through your data.</p>\n<p>In pandas: <code>df[\"marks\"].fillna(df[\"marks\"].median())</code></p>\n\n<h3>Problem 4 — duplicates</h3>\n<pre><code>records = [\n    {\"id\": 1, \"name\": \"Asha\"},\n    {\"id\": 2, \"name\": \"Ravi\"},\n    {\"id\": 1, \"name\": \"Asha\"},\n]\n\nseen = set()\nunique = []\nfor r in records:\n    if r[\"id\"] not in seen:\n        seen.add(r[\"id\"])\n        unique.append(r)\n\nprint(len(unique))         2</code></pre>\n<p>This is the \"remember what you have seen\" pattern from Stage 1's data structures lesson. In pandas: <code>df.drop_duplicates(subset=[\"id\"])</code></p>\n<p><b>Decide what \"duplicate\" means before you deduplicate.</b> Same id? Same name and date of birth? Two people genuinely can share a name. Removing rows on the wrong definition destroys real data, and you will not get it back.</p>\n\n<h3>Problem 5 — impossible values</h3>\n<pre><code>records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": 150},\n    {\"name\": \"Meena\", \"marks\": -5},\n]\n\nvalid = [r for r in records if 0 <= r[\"marks\"] <= 100]\nprint(len(valid), \"valid,\", len(records) - len(valid), \"rejected\")</code></pre>\n<p>Output: <code>1 valid, 2 rejected</code></p>\n<p>Notice <code>0 <= r[\"marks\"] <= 100</code>. Python lets you chain comparisons like this, and it reads exactly like mathematics.</p>\n\n<h3>Problem 6 — outliers</h3>\n<p>Outliers need a decision, not an automatic rule. For each one ask: <b>is this real, or is it an error?</b></p>\n<ul>\n<li>A salary of 4,500,000 among salaries of 50,000 — almost certainly an extra zero. Investigate, then fix or remove.</li>\n<li>A student scoring 100 when others score 60 — probably real. Keep it.</li>\n</ul>\n<p>If you cannot tell, report both figures: \"average 55,000, or 786,833 including one exceptional value\". Let the reader decide, and be transparent about what you did.</p>\n\n<h4>Worked example — a complete cleaning pipeline</h4>\n<pre><code>raw = [\n    {\"name\": \"  asha \", \"city\": \"chennai\", \"marks\": \"88\"},\n    {\"name\": \"RAVI\",    \"city\": \" Pune\",   \"marks\": \"N/A\"},\n    {\"name\": \"Meena\",   \"city\": \"CHENNAI\", \"marks\": \"92\"},\n]\n\nclean = []\nrejected = 0\n\nfor r in raw:\n    try:\n        marks = int(r[\"marks\"])\n    except ValueError:\n        rejected = rejected + 1\n        continue                      skip this row entirely\n\n    if not (0 <= marks <= 100):\n        rejected = rejected + 1\n        continue\n\n    clean.append({\n        \"name\":  r[\"name\"].strip().title(),\n        \"city\":  r[\"city\"].strip().title(),\n        \"marks\": marks,\n    })\n\nprint(\"kept:\", len(clean), \"rejected:\", rejected)\nfor c in clean:\n    print(c[\"name\"], c[\"city\"], c[\"marks\"])</code></pre>\n<p>Output:</p>\n<pre><code>kept: 2 rejected: 1\nAsha Chennai 88\nMeena Chennai 92</code></pre>\n<p>Note the two things this does that a careless version would not: it <b>counts what it rejected</b>, and it uses <code>continue</code> to skip cleanly rather than building a half-cleaned record.</p>\n<div class=\"callout\"><b>Write down every cleaning decision as you make it.</b> \"Dropped 1,900 rows with unreadable marks. Filled 43 missing ages with the median. Removed 12 duplicate ids.\" This list goes in your README and at the front of your report. It is what separates an analyst people trust from one they do not — and the first question a good interviewer asks about any project is what you did with the messy rows.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Clean these city names so they all become <b>Chennai</b>.",
+       "starter": "cities = [\"Chennai\", \"chennai\", \" Chennai \", \"CHENNAI\"]\nclean = []   # use a comprehension\nprint(clean)",
+       "hint": "[c.strip().title() for c in cities]",
+       "solution": "cities = [\"Chennai\", \"chennai\", \" Chennai \", \"CHENNAI\"]\nclean = [c.strip().title() for c in cities]\nprint(clean)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "['Chennai', 'Chennai', 'Chennai', 'Chennai']"
+        ]
+       }
+      },
+      {
+       "q": "Convert these to numbers, <b>skipping</b> anything invalid. Print the resulting list.",
+       "starter": "raw = [\"88\", \"N/A\", \"65\", \"\", \"92\"]\nmarks = []\nfor m in raw:\n    # try to convert, skip failures\n    pass\nprint(marks)",
+       "hint": "try: marks.append(int(m)) / except ValueError: pass",
+       "solution": "raw = [\"88\", \"N/A\", \"65\", \"\", \"92\"]\nmarks = []\nfor m in raw:\n    try:\n        marks.append(int(m))\n    except ValueError:\n        pass\nprint(marks)",
+       "answer": "",
+       "check": {
+        "all": [
+         "88.*65.*92"
+        ],
+        "none": [
+         "N/A"
+        ]
+       }
+      },
+      {
+       "q": "Now <b>count what you rejected</b> too. Print the kept list, then how many were dropped.",
+       "starter": "raw = [\"88\", \"N/A\", \"65\", \"\", \"92\"]\nmarks = []\nrejected = 0\n# convert, counting failures\nprint(marks)\nprint(rejected)",
+       "hint": "In the except branch: rejected = rejected + 1. Answer is 2 rejected.",
+       "solution": "raw = [\"88\", \"N/A\", \"65\", \"\", \"92\"]\nmarks = []\nrejected = 0\nfor m in raw:\n    try:\n        marks.append(int(m))\n    except ValueError:\n        rejected = rejected + 1\nprint(marks)\nprint(rejected)",
+       "answer": "",
+       "check": {
+        "all": [
+         "88.*65.*92"
+        ],
+        "lines": [],
+        "minLines": 2
+       }
+      },
+      {
+       "q": "Fill the missing values with the <b>median</b> of the values that are present.",
+       "starter": "values = [88, None, 92, None, 70]\npresent = [v for v in values if v is not None]\nmedian = sorted(present)[len(present) // 2]\n\nfilled = []   # replace None with median\nprint(filled)",
+       "hint": "[v if v is not None else median for v in values] — median is 88",
+       "solution": "values = [88, None, 92, None, 70]\npresent = [v for v in values if v is not None]\nmedian = sorted(present)[len(present) // 2]\nfilled = [v if v is not None else median for v in values]\nprint(filled)",
+       "answer": "",
+       "check": {
+        "all": [
+         "88, 88, 92, 88, 70"
+        ]
+       }
+      },
+      {
+       "q": "Remove <b>duplicates</b> by id. Print how many unique records remain.",
+       "starter": "records = [\n    {\"id\": 1, \"name\": \"Asha\"},\n    {\"id\": 2, \"name\": \"Ravi\"},\n    {\"id\": 1, \"name\": \"Asha\"},\n]\nseen = set()\nunique = []\n# keep only ids not seen before\nprint(len(unique))",
+       "hint": "if r[\"id\"] not in seen: seen.add(r[\"id\"]); unique.append(r)",
+       "solution": "records = [\n    {\"id\": 1, \"name\": \"Asha\"},\n    {\"id\": 2, \"name\": \"Ravi\"},\n    {\"id\": 1, \"name\": \"Asha\"},\n]\nseen = set()\nunique = []\nfor r in records:\n    if r[\"id\"] not in seen:\n        seen.add(r[\"id\"])\n        unique.append(r)\nprint(len(unique))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2"
+        ]
+       }
+      },
+      {
+       "q": "Reject <b>impossible marks</b>. Print how many were valid and how many rejected, as <b>1 valid 2 rejected</b>.",
+       "starter": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": 150},\n    {\"name\": \"Meena\", \"marks\": -5},\n]\nvalid = []   # keep only 0 to 100\nprint(len(valid), \"valid\", len(records) - len(valid), \"rejected\")",
+       "hint": "[r for r in records if 0 <= r[\"marks\"] <= 100]",
+       "solution": "records = [\n    {\"name\": \"Asha\",  \"marks\": 88},\n    {\"name\": \"Ravi\",  \"marks\": 150},\n    {\"name\": \"Meena\", \"marks\": -5},\n]\nvalid = [r for r in records if 0 <= r[\"marks\"] <= 100]\nprint(len(valid), \"valid\", len(records) - len(valid), \"rejected\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "1 valid 2 rejected"
+        ]
+       }
+      },
+      {
+       "q": "Detect the outlier: print any salary more than <b>5 times</b> the median, then the median itself.",
+       "starter": "salaries = [45000, 52000, 48000, 4500000, 55000]\nmedian = sorted(salaries)[len(salaries) // 2]\n\n# print outliers, then the median\n",
+       "hint": "Loop printing s where s > median * 5, then print(median). Median is 52000.",
+       "solution": "salaries = [45000, 52000, 48000, 4500000, 55000]\nmedian = sorted(salaries)[len(salaries) // 2]\nfor s in salaries:\n    if s > median * 5:\n        print(s)\nprint(median)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4500000",
+         "52000"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: full cleaning pipeline. Clean names and cities, convert marks, reject bad rows, then print <b>kept 2 rejected 1</b> followed by each clean record.",
+       "starter": "raw = [\n    {\"name\": \"  asha \", \"city\": \"chennai\", \"marks\": \"88\"},\n    {\"name\": \"RAVI\",    \"city\": \" Pune\",   \"marks\": \"N/A\"},\n    {\"name\": \"Meena\",   \"city\": \"CHENNAI\", \"marks\": \"92\"},\n]\nclean = []\nrejected = 0\n# try convert, skip failures, clean text, append\nprint(\"kept\", len(clean), \"rejected\", rejected)\nfor c in clean:\n    print(c[\"name\"], c[\"city\"], c[\"marks\"])",
+       "hint": "Use try/except with continue, then .strip().title() on both text fields.",
+       "solution": "raw = [\n    {\"name\": \"  asha \", \"city\": \"chennai\", \"marks\": \"88\"},\n    {\"name\": \"RAVI\",    \"city\": \" Pune\",   \"marks\": \"N/A\"},\n    {\"name\": \"Meena\",   \"city\": \"CHENNAI\", \"marks\": \"92\"},\n]\nclean = []\nrejected = 0\nfor r in raw:\n    try:\n        marks = int(r[\"marks\"])\n    except ValueError:\n        rejected = rejected + 1\n        continue\n    clean.append({\n        \"name\": r[\"name\"].strip().title(),\n        \"city\": r[\"city\"].strip().title(),\n        \"marks\": marks,\n    })\nprint(\"kept\", len(clean), \"rejected\", rejected)\nfor c in clean:\n    print(c[\"name\"], c[\"city\"], c[\"marks\"])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "kept 2 rejected 1",
+         "Asha Chennai 88",
+         "Meena Chennai 92"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Roughly how much of a data analyst's time goes on cleaning, and why is that not a failure?",
+       "a": "About 80%. It is not a failure - it IS the profession. Clean the data honestly and the analysis is often straightforward."
+      },
+      {
+       "q": "Why does inconsistent text like 'Chennai' / 'chennai' / ' Chennai ' matter so much?",
+       "a": "Grouping splits them into separate groups. You get four groups of one instead of one group of four, and every number in your report is wrong while looking completely plausible."
+      },
+      {
+       "q": "Write the standard fix for inconsistent text.",
+       "a": "[c.strip().title() for c in cities]\nIn pandas: df[\"city\"].str.strip().str.title()"
+      },
+      {
+       "q": "Why must you count rows you drop rather than silently skipping them?",
+       "a": "If you start with 5,000 and end with 3,100, that must be reported. Quietly losing 38% and presenting the rest as complete is misinformation, not analysis."
+      },
+      {
+       "q": "What are the three honest options for missing values?",
+       "a": "1. Drop the row - when few are affected and the field is essential\n2. Fill with the median - for numbers when you need to keep the row\n3. Leave it missing and report it - often the most honest"
+      },
+      {
+       "q": "Why fill missing numbers with the median rather than the mean?",
+       "a": "One outlier drags the mean up. You would then insert that wrong number into every gap, spreading the error through your data."
+      },
+      {
+       "q": "What must you decide before removing duplicates?",
+       "a": "What 'duplicate' actually means - same id? same name and date of birth? Two people genuinely can share a name. The wrong definition destroys real data permanently."
+      },
+      {
+       "q": "How do you decide what to do with an outlier?",
+       "a": "Ask whether it is real or an error. A salary 100x the others is probably an extra zero - investigate. A student scoring 100 when others score 60 is probably real - keep it. If you cannot tell, report both figures and be transparent."
+      },
+      {
+       "q": "Write the check for a mark being in a valid range using Python's chained comparison.",
+       "a": "if 0 <= marks <= 100:"
+      },
+      {
+       "q": "What should go in your report about cleaning, and why does it matter?",
+       "a": "Every decision: 'Dropped 1,900 rows with unreadable marks. Filled 43 missing ages with the median. Removed 12 duplicate ids.'\nIt separates an analyst people trust from one they do not - and it is the first thing a good interviewer asks about."
+      }
+     ]
+    },
+    {
+     "id": "da3",
+     "title": "Grouping, summarising, answering questions",
+     "mins": 35,
+     "lang": "py",
+     "position": 2,
+     "content": "\n<h3>You already know this shape</h3>\n<p>In SQL you wrote:</p>\n<pre><code>SELECT city, AVG(marks) FROM students GROUP BY city;</code></pre>\n<p>The Python equivalent is the same idea, written by hand. And in pandas it is one line again. Three ways to express one concept — worth seeing all three, because you will meet all three at work.</p>\n\n<h3>Grouping by hand</h3>\n<pre><code>records = [\n    {\"city\": \"Chennai\", \"marks\": 88},\n    {\"city\": \"Pune\",    \"marks\": 65},\n    {\"city\": \"Chennai\", \"marks\": 92},\n    {\"city\": \"Pune\",    \"marks\": 78},\n]\n\ngroups = {}\nfor r in records:\n    city = r[\"city\"]\n    if city not in groups:\n        groups[city] = []\n    groups[city].append(r[\"marks\"])\n\nprint(groups)</code></pre>\n<p>Output: <code>{'Chennai': [88, 92], 'Pune': [65, 78]}</code></p>\n<p>This is literally the \"piles\" picture from the SQL lesson, built as a real dictionary. Each key is a pile; each value is the list of things in it.</p>\n<p>There is a shorter way using <code>setdefault</code>:</p>\n<pre><code>for r in records:\n    groups.setdefault(r[\"city\"], []).append(r[\"marks\"])</code></pre>\n<p>Read it as: <i>get the list for this city, creating an empty one if it does not exist, then append to it.</i></p>\n\n<h3>Summarising each group</h3>\n<pre><code>for city in sorted(groups):\n    values = groups[city]\n    avg = sum(values) / len(values)\n    print(f\"{city:<10} {len(values):>3} students  avg {avg:.1f}\")</code></pre>\n<p>Output:</p>\n<pre><code>Chennai      2 students  avg 90.0\nPune         2 students  avg 71.5</code></pre>\n<p>Notice the formatting from Stage 2 doing its job — the columns line up and it reads like a report rather than raw output.</p>\n<p>In pandas this whole thing is:</p>\n<pre><code>df.groupby(\"city\")[\"marks\"].agg([\"count\", \"mean\"])</code></pre>\n\n<h4>Worked example 1 — finding the top group</h4>\n<pre><code>best_city = None\nbest_avg = -1\n\nfor city, values in groups.items():\n    avg = sum(values) / len(values)\n    if avg > best_avg:\n        best_avg = avg\n        best_city = city\n\nprint(f\"{best_city} leads with {best_avg:.1f}\")</code></pre>\n<p>Output: <code>Chennai leads with 90.0</code></p>\n<p>The pattern — track the best so far, replace it when you find better — is the same one you used to find the highest mark in Stage 1. It works on anything.</p>\n\n<h3>Grouping by two things</h3>\n<p>Real questions often need two dimensions: \"average marks by city <b>and</b> by year\".</p>\n<p>The trick is to make the key a <b>tuple</b>:</p>\n<pre><code>records = [\n    {\"city\": \"Chennai\", \"year\": 1, \"marks\": 88},\n    {\"city\": \"Chennai\", \"year\": 2, \"marks\": 92},\n    {\"city\": \"Pune\",    \"year\": 1, \"marks\": 65},\n]\n\ngroups = {}\nfor r in records:\n    key = (r[\"city\"], r[\"year\"])\n    groups.setdefault(key, []).append(r[\"marks\"])\n\nfor key in sorted(groups):\n    city, year = key\n    values = groups[key]\n    print(city, year, sum(values) / len(values))</code></pre>\n<p>Output:</p>\n<pre><code>Chennai 1 88.0\nChennai 2 92.0\nPune 1 65.0</code></pre>\n<p>A tuple can be a dictionary key because it cannot be changed — the same immutability idea you met with strings in Stage 2. A list cannot be a key, for exactly that reason.</p>\n\n<h3>Percentages — and the mistake to avoid</h3>\n<pre><code>total = len(records)\nfor city, values in groups.items():\n    share = len(values) / total * 100\n    print(f\"{city}: {share:.1f}%\")</code></pre>\n<div class=\"callout\"><b>Always report the count alongside the percentage.</b> \"67% of students prefer this\" sounds compelling. \"67% of students prefer this (2 out of 3)\" tells the truth. Percentages on small numbers are close to meaningless, and quoting them without the base is one of the most common ways honest people mislead their readers by accident.</div>\n\n<h4>Worked example 2 — answering a real question</h4>\n<p><b>Question:</b> which city has the highest pass rate, and is the difference meaningful?</p>\n<pre><code>records = [\n    {\"city\": \"Chennai\", \"marks\": 88}, {\"city\": \"Chennai\", \"marks\": 35},\n    {\"city\": \"Pune\",    \"marks\": 65}, {\"city\": \"Pune\",    \"marks\": 78},\n    {\"city\": \"Pune\",    \"marks\": 45},\n]\n\ngroups = {}\nfor r in records:\n    groups.setdefault(r[\"city\"], []).append(r[\"marks\"])\n\nfor city in sorted(groups):\n    values = groups[city]\n    passed = len([v for v in values if v >= 40])\n    rate = passed / len(values) * 100\n    print(f\"{city}: {passed}/{len(values)} passed ({rate:.0f}%)\")</code></pre>\n<p>Output:</p>\n<pre><code>Chennai: 1/2 passed (50%)\nPune: 3/3 passed (100%)</code></pre>\n<p>Now the honest interpretation. Pune looks twice as good. But these are 2 and 3 students. <b>One different student would flip the answer completely.</b> The correct report says: \"Pune 100% (3 of 3), Chennai 50% (1 of 2) — sample sizes are far too small to draw any conclusion.\"</p>\n<p>Knowing when your data cannot answer the question is a more valuable skill than any calculation. It is also the thing that separates analysts who get trusted from ones who get quietly ignored.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Group the marks by city. Print the resulting dictionary.",
+       "starter": "records = [\n    {\"city\": \"Chennai\", \"marks\": 88},\n    {\"city\": \"Pune\",    \"marks\": 65},\n    {\"city\": \"Chennai\", \"marks\": 92},\n]\ngroups = {}\n# build city -> list of marks\nprint(groups)",
+       "hint": "groups.setdefault(r[\"city\"], []).append(r[\"marks\"])",
+       "solution": "records = [\n    {\"city\": \"Chennai\", \"marks\": 88},\n    {\"city\": \"Pune\",    \"marks\": 65},\n    {\"city\": \"Chennai\", \"marks\": 92},\n]\ngroups = {}\nfor r in records:\n    groups.setdefault(r[\"city\"], []).append(r[\"marks\"])\nprint(groups)",
+       "answer": "",
+       "check": {
+        "all": [
+         "Chennai.*88.*92",
+         "Pune.*65"
+        ]
+       }
+      },
+      {
+       "q": "Print each city with its <b>count</b> and <b>average to 1 decimal</b>, sorted by city name.",
+       "starter": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78]}\nfor city in sorted(groups):\n    # print city, count, average\n    pass",
+       "hint": "values = groups[city]; print(city, len(values), round(sum(values)/len(values),1))",
+       "solution": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78]}\nfor city in sorted(groups):\n    values = groups[city]\n    print(city, len(values), round(sum(values) / len(values), 1))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2 90.0",
+         "Pune 2 71.5"
+        ]
+       }
+      },
+      {
+       "q": "Find the city with the <b>highest average</b> and print its name.",
+       "starter": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78], \"Delhi\": [45]}\nbest_city = None\nbest_avg = -1\n# track the best as you loop\nprint(best_city)",
+       "hint": "if avg > best_avg: best_avg = avg; best_city = city",
+       "solution": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78], \"Delhi\": [45]}\nbest_city = None\nbest_avg = -1\nfor city, values in groups.items():\n    avg = sum(values) / len(values)\n    if avg > best_avg:\n        best_avg = avg\n        best_city = city\nprint(best_city)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai"
+        ]
+       }
+      },
+      {
+       "q": "Group by <b>two things</b> using a tuple key: city and year. Print each combination with its average.",
+       "starter": "records = [\n    {\"city\": \"Chennai\", \"year\": 1, \"marks\": 88},\n    {\"city\": \"Chennai\", \"year\": 2, \"marks\": 92},\n    {\"city\": \"Pune\",    \"year\": 1, \"marks\": 65},\n]\ngroups = {}\n# key = (city, year)\nfor key in sorted(groups):\n    pass",
+       "hint": "key = (r[\"city\"], r[\"year\"]) then unpack with city, year = key",
+       "solution": "records = [\n    {\"city\": \"Chennai\", \"year\": 1, \"marks\": 88},\n    {\"city\": \"Chennai\", \"year\": 2, \"marks\": 92},\n    {\"city\": \"Pune\",    \"year\": 1, \"marks\": 65},\n]\ngroups = {}\nfor r in records:\n    key = (r[\"city\"], r[\"year\"])\n    groups.setdefault(key, []).append(r[\"marks\"])\nfor key in sorted(groups):\n    city, year = key\n    values = groups[key]\n    print(city, year, sum(values) / len(values))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 1 88.0",
+         "Chennai 2 92.0",
+         "Pune 1 65.0"
+        ]
+       }
+      },
+      {
+       "q": "Count how many students <b>passed</b> (40 or above) in each city. Print as <b>Chennai 1</b> style.",
+       "starter": "groups = {\"Chennai\": [88, 35], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    # count values >= 40\n    pass",
+       "hint": "passed = len([v for v in groups[city] if v >= 40])",
+       "solution": "groups = {\"Chennai\": [88, 35], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    passed = len([v for v in groups[city] if v >= 40])\n    print(city, passed)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 1",
+         "Pune 3"
+        ]
+       }
+      },
+      {
+       "q": "Now show the pass <b>rate</b> with the counts alongside it, as <b>Chennai 1/2 50%</b>.",
+       "starter": "groups = {\"Chennai\": [88, 35], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    values = groups[city]\n    passed = len([v for v in values if v >= 40])\n    # print name, passed/total, and the percentage\n    pass",
+       "hint": "rate = passed/len(values)*100 then use an f-string: f\"{city} {passed}/{len(values)} {rate:.0f}%\"",
+       "solution": "groups = {\"Chennai\": [88, 35], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    values = groups[city]\n    passed = len([v for v in values if v >= 40])\n    rate = passed / len(values) * 100\n    print(f\"{city} {passed}/{len(values)} {rate:.0f}%\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 1/2 50%",
+         "Pune 3/3 100%"
+        ]
+       }
+      },
+      {
+       "q": "Report the <b>share of total students</b> per city, with counts, as <b>Chennai 2/5 40.0%</b>.",
+       "starter": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78, 45]}\ntotal = sum(len(v) for v in groups.values())\nfor city in sorted(groups):\n    pass",
+       "hint": "share = len(groups[city]) / total * 100",
+       "solution": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78, 45]}\ntotal = sum(len(v) for v in groups.values())\nfor city in sorted(groups):\n    n = len(groups[city])\n    print(f\"{city} {n}/{total} {n / total * 100:.1f}%\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2/5 40.0%",
+         "Pune 3/5 60.0%"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: build the full report — group the raw records by city, then print each city's count, average to 1 decimal, and pass rate, sorted by average highest first.",
+       "starter": "records = [\n    {\"city\": \"Chennai\", \"marks\": 88}, {\"city\": \"Chennai\", \"marks\": 92},\n    {\"city\": \"Pune\",    \"marks\": 65}, {\"city\": \"Pune\",    \"marks\": 35},\n]\n# group, then compute, then sort by average descending\n",
+       "hint": "Build a list of (avg, city, n, passed) tuples, sort it reversed, then print. Chennai 2 90.0 100%, Pune 2 50.0 50%",
+       "solution": "records = [\n    {\"city\": \"Chennai\", \"marks\": 88}, {\"city\": \"Chennai\", \"marks\": 92},\n    {\"city\": \"Pune\",    \"marks\": 65}, {\"city\": \"Pune\",    \"marks\": 35},\n]\ngroups = {}\nfor r in records:\n    groups.setdefault(r[\"city\"], []).append(r[\"marks\"])\n\nrows = []\nfor city, values in groups.items():\n    avg = sum(values) / len(values)\n    passed = len([v for v in values if v >= 40])\n    rows.append((avg, city, len(values), passed))\n\nrows.sort(reverse=True)\nfor avg, city, n, passed in rows:\n    print(f\"{city} {n} {avg:.1f} {passed / n * 100:.0f}%\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 2 90.0 100%",
+         "Pune 2 50.0 50%"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Write the SQL, plain-Python and pandas versions of 'average marks by city'.",
+       "a": "SQL: SELECT city, AVG(marks) FROM students GROUP BY city;\nPython: build a dict of city -> list, then average each\npandas: df.groupby(\"city\")[\"marks\"].mean()"
+      },
+      {
+       "q": "What does groups.setdefault(key, []).append(value) do?",
+       "a": "Gets the list stored under that key, creating an empty list first if the key does not exist yet, then appends to it. It replaces a four-line if/else."
+      },
+      {
+       "q": "How do you group by two things at once?",
+       "a": "Make the dictionary key a tuple: key = (city, year). A tuple works as a key because it cannot be changed."
+      },
+      {
+       "q": "Why can a tuple be a dictionary key but a list cannot?",
+       "a": "Because tuples are immutable - they cannot be changed after creation. Dictionary keys must be immutable, or the dictionary could not reliably find them again."
+      },
+      {
+       "q": "What is wrong with reporting '67% of students prefer this'?",
+       "a": "It hides the base. If it is 2 out of 3, the percentage is close to meaningless. Always report the count alongside: '67% (2 of 3)'."
+      },
+      {
+       "q": "City A has a 100% pass rate (3 of 3), City B has 50% (1 of 2). What should your report say?",
+       "a": "That the sample sizes are far too small to draw any conclusion. One different student would flip the answer completely. Report the raw counts and say plainly that the data cannot answer the question."
+      },
+      {
+       "q": "Write the 'track the best so far' pattern to find the group with the highest average.",
+       "a": "best_city = None\nbest_avg = -1\nfor city, values in groups.items():\n    avg = sum(values) / len(values)\n    if avg > best_avg:\n        best_avg = avg\n        best_city = city"
+      },
+      {
+       "q": "Why is knowing when your data cannot answer a question a valuable skill?",
+       "a": "Because it is what separates analysts who get trusted from ones who get quietly ignored. Producing a confident number from insufficient data damages your credibility permanently once someone notices."
+      },
+      {
+       "q": "Write code to count how many values in a group are 40 or above.",
+       "a": "passed = len([v for v in values if v >= 40])"
+      },
+      {
+       "q": "What is the pandas equivalent of grouping and getting both count and mean?",
+       "a": "df.groupby(\"city\")[\"marks\"].agg([\"count\", \"mean\"])"
+      }
+     ]
+    },
+    {
+     "id": "da4",
+     "title": "Charts that tell the truth",
+     "mins": 30,
+     "lang": "py",
+     "position": 3,
+     "content": "\n<h3>A chart is an argument</h3>\n<p>When you draw a chart you are making a claim about what the data means. That gives you a responsibility, because charts are believed far more readily than tables of numbers. People trust pictures.</p>\n<p>You can mislead badly without writing a single false number. This lesson is about not doing that, accidentally or otherwise.</p>\n\n<h3>Choosing the right chart</h3>\n<ul>\n<li><b>Bar chart</b> — comparing categories. Marks by city, sales by product. The most useful chart there is.</li>\n<li><b>Line chart</b> — change over time, and only over time. Never use a line for categories; a line implies the points connect meaningfully.</li>\n<li><b>Histogram</b> — the distribution of one number. How many students scored 0-10, 10-20, and so on. Shows you the shape of your data.</li>\n<li><b>Scatter plot</b> — the relationship between two numbers. Attendance against marks.</li>\n<li><b>Box plot</b> — spread and outliers at a glance.</li>\n<li><b>Pie chart</b> — almost never. Humans compare angles badly. Use a bar chart. The only reasonable case is two or three parts of a clear whole.</li>\n</ul>\n\n<h3>The four ways charts lie</h3>\n\n<h4>1. Truncated y-axis</h4>\n<p>Two bars, 51% and 49%. Start the axis at 48% and one bar looks three times taller than the other. The numbers are correct; the picture is a lie.</p>\n<p><b>Bar charts must start at zero. Always.</b> This is not a stylistic preference — the length of a bar is what encodes the value, so a bar not starting at zero is drawing the wrong length. Line charts showing change over time may start elsewhere, but say so clearly.</p>\n\n<h4>2. Hidden sample size</h4>\n<p>A bar showing \"City A: 100% pass rate\" is technically accurate when 3 students sat the exam. Put the count on the chart, or in the label.</p>\n\n<h4>3. Cherry-picked range</h4>\n<p>Showing 2019-2021 when the data runs 2015-2024, because those three years support your point. If you shorten the range, say why.</p>\n\n<h4>4. Implying cause</h4>\n<p>Ice cream sales and drowning deaths rise together. Ice cream does not cause drowning — hot weather causes both. A chart of two rising lines invites the reader to assume one caused the other. <b>Correlation is not causation</b>, and this is the single most common error in published analysis.</p>\n<div class=\"callout\"><b>The test to apply before you publish:</b> if someone who disagreed with your conclusion looked at this chart, would they say it was fair? If you find yourself hoping nobody checks the axis, or hoping nobody asks how many people were surveyed, you already know the answer.</div>\n\n<h3>Drawing charts in Python</h3>\n<pre><code>import matplotlib.pyplot as plt\n\ncities = [\"Chennai\", \"Pune\", \"Delhi\"]\naverages = [90.0, 71.5, 45.0]\n\nfig, ax = plt.subplots(figsize=(8, 5))\nax.bar(cities, averages)\n\nax.set_title(\"Average marks by city (n=5 students)\")\nax.set_ylabel(\"Average marks (out of 100)\")\nax.set_ylim(0, 100)              start at zero, end at the real maximum\n\nplt.tight_layout()\nplt.savefig(\"chart.png\", dpi=150)</code></pre>\n<p>Three things in there that most beginners omit and that matter:</p>\n<ul>\n<li><code>set_ylim(0, 100)</code> — starts at zero and ends at the true maximum, so 90 looks like 90% of the way up rather than filling the frame</li>\n<li>The sample size in the title</li>\n<li>The unit in the axis label — \"Average marks\" alone does not say out of what</li>\n</ul>\n\n<h3>Text charts, which you can build right now</h3>\n<p>You do not need a plotting library to see the shape of your data. This works anywhere:</p>\n<pre><code>data = {\"Chennai\": 90, \"Pune\": 71, \"Delhi\": 45}\n\nfor city in sorted(data, key=data.get, reverse=True):\n    value = data[city]\n    bar = \"#\" * (value // 5)\n    print(f\"{city:<10} {bar} {value}\")</code></pre>\n<p>Output:</p>\n<pre><code>Chennai    ################## 90\nPune       ############## 71\nDelhi      ######### 45</code></pre>\n<p>The bars start at zero because they begin at the left edge — a text chart cannot easily lie about its axis, which is a small point in its favour.</p>\n<p><code>sorted(data, key=data.get, reverse=True)</code> sorts the keys by their values, highest first. <code>data.get</code> is being handed over as the function to look up each key by.</p>\n\n<h3>Writing the report</h3>\n<p>A report is not a pile of charts. Structure it:</p>\n<ul>\n<li><b>The question</b> you set out to answer, stated plainly</li>\n<li><b>What you did to the data</b> — every cleaning decision, every row you dropped</li>\n<li><b>What you found</b> — with numbers and sample sizes</li>\n<li><b>What you cannot conclude</b> — the limits of the data</li>\n<li><b>What you would do next</b> with more time or better data</li>\n</ul>\n<p>That fourth point is the one people skip, and the one that most builds trust. An analyst who says \"this sample is too small to be confident\" is worth ten who never mention it.</p>\n\n<h4>Worked example — an honest summary</h4>\n<pre><code>records = [\n    {\"city\": \"Chennai\", \"marks\": 88}, {\"city\": \"Chennai\", \"marks\": 92},\n    {\"city\": \"Pune\", \"marks\": 65}, {\"city\": \"Pune\", \"marks\": 35},\n    {\"city\": \"Pune\", \"marks\": 78},\n]\n\ngroups = {}\nfor r in records:\n    groups.setdefault(r[\"city\"], []).append(r[\"marks\"])\n\nprint(\"AVERAGE MARKS BY CITY\")\nprint(\"total students:\", len(records))\nprint()\n\nfor city in sorted(groups, key=lambda c: -sum(groups[c]) / len(groups[c])):\n    values = groups[city]\n    avg = sum(values) / len(values)\n    bar = \"#\" * int(avg // 5)\n    print(f\"{city:<10} {bar} {avg:.1f}  (n={len(values)})\")\n\nprint()\nprint(\"NOTE: sample sizes of 2 and 3 are too small for a reliable comparison.\")</code></pre>\n<p>Output:</p>\n<pre><code>AVERAGE MARKS BY CITY\ntotal students: 5\n\nChennai    ################## 90.0  (n=2)\nPune       ############ 59.3  (n=3)\n\nNOTE: sample sizes of 2 and 3 are too small for a reliable comparison.</code></pre>\n<p>Every number is there, the sample size is on every row, and the caveat is stated rather than buried. That is what an honest report looks like, and it took no more effort than a dishonest one.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Draw a text bar chart. Each bar is one <code>#</code> per 5 points. Print name, bar and value.",
+       "starter": "data = {\"Chennai\": 90, \"Pune\": 71, \"Delhi\": 45}\nfor city in data:\n    value = data[city]\n    bar = \"\"   # one # per 5 points\n    print(f\"{city:<10} {bar} {value}\")",
+       "hint": "bar = \"#\" * (value // 5)",
+       "solution": "data = {\"Chennai\": 90, \"Pune\": 71, \"Delhi\": 45}\nfor city in data:\n    value = data[city]\n    bar = \"#\" * (value // 5)\n    print(f\"{city:<10} {bar} {value}\")",
+       "answer": "",
+       "check": {
+        "all": [
+         "Chennai\\s+#{18} 90",
+         "Pune\\s+#{14} 71",
+         "Delhi\\s+#{9} 45"
+        ]
+       }
+      },
+      {
+       "q": "Sort the chart so the <b>highest value comes first</b>.",
+       "starter": "data = {\"Delhi\": 45, \"Chennai\": 90, \"Pune\": 71}\nfor city in data:   # add sorting here\n    value = data[city]\n    print(f\"{city:<10} {'#' * (value // 5)} {value}\")",
+       "hint": "for city in sorted(data, key=data.get, reverse=True):",
+       "solution": "data = {\"Delhi\": 45, \"Chennai\": 90, \"Pune\": 71}\nfor city in sorted(data, key=data.get, reverse=True):\n    value = data[city]\n    print(f\"{city:<10} {'#' * (value // 5)} {value}\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai    ################## 90",
+         "Pune       ############## 71",
+         "Delhi      ######### 45"
+        ]
+       }
+      },
+      {
+       "q": "Add the <b>sample size</b> to each row, as <b>Chennai 90.0 (n=2)</b>.",
+       "starter": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    values = groups[city]\n    # print name, average to 1dp, and (n=count)\n    pass",
+       "hint": "print(f\"{city} {sum(values)/len(values):.1f} (n={len(values)})\")",
+       "solution": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    values = groups[city]\n    print(f\"{city} {sum(values) / len(values):.1f} (n={len(values)})\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 90.0 (n=2)",
+         "Pune 62.7 (n=3)"
+        ]
+       }
+      },
+      {
+       "q": "Build a <b>histogram</b> — count how many marks fall in each band of 20, printing band and count.",
+       "starter": "marks = [88, 92, 65, 35, 78, 45, 55, 95]\nbands = {\"0-19\": 0, \"20-39\": 0, \"40-59\": 0, \"60-79\": 0, \"80-100\": 0}\nfor m in marks:\n    # add 1 to the right band\n    pass\nfor b in bands:\n    print(b, bands[b])",
+       "hint": "Use if/elif on m < 20, m < 40, m < 60, m < 80, else 80-100",
+       "solution": "marks = [88, 92, 65, 35, 78, 45, 55, 95]\nbands = {\"0-19\": 0, \"20-39\": 0, \"40-59\": 0, \"60-79\": 0, \"80-100\": 0}\nfor m in marks:\n    if m < 20:\n        bands[\"0-19\"] += 1\n    elif m < 40:\n        bands[\"20-39\"] += 1\n    elif m < 60:\n        bands[\"40-59\"] += 1\n    elif m < 80:\n        bands[\"60-79\"] += 1\n    else:\n        bands[\"80-100\"] += 1\nfor b in bands:\n    print(b, bands[b])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "0-19 0",
+         "20-39 1",
+         "40-59 2",
+         "60-79 2",
+         "80-100 3"
+        ]
+       }
+      },
+      {
+       "q": "Show why a <b>truncated axis</b> misleads. Print bars for 51 and 49 scaled from zero, then scaled from 48.",
+       "starter": "values = {\"A\": 51, \"B\": 49}\n\nprint(\"FROM ZERO\")\nfor k, v in values.items():\n    print(k, \"#\" * (v // 5))\n\nprint(\"FROM 48\")\nfor k, v in values.items():\n    print(k, \"#\" * (v - 48))",
+       "hint": "Just run it. From zero the bars look nearly identical, which is the truth. From 48 one looks three times the other.",
+       "solution": "values = {\"A\": 51, \"B\": 49}\n\nprint(\"FROM ZERO\")\nfor k, v in values.items():\n    print(k, \"#\" * (v // 5))\n\nprint(\"FROM 48\")\nfor k, v in values.items():\n    print(k, \"#\" * (v - 48))",
+       "answer": "",
+       "check": {
+        "all": [
+         "FROM ZERO",
+         "FROM 48"
+        ]
+       }
+      },
+      {
+       "q": "Flag small samples: print each city's average, adding <b>SMALL SAMPLE</b> when there are fewer than 3 records.",
+       "starter": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    values = groups[city]\n    avg = sum(values) / len(values)\n    # add a warning when len(values) < 3\n    pass",
+       "hint": "warning = \" SMALL SAMPLE\" if len(values) < 3 else \"\"",
+       "solution": "groups = {\"Chennai\": [88, 92], \"Pune\": [65, 78, 45]}\nfor city in sorted(groups):\n    values = groups[city]\n    avg = sum(values) / len(values)\n    warning = \" SMALL SAMPLE\" if len(values) < 3 else \"\"\n    print(f\"{city} {avg:.1f}{warning}\")",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Chennai 90.0 SMALL SAMPLE",
+         "Pune 62.7"
+        ]
+       }
+      },
+      {
+       "q": "Print a complete report header: title, total records, then a blank line.",
+       "starter": "records = [{\"city\": \"Chennai\"}, {\"city\": \"Pune\"}, {\"city\": \"Pune\"}]\n# title, count, blank line\n",
+       "hint": "print(\"AVERAGE MARKS BY CITY\") then print(\"total students:\", len(records)) then print()",
+       "solution": "records = [{\"city\": \"Chennai\"}, {\"city\": \"Pune\"}, {\"city\": \"Pune\"}]\nprint(\"AVERAGE MARKS BY CITY\")\nprint(\"total students:\", len(records))\nprint()",
+       "answer": "",
+       "check": {
+        "lines": [
+         "AVERAGE MARKS BY CITY",
+         "total students: 3"
+        ]
+       }
+      },
+      {
+       "q": "Challenge: produce the full honest report — sorted bar chart with averages, sample sizes, and a caveat line at the end.",
+       "starter": "records = [\n    {\"city\": \"Chennai\", \"marks\": 88}, {\"city\": \"Chennai\", \"marks\": 92},\n    {\"city\": \"Pune\", \"marks\": 65}, {\"city\": \"Pune\", \"marks\": 35},\n    {\"city\": \"Pune\", \"marks\": 78},\n]\n# group, sort by average descending, print bar + avg + (n=), then a NOTE line\n",
+       "hint": "Build (avg, city, n) tuples, sort reverse, print bar of \"#\" * int(avg//5). Chennai 90.0 n=2, Pune 59.3 n=3.",
+       "solution": "records = [\n    {\"city\": \"Chennai\", \"marks\": 88}, {\"city\": \"Chennai\", \"marks\": 92},\n    {\"city\": \"Pune\", \"marks\": 65}, {\"city\": \"Pune\", \"marks\": 35},\n    {\"city\": \"Pune\", \"marks\": 78},\n]\ngroups = {}\nfor r in records:\n    groups.setdefault(r[\"city\"], []).append(r[\"marks\"])\n\nrows = []\nfor city, values in groups.items():\n    rows.append((sum(values) / len(values), city, len(values)))\nrows.sort(reverse=True)\n\nfor avg, city, n in rows:\n    bar = \"#\" * int(avg // 5)\n    print(f\"{city:<10} {bar} {avg:.1f} (n={n})\")\n\nprint(\"NOTE: sample sizes too small for a reliable comparison.\")",
+       "answer": "",
+       "check": {
+        "all": [
+         "Chennai.*90\\.0 \\(n=2\\)",
+         "Pune.*59\\.3 \\(n=3\\)",
+         "NOTE"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Why does a chart carry more responsibility than a table of numbers?",
+       "a": "Because people believe pictures far more readily. You can mislead badly without writing a single false number."
+      },
+      {
+       "q": "Which chart for: comparing categories, change over time, distribution of one number, relationship between two numbers?",
+       "a": "Categories - bar chart\nOver time - line chart\nDistribution - histogram\nRelationship - scatter plot"
+      },
+      {
+       "q": "Why should you almost never use a pie chart?",
+       "a": "Humans compare angles badly. A bar chart shows the same information more clearly. The only reasonable case is two or three parts of an obvious whole."
+      },
+      {
+       "q": "Why must bar charts start at zero?",
+       "a": "Because the LENGTH of the bar is what encodes the value. A bar not starting at zero is literally drawing the wrong length. It is not a style preference."
+      },
+      {
+       "q": "Name the four ways charts mislead.",
+       "a": "1. Truncated y-axis\n2. Hidden sample size\n3. Cherry-picked date range\n4. Implying cause from correlation"
+      },
+      {
+       "q": "Explain the ice cream and drowning example.",
+       "a": "Both rise together, but ice cream does not cause drowning - hot weather causes both. A chart of two rising lines invites the reader to assume causation. Correlation is not causation."
+      },
+      {
+       "q": "What test should you apply before publishing a chart?",
+       "a": "Would someone who disagreed with my conclusion call this fair? If you are hoping nobody checks the axis or asks about sample size, you already know the answer."
+      },
+      {
+       "q": "Name three things beginners leave off charts that matter.",
+       "a": "1. Axis starting at zero with a sensible maximum\n2. The sample size, usually in the title\n3. Units in the axis label - 'Average marks' does not say out of what"
+      },
+      {
+       "q": "What are the five parts of a good report?",
+       "a": "1. The question, stated plainly\n2. What you did to the data - every cleaning decision\n3. What you found, with numbers and sample sizes\n4. What you CANNOT conclude\n5. What you would do next"
+      },
+      {
+       "q": "Which part of a report do people skip, and why does including it matter?",
+       "a": "What you cannot conclude. Including it builds trust - an analyst who says 'this sample is too small to be confident' is worth ten who never mention it."
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

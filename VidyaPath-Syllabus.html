@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VidyaPath — Course Syllabus</title>
+<style>
+:root{--bg:#fff;--paper:#faf9f7;--line:#e2e0dc;--text:#1a1a19;--muted:#6b6b66;
+      --accent:#c2410c;--blue:#1e5fa8;--green:#15803d;--r:9px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     font-size:16px;line-height:1.7;max-width:940px;margin:0 auto;padding:46px 30px 90px}
+h1,h2,h3{letter-spacing:-.5px}
+
+.cover{border-bottom:3px solid var(--text);padding-bottom:28px;margin-bottom:10px}
+.cover h1{font-size:40px;font-weight:800;line-height:1.1}
+.cover h1 span{color:var(--accent)}
+.cover .sub{font-size:19px;color:var(--muted);margin-top:12px;max-width:660px}
+.nums{display:flex;gap:32px;flex-wrap:wrap;margin-top:26px}
+.nums div b{display:block;font-size:27px;font-weight:800}
+.nums div span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.9px}
+
+.box{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:22px 26px;margin:26px 0}
+.box h4{font-size:16px;margin-bottom:9px}
+.box ul{margin-left:20px}.box li{margin-bottom:5px}
+.box.warn{background:#fff8f0;border-color:#f0d0b0}
+.box.good{background:#f2f9f4;border-color:#c3e0cc}
+
+.stage{margin-top:46px}
+.shead{border-bottom:2px solid var(--line);padding-bottom:16px;margin-bottom:20px}
+.sn{font-size:11px;font-weight:800;letter-spacing:1.4px;color:var(--accent)}
+.shead h2{font-size:29px;font-weight:800;margin:4px 0 12px}
+.sbar{display:flex;gap:26px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);
+      padding:11px 0;border-top:1px solid var(--line)}
+.sbar b{color:var(--text);font-weight:600;margin-right:5px}
+.send{font-size:14.5px;background:#eff6fd;border-left:3px solid var(--blue);
+      padding:11px 15px;border-radius:0 var(--r) var(--r) 0;margin-top:10px}
+
+.track{border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:14px}
+.track-head{display:flex;gap:13px;align-items:flex-start}
+.ti{font-size:23px;line-height:1.2}
+.track h3{font-size:18px;font-weight:700}
+.tmeta{font-size:12.5px;color:var(--muted)}
+.tdesc{margin:11px 0;color:#3d3d3a;font-size:14.5px}
+.outcomes{background:var(--paper);border-radius:var(--r);padding:13px 17px;font-size:14px}
+.outcomes ul{margin:6px 0 0 19px}.outcomes li{margin-bottom:3px}
+.lessons{margin-top:12px}
+.lessons summary{cursor:pointer;font-size:13.5px;color:var(--blue);
+  padding:6px 12px;background:var(--paper);border:1px solid var(--line);
+  border-radius:6px;display:inline-block;user-select:none}
+.lessons ol{margin:12px 0 0 22px;font-size:14px}
+.lessons li{margin-bottom:5px}
+.lmeta{color:var(--muted);font-size:12px}
+
+table{width:100%;border-collapse:collapse;font-size:14.5px;margin:14px 0}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+   color:var(--muted);padding:9px 10px;border-bottom:2px solid var(--line)}
+td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+.yes{color:var(--green);font-weight:600}
+.no{color:var(--accent);font-weight:600}
+
+footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+       font-size:13px;color:var(--muted)}
+@media print{
+  body{font-size:11pt;padding:0}
+  .lessons summary{display:none}
+  .lessons ol{display:block}
+  .stage{page-break-inside:auto}
+  .shead{page-break-after:avoid}
+  @page{margin:15mm}
+}
+</style></head><body>
+
+<div class="cover">
+  <h1>Learn to Code,<br>Then Build with <span>AI</span></h1>
+  <p class="sub">A complete route from never having written a line of code
+     through to building and deploying real AI applications. Nothing assumed at any point.</p>
+  <div class="nums">
+    <div><b>6</b><span>Stages</span></div>
+    <div><b>41</b><span>Lessons</span></div>
+    <div><b>257</b><span>Exercises</span></div>
+    <div><b>319</b><span>Written questions</span></div>
+    <div><b>~9</b><span>Months</span></div>
+  </div>
+</div>
+
+<div class="box good">
+  <h4>How this course is different</h4>
+  <ul>
+    <li><b>Everything is taught here.</b> No "go watch a video" gaps. Each idea is explained
+        from zero with worked examples showing every step.</li>
+    <li><b>You write code from lesson one.</b> Real Python and real SQL run in your browser
+        and mark themselves. No setup needed to begin.</li>
+    <li><b>Every lesson has 6-8 exercises</b>, rising from easy to hard, plus a written
+        worksheet you can print for offline or classroom use.</li>
+    <li><b>It is honest about difficulty.</b> The course tells you when something is genuinely
+        hard, when a technique is the wrong choice, and what the limits of the tools are.</li>
+  </ul>
+</div>
+
+
+  <section class="stage">
+    <div class="shead">
+      <div class="sn">STAGE 1</div>
+      <h2>🌱 Absolute Beginner</h2>
+      <div class="sbar">
+        <span><b>Who</b> Class 8-12, or any adult who has never coded</span>
+        <span><b>Length</b> 7 weeks at 1 hour a day</span>
+        <span><b>Content</b> 9 lessons, 71 exercises</span>
+      </div>
+      <div class="send"><b>By the end:</b> You can write a program that makes decisions, repeats work, and handles lists of data.</div>
+    </div>
+    
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🌱</span>
+        <div>
+          <h3>First Steps with Computers</h3>
+          <div class="tmeta">3 lessons &middot; Python &middot; 2 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">You have never written a single line of code. That is exactly who this is for. By the end you will have made the computer do what YOU told it to do.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Explain in your own words what a program is</li><li>Write and run your first Python program</li><li>Store information in variables and use it</li><li>Ask the user a question and use their answer</li></ul></div>
+      <details class="lessons"><summary>See all 3 lessons</summary>
+        <ol><li>What is a computer really doing?
+            <span class="lmeta">20 min &middot; 8 exercises</span></li><li>Boxes that remember: variables
+            <span class="lmeta">25 min &middot; 8 exercises</span></li><li>Talking to the user: input
+            <span class="lmeta">25 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🧠</span>
+        <div>
+          <h3>Making Programs Think</h3>
+          <div class="tmeta">3 lessons &middot; Python &middot; 3 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">Right now your programs do the same thing every time. Now you will teach them to make decisions and to repeat work — which is where programming gets genuinely powerful.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Make the program choose between different actions</li><li>Repeat work automatically instead of copying lines</li><li>Store many values together in a list</li><li>Combine all of these to solve real problems</li></ul></div>
+      <details class="lessons"><summary>See all 3 lessons</summary>
+        <ol><li>Making decisions: if and else
+            <span class="lmeta">30 min &middot; 8 exercises</span></li><li>Repeating work: loops
+            <span class="lmeta">30 min &middot; 8 exercises</span></li><li>Many things in one box: lists
+            <span class="lmeta">30 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🚀</span>
+        <div>
+          <h3>Build Things &amp; Meet AI</h3>
+          <div class="tmeta">3 lessons &middot; Python &middot; 2 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">Put everything together to build real working programs. Then find out what Artificial Intelligence actually is, without the hype.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Write your own functions to organise code</li><li>Build complete working programs from scratch</li><li>Explain in plain words what AI really is and is not</li><li>Know exactly what to learn next</li></ul></div>
+      <details class="lessons"><summary>See all 3 lessons</summary>
+        <ol><li>Your own instructions: functions
+            <span class="lmeta">30 min &middot; 8 exercises</span></li><li>Build real programs
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>What Artificial Intelligence really is
+            <span class="lmeta">30 min &middot; 7 exercises</span></li></ol>
+      </details>
+    </div>
+  </section>
+  <section class="stage">
+    <div class="shead">
+      <div class="sn">STAGE 2</div>
+      <h2>📘 Getting Fluent in Python</h2>
+      <div class="sbar">
+        <span><b>Who</b> Anyone who has finished Stage 1</span>
+        <span><b>Length</b> 5 weeks</span>
+        <span><b>Content</b> 5 lessons, 40 exercises</span>
+      </div>
+      <div class="send"><b>By the end:</b> You write Python the way working programmers write it, and can process real messy text and records.</div>
+    </div>
+    
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">📝</span>
+        <div>
+          <h3>Working with Text</h3>
+          <div class="tmeta">3 lessons &middot; Python &middot; 2 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">You know variables, loops and lists. Now learn to handle text properly — the skill behind every form, every file, every message your programs will ever process.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Cut, join, search and clean text confidently</li><li>Format numbers and text for neat output</li><li>Handle messy real-world text safely</li><li>Know why text bugs happen and how to prevent them</li></ul></div>
+      <details class="lessons"><summary>See all 3 lessons</summary>
+        <ol><li>Text is a sequence you can cut
+            <span class="lmeta">30 min &middot; 8 exercises</span></li><li>Cleaning and reshaping text
+            <span class="lmeta">30 min &middot; 8 exercises</span></li><li>Formatting output that looks professional
+            <span class="lmeta">25 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🗂️</span>
+        <div>
+          <h3>Organising Data</h3>
+          <div class="tmeta">2 lessons &middot; Python &middot; 2 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">Lists hold values in a row. But real information has labels — a student has a name AND marks AND a city. Dictionaries let you store that properly, and they are the single most useful structure in Python.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Store labelled information with dictionaries</li><li>Choose correctly between a list and a dictionary</li><li>Handle collections of records the way real programs do</li><li>Write comprehensions to transform data in one line</li></ul></div>
+      <details class="lessons"><summary>See all 2 lessons</summary>
+        <ol><li>Dictionaries: values with labels
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>Comprehensions: transforming data in one line
+            <span class="lmeta">30 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+  </section>
+  <section class="stage">
+    <div class="shead">
+      <div class="sn">STAGE 3</div>
+      <h2>🗄️ Databases &amp; SQL</h2>
+      <div class="sbar">
+        <span><b>Who</b> After Stage 2</span>
+        <span><b>Length</b> 4 weeks</span>
+        <span><b>Content</b> 5 lessons, 40 exercises</span>
+      </div>
+      <div class="send"><b>By the end:</b> You can query a real database confidently. This skill alone qualifies you for Data Analyst roles.</div>
+    </div>
+    
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🗄️</span>
+        <div>
+          <h3>SQL &amp; Databases</h3>
+          <div class="tmeta">5 lessons &middot; SQL &middot; 4 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">The highest-paying skill you can learn for the least effort. SQL alone qualifies you for data analyst jobs, and every application you will ever build sits on a database. Every exercise here runs real SQL.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Write SELECT queries with filtering and sorting</li><li>Summarise data with COUNT, SUM, AVG and GROUP BY</li><li>Combine information from multiple tables with JOIN</li><li>Design sensible tables with proper keys</li><li>Write queries that are safe from SQL injection</li></ul></div>
+      <details class="lessons"><summary>See all 5 lessons</summary>
+        <ol><li>What a database is, and asking it questions
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>Sorting, limiting, and summarising
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>GROUP BY — summarising by category
+            <span class="lmeta">40 min &middot; 8 exercises</span></li><li>JOIN — combining two tables
+            <span class="lmeta">40 min &middot; 8 exercises</span></li><li>Designing tables, and writing safe SQL
+            <span class="lmeta">35 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+  </section>
+  <section class="stage">
+    <div class="shead">
+      <div class="sn">STAGE 4</div>
+      <h2>📊 Data Analysis</h2>
+      <div class="sbar">
+        <span><b>Who</b> After SQL</span>
+        <span><b>Length</b> 3 weeks</span>
+        <span><b>Content</b> 4 lessons, 32 exercises</span>
+      </div>
+      <div class="send"><b>By the end:</b> You can take a messy real dataset, clean it honestly, and report findings without misleading anyone.</div>
+    </div>
+    
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">📊</span>
+        <div>
+          <h3>Data Analysis</h3>
+          <div class="tmeta">4 lessons &middot; Python &middot; 3 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">Take messy real data, clean it, find something true in it, and report it honestly. This plus SQL is a Data Analyst job.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Load and inspect a table of records before touching it</li><li>Find and fix the six things wrong with real data</li><li>Group and summarise to answer actual questions</li><li>Choose the right chart and avoid misleading anybody</li><li>Know the pandas method for everything you write by hand</li></ul></div>
+      <details class="lessons"><summary>See all 4 lessons</summary>
+        <ol><li>Looking at data before you touch it
+            <span class="lmeta">30 min &middot; 8 exercises</span></li><li>Cleaning messy data
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>Grouping, summarising, answering questions
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>Charts that tell the truth
+            <span class="lmeta">30 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+  </section>
+  <section class="stage">
+    <div class="shead">
+      <div class="sn">STAGE 5</div>
+      <h2>📈 Machine Learning &amp; AI Engineering</h2>
+      <div class="sbar">
+        <span><b>Who</b> After data analysis</span>
+        <span><b>Length</b> 10 weeks</span>
+        <span><b>Content</b> 8 lessons, 64 exercises</span>
+      </div>
+      <div class="send"><b>By the end:</b> You understand how models learn, and can build and cost a real AI application.</div>
+    </div>
+    
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">📈</span>
+        <div>
+          <h3>Machine Learning</h3>
+          <div class="tmeta">4 lessons &middot; Python &middot; 5 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">How a computer learns from examples instead of being told the rules. You will build the learning loop by hand, then understand why models fail and how to evaluate them honestly.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Explain what learning means, mechanically</li><li>Implement gradient descent from scratch</li><li>Detect overfitting and data leakage</li><li>Choose the right metric instead of trusting accuracy</li><li>Understand what a neural network actually does</li></ul></div>
+      <details class="lessons"><summary>See all 4 lessons</summary>
+        <ol><li>What learning actually means
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>Gradient descent, built by hand
+            <span class="lmeta">40 min &middot; 8 exercises</span></li><li>Overfitting, leakage, and honest evaluation
+            <span class="lmeta">40 min &middot; 8 exercises</span></li><li>Neural networks, demystified
+            <span class="lmeta">40 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🤖</span>
+        <div>
+          <h3>AI Engineering with LLMs</h3>
+          <div class="tmeta">4 lessons &middot; Python &middot; 5 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">The job that exists right now. Understanding what a language model really does, then building reliable systems on top of something fundamentally unreliable.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Explain how an LLM generates text, mechanically</li><li>Write prompts that survive contact with real users</li><li>Build a RAG system and know why it fails</li><li>Design agents with guardrails that actually hold</li><li>Control cost, which is most of the real job</li></ul></div>
+      <details class="lessons"><summary>See all 4 lessons</summary>
+        <ol><li>What a language model actually does
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>Prompting that survives real users
+            <span class="lmeta">35 min &middot; 8 exercises</span></li><li>RAG — grounding a model in your own data
+            <span class="lmeta">40 min &middot; 8 exercises</span></li><li>Agents, guardrails and the cost of running this
+            <span class="lmeta">40 min &middot; 8 exercises</span></li></ol>
+      </details>
+    </div>
+  </section>
+  <section class="stage">
+    <div class="shead">
+      <div class="sn">STAGE 6</div>
+      <h2>🧰 Other Languages &amp; Career</h2>
+      <div class="sbar">
+        <span><b>Who</b> Optional, alongside or after</span>
+        <span><b>Length</b> 6 weeks</span>
+        <span><b>Content</b> 10 lessons, 10 exercises</span>
+      </div>
+      <div class="send"><b>By the end:</b> Web development, campus placement preparation, portfolio projects and interview practice.</div>
+    </div>
+    
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🟨</span>
+        <div>
+          <h3>JavaScript &amp; Web Development</h3>
+          <div class="tmeta">4 lessons &middot; JavaScript &middot; 7 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">The only language that runs in every browser on earth. Build interfaces for your AI projects — a model nobody can click is a model nobody will fund.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Write modern ES6+ JavaScript</li><li>Manipulate the DOM and handle events</li><li>Use async/await and fetch APIs</li><li>Build and style a responsive page</li><li>Connect a frontend to your Python backend</li></ul></div>
+      <details class="lessons"><summary>See all 4 lessons</summary>
+        <ol><li>JavaScript fundamentals
+            <span class="lmeta">40 min</span></li><li>The DOM — making pages interactive
+            <span class="lmeta">40 min</span></li><li>Async JavaScript and fetch
+            <span class="lmeta">40 min</span></li><li>HTML &amp; CSS that does not look amateur
+            <span class="lmeta">40 min</span></li></ol>
+      </details>
+    </div>
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">☕</span>
+        <div>
+          <h3>Java, C &amp; CS Core</h3>
+          <div class="tmeta">3 lessons &middot; Java / C &middot; 6 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">What campus placements and product-company interviews actually test: a compiled language, memory, data structures, algorithms and complexity.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Read and write Java and C</li><li>Understand memory, pointers and references</li><li>Know the core data structures cold</li><li>Analyse time and space complexity</li><li>Solve DSA problems under interview pressure</li></ul></div>
+      <details class="lessons"><summary>See all 3 lessons</summary>
+        <ol><li>Java essentials for placements
+            <span class="lmeta">45 min</span></li><li>C, memory and pointers
+            <span class="lmeta">40 min</span></li><li>Data structures and Big-O
+            <span class="lmeta">50 min</span></li></ol>
+      </details>
+    </div>
+    <div class="track">
+      <div class="track-head">
+        <span class="ti">🎯</span>
+        <div>
+          <h3>Portfolio, Jobs &amp; Interviews</h3>
+          <div class="tmeta">3 lessons &middot; Career &middot; 3 weeks</div>
+        </div>
+      </div>
+      <p class="tdesc">The Indian tech job market as it actually is — what to build, how to be found, what interviews test, and how to negotiate.</p>
+      
+        <div class="outcomes"><b>You will be able to:</b>
+          <ul><li>Build four portfolio projects that earn interviews</li><li>Write a resume that survives ATS screening</li><li>Handle all four interview round types</li><li>Negotiate an offer without damaging it</li></ul></div>
+      <details class="lessons"><summary>See all 3 lessons</summary>
+        <ol><li>Four projects that get you interviews
+            <span class="lmeta">35 min</span></li><li>The Indian tech job market, honestly
+            <span class="lmeta">30 min</span></li><li>What interviews actually test
+            <span class="lmeta">35 min</span></li></ol>
+      </details>
+    </div>
+  </section>
+
+<section class="stage">
+  <div class="shead">
+    <div class="sn">IMPORTANT</div>
+    <h2>What this course does and does not cover</h2>
+  </div>
+
+  <p style="margin-bottom:14px">Being clear about this matters. "Learning AI" means very different
+     things to different people, and courses that promise everything usually deliver nothing.</p>
+
+  <table>
+    <thead><tr><th style="width:52%">Skill</th><th>Covered?</th></tr></thead>
+    <tbody>
+      <tr><td>Programming from absolute zero</td><td class="yes">Yes, fully</td></tr>
+      <tr><td>Python to a professional standard</td><td class="yes">Yes, fully</td></tr>
+      <tr><td>Databases and SQL</td><td class="yes">Yes, fully</td></tr>
+      <tr><td>Cleaning and analysing real data</td><td class="yes">Yes, fully</td></tr>
+      <tr><td>How machine learning actually works</td><td class="yes">Yes, built by hand</td></tr>
+      <tr><td>How language models generate text</td><td class="yes">Yes, mechanically</td></tr>
+      <tr><td>Building AI applications (RAG, agents, prompting)</td><td class="yes">Yes, fully</td></tr>
+      <tr><td>Controlling what an AI system costs to run</td><td class="yes">Yes &mdash; rarely taught elsewhere</td></tr>
+      <tr><td>Evaluating models honestly, avoiding false results</td><td class="yes">Yes, in depth</td></tr>
+      <tr><td>Training a large language model from scratch</td><td class="no">No</td></tr>
+      <tr><td>University-level linear algebra and calculus</td><td class="no">No &mdash; concepts only</td></tr>
+      <tr><td>AI research and publishing papers</td><td class="no">No</td></tr>
+      <tr><td>Large-scale MLOps and distributed training</td><td class="no">No &mdash; introduced only</td></tr>
+      <tr><td>Specialist computer vision or speech</td><td class="no">No</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <h4>So can a student "build AI" after this?</h4>
+    <p style="margin-bottom:11px"><b>Yes &mdash; if "building AI" means building AI products.</b>
+       That is what almost every AI job actually involves: taking existing models and building
+       reliable, affordable systems around them. Retrieval systems, agents, classifiers, data
+       pipelines, deployed services. A student finishing this course can do that work.</p>
+    <p style="margin-bottom:11px"><b>No &mdash; if "building AI" means creating something like ChatGPT
+       from nothing.</b> That requires a research team, years of specialised mathematics, and
+       tens of millions of dollars of computing power. Roughly a few thousand people worldwide
+       do that job. No online course puts anyone there, and any course claiming otherwise is
+       selling something.</p>
+    <p><b>The honest framing:</b> this course takes you from zero to genuinely employable in AI
+       engineering, which is where the actual jobs are. If a student later wants research, this
+       is still the right foundation &mdash; they would then add a mathematics degree and a
+       master's on top.</p>
+  </div>
+</section>
+
+<section class="stage">
+  <div class="shead">
+    <div class="sn">AFTER THE COURSE</div>
+    <h2>Four projects that get interviews</h2>
+  </div>
+  <p style="margin-bottom:14px">Finishing lessons is not enough. Employers want evidence.
+     Each project below needs a live link, a public repository, and a written explanation of
+     the hardest decision you made.</p>
+  <table>
+    <tbody>
+      <tr><td><b>1. Data cleaning and dashboard</b><br>
+        <span style="color:var(--muted);font-size:13.5px">Take a messy public dataset, clean it,
+        find three real insights, publish a dashboard</span></td>
+        <td style="width:30%">After Stage 4</td></tr>
+      <tr><td><b>2. Deployed prediction API</b><br>
+        <span style="color:var(--muted);font-size:13.5px">Train a model, wrap it in an API,
+        containerise it, deploy it with a working URL</span></td>
+        <td>After Stage 5</td></tr>
+      <tr><td><b>3. Question-answering system with citations</b><br>
+        <span style="color:var(--muted);font-size:13.5px">RAG over a real document set that cites
+        its sources and admits when it does not know</span></td>
+        <td>After Stage 5</td></tr>
+      <tr><td><b>4. An agent that does one useful thing</b><br>
+        <span style="color:var(--muted);font-size:13.5px">A multi-step task completed end to end,
+        with step limits, approvals and cost tracking</span></td>
+        <td>After Stage 5</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  VidyaPath &middot; Free to copy, print and photocopy for teaching.<br>
+  Salary figures, tool prices and job-market conditions change constantly &mdash;
+  always check current sources before making decisions based on them.
+</footer>
+</body></html>
