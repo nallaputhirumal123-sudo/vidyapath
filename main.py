@@ -31,6 +31,19 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 # --------------------------------------------------------------------------
 BASE_DIR = Path(__file__).parent
 
+# ---- Version -------------------------------------------------------------
+# Single source of truth: the VERSION file. Bump it on every push, then
+# check the number shown on the live site to confirm what is deployed.
+try:
+    VERSION = (BASE_DIR / "VERSION").read_text(encoding="utf-8").strip()
+except Exception:
+    VERSION = "unknown"
+
+# Railway supplies these automatically; they pin the exact commit deployed.
+GIT_SHA = (os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7]
+           or os.environ.get("SOURCE_COMMIT", "")[:7] or "local")
+BUILT_AT = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./vidyapath.db")
 # Railway hands out postgres:// ; SQLAlchemy 2 needs postgresql://
 if DATABASE_URL.startswith("postgres://"):
@@ -384,14 +397,58 @@ def seed_if_empty():
         db.close()
 
 
+STARTUP_ERROR = None
+
+
 @app.on_event("startup")
 def _startup():
-    seed_if_empty()
+    """Boot the app. Database problems must NOT prevent startup.
+
+    If the app fails to start, the platform's healthcheck has nothing to
+    reach and the whole deploy is marked failed — with no way to see the
+    error. Better to start, serve /api/health, and report the problem
+    through /api/status where it can actually be read.
+    """
+    global STARTUP_ERROR
+    print("=" * 56)
+    print(f"  VidyaPath  v{VERSION}  (commit {GIT_SHA})")
+    print(f"  started {BUILT_AT}")
+    print("=" * 56)
+
+    # Postgres often is not accepting connections the instant we boot.
+    import time
+    for attempt in range(1, 6):
+        try:
+            seed_if_empty()
+            STARTUP_ERROR = None
+            return
+        except Exception as e:
+            STARTUP_ERROR = f"{type(e).__name__}: {e}"
+            wait = attempt * 2
+            print(f"Startup attempt {attempt}/5 failed: {STARTUP_ERROR}")
+            if attempt < 5:
+                print(f"  retrying in {wait}s...")
+                time.sleep(wait)
+
+    print("WARNING: database setup did not succeed. The app is running so "
+          "you can reach /api/status, but content will be unavailable.")
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "time": now().isoformat()}
+    """Deliberately touches nothing — no database, no files.
+
+    A healthcheck that depends on the database turns a slow database into
+    a failed deployment.
+    """
+    return {"status": "ok", "version": VERSION, "commit": GIT_SHA,
+            "time": now().isoformat()}
+
+
+@app.get("/api/version")
+def version():
+    """Tiny endpoint for checking what is deployed, without the full status."""
+    return {"version": VERSION, "commit": GIT_SHA, "started": BUILT_AT}
 
 
 @app.get("/api/status")
@@ -399,9 +456,29 @@ def status(db: Session = Depends(get_db)):
     """Public diagnostic — what is actually configured and loaded right now.
 
     Deliberately shows no passwords and no full email addresses.
+    Survives a broken database so it can report *why* things are broken.
     """
-    tracks = db.query(Track).order_by(Track.position).all()
-    accounts = db.query(User).all()
+    base = {
+        "version": VERSION,
+        "commit": GIT_SHA,
+        "started": BUILT_AT,
+        "startup_error": STARTUP_ERROR,
+        "database": "postgres" if DATABASE_URL.startswith("postgres") else "sqlite",
+        "admin_email_variable_set": bool(ADMIN_EMAIL),
+        "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
+        "curriculum_files_present": sorted(
+            p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json"),
+    }
+
+    try:
+        tracks = db.query(Track).order_by(Track.position).all()
+        accounts = db.query(User).all()
+    except Exception as e:
+        base["database_error"] = f"{type(e).__name__}: {e}"
+        base["hint"] = ("The app is running but cannot reach the database. "
+                        "Check that DATABASE_URL is added as a Reference to "
+                        "the Postgres service in Railway Variables.")
+        return base
 
     def mask(email):
         # a@b.com -> a***@b.com, enough to spot a typo, not enough to harvest
@@ -410,23 +487,18 @@ def status(db: Session = Depends(get_db)):
         name, domain = email.split("@", 1)
         return (name[0] + "***@" + domain) if name else ("***@" + domain)
 
-    return {
-        "build": "2026-07-21-b",
+    base.update({
         "tracks": len(tracks),
         "lessons": db.query(func.count(Lesson.id)).scalar(),
         "users": len(accounts),
         "admins": sum(1 for u in accounts if u.is_admin),
-        "database": "postgres" if DATABASE_URL.startswith("postgres") else "sqlite",
-        "admin_email_variable_set": bool(ADMIN_EMAIL),
         "admin_email_variable": mask(ADMIN_EMAIL) if ADMIN_EMAIL else None,
-        "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
         "accounts": [{"email": mask(u.email), "is_admin": u.is_admin,
                       "active": u.is_active} for u in accounts],
-        "curriculum_files_present": sorted(
-            p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json"),
         "loaded": [{"id": t.slug, "name": t.name, "stage": t.audience,
                     "lessons": len(t.lessons)} for t in tracks],
-    }
+    })
+    return base
 
 
 @app.post("/api/admin/reload-curriculum")

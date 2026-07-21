@@ -119,7 +119,7 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
 
 <div class="wrap hidden" id="wrap">
   <nav class="side">
-    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Admin</p></div>
+    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Admin</p><div id="advVer" style="font-size:10.5px;color:var(--dim);margin-top:6px;letter-spacing:.3px">loading…</div></div>
     <div class="nav">
       <button class="nv on" data-p="dash"><span>📊</span> Dashboard</button>
       <button class="nv" data-p="students"><span>👥</span> Students</button>
@@ -590,6 +590,11 @@ function editLesson(ti,li){
 }
 
 /* ===================== INIT ===================== */
+fetch("/api/version").then(r=>r.json()).then(v=>{
+  const el = document.getElementById("advVer");
+  if (el) el.textContent = "v" + v.version + " · " + v.commit;
+}).catch(()=>{});
+
 (async function(){
   try{
     const u=await api.get("/api/auth/me");

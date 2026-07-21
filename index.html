@@ -349,7 +349,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
     </section>
 
     <footer class="lfoot">
-      VidyaPath · Free learning for Indian students · Every exercise verified to run
+      VidyaPath · Free learning for Indian students · Every exercise verified to run<br><span data-version style="opacity:.7">loading…</span>
     </footer>
   </div>
 </div>
@@ -592,6 +592,14 @@ async function boot(){
   }, 800);
 }
 
+let VERSION_INFO = {version:"?", commit:"?"};
+fetch("/api/version").then(r=>r.json()).then(v=>{
+  VERSION_INFO = v;
+  document.querySelectorAll("[data-version]").forEach(el=>{
+    el.textContent = "v" + v.version + " · " + v.commit;
+  });
+}).catch(()=>{});
+
 (async function init(){
   try{ USER = await api.get("/api/auth/me"); AUTHED=true; await boot(); }
   catch(e){ showGate(); }
@@ -785,7 +793,7 @@ function renderHome(){
   </ul></div>
 
   <footer>VidyaPath · All videos and reference links point to free public resources — official docs, MDN, freeCodeCamp, Kaggle, Harvard CS50 and similar.<br>
-  Salary and job-market figures change constantly; always check current live sources before making decisions.</footer>`;
+  Salary and job-market figures change constantly; always check current live sources before making decisions.<br><span data-version style="opacity:.7">loading…</span></footer>`;
 }
 
 /* ===================== PATHS ===================== */
