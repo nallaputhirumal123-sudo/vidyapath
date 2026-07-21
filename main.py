@@ -348,17 +348,38 @@ def seed_if_empty():
             else:
                 print("WARNING: no curriculum files found - content is empty.")
 
-        # Admin bootstrap
-        if ADMIN_EMAIL and ADMIN_PASSWORD:
-            admin = db.query(User).filter(User.email == ADMIN_EMAIL).first()
-            if not admin:
+        # ---- Admin bootstrap -------------------------------------------
+        if ADMIN_EMAIL:
+            admin = db.query(User).filter(
+                func.lower(User.email) == ADMIN_EMAIL).first()
+
+            if admin:
+                changed = []
+                if not admin.is_admin:
+                    admin.is_admin = True
+                    changed.append("promoted to admin")
+                if not admin.is_active:
+                    admin.is_active = True
+                    changed.append("reactivated")
+                # Setting ADMIN_PASSWORD always resets the admin's password.
+                # This is the documented way back in after a lockout.
+                if ADMIN_PASSWORD:
+                    admin.password_hash = hash_pw(ADMIN_PASSWORD)
+                    changed.append("password reset from ADMIN_PASSWORD")
+                if changed:
+                    db.commit()
+                print(f"Admin account {ADMIN_EMAIL}: {', '.join(changed) or 'already correct'}")
+
+            elif ADMIN_PASSWORD:
                 db.add(User(email=ADMIN_EMAIL, name="Administrator",
                             password_hash=hash_pw(ADMIN_PASSWORD), is_admin=True))
                 db.commit()
                 print(f"Created admin account: {ADMIN_EMAIL}")
-            elif not admin.is_admin:
-                admin.is_admin = True
-                db.commit()
+            else:
+                print(f"ADMIN_EMAIL set to {ADMIN_EMAIL} but no account exists "
+                      f"and ADMIN_PASSWORD is not set — cannot create one.")
+        else:
+            print("No ADMIN_EMAIL variable set — nobody will be an administrator.")
     finally:
         db.close()
 
@@ -375,13 +396,32 @@ def health():
 
 @app.get("/api/status")
 def status(db: Session = Depends(get_db)):
-    """Public diagnostic — what content is actually loaded right now."""
+    """Public diagnostic — what is actually configured and loaded right now.
+
+    Deliberately shows no passwords and no full email addresses.
+    """
     tracks = db.query(Track).order_by(Track.position).all()
+    accounts = db.query(User).all()
+
+    def mask(email):
+        # a@b.com -> a***@b.com, enough to spot a typo, not enough to harvest
+        if not email or "@" not in email:
+            return "?"
+        name, domain = email.split("@", 1)
+        return (name[0] + "***@" + domain) if name else ("***@" + domain)
+
     return {
+        "build": "2026-07-21-b",
         "tracks": len(tracks),
         "lessons": db.query(func.count(Lesson.id)).scalar(),
-        "users": db.query(func.count(User.id)).scalar(),
+        "users": len(accounts),
+        "admins": sum(1 for u in accounts if u.is_admin),
         "database": "postgres" if DATABASE_URL.startswith("postgres") else "sqlite",
+        "admin_email_variable_set": bool(ADMIN_EMAIL),
+        "admin_email_variable": mask(ADMIN_EMAIL) if ADMIN_EMAIL else None,
+        "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
+        "accounts": [{"email": mask(u.email), "is_admin": u.is_admin,
+                      "active": u.is_active} for u in accounts],
         "curriculum_files_present": sorted(
             p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json"),
         "loaded": [{"id": t.slug, "name": t.name, "stage": t.audience,
