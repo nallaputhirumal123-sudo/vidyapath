@@ -14,6 +14,19 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.4.1 — Deployment fix
+
+- **Fixed repeated healthcheck failures.** `railway.json` set a `startCommand`
+  that was not run through a shell, so `$PORT` was passed to uvicorn as a
+  literal string. Uvicorn crashed before it could answer `/api/health`, and
+  every deploy failed with "1/1 replicas never became healthy".
+- Startup now goes through `start.sh`, which resolves `$PORT` properly,
+  prints which environment variables are set, and reports an import error
+  clearly instead of dying silently.
+- Startup retries the database five times over 20 seconds, then starts anyway
+  so `/api/status` can be read to see what is wrong.
+- `/api/status` now survives a broken database and explains the failure.
+
 ## 1.4.0 — Vidya presenter
 
 - Full-body animated presenter with gesturing arms, breathing and blinking
