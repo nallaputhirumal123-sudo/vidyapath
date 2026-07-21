@@ -415,7 +415,7 @@ const PATH_PRESETS=[
    tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","career"]},
   {id:"ai",name:"AI Engineer",icon:"🤖",months:"9–12 months",
    desc:"The complete ladder, zero to building and deploying real AI systems.",
-   tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","s4-ml","s5-ai","career"]},
+   tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","s4-math","s4-ml","s5-ai","career"]},
   {id:"web",name:"Web Developer",icon:"🌐",months:"5–6 months",
    desc:"Build the interfaces and services everything else plugs into.",
    tracks:["s-start","s-think","s-build","js","p2-text","s3-sql","career"]},
@@ -663,8 +663,8 @@ const STAGES=[
     blurb:"The highest-paying skill for the least effort. Every query runs for real against a live database. SQL alone qualifies you for data analyst work." },
   { key:"stage3b", n:4, icon:"📊", name:"Data analysis",
     blurb:"Take messy real data, clean it honestly, find something true in it, and report it without misleading anybody. This plus SQL is a Data Analyst job." },
-  { key:"stage4",  n:5, icon:"📈", name:"Machine learning & AI engineering",
-    blurb:"Build the learning loop by hand so it stops being magic. Then prompting, retrieval, agents, and the cost control that is most of the real job." },
+  { key:"stage4",  n:5, icon:"📈", name:"Maths, machine learning & AI engineering",
+    blurb:"The maths first — vectors, statistics, Bayes and derivatives, built by hand in code. Then the learning loop, prompting, retrieval, agents and cost control." },
   { key:"graduate",n:6, icon:"🧰", name:"Other languages & career",
     blurb:"JavaScript and the web, Java and C for placements, portfolio projects and interview preparation." },
 ];
@@ -703,6 +703,29 @@ function trackGroupHTML(list){
     previousComplete = s.pct===100;
   });
   return h;
+}
+
+/* Daily challenge — deterministic per day, same for every student,
+   so classmates can compare. No server needed. */
+function dailyChallengeHTML(){
+  const pool = allLessons().filter(l=>(l.exercises||[]).length);
+  if(!pool.length) return "";
+  const day = Math.floor(Date.now() / 86400000);
+  const lesson = pool[day % pool.length];
+  const exN = (day % lesson.exercises.length) + 1;
+  const track = TRACKS.find(t=>t.lessons.includes(lesson));
+  const doneKey = "ex_" + lesson.id + "_" + (exN - 1);
+  const done = !!S.notes[doneKey];
+  return `<div class="card" style="margin-bottom:26px;${done?"border-color:var(--green)":""}">
+    <div class="row">
+      <div style="min-width:200px">
+        <span class="pill ${done?"ok":"blue"}">${done?"✅ Today's challenge done":"🎯 Today's challenge"}</span>
+        <div style="font-size:15px;font-weight:650;margin-top:8px">Exercise ${exN} — ${esc(lesson.title)}</div>
+        <div style="font-size:12.5px;color:var(--dim)">${track.icon} ${esc(track.name)} · same challenge for everyone today</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ${done?"ghost":""} sm" data-nav="lesson" data-track="${track.id}" data-id="${lesson.id}">${done?"Review":"Take it on"} →</button>
+    </div></div>`;
 }
 
 /* ===================== HOME ===================== */
@@ -744,6 +767,8 @@ function renderHome(){
       <b style="color:var(--green)">🎉 Every lesson complete.</b><br>
       <span style="color:var(--muted);font-size:14px">Now build the four portfolio projects and start applying.</span>
       <div style="margin-top:12px"><button class="btn sm" data-nav="projects">Go to projects →</button></div></div>`}
+
+  ${dailyChallengeHTML()}
 
   ${trackGroupHTML(list)}
 

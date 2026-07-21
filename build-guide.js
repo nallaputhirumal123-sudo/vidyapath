@@ -28,8 +28,8 @@ const STAGES = [
     blurb: "The highest-paying skill for the least effort. Every query here runs for real against a live database. SQL alone qualifies you for data analyst work." },
   { file: "stage3b.json",    n: 4, icon: "📊", name: "Data Analysis",
     blurb: "Take messy real data, clean it honestly, find something true in it, and report it without misleading anybody. This plus SQL is a Data Analyst job." },
-  { file: "stage4.json",     n: 5, icon: "📈", name: "Machine Learning & AI Engineering",
-    blurb: "Build the learning loop by hand so it stops being magic. Then prompting, retrieval, agents and the cost control that is most of the real job." },
+  { file: "stage4.json",     n: 5, icon: "📈", name: "Maths, Machine Learning & AI Engineering",
+    blurb: "The maths first — vectors, statistics, Bayes and derivatives, all built by hand in code. Then the learning loop itself, prompting, retrieval, agents and the cost control that is most of the real job." },
   { file: "curriculum.json", n: 6, icon: "🧰", name: "Other Languages & Career",
     blurb: "JavaScript and the web, Java and C for placements, portfolio projects and interview preparation." },
 ];

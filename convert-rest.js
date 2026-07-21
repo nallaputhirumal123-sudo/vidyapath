@@ -3,6 +3,10 @@
 const fs = require("fs");
 const { STAGE3B } = require("./stage3b-curriculum.js");
 const { STAGE4 }  = require("./stage4-curriculum.js");
+const { MATH }    = require("./math-curriculum.js");
+
+// Maths belongs at the front of the ML/AI stage
+const STAGE4_ALL = [...MATH, ...STAGE4];
 
 function build(source, audience, outFile) {
   const out = { tracks: [] };
@@ -10,7 +14,7 @@ function build(source, audience, outFile) {
     out.tracks.push({
       id: t.id, icon: t.icon, name: t.name, level: t.level, color: t.color,
       weeks: t.weeks, lang: t.lang, desc: t.desc, outcomes: t.outcomes,
-      position: ti, audience: t.stage === 5 ? "stage5" : audience, quiz: [],
+      position: ti, audience: audience, quiz: [],
       lessons: t.lessons.map((l, li) => ({
         id: l.id, title: l.title, mins: l.mins, lang: l.lang, position: li,
         content: l.content, videos: [], refs: [], lab: {},
@@ -46,11 +50,11 @@ function build(source, audience, outFile) {
 }
 
 build(STAGE3B, "stage3b", "stage3b.json");
-build(STAGE4,  "stage4",  "stage4.json");
+build(STAGE4_ALL, "stage4", "stage4.json");
 
 /* export every solution for python verification */
 const all = [];
-[...STAGE3B, ...STAGE4].forEach(t => t.lessons.forEach(l =>
+[...STAGE3B, ...STAGE4_ALL].forEach(t => t.lessons.forEach(l =>
   l.exercises.forEach((e, i) => all.push({ id: l.id + "#" + (i + 1), code: e.solution }))));
 fs.writeFileSync("/tmp/rest.json", JSON.stringify(all));
 console.log("exported " + all.length + " solutions for verification");
