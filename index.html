@@ -253,7 +253,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
          and marks itself. Nothing assumed, at any point.</p>
       <div class="row" style="justify-content:center">
         <a class="btn big" href="#join">Start learning free →</a>
-        <a class="btn ghost big" href="#how">How it works</a>
+        <button class="btn ghost big" id="tourBtn">▶ Let Vidya explain it</button>
       </div>
       <div class="lstats">
         <div><b>6</b><span>Stages</span></div>
@@ -373,8 +373,10 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 </div>
 
 <script src="tutor.js"></script>
+<script src="presenter.js"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
+var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
 var TUTOR = window.Tutor || {
   init(){}, say(){}, onLesson(){}, onTrack(){},
   onExercisePass(){}, onExerciseFail(){}, onError(){}, readAloud(){}, stop(){}
@@ -574,6 +576,7 @@ async function logout(){
 async function boot(){
   const [cur, prog] = await Promise.all([api.get("/api/curriculum"), api.get("/api/progress")]);
   TRACKS = cur.tracks;
+  window.TRACKS = TRACKS;
   S.done = prog.done||{}; S.quiz=prog.quiz||{}; S.notes=prog.notes||{};
   S.code = prog.code||{}; S.path = prog.path||null;
   S.stats = prog.stats||{xp:0,level:1,streak:0,level_progress:0,next_level_at:250};
@@ -743,6 +746,7 @@ function renderHome(){
     <div class="row">
       <button class="btn" data-nav="${next?"lesson":"projects"}" ${next?`data-track="${nt.id}" data-id="${next.id}"`:""}>${totalDone()?"Continue learning →":"Start the first lesson →"}</button>
       <button class="btn ghost" data-nav="paths">Choose your path</button>
+      <button class="btn ghost" id="tourBtn2">▶ Course tour</button>
     </div>
   </div>
 
@@ -1128,6 +1132,10 @@ function applyTheme(t){
 applyTheme((()=>{try{return localStorage.getItem("vp_theme")||"dark"}catch(e){return "dark"}})());
 
 document.addEventListener("click",e=>{
+  if(e.target.closest("#tourBtn") || e.target.closest("#tourBtn2")){
+    PRESENTER.tour();
+    return;
+  }
   if(e.target.closest("#themeFab")){
     applyTheme(document.documentElement.dataset.theme==="light" ? "dark" : "light");
     return;

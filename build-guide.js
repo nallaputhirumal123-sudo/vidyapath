@@ -303,6 +303,12 @@ a{color:var(--accent2)}
       <h1>Learn to Code,<br>Then Build with <span>AI</span></h1>
       <p class="tag">One continuous route from never having written a line of code
          through to job-ready AI engineering. Everything taught in full — no video required.</p>
+      <p style="margin-top:22px">
+        <button id="guideTour" style="font-family:inherit;font-size:15px;padding:12px 24px;
+          border:none;border-radius:10px;cursor:pointer;font-weight:650;
+          background:linear-gradient(135deg,#e8892a,#c2410c);color:#fff">
+          ▶ Let Vidya explain this course</button>
+      </p>
       <div class="nums">
         <div><b>${counts.lessons}</b><span>Lessons</span></div>
         <div><b>${counts.exercises}</b><span>Exercises</span></div>
@@ -330,11 +336,22 @@ a{color:var(--accent2)}
 <a class="top" href="#" title="Back to top">&uarr;</a>
 
 <script>
-${fs.existsSync("tutor.js")
-   ? fs.readFileSync("tutor.js", "utf8").replace(/<\/script>/gi, "<\\/script>")
-   : ""}
+${["tutor.js", "presenter.js"]
+   .filter(f => fs.existsSync(f))
+   .map(f => fs.readFileSync(f, "utf8").replace(/<\/script>/gi, "<\\/script>"))
+   .join("\n\n")}
 </script>
 <script>
+/* The guide has no live TRACKS object, so give the tour real numbers */
+window.TRACKS = [{ lessons: new Array(${counts.lessons}).fill(0).map(function () {
+  return { exercises: new Array(Math.round(${counts.exercises} / ${counts.lessons})).fill(0) };
+}) }];
+
+var tourBtn = document.getElementById("guideTour");
+if (tourBtn) tourBtn.onclick = function () {
+  if (window.Presenter) Presenter.tour();
+};
+
 /* start the tutor and let it read whichever lesson is on screen */
 if (window.Tutor) {
   Tutor.init();
