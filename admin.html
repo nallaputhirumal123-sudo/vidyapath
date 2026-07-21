@@ -403,9 +403,11 @@ async function renderContent(){
   <p class="sub">Edit lessons, labs and quizzes directly. Changes go live for students immediately — there is no draft state beyond the published toggle.</p>
   <div class="row" style="margin-bottom:16px">
     <button class="btn" id="newTrack">+ New track</button>
+    <button class="btn ghost" id="reloadCur">↻ Reload curriculum from files</button>
     <span style="font-size:12.5px;color:var(--dim)">${CONTENT.tracks.length} tracks ·
       ${CONTENT.tracks.reduce((a,t)=>a+t.lessons.length,0)} lessons</span>
   </div>
+  <div id="reloadMsg"></div>
   ${CONTENT.tracks.map((t,ti)=>`
     <div class="card" style="margin-bottom:14px">
       <div class="row">
@@ -430,6 +432,25 @@ async function renderContent(){
     </div>`).join("")}`;
 
   $("#newTrack").onclick=()=>editTrack(null);
+
+  $("#reloadCur").onclick=async()=>{
+    if(!confirm("Delete all courses and reload them from the JSON files?\n\nStudent accounts and their progress are NOT affected — progress reattaches to the same lessons automatically.")) return;
+    const b=$("#reloadCur"); b.disabled=true; b.textContent="Reloading...";
+    const box=$("#reloadMsg");
+    try{
+      const r=await api.post("/api/admin/reload-curriculum",{});
+      box.innerHTML=`<div class="card" style="border-color:var(--green);margin-bottom:14px">
+        <b style="color:var(--green)">Reloaded.</b> ${r.tracks} tracks, ${r.lessons} lessons.
+        <div style="font-size:12.5px;color:var(--dim);margin-top:5px">
+          Per file: ${r.per_file.join(", ")} &nbsp;·&nbsp;
+          (school, stage2, stage3a, stage3b, stage4, curriculum)</div></div>`;
+      renderContent();
+    }catch(e){
+      box.innerHTML=`<div class="card" style="border-color:var(--red);margin-bottom:14px">
+        <b style="color:var(--red)">Failed:</b> ${esc(e.message)}</div>`;
+    }
+    b.disabled=false; b.textContent="↻ Reload curriculum from files";
+  };
   $("#main").querySelectorAll("[data-etrack]").forEach(b=>b.onclick=()=>editTrack(+b.dataset.etrack));
   $("#main").querySelectorAll("[data-newlesson]").forEach(b=>b.onclick=()=>editLesson(+b.dataset.newlesson,null));
   $("#main").querySelectorAll("[data-elesson]").forEach(b=>b.onclick=()=>{

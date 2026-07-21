@@ -327,7 +327,11 @@ def seed_if_empty():
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:
-        if db.query(Track).count() == 0:
+        existing = db.query(Track).count()
+        files = sorted(p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json")
+        print(f"Startup: {existing} tracks in database | curriculum files found: {files}")
+
+        if existing == 0:
             # One continuous ladder. Position ranges keep the stages in order.
             counts = [
                 _seed_file(db, "school.json",     "school",   0),    # Stage 1
@@ -367,6 +371,52 @@ def _startup():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "time": now().isoformat()}
+
+
+@app.get("/api/status")
+def status(db: Session = Depends(get_db)):
+    """Public diagnostic — what content is actually loaded right now."""
+    tracks = db.query(Track).order_by(Track.position).all()
+    return {
+        "tracks": len(tracks),
+        "lessons": db.query(func.count(Lesson.id)).scalar(),
+        "users": db.query(func.count(User.id)).scalar(),
+        "database": "postgres" if DATABASE_URL.startswith("postgres") else "sqlite",
+        "curriculum_files_present": sorted(
+            p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json"),
+        "loaded": [{"id": t.slug, "name": t.name, "stage": t.audience,
+                    "lessons": len(t.lessons)} for t in tracks],
+    }
+
+
+@app.post("/api/admin/reload-curriculum")
+def reload_curriculum(user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Wipe all course content and reload it from the JSON files.
+
+    Student accounts, progress, notes and quiz results are NOT touched —
+    progress is keyed on lesson slugs, so it reattaches automatically once
+    the same lessons are back.
+    """
+    db.query(Lesson).delete()
+    db.query(Track).delete()
+    db.commit()
+
+    counts = [
+        _seed_file(db, "school.json",     "school",   0),
+        _seed_file(db, "stage2.json",     "stage2",   50),
+        _seed_file(db, "stage3a.json",    "stage3a",  80),
+        _seed_file(db, "stage3b.json",    "stage3b",  90),
+        _seed_file(db, "stage4.json",     "stage4",   95),
+        _seed_file(db, "curriculum.json", "graduate", 120),
+    ]
+    db.commit()
+
+    return {
+        "ok": True,
+        "tracks": sum(counts),
+        "per_file": counts,
+        "lessons": db.query(func.count(Lesson.id)).scalar(),
+    }
 
 
 # ---------------------------- auth ----------------------------------------
