@@ -14,6 +14,17 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.6.1 — Ask Vidya reliability
+
+- **Default Gemini model is now `gemini-2.0-flash`** — the 2.5 models spend
+  their token budget "thinking" and can return empty, which showed as
+  "Vidya could not reach the board". 2.0-flash answers reliably. (If you set
+  `GEMINI_MODEL` to a 2.5 model, thinking is now switched off automatically.)
+- **Real errors are surfaced to admins.** A failed call now shows the actual
+  upstream reason (bad key, wrong model, quota) on the board for admin
+  accounts, and is always printed to the logs — instead of a generic message.
+- Output token budget raised so long answers are not cut off.
+
 ## 1.6.0 — Projects become a real workspace
 
 - **Projects is now hands-on, not a reading list.** Each of the four
