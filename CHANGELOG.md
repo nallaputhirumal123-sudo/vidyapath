@@ -14,6 +14,19 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.6.0 — Projects become a real workspace
+
+- **Projects is now hands-on, not a reading list.** Each of the four
+  portfolio projects has a live progress bar, checkable steps, and — next to
+  every step — a box to record what you did and why. This is the "record
+  every decision" habit interviewers actually look for.
+- **Deliverable fields per project:** paste your dataset/corpus, GitHub repo
+  and live URL. They save to your account as you type.
+- **"Mark project complete"** only unlocks once every step is ticked and a
+  live URL is filled in — so completion means the work is genuinely done.
+- Overall progress ("2/4 projects done") shown at the top. Everything
+  persists, so students can leave and pick up exactly where they stopped.
+
 ## 1.5.0 — Ask Vidya anything
 
 - **New section: an AI teacher you can ask anything.** Pick a subject
