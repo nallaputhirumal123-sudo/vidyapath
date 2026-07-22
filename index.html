@@ -1451,6 +1451,31 @@ function ensureJsPDF(){
     s.onload=res; s.onerror=rej; document.head.appendChild(s);
   });
 }
+/* jsPDF's built-in fonts only cover Latin-1. Maths symbols, subscripts,
+   arrows and smart quotes get dropped and mangle the whole line. Convert
+   them to plain-text equivalents so the PDF reads correctly. */
+function pdfSafe(s){
+  if(s==null) return "";
+  s=String(s).normalize("NFC");
+  const sub="₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₙₓ", subTo="0123456789+-=()nx";
+  const sup="⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ", supTo="0123456789+-=()n";
+  s=s.replace(/[₀-₎ₙₓ]/g,c=>{const i=sub.indexOf(c);return i>=0?subTo[i]:c;});
+  s=s.replace(/[⁰-⁾ⁿ]/g,c=>{const i=sup.indexOf(c);return i>=0?"^"+supTo[i]:c;});
+  const map={"≈":"~=","≠":"!=","≤":"<=","≥":">=","→":"->","←":"<-","↔":"<->",
+    "⇌":"<=>","⇄":"<=>","×":"x","÷":"/","−":"-","∙":".","∞":"infinity","√":"sqrt",
+    "∑":"sum","∏":"product","∫":"integral","∂":"d","∆":"delta","Δ":"delta",
+    "α":"alpha","β":"beta","γ":"gamma","θ":"theta","λ":"lambda","μ":"mu",
+    "π":"pi","ρ":"rho","σ":"sigma","τ":"tau","φ":"phi","ω":"omega","Ω":"ohm",
+    "°":" deg","±":"+/-","≡":"==","∝":"proportional to","∴":"therefore",
+    "∵":"because","‰":"per mille","•":"-","·":".","→":"->",
+    "‘":"'","’":"'","“":'"',"”":'"',"–":"-","—":"-","…":"..."};
+  // named replacements first, then drop anything else outside Latin-1
+  s=s.replace(/[^ -ÿ]/g,c=>map[c]!==undefined?map[c]:"");
+  // catch the Latin-1 ones we still want to normalise
+  s=s.replace(/[•·]/g,c=>map[c]);
+  return s;
+}
+
 async function askPDF(rec){
   try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool. Check your connection."); return; }
   const {jsPDF}=window.jspdf;
@@ -1460,16 +1485,16 @@ async function askPDF(rec){
   const line=(txt,size,bold,color,gap)=>{
     doc.setFont("helvetica",bold?"bold":"normal"); doc.setFontSize(size);
     doc.setTextColor(color||"#1a1a1a");
-    const parts=doc.splitTextToSize(txt,W);
+    const parts=doc.splitTextToSize(pdfSafe(txt),W);
     parts.forEach(p=>{ if(y>H-60){ doc.addPage(); y=64; } doc.text(p,M,y); y+=size*1.35; });
     y+=gap||0;
   };
   line(rec.title||"Vidya's answer",20,true); y+=2;
-  line(`${rec.subject||""}  ·  ${rec.level||""}`,10,false,"#777",8);
+  line(`${rec.subject||""}  -  ${rec.level||""}`,10,false,"#777",8);
   if(rec.q) line("Question: "+rec.q,11,false,"#555",10);
-  (rec.steps||[]).forEach(s=>line("•  "+s.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4));
+  (rec.steps||[]).forEach(s=>line("-  "+s.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4));
   if(rec.takeaway){ y+=6; line("Remember: "+rec.takeaway,12,true,"#8a5a00",0); }
-  y+=16; line("Made with VidyaPath — Ask Vidya",9,false,"#aaa",0);
+  y+=16; line("Made with VidyaPath - Ask Vidya",9,false,"#aaa",0);
   const name=(rec.title||"vidya-answer").replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,40);
   doc.save(name+".pdf");
 }
