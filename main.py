@@ -418,9 +418,36 @@ def _seed_file(db, filename, audience, position_offset):
     return len(tracks)
 
 
+def _schema_matches():
+    """True if the live tables match the current models. A Postgres database
+    left over from an older version can have tables missing newer columns
+    (e.g. tracks.audience); create_all() will NOT add them, so we must detect
+    the drift and rebuild."""
+    db = SessionLocal()
+    try:
+        db.query(Track).limit(1).all()
+        db.query(Lesson).limit(1).all()
+        return True
+    except Exception as e:
+        print(f"Schema drift detected: {type(e).__name__}: {e}")
+        return False
+    finally:
+        db.close()
+
+
 def seed_if_empty():
     """Create tables, load curriculum on first boot, ensure admin exists."""
     Base.metadata.create_all(engine)
+
+    # Heal an out-of-date schema. Safe here: if a table is missing a column
+    # this code expects, the app cannot read that table anyway, so the only
+    # recovery is to rebuild it. No usable data is lost.
+    if not _schema_matches():
+        print("Rebuilding tables to match the current schema...")
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+        print("Tables rebuilt.")
+
     db = SessionLocal()
     try:
         existing = db.query(Track).count()
