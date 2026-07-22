@@ -1324,7 +1324,7 @@ function renderAsk(){
   }
   const samples=ASK_SAMPLES[a.subject]||ASK_SAMPLES["General"];
   const disabledNote = a.enabled===false
-    ? `<div class="ask-note">The AI teacher is not switched on yet. Ask the site owner to add an <b>ANTHROPIC_API_KEY</b> in the server settings — everything else keeps working.</div>` : "";
+    ? `<div class="ask-note">The AI teacher is not switched on yet. Ask the site owner to add a free <b>GEMINI_API_KEY</b> in the server settings — everything else keeps working.</div>` : "";
   $("#main").innerHTML=`
   <div class="h1">💬 Ask Vidya anything</div>
   <p class="sub">Choose a subject and level, then ask any question — by voice or by typing. Vidya writes the answer on the board and reads it aloud. Answers are saved, so asking the same thing again is instant.</p>
