@@ -16,8 +16,9 @@ from typing import Optional, List
 
 import bcrypt
 import jwt
+from urllib.parse import urlencode
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
@@ -79,7 +80,20 @@ if "${{" in ADMIN_EMAIL:
     ADMIN_EMAIL = ""
 ADMIN_PASSWORD = env("ADMIN_PASSWORD")
 COOKIE_SECURE = env("COOKIE_SECURE", "1") != "0"
-SESSION_DAYS = 30
+SESSION_DAYS = 60   # keep users signed in for two months
+
+# ---- Google sign-in (optional) -------------------------------------------
+# Switches on automatically when both keys are set, same as the AI provider.
+# Create them at https://console.cloud.google.com/apis/credentials
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID")
+if "${{" in GOOGLE_CLIENT_ID:
+    GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET")
+if "${{" in GOOGLE_CLIENT_SECRET:
+    GOOGLE_CLIENT_SECRET = ""
+GOOGLE_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+# Optional explicit public URL for the OAuth redirect; else derived per-request.
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL").rstrip("/")
 
 # ---- Ask Vidya (the "ask anything" AI teacher) ---------------------------
 # The API key lives ONLY on the server. The browser never sees it. Every
@@ -578,6 +592,7 @@ def status(db: Session = Depends(get_db)):
         "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
+        "google_signin_enabled": GOOGLE_ENABLED,
         "curriculum_files_present": sorted(
             p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json"),
     }
@@ -687,6 +702,100 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
 def logout(response: Response):
     response.delete_cookie("vp_session", path="/")
     return {"ok": True}
+
+
+# ---- Google sign-in ------------------------------------------------------
+@app.get("/api/auth/config")
+def auth_config():
+    """Lets the sign-in page know whether the Google button should show."""
+    return {"google_enabled": GOOGLE_ENABLED}
+
+
+def _redirect_uri(request: Request) -> str:
+    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    # Railway terminates TLS at the proxy; make sure we advertise https.
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
+        base = "https://" + base[len("http://"):]
+    return base + "/api/auth/google/callback"
+
+
+@app.get("/api/auth/google/login")
+def google_login(request: Request):
+    if not GOOGLE_ENABLED:
+        raise HTTPException(404, "Google sign-in is not configured")
+    state = secrets.token_urlsafe(16)
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": _redirect_uri(request),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+        "prompt": "select_account",
+    }
+    resp = RedirectResponse(
+        "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
+    # short-lived cookie to defend against CSRF on the callback
+    resp.set_cookie("g_state", state, max_age=600, httponly=True,
+                    samesite="lax", secure=COOKIE_SECURE, path="/")
+    return resp
+
+
+@app.get("/api/auth/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    if not GOOGLE_ENABLED:
+        raise HTTPException(404, "Google sign-in is not configured")
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    if not code or not state or state != request.cookies.get("g_state"):
+        return RedirectResponse("/?error=google_state")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            tok = await client.post("https://oauth2.googleapis.com/token", data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": _redirect_uri(request),
+                "grant_type": "authorization_code",
+            })
+            tok.raise_for_status()
+            access = tok.json().get("access_token")
+            info = await client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {access}"})
+            info.raise_for_status()
+            profile = info.json()
+    except Exception as e:
+        print(f"Google sign-in failed: {type(e).__name__}: {e}")
+        return RedirectResponse("/?error=google_failed")
+
+    email = (profile.get("email") or "").lower().strip()
+    if not email or not profile.get("verified_email", True):
+        return RedirectResponse("/?error=google_email")
+    name = profile.get("name") or email.split("@")[0]
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # New Google user — no password; a random hash blocks password login.
+        user = User(email=email, name=name[:120],
+                    password_hash=hash_pw(secrets.token_urlsafe(24)),
+                    is_admin=(email == ADMIN_EMAIL))
+        db.add(user)
+    else:
+        user.last_seen = now()
+        if email == ADMIN_EMAIL and not user.is_admin:
+            user.is_admin = True
+    if not user.is_active:
+        return RedirectResponse("/?error=account_disabled")
+    db.commit()
+    db.refresh(user)
+
+    resp = RedirectResponse("/")
+    set_session(resp, user)
+    resp.delete_cookie("g_state", path="/")
+    return resp
 
 
 @app.get("/api/auth/me")
