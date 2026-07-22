@@ -1485,24 +1485,88 @@ function askVoiceInput(){
 }
 
 function askTeacherSVG(speaking){
-  return `<svg width="120" height="200" viewBox="0 0 120 200" fill="none">
-    <line x1="52" y1="86" x2="-14" y2="40" stroke="#d9c9a3" stroke-width="3" stroke-linecap="round"/>
-    <circle cx="-14" cy="40" r="3" fill="#fff" opacity=".8"/>
-    <path d="M36 196 Q34 130 46 108 L74 108 Q86 130 84 196 Z" fill="#1f6f5c"/>
-    <path d="M46 108 Q60 150 74 108" fill="#2a8f77" opacity=".5"/>
-    <path d="M46 108 Q40 140 44 196 L52 196 Q49 150 58 112 Z" fill="#e8b84b" opacity=".85"/>
-    <path d="M47 112 Q30 100 20 78" stroke="#8a5a3c" stroke-width="9" stroke-linecap="round" fill="none"/>
-    <path d="M73 112 Q86 128 82 150" stroke="#8a5a3c" stroke-width="9" stroke-linecap="round" fill="none"/>
-    <rect x="54" y="92" width="12" height="12" rx="4" fill="#c98a63"/>
-    <circle cx="60" cy="78" r="17" fill="#d69a72"/>
-    <path d="M43 78 Q42 56 60 56 Q78 56 77 78 Q70 66 60 66 Q50 66 43 78Z" fill="#2a2018"/>
-    <path d="M60 56 Q60 96 60 100" stroke="#2a2018" stroke-width="5" stroke-linecap="round" opacity=".8"/>
-    <circle cx="60" cy="70" r="1.8" fill="#c0392b"/>
-    <circle cx="54" cy="78" r="1.8" fill="#2a2018"/>
-    <circle cx="66" cy="78" r="1.8" fill="#2a2018"/>
+  return `<svg width="128" height="212" viewBox="0 0 128 212" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="vSari" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#2aa17f"/><stop offset="1" stop-color="#127a5c"/>
+      </linearGradient>
+      <linearGradient id="vDupatta" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ffd15c"/><stop offset="1" stop-color="#f0a93a"/>
+      </linearGradient>
+      <radialGradient id="vSkin" cx="0.5" cy="0.4" r="0.7">
+        <stop offset="0" stop-color="#f0b892"/><stop offset="1" stop-color="#d99b6f"/>
+      </radialGradient>
+      <linearGradient id="vSkinArm" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#e6a97f"/><stop offset="1" stop-color="#cf9068"/>
+      </linearGradient>
+    </defs>
+
+    <!-- soft ground shadow -->
+    <ellipse cx="64" cy="205" rx="34" ry="6" fill="#000" opacity=".18"/>
+
+    <!-- pointer to the board -->
+    <line x1="40" y1="120" x2="4" y2="150" stroke="#caa96e" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="4" cy="150" r="3.2" fill="#fff" opacity=".85"/>
+
+    <!-- body / sari -->
+    <path d="M40 208 Q36 150 44 124 Q50 112 64 112 Q78 112 84 124 Q92 150 88 208 Z" fill="url(#vSari)"/>
+    <!-- sari pleats -->
+    <path d="M64 118 Q60 160 62 208" stroke="#0e6249" stroke-width="1.6" opacity=".5" fill="none"/>
+    <path d="M72 120 Q74 160 76 208" stroke="#0e6249" stroke-width="1.4" opacity=".4" fill="none"/>
+    <!-- dupatta over shoulder -->
+    <path d="M44 124 Q34 150 40 208 L52 208 Q46 156 60 126 Z" fill="url(#vDupatta)" opacity=".95"/>
+    <path d="M44 124 Q40 122 60 126" stroke="#e0982c" stroke-width="1.2" opacity=".5" fill="none"/>
+
+    <!-- far arm (resting) -->
+    <path d="M80 128 Q92 150 86 176" stroke="url(#vSkinArm)" stroke-width="11" stroke-linecap="round" fill="none"/>
+    <!-- near arm (raised, pointing) -->
+    <path d="M50 126 Q34 118 40 121" stroke="url(#vSkinArm)" stroke-width="11" stroke-linecap="round" fill="none"/>
+    <circle cx="39" cy="120" r="5.4" fill="#e6a97f"/>
+
+    <!-- neck -->
+    <path d="M57 104 Q57 114 64 116 Q71 114 71 104 Z" fill="#d99b6f"/>
+    <!-- head -->
+    <ellipse cx="64" cy="86" rx="19" ry="20.5" fill="url(#vSkin)"/>
+    <!-- ears + earrings -->
+    <circle cx="45.5" cy="88" r="3.4" fill="#d99b6f"/><circle cx="82.5" cy="88" r="3.4" fill="#d99b6f"/>
+    <circle cx="45.5" cy="94" r="2" fill="#ffd15c"/><circle cx="82.5" cy="94" r="2" fill="#ffd15c"/>
+
+    <!-- hair: crown + side sweep + bun -->
+    <path d="M44 84 Q42 58 64 57 Q86 58 84 84 Q84 74 78 69 Q72 63 64 63 Q56 63 50 69 Q44 74 44 84 Z" fill="#241a15"/>
+    <path d="M45 86 Q43 72 49 66 Q46 78 50 88 Z" fill="#1a120e"/>
+    <path d="M83 86 Q85 72 79 66 Q82 78 78 88 Z" fill="#1a120e"/>
+    <circle cx="64" cy="52" r="8.5" fill="#2a1e17"/>
+    <!-- centre parting -->
+    <path d="M64 57 L64 63" stroke="#1a120e" stroke-width="1.6"/>
+    <!-- bindi -->
+    <circle cx="64" cy="72" r="2.1" fill="#c0392b"/>
+
+    <!-- eyebrows -->
+    <path d="M52 79 Q57 76.5 61 78.5" stroke="#3a2a20" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+    <path d="M67 78.5 Q71 76.5 76 79" stroke="#3a2a20" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+
+    <!-- eyes with blink -->
+    <g fill="#2a2018">
+      <ellipse cx="56.5" cy="84" rx="2.5" ry="3">
+        <animate attributeName="ry" values="3;3;0.4;3;3;3;3;3" dur="4.2s" repeatCount="indefinite"/>
+      </ellipse>
+      <ellipse cx="71.5" cy="84" rx="2.5" ry="3">
+        <animate attributeName="ry" values="3;3;0.4;3;3;3;3;3" dur="4.2s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <circle cx="57.3" cy="83" r="0.8" fill="#fff" opacity=".9"/>
+    <circle cx="72.3" cy="83" r="0.8" fill="#fff" opacity=".9"/>
+
+    <!-- cheeks -->
+    <ellipse cx="52" cy="92" rx="3.4" ry="2.2" fill="#e88" opacity=".28"/>
+    <ellipse cx="76" cy="92" rx="3.4" ry="2.2" fill="#e88" opacity=".28"/>
+    <!-- nose -->
+    <path d="M64 86 Q65.5 91 63 93" stroke="#c58a63" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+
+    <!-- mouth -->
     ${speaking
-      ? `<ellipse cx="60" cy="86" rx="3.2" ry="2.6" fill="#7a3b2e"><animate attributeName="ry" values="1;3;1.5;3;1" dur="0.5s" repeatCount="indefinite"/></ellipse>`
-      : `<path d="M55 85 Q60 89 65 85" stroke="#7a3b2e" stroke-width="2" fill="none" stroke-linecap="round"/>`}
+      ? `<ellipse cx="64" cy="98.5" rx="4" ry="3" fill="#8f3b32"><animate attributeName="ry" values="1.2;3.4;1.8;3.2;1.2" dur="0.42s" repeatCount="indefinite"/></ellipse><path d="M60 98 Q64 96 68 98" stroke="#7a3128" stroke-width="1" fill="none"/>`
+      : `<path d="M59 97.5 Q64 102 69 97.5" stroke="#8f3b32" stroke-width="2" fill="none" stroke-linecap="round"/>`}
   </svg>`;
 }
 
