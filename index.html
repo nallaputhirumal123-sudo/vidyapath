@@ -1470,7 +1470,7 @@ function pdfSafe(s){
     "∵":"because","‰":"per mille","•":"-","·":".","→":"->",
     "‘":"'","’":"'","“":'"',"”":'"',"–":"-","—":"-","…":"..."};
   // named replacements first, then drop anything else outside Latin-1
-  s=s.replace(/[^ -ÿ]/g,c=>map[c]!==undefined?map[c]:"");
+  s=s.replace(/[^\u0020-\u00ff]/g,c=>map[c]!==undefined?map[c]:"");
   // catch the Latin-1 ones we still want to normalise
   s=s.replace(/[•·]/g,c=>map[c]);
   return s;
