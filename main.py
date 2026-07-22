@@ -993,12 +993,10 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
     except Exception as e:
         reason = f"{type(e).__name__}: {e}"
         print(f"Ask Vidya call failed ({AI_PROVIDER}): {reason}")
-        # Admins see the real upstream reason (to debug); students see a
-        # friendly message. Keeps API details out of ordinary users' faces.
-        detail = (f"Vidya could not reach the board. Reason: {reason}"
-                  if user.is_admin
-                  else "Vidya could not reach the board just now. Try again.")
-        raise HTTPException(status_code=503, detail=detail[:400])
+        # DIAGNOSTIC: show the real upstream reason to every logged-in user
+        # while we get the AI teacher working. Lock back to admins-only later.
+        raise HTTPException(status_code=503,
+                            detail=f"Vidya could not reach the board. Reason: {reason}"[:400])
 
     db.add(AskCache(qkey=qkey, subject=subject, level=level,
                     question=question[:2000], lesson=json.dumps(lesson), hits=0))

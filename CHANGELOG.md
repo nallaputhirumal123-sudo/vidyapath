@@ -14,6 +14,13 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.6.2 — Show the real Ask error (diagnostic)
+
+- Temporarily surface the exact upstream reason (bad key, disabled API,
+  quota, wrong model) to any logged-in user on the board, so the AI teacher
+  can be debugged without hunting for the admin login. To be locked back to
+  admins-only once it is confirmed working.
+
 ## 1.6.1 — Ask Vidya reliability
 
 - **Default Gemini model is now `gemini-2.0-flash`** — the 2.5 models spend
