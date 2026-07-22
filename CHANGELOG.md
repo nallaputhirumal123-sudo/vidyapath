@@ -14,6 +14,18 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.7.0 — Ask Vidya board: no flicker, slides, save, PDF
+
+- **The board no longer redraws on every line.** The whole answer appears at
+  once and stays put; the voice moves through it with a highlight on the line
+  being read. Much calmer to watch.
+- **Long answers become slides.** Anything over five lines is paginated, with
+  ‹ › controls, and the slides turn by themselves as Vidya reads.
+- **Save for reference.** Keep any answer to your account; a "Saved answers"
+  list appears under the board, and you can re-open or remove them anytime.
+- **Download as PDF.** Any answer — live or saved — exports to a clean PDF.
+- Re-open a saved answer and press "Read aloud" to hear it again.
+
 ## 1.6.2 — Show the real Ask error (diagnostic)
 
 - Temporarily surface the exact upstream reason (bad key, disabled API,
