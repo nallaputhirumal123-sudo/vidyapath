@@ -291,6 +291,24 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .ctab tbody tr:last-child td{border-bottom:none}
 .ctab tr.click{cursor:pointer}
 .ctab tr.click:hover td{background:var(--panel2)}
+/* coloring */
+.clr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.clr-thumb{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 10px 6px;cursor:pointer;transition:.15s}
+.clr-thumb:hover{border-color:var(--accent);transform:translateY(-2px)}
+.clr-thumbart{display:flex;justify-content:center}
+.clr-thumbart svg{width:100%;height:auto;max-width:150px}
+.clr-thumbname{text-align:center;font-weight:600;font-size:13.5px;color:#333;margin-top:4px}
+.clr-svg .reg{stroke:#2b2b2b;stroke-width:2.5;stroke-linejoin:round}
+.clr-svg .reg.i{cursor:pointer}
+.clr-svg .reg.i:hover{stroke:#ff9933;stroke-width:3.5}
+.clr-svg .noreg{pointer-events:none}
+.clr-stage{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.clr-canvas{background:#fff;border-radius:16px;padding:12px;box-shadow:0 10px 30px rgba(0,0,0,.15)}
+.clr-canvas svg{width:min(340px,72vw);height:auto;display:block}
+.clr-palette{display:grid;grid-template-columns:repeat(2,44px);gap:10px;align-content:start}
+.clr-sw{width:44px;height:44px;border-radius:12px;border:3px solid var(--line);cursor:pointer;padding:0}
+.clr-sw.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,153,51,.3)}
+@media(max-width:520px){.clr-palette{grid-template-columns:repeat(4,44px)}}
 @keyframes askChalk{from{opacity:0;filter:blur(3px);transform:translateY(4px)}to{opacity:1;filter:blur(0);transform:none}}
 .ask-empty{font-family:'Kalam',cursive;font-size:23px;color:rgba(234,255,242,.55);min-height:290px;
   display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.5}
@@ -795,6 +813,7 @@ function renderNav(){
       <button class="navitem ${S.view.page==="ask"?"active":""}" data-nav="ask"><span class="ic">💬</span><span class="nm">Ask Vidya anything</span></button>
       <button class="navitem ${S.view.page==="class"?"active":""}" data-nav="class"><span class="ic">🎓</span><span class="nm">My class</span></button>
       <button class="navitem ${S.view.page==="careers"?"active":""}" data-nav="careers"><span class="ic">💼</span><span class="nm">Careers &amp; jobs</span></button>
+      <button class="navitem ${S.view.page==="color"?"active":""}" data-nav="color"><span class="ic">🎨</span><span class="nm">Coloring fun</span></button>
       <button class="navitem ${S.view.page==="resources"?"active":""}" data-nav="resources"><span class="ic">🔗</span><span class="nm">All resources</span></button>`;
   if(USER.is_teacher) h+=`<button class="navitem ${S.view.page==="teacher"?"active":""}" data-nav="teacher"><span class="ic">🧑‍🏫</span><span class="nm">Teacher dashboard</span></button>`;
   if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
@@ -2215,6 +2234,174 @@ function renderCareers(){
   </div>`;
 }
 
+/* ===================== COLORING FUN ===================== */
+const CLR_SWATCHES=["#e74c3c","#e67e22","#f1c40f","#7ed957","#2ecc71","#00b5d8","#3498db","#5b6cff","#9b59b6","#ff77c8","#8d5524","#111111","#9aa5b1","#ffffff"];
+const CLR_CATS=["Animals","Nature","Fun","Vehicles"];
+/* Each page is line art. Every element with class="reg" is a tappable region. */
+const CLR_PAGES=[
+ {id:"cat",cat:"Animals",name:"Cat",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <polygon class="reg" data-r="earL" points="60,55 78,20 92,60"/>
+  <polygon class="reg" data-r="earR" points="140,55 122,20 108,60"/>
+  <circle class="reg" data-r="head" cx="100" cy="105" r="55"/>
+  <circle class="reg" data-r="eyeL" cx="82" cy="95" r="9"/>
+  <circle class="reg" data-r="eyeR" cx="118" cy="95" r="9"/>
+  <polygon class="reg" data-r="nose" points="100,112 92,122 108,122"/>
+  <path class="noreg" d="M100 122 V135 M100 135 Q86 138 78 130 M100 135 Q114 138 122 130" fill="none" stroke="#111" stroke-width="2"/>
+  <path class="noreg" d="M45 108 H20 M48 120 H22 M152 108 H180 M150 120 H178" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"fish",cat:"Animals",name:"Fish",art:`
+  <rect class="reg" data-r="water" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="body" cx="95" cy="105" rx="60" ry="38"/>
+  <polygon class="reg" data-r="tail" points="150,105 190,75 190,135"/>
+  <path class="reg" data-r="fin" d="M80 68 Q100 45 120 70 Z"/>
+  <circle class="reg" data-r="eye" cx="60" cy="95" r="8"/>
+  <circle class="reg" data-r="b1" cx="40" cy="55" r="8"/>
+  <circle class="reg" data-r="b2" cx="58" cy="38" r="6"/>`},
+ {id:"butterfly",cat:"Animals",name:"Butterfly",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="wtl" cx="70" cy="80" rx="34" ry="30"/>
+  <ellipse class="reg" data-r="wtr" cx="130" cy="80" rx="34" ry="30"/>
+  <ellipse class="reg" data-r="wbl" cx="74" cy="128" rx="26" ry="24"/>
+  <ellipse class="reg" data-r="wbr" cx="126" cy="128" rx="26" ry="24"/>
+  <ellipse class="reg" data-r="body" cx="100" cy="105" rx="8" ry="46"/>
+  <path class="noreg" d="M100 62 Q88 40 78 44 M100 62 Q112 40 122 44" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"flower",cat:"Nature",name:"Flower",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <rect class="reg" data-r="stem" x="94" y="110" width="12" height="80"/>
+  <path class="reg" data-r="leafL" d="M96 150 Q60 140 62 168 Q92 172 96 150 Z"/>
+  <path class="reg" data-r="leafR" d="M104 135 Q140 125 140 152 Q108 158 104 135 Z"/>
+  <circle class="reg" data-r="p1" cx="100" cy="50" r="20"/>
+  <circle class="reg" data-r="p2" cx="70" cy="72" r="20"/>
+  <circle class="reg" data-r="p3" cx="130" cy="72" r="20"/>
+  <circle class="reg" data-r="p4" cx="82" cy="104" r="20"/>
+  <circle class="reg" data-r="p5" cx="118" cy="104" r="20"/>
+  <circle class="reg" data-r="center" cx="100" cy="80" r="20"/>`},
+ {id:"sun",cat:"Nature",name:"Sun",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  ${Array.from({length:12}).map((_,i)=>{const a=i*30*Math.PI/180;const x1=100+45*Math.cos(a),y1=100+45*Math.sin(a),x2=100+75*Math.cos(a),y2=100+75*Math.sin(a);const px=100+60*Math.cos(a);const py=100+60*Math.sin(a);return `<polygon class="reg" data-r="ray${i}" points="${x1.toFixed(0)},${y1.toFixed(0)} ${(px+8*Math.cos(a+1.4)).toFixed(0)},${(py+8*Math.sin(a+1.4)).toFixed(0)} ${x2.toFixed(0)},${y2.toFixed(0)} ${(px+8*Math.cos(a-1.4)).toFixed(0)},${(py+8*Math.sin(a-1.4)).toFixed(0)}"/>`}).join("")}
+  <circle class="reg" data-r="sun" cx="100" cy="100" r="42"/>`},
+ {id:"tree",cat:"Nature",name:"Tree",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="150"/>
+  <rect class="reg" data-r="grass" x="0" y="150" width="200" height="50"/>
+  <rect class="reg" data-r="trunk" x="90" y="105" width="20" height="70"/>
+  <circle class="reg" data-r="leaf1" cx="100" cy="70" r="40"/>
+  <circle class="reg" data-r="leaf2" cx="72" cy="90" r="28"/>
+  <circle class="reg" data-r="leaf3" cx="128" cy="90" r="28"/>`},
+ {id:"house",cat:"Fun",name:"House",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <circle class="reg" data-r="sun" cx="168" cy="34" r="20"/>
+  <rect class="reg" data-r="wall" x="45" y="95" width="110" height="85"/>
+  <polygon class="reg" data-r="roof" points="38,95 100,45 162,95"/>
+  <rect class="reg" data-r="door" x="88" y="132" width="24" height="48"/>
+  <rect class="reg" data-r="winL" x="58" y="108" width="22" height="22"/>
+  <rect class="reg" data-r="winR" x="120" y="108" width="22" height="22"/>`},
+ {id:"star",cat:"Fun",name:"Star",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <polygon class="reg" data-r="star" points="100,25 118,78 175,78 129,110 146,163 100,130 54,163 71,110 25,78 82,78"/>
+  <circle class="reg" data-r="s1" cx="35" cy="40" r="7"/>
+  <circle class="reg" data-r="s2" cx="165" cy="150" r="7"/>`},
+ {id:"balloon",cat:"Fun",name:"Balloon",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="ball" cx="100" cy="80" rx="48" ry="58"/>
+  <polygon class="reg" data-r="knot" points="92,136 108,136 100,148"/>
+  <path class="noreg" d="M100 148 Q112 168 96 190" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"car",cat:"Vehicles",name:"Car",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="140"/>
+  <rect class="reg" data-r="road" x="0" y="140" width="200" height="60"/>
+  <rect class="reg" data-r="body" x="25" y="95" width="150" height="45" rx="10"/>
+  <path class="reg" data-r="roof" d="M60 95 L80 65 L135 65 L155 95 Z"/>
+  <rect class="reg" data-r="window" x="85" y="70" width="42" height="25"/>
+  <circle class="reg" data-r="wheelL" cx="65" cy="145" r="18"/>
+  <circle class="reg" data-r="wheelR" cx="140" cy="145" r="18"/>`},
+ {id:"boat",cat:"Vehicles",name:"Boat",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="130"/>
+  <circle class="reg" data-r="sun" cx="40" cy="40" r="18"/>
+  <rect class="reg" data-r="water" x="0" y="130" width="200" height="70"/>
+  <path class="reg" data-r="hull" d="M45 130 H165 L150 165 H60 Z"/>
+  <rect class="reg" data-r="mast" x="102" y="55" width="6" height="75"/>
+  <polygon class="reg" data-r="sail" points="100,58 100,122 55,122"/>
+  <polygon class="reg" data-r="flag" points="108,58 108,74 132,66"/>`},
+];
+const COLORING={cat:"Animals", pageId:null, color:"#f1c40f"};
+function clrFills(id){ try{ return JSON.parse(S.notes["clr_"+id]||"{}"); }catch(e){ return {}; } }
+function clrSaveFills(id, fills){
+  const v=JSON.stringify(fills).slice(0,4900);
+  S.notes["clr_"+id]=v;
+  clearTimeout(COLORING._t); COLORING._t=setTimeout(()=>api.post("/api/note",{key:"clr_"+id,value:v}).catch(()=>{}),400);
+}
+function clrSvg(page, fills, size, interactive){
+  const inner=page.art.replace(/class="reg" data-r="([a-z0-9]+)"/gi,(m,r)=>
+    `class="reg${interactive?' i':''}" data-r="${r}" fill="${fills[r]||'#ffffff'}"`);
+  return `<svg viewBox="0 0 200 200" width="${size}" height="${size}" class="clr-svg" ${interactive?'id="colorSvg"':''}
+    style="touch-action:manipulation">${inner}</svg>`;
+}
+function renderColoring(){
+  if(COLORING.pageId) return renderColorPage();
+  const pages=CLR_PAGES.filter(p=>p.cat===COLORING.cat);
+  $("#main").innerHTML=`
+  <div class="h1">🎨 Coloring fun</div>
+  <p class="sub">Pick a picture, tap a colour, then tap the parts to fill them. Your colours save automatically. Great on a tablet!</p>
+  <div class="ask-chips" style="margin-bottom:16px">
+    ${CLR_CATS.map(c=>`<button class="ask-chip ${COLORING.cat===c?"on":""}" data-clr="cat" data-v="${c}">${c}</button>`).join("")}
+  </div>
+  <div class="clr-grid">
+    ${pages.map(p=>`<button class="clr-thumb" data-clr="open" data-v="${p.id}">
+      <div class="clr-thumbart">${clrSvg(p,clrFills(p.id),150,false)}</div>
+      <div class="clr-thumbname">${esc(p.name)}</div></button>`).join("")}
+  </div>`;
+}
+function renderColorPage(){
+  const p=CLR_PAGES.find(x=>x.id===COLORING.pageId); if(!p){ COLORING.pageId=null; return renderColoring(); }
+  const fills=clrFills(p.id);
+  $("#main").innerHTML=`
+  <div class="crumb"><button data-clr="back">← All pictures</button></div>
+  <div class="h1" style="margin-bottom:4px">${esc(p.name)}</div>
+  <p class="sub">Tap a colour, then tap a part of the picture.</p>
+  <div class="clr-stage">
+    <div class="clr-canvas">${clrSvg(p,fills,340,true)}</div>
+    <div class="clr-palette">
+      ${CLR_SWATCHES.map(c=>`<button class="clr-sw ${COLORING.color===c?"on":""}" data-clr="pick" data-v="${c}" style="background:${c}" title="${c}"></button>`).join("")}
+    </div>
+  </div>
+  <div class="row" style="margin-top:14px;gap:8px;flex-wrap:wrap">
+    <button class="btn sm" data-clr="save">💾 Save picture (PNG)</button>
+    <button class="btn ghost sm" data-clr="reset">Start over</button>
+  </div>`;
+}
+function clrPaintRegion(el){
+  const svg=$("#colorSvg"); if(!svg)return;
+  const r=el.getAttribute("data-r"); const fills=clrFills(COLORING.pageId);
+  fills[r]=COLORING.color; el.setAttribute("fill",COLORING.color);
+  clrSaveFills(COLORING.pageId,fills);
+}
+function clrDownloadPNG(){
+  const svg=$("#colorSvg"); if(!svg)return;
+  const xml=new XMLSerializer().serializeToString(svg);
+  const img=new Image();
+  const svg64="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(xml)));
+  img.onload=()=>{
+    const cv=document.createElement("canvas"); cv.width=800; cv.height=800;
+    const ctx=cv.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,800,800);
+    ctx.drawImage(img,0,0,800,800);
+    const a=document.createElement("a");
+    a.href=cv.toDataURL("image/png"); a.download=(COLORING.pageId||"picture")+".png"; a.click();
+  };
+  img.src=svg64;
+}
+/* coloring interactions */
+document.addEventListener("click",e=>{
+  const reg=e.target.closest(".reg.i");
+  if(reg && S.view.page==="color"){ clrPaintRegion(reg); return; }
+  const b=e.target.closest("[data-clr]"); if(!b)return;
+  const k=b.dataset.clr, v=b.dataset.v;
+  if(k==="cat"){ COLORING.cat=v; renderColoring(); }
+  else if(k==="open"){ COLORING.pageId=v; renderColorPage(); }
+  else if(k==="back"){ COLORING.pageId=null; renderColoring(); }
+  else if(k==="pick"){ COLORING.color=v; document.querySelectorAll(".clr-sw").forEach(s=>s.classList.toggle("on",s.dataset.v===v)); }
+  else if(k==="save"){ clrDownloadPNG(); }
+  else if(k==="reset"){ if(confirm("Clear all colours on this picture?")){ clrSaveFills(COLORING.pageId,{}); renderColorPage(); } }
+});
+
 /* ===================== ROUTER ===================== */
 function render(){
   if(!AUTHED) return showGate();
@@ -2227,6 +2414,7 @@ function render(){
   else if(v.page==="ask")       renderAsk();
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
+  else if(v.page==="color")     renderColoring();
   else if(v.page==="assignment") renderAssignment(v.aid);
   else if(v.page==="teacher")   renderTeacher(v.cid);
   else if(v.page==="tassign")   renderTeacherAssignment(v.cid,v.aid);
@@ -2274,6 +2462,7 @@ document.addEventListener("click",e=>{
   else if(n==="ask")       S.view={page:"ask"};
   else if(n==="class")     S.view={page:"class"};
   else if(n==="careers")   S.view={page:"careers"};
+  else if(n==="color")     S.view={page:"color"};
   else if(n==="teacher")   S.view={page:"teacher"};
   else if(n==="track")     S.view={page:"track",track:b.dataset.id};
   else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};

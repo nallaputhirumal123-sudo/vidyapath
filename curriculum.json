@@ -237,7 +237,7 @@
    "color": "#3776ab",
    "weeks": 8,
    "lang": "Python",
-   "desc": "The single most valuable language for AI, data, automation and backend work in India. Taken from syntax through to production-grade code.",
+   "desc": "The single most valuable language for AI, data, automation and backend work anywhere. Taken from syntax through to production-grade code.",
    "outcomes": [
     "Write clean, idiomatic Python",
     "Master lists, dicts, comprehensions and generators",
@@ -295,7 +295,7 @@
      "mins": 45,
      "lang": "py",
      "position": 0,
-     "content": "<h3>Strings do far more than you think</h3>\n<pre><code>s = \"  Data Science in India  \"\n\ns.strip()            # 'Data Science in India'\ns.lower()            # '  data science in india  '\ns.replace(\"India\",\"Bharat\")\ns.split()            # ['Data','Science','in','India']\n\"-\".join([\"a\",\"b\"])  # 'a-b'\ns.strip().startswith(\"Data\")   # True\n\nname, score = \"Asha\", 91.5\nprint(f\"{name} scored {score:.1f}%\")   # f-strings — always use these</code></pre>\n<h3>Lists — ordered, changeable</h3>\n<pre><code>nums = [4, 1, 8, 3]\nnums.append(9)          # add to end\nnums.insert(0, 0)       # add at position\nnums.sort()             # sorts in place\nnums[::-1]              # reversed copy\nnums[1:3]               # slice — items 1 and 2\nlen(nums), sum(nums), max(nums)</code></pre>\n<h3>Dictionaries — the workhorse of real Python</h3>\n<pre><code>student = {\"name\":\"Ravi\", \"marks\":[88,91], \"city\":\"Pune\"}\n\nstudent[\"email\"] = \"r@x.com\"        # add\nstudent.get(\"phone\", \"not given\")   # safe read — no crash\nfor key, value in student.items():\n    print(key, \"→\", value)</code></pre>\n<h3>Comprehensions — the thing that makes Python feel like Python</h3>\n<pre><code>squares  = [n*n for n in range(10)]\nevens    = [n for n in nums if n % 2 == 0]\nlookup   = {s[\"name\"]: s[\"city\"] for s in students}</code></pre>\n<div class=\"callout\">Use <code>.get()</code> instead of <code>[]</code> whenever a key might be missing. This one habit prevents a large share of production crashes.</div>",
+     "content": "<h3>Strings do far more than you think</h3>\n<pre><code>s = \"  Data Science Worldwide  \"\n\ns.strip()            # 'Data Science Worldwide'\ns.lower()            # '  data science worldwide  '\ns.replace(\"Science\",\"Study\")\ns.split()            # ['Data','Science','Worldwide']\n\"-\".join([\"a\",\"b\"])  # 'a-b'\ns.strip().startswith(\"Data\")   # True\n\nname, score = \"Asha\", 91.5\nprint(f\"{name} scored {score:.1f}%\")   # f-strings — always use these</code></pre>\n<h3>Lists — ordered, changeable</h3>\n<pre><code>nums = [4, 1, 8, 3]\nnums.append(9)          # add to end\nnums.insert(0, 0)       # add at position\nnums.sort()             # sorts in place\nnums[::-1]              # reversed copy\nnums[1:3]               # slice — items 1 and 2\nlen(nums), sum(nums), max(nums)</code></pre>\n<h3>Dictionaries — the workhorse of real Python</h3>\n<pre><code>student = {\"name\":\"Ravi\", \"marks\":[88,91], \"city\":\"Pune\"}\n\nstudent[\"email\"] = \"r@x.com\"        # add\nstudent.get(\"phone\", \"not given\")   # safe read — no crash\nfor key, value in student.items():\n    print(key, \"→\", value)</code></pre>\n<h3>Comprehensions — the thing that makes Python feel like Python</h3>\n<pre><code>squares  = [n*n for n in range(10)]\nevens    = [n for n in nums if n % 2 == 0]\nlookup   = {s[\"name\"]: s[\"city\"] for s in students}</code></pre>\n<div class=\"callout\">Use <code>.get()</code> instead of <code>[]</code> whenever a key might be missing. This one habit prevents a large share of production crashes.</div>",
      "videos": [
       {
        "t": "Python lists, dicts, tuples and sets — deep dive",
@@ -735,7 +735,7 @@
      "mins": 40,
      "lang": "read",
      "position": 3,
-     "content": "<h3>Semantic HTML</h3>\n<pre><code>&lt;header&gt;   &lt;nav&gt;    &lt;main&gt;   &lt;section&gt;\n&lt;article&gt;  &lt;aside&gt;  &lt;footer&gt; &lt;button&gt;</code></pre>\n<p>Use the right tag, not <code>&lt;div&gt;</code> for everything. Screen readers, search engines and keyboard users all depend on it — and it is a legal accessibility requirement in many markets.</p>\n<h3>Flexbox — one-dimensional layout</h3>\n<pre><code>.row {\n  display: flex;\n  gap: 16px;\n  align-items: center;\n  justify-content: space-between;\n}</code></pre>\n<h3>Grid — two-dimensional layout</h3>\n<pre><code>.cards {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));\n  gap: 20px;      /* responsive with zero media queries */\n}</code></pre>\n<h3>CSS variables — theme everything from one place</h3>\n<pre><code>:root {\n  --brand: #ff9933;\n  --text:  #1a1a1a;\n  --radius: 12px;\n}\n.btn { background: var(--brand); border-radius: var(--radius); }</code></pre>\n<h3>Responsive, mobile first</h3>\n<pre><code>&lt;meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"&gt;\n\n/* base styles = mobile, then widen */\n@media (min-width: 768px) { .sidebar { width: 280px; } }</code></pre>\n<div class=\"callout\"><b>India is mobile-first.</b> The overwhelming majority of your users will arrive on a phone, often on a slow connection. Design for a 360px screen first and treat desktop as the enhancement.</div>",
+     "content": "<h3>Semantic HTML</h3>\n<pre><code>&lt;header&gt;   &lt;nav&gt;    &lt;main&gt;   &lt;section&gt;\n&lt;article&gt;  &lt;aside&gt;  &lt;footer&gt; &lt;button&gt;</code></pre>\n<p>Use the right tag, not <code>&lt;div&gt;</code> for everything. Screen readers, search engines and keyboard users all depend on it — and it is a legal accessibility requirement in many markets.</p>\n<h3>Flexbox — one-dimensional layout</h3>\n<pre><code>.row {\n  display: flex;\n  gap: 16px;\n  align-items: center;\n  justify-content: space-between;\n}</code></pre>\n<h3>Grid — two-dimensional layout</h3>\n<pre><code>.cards {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));\n  gap: 20px;      /* responsive with zero media queries */\n}</code></pre>\n<h3>CSS variables — theme everything from one place</h3>\n<pre><code>:root {\n  --brand: #ff9933;\n  --text:  #1a1a1a;\n  --radius: 12px;\n}\n.btn { background: var(--brand); border-radius: var(--radius); }</code></pre>\n<h3>Responsive, mobile first</h3>\n<pre><code>&lt;meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"&gt;\n\n/* base styles = mobile, then widen */\n@media (min-width: 768px) { .sidebar { width: 280px; } }</code></pre>\n<div class=\"callout\"><b>The world is mobile-first.</b> The overwhelming majority of your users will arrive on a phone, often on a slow connection. Design for a 360px screen first and treat desktop as the enhancement.</div>",
      "videos": [
       {
        "t": "HTML and CSS full course for beginners",
@@ -787,7 +787,7 @@
    "color": "#4479a1",
    "weeks": 5,
    "lang": "SQL",
-   "desc": "The highest return-on-effort skill for Indian graduates. SQL alone gets you a data analyst job — and every AI system sits on a database.",
+   "desc": "The highest return-on-effort skill for new graduates. SQL alone gets you a data analyst job — and every AI system sits on a database.",
    "outcomes": [
     "Write complex SELECT queries with joins and aggregation",
     "Design normalised schemas",
@@ -1090,7 +1090,7 @@
      "mins": 45,
      "lang": "read",
      "position": 0,
-     "content": "<h3>Why Java still matters in India</h3>\n<p>TCS, Infosys, Wipro, Accenture, Cognizant and most banking systems run on Java. Campus placement tests are frequently Java-based. It is also strictly typed, which makes you a better programmer.</p>\n<pre><code>public class Main {\n    public static void main(String[] args) {\n        int    age    = 22;\n        double score  = 91.5;\n        String name   = \"Priya\";\n        boolean pass  = true;\n\n        System.out.println(name + \" scored \" + score);\n    }\n}</code></pre>\n<h3>Collections — the Java equivalents you must know</h3>\n<pre><code>List&lt;String&gt; names = new ArrayList&lt;&gt;();\nnames.add(\"Asha\");\n\nMap&lt;String, Integer&gt; scores = new HashMap&lt;&gt;();\nscores.put(\"Asha\", 88);\nscores.getOrDefault(\"Ravi\", 0);\n\nSet&lt;String&gt; unique = new HashSet&lt;&gt;();\n\nfor (String n : names) System.out.println(n);</code></pre>\n<h3>OOP — the four pillars interviewers ask about by name</h3>\n<ul>\n<li><b>Encapsulation</b> — private fields, public getters/setters. Hide internals.</li>\n<li><b>Inheritance</b> — <code>extends</code>. A child reuses and specialises a parent.</li>\n<li><b>Polymorphism</b> — the same method call behaves differently by object type.</li>\n<li><b>Abstraction</b> — interfaces and abstract classes define <i>what</i>, not <i>how</i>.</li>\n</ul>\n<pre><code>interface Shape { double area(); }\n\nclass Circle implements Shape {\n    private final double r;\n    Circle(double r) { this.r = r; }\n    public double area() { return Math.PI * r * r; }\n}</code></pre>\n<div class=\"callout\"><b>Guaranteed interview question:</b> difference between an <code>interface</code> and an <code>abstract class</code>? An interface is a pure contract and a class can implement many. An abstract class can hold shared state and partial implementation, and a class extends only one.</div>",
+     "content": "<h3>Why Java still matters</h3>\n<p>Java runs banking systems, Android apps and huge enterprise backends worldwide. Many companies' hiring tests are Java-based. It is also strictly typed, which makes you a better programmer.</p>\n<pre><code>public class Main {\n    public static void main(String[] args) {\n        int    age    = 22;\n        double score  = 91.5;\n        String name   = \"Priya\";\n        boolean pass  = true;\n\n        System.out.println(name + \" scored \" + score);\n    }\n}</code></pre>\n<h3>Collections — the Java equivalents you must know</h3>\n<pre><code>List&lt;String&gt; names = new ArrayList&lt;&gt;();\nnames.add(\"Asha\");\n\nMap&lt;String, Integer&gt; scores = new HashMap&lt;&gt;();\nscores.put(\"Asha\", 88);\nscores.getOrDefault(\"Ravi\", 0);\n\nSet&lt;String&gt; unique = new HashSet&lt;&gt;();\n\nfor (String n : names) System.out.println(n);</code></pre>\n<h3>OOP — the four pillars interviewers ask about by name</h3>\n<ul>\n<li><b>Encapsulation</b> — private fields, public getters/setters. Hide internals.</li>\n<li><b>Inheritance</b> — <code>extends</code>. A child reuses and specialises a parent.</li>\n<li><b>Polymorphism</b> — the same method call behaves differently by object type.</li>\n<li><b>Abstraction</b> — interfaces and abstract classes define <i>what</i>, not <i>how</i>.</li>\n</ul>\n<pre><code>interface Shape { double area(); }\n\nclass Circle implements Shape {\n    private final double r;\n    Circle(double r) { this.r = r; }\n    public double area() { return Math.PI * r * r; }\n}</code></pre>\n<div class=\"callout\"><b>Guaranteed interview question:</b> difference between an <code>interface</code> and an <code>abstract class</code>? An interface is a pure contract and a class can implement many. An abstract class can hold shared state and partial implementation, and a class extends only one.</div>",
      "videos": [
       {
        "t": "Java full course for beginners",
@@ -1351,8 +1351,8 @@
        "u": "https://www.kaggle.com/learn/pandas"
       },
       {
-       "t": "data.gov.in — real Indian datasets",
-       "u": "https://data.gov.in/"
+       "t": "Our World in Data — real datasets",
+       "u": "https://ourworldindata.org/"
       }
      ],
      "lab": {
@@ -1898,7 +1898,7 @@
      "mins": 45,
      "lang": "read",
      "position": 4,
-     "content": "<h3>A model in a notebook helps nobody</h3>\n<pre><code># main.py\nfrom fastapi import FastAPI, HTTPException\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom pydantic import BaseModel\n\napp = FastAPI(title=\"Sentiment API\")\n\napp.add_middleware(CORSMiddleware,\n    allow_origins=[\"https://yourfrontend.com\"],\n    allow_methods=[\"*\"], allow_headers=[\"*\"])\n\nmodel = load_model()          # ONCE at startup, not per request\n\nclass Input(BaseModel):\n    text: str\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"ok\"}\n\n@app.post(\"/predict\")\ndef predict(item: Input):\n    if len(item.text) > 5000:\n        raise HTTPException(400, \"Text too long\")\n    score = model.predict(item.text)\n    return {\"sentiment\": \"positive\" if score > 0.5 else \"negative\",\n            \"score\": float(score)}</code></pre>\n<pre><code>uvicorn main:app --reload      # interactive docs appear free at /docs</code></pre>\n<h3>Dockerise it</h3>\n<pre><code>FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 80\nCMD [\"uvicorn\",\"main:app\",\"--host\",\"0.0.0.0\",\"--port\",\"80\"]</code></pre>\n<pre><code>docker build -t sentiment-api .\ndocker run -p 8000:80 --env-file .env sentiment-api</code></pre>\n<h3>Where to deploy</h3>\n<ul>\n<li><b>Render, Railway, Fly.io, Hugging Face Spaces</b> — free or cheap tiers, perfect for portfolio projects.</li>\n<li><b>AWS ECS, Google Cloud Run, Azure Container Apps</b> — what employers actually use.</li>\n<li><b>Modal, RunPod, SageMaker</b> — when you need GPUs to serve your own weights.</li>\n</ul>\n<h3>Monitoring — the part everyone skips</h3>\n<ul>\n<li><b>Log every request</b>: input hash, latency, tokens, cost, model version.</li>\n<li><b>Track drift</b> — real input distributions shift away from your training data over time. Your model silently degrades.</li>\n<li><b>Collect user feedback</b> — a thumbs up/down button is the cheapest evaluation data you will ever get.</li>\n<li><b>Alert on cost</b>, latency spikes and error rates.</li>\n</ul>\n<div class=\"callout\"><b>Cost trap:</b> a GPU instance left running costs roughly ₹80–250 per hour. Always set auto-shutdown while learning. Students have run up bills of tens of thousands of rupees forgetting a single instance over a weekend.</div>",
+     "content": "<h3>A model in a notebook helps nobody</h3>\n<pre><code># main.py\nfrom fastapi import FastAPI, HTTPException\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom pydantic import BaseModel\n\napp = FastAPI(title=\"Sentiment API\")\n\napp.add_middleware(CORSMiddleware,\n    allow_origins=[\"https://yourfrontend.com\"],\n    allow_methods=[\"*\"], allow_headers=[\"*\"])\n\nmodel = load_model()          # ONCE at startup, not per request\n\nclass Input(BaseModel):\n    text: str\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"ok\"}\n\n@app.post(\"/predict\")\ndef predict(item: Input):\n    if len(item.text) > 5000:\n        raise HTTPException(400, \"Text too long\")\n    score = model.predict(item.text)\n    return {\"sentiment\": \"positive\" if score > 0.5 else \"negative\",\n            \"score\": float(score)}</code></pre>\n<pre><code>uvicorn main:app --reload      # interactive docs appear free at /docs</code></pre>\n<h3>Dockerise it</h3>\n<pre><code>FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 80\nCMD [\"uvicorn\",\"main:app\",\"--host\",\"0.0.0.0\",\"--port\",\"80\"]</code></pre>\n<pre><code>docker build -t sentiment-api .\ndocker run -p 8000:80 --env-file .env sentiment-api</code></pre>\n<h3>Where to deploy</h3>\n<ul>\n<li><b>Render, Railway, Fly.io, Hugging Face Spaces</b> — free or cheap tiers, perfect for portfolio projects.</li>\n<li><b>AWS ECS, Google Cloud Run, Azure Container Apps</b> — what employers actually use.</li>\n<li><b>Modal, RunPod, SageMaker</b> — when you need GPUs to serve your own weights.</li>\n</ul>\n<h3>Monitoring — the part everyone skips</h3>\n<ul>\n<li><b>Log every request</b>: input hash, latency, tokens, cost, model version.</li>\n<li><b>Track drift</b> — real input distributions shift away from your training data over time. Your model silently degrades.</li>\n<li><b>Collect user feedback</b> — a thumbs up/down button is the cheapest evaluation data you will ever get.</li>\n<li><b>Alert on cost</b>, latency spikes and error rates.</li>\n</ul>\n<div class=\"callout\"><b>Cost trap:</b> a GPU instance left running costs roughly $1–4 per hour. Always set auto-shutdown while learning. Students have run up bills of hundreds of dollars forgetting a single instance over a weekend.</div>",
      "videos": [
       {
        "t": "FastAPI full course",
@@ -1954,7 +1954,7 @@
    "color": "#e94f37",
    "weeks": 3,
    "lang": "Career",
-   "desc": "The Indian tech job market as it actually is — what to build, how to be found, what interviews test, and how to negotiate.",
+   "desc": "The tech job market as it actually is — what to build, how to be found, what interviews test, and how to negotiate.",
    "outcomes": [
     "Build four portfolio projects that earn interviews",
     "Write a resume that survives ATS screening",
@@ -2024,8 +2024,8 @@
      ],
      "refs": [
       {
-       "t": "data.gov.in — Indian open datasets",
-       "u": "https://data.gov.in/"
+       "t": "Our World in Data — datasets",
+       "u": "https://ourworldindata.org/"
       },
       {
        "t": "Kaggle datasets",
@@ -2051,7 +2051,7 @@
     },
     {
      "id": "cr2",
-     "title": "The Indian tech job market, honestly",
+     "title": "The tech job market, honestly",
      "mins": 30,
      "lang": "read",
      "position": 1,
@@ -2059,7 +2059,7 @@
      "videos": [
       {
        "t": "How to get a data or AI job in India",
-       "u": "https://www.youtube.com/results?search_query=how%20to%20get%20data%20analyst%20ai%20job%20in%20india%20fresher"
+       "u": "https://www.youtube.com/results?search_query=how%20to%20get%20a%20data%20analyst%20or%20ai%20job%20entry%20level"
       },
       {
        "t": "ATS friendly resume for tech roles",
@@ -2068,8 +2068,8 @@
      ],
      "refs": [
       {
-       "t": "AmbitionBox — Indian salary data",
-       "u": "https://www.ambitionbox.com/"
+       "t": "Levels.fyi — global salary data",
+       "u": "https://www.levels.fyi/"
       },
       {
        "t": "Levels.fyi — verified compensation data",
@@ -2093,7 +2093,7 @@
       "starter": "My degree / domain:\n\nWhat I understand that a generic CS graduate does not:\n\nThe AI project that proves it:\n\nMy one-line LinkedIn headline:\n",
       "hint": "The strongest candidates are not 'AI people'. They are domain people who can build.",
       "solution": "",
-      "answer": "Example — B.Com graduate:\n\nDOMAIN: Accounting, GST, invoice workflows, audit processes.\nEDGE: I know why an invoice gets rejected, what fields auditors check, and where manual entry actually breaks. A CS graduate has to be told all of this.\nPROJECT: An invoice extraction agent handling Indian GST formats, with a human review queue for low-confidence extractions.\nHEADLINE: \"B.Com + AI | Building document automation for Indian finance teams | Python · RAG · FastAPI\"\n\nThat headline gets recruiter messages. \"Aspiring Data Scientist | Passionate about AI\" does not — thousands of people have written it.",
+      "answer": "Example — B.Com graduate:\n\nDOMAIN: Accounting, GST, invoice workflows, audit processes.\nEDGE: I know why an invoice gets rejected, what fields auditors check, and where manual entry actually breaks. A CS graduate has to be told all of this.\nPROJECT: An invoice extraction agent handling regional tax/VAT formats, with a human review queue for low-confidence extractions.\nHEADLINE: \"B.Com + AI | Building document automation for finance teams | Python · RAG · FastAPI\"\n\nThat headline gets recruiter messages. \"Aspiring Data Scientist | Passionate about AI\" does not — thousands of people have written it.",
       "check": null
      }
     },
