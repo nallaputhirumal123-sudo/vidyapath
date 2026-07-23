@@ -323,6 +323,7 @@ async function openStudent(uid){
 
     <div class="row" style="margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)">
       <button class="btn ghost sm" id="toggleAct">${s.is_active?"Deactivate account":"Reactivate account"}</button>
+      <button class="btn ghost sm" id="resetPw">Reset password</button>
       <button class="btn danger sm" id="delUser">Delete student</button>
       <div class="spacer"></div>
       ${s.is_admin?'<span class="pill hot">administrator</span>':''}
@@ -354,6 +355,14 @@ async function openStudent(uid){
   $("#toggleAct").onclick=async()=>{
     await api.post(`/api/admin/student/${uid}/toggle`,{});
     $("#modal").classList.remove("on"); renderStudents();
+  };
+  $("#resetPw").onclick=async()=>{
+    const pw=prompt("Set a new password for "+s.name+" (min 8 characters). Tell them to change it after signing in.");
+    if(!pw) return;
+    if(pw.length<8){ alert("Password must be at least 8 characters."); return; }
+    try{ await api.post(`/api/admin/student/${uid}/reset-password`,{password:pw});
+      alert("Password reset. New password: "+pw); }
+    catch(e){ alert(e.message); }
   };
   $("#delUser").onclick=async()=>{
     if(!confirm(`Permanently delete ${s.name} and all their progress? This cannot be undone.`)) return;

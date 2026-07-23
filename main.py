@@ -2034,6 +2034,23 @@ def admin_toggle(uid: int, user: User = Depends(admin_user), db: Session = Depen
     return {"is_active": u.is_active}
 
 
+class PwResetIn(BaseModel):
+    password: str = Field(min_length=8, max_length=200)
+
+
+@app.post("/api/admin/student/{uid}/reset-password")
+def admin_reset_password(uid: int, body: PwResetIn,
+                         user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Admin/teacher-driven password reset — the recovery path for a school
+    where students can't do self-service email resets."""
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "Student not found")
+    u.password_hash = hash_pw(body.password)
+    db.commit()
+    return {"ok": True}
+
+
 @app.delete("/api/admin/student/{uid}")
 def admin_delete_student(uid: int, user: User = Depends(admin_user), db: Session = Depends(get_db)):
     u = db.get(User, uid)

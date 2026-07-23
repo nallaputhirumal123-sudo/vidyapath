@@ -361,12 +361,12 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 <body>
 
 <!-- ================= LOADING ================= -->
-<div class="loading" id="loading">Loading…</div>
+<div class="loading" id="loading" style="display:none" aria-hidden="true"></div>
 
 <button id="themeFab" title="Switch light / dark">🌙</button>
 
 <!-- ================= LANDING + AUTH ================= -->
-<div class="gate" id="gate" style="display:none">
+<div class="gate" id="gate">
   <div class="land">
 
     <section class="lhero">
@@ -448,6 +448,9 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
           <div class="field"><label>Email</label><input type="email" id="li_email" required autocomplete="email"/></div>
           <div class="field"><label>Password</label><input type="password" id="li_pw" required autocomplete="current-password"/></div>
           <button class="btn wide" type="submit" id="li_btn">Sign in →</button>
+          <div style="text-align:center;margin-top:12px">
+            <a href="#" id="forgotLink" style="font-size:12.5px;color:var(--dim)">Forgot your password?</a>
+          </div>
         </form>
 
         <form id="signupForm" style="display:none">
@@ -677,6 +680,8 @@ function showGate(){ $("#loading").style.display="none"; $("#app").classList.rem
 function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); }
 function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
 
+const _fl=$("#forgotLink"); if(_fl) _fl.onclick=e=>{ e.preventDefault();
+  authMsg("If you signed up with Google, use \"Continue with Google\" above. Otherwise ask your teacher or the site admin to reset your password — automatic email reset isn't set up yet."); };
 $("#tabLogin").onclick=()=>{$("#tabLogin").classList.add("on");$("#tabSignup").classList.remove("on");$("#loginForm").style.display="";$("#signupForm").style.display="none";authMsg("");};
 $("#tabSignup").onclick=()=>{$("#tabSignup").classList.add("on");$("#tabLogin").classList.remove("on");$("#signupForm").style.display="";$("#loginForm").style.display="none";authMsg("");};
 
