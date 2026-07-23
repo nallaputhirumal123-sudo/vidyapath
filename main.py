@@ -1593,6 +1593,7 @@ Finish the remaining {len(remaining)} and this page becomes your certificate.</p
 # Served explicitly. Without these, requests fall through to the catch-all
 # 404 handler and get index.html back, which breaks silently in the browser.
 STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
     ".js":   "application/javascript",
     ".css":  "text/css",
     ".json": "application/json",
