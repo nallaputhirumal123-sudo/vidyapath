@@ -601,14 +601,38 @@ function editLesson(ti,li){
 
 /* ===================== INIT ===================== */
 async function renderSchools(){
-  let d; try{ d=await api.get("/api/admin/teacher-codes"); }
+  let d, sd;
+  try{ d=await api.get("/api/admin/teacher-codes"); sd=await api.get("/api/admin/schools"); }
   catch(e){ $("#main").innerHTML='<div class="empty">Could not load.</div>'; return; }
-  const codes=d.codes||[], teachers=d.teachers||[];
+  const codes=d.codes||[], teachers=d.teachers||[], schools=sd.schools||[];
   $("#main").innerHTML=`
     <h2 style="margin:0 0 4px">Schools &amp; teachers</h2>
-    <p style="color:var(--muted);font-size:13.5px;margin:0 0 18px">Give a school a code. Anyone who signs up with it becomes a teacher and can create classes, set assignments and see their students' progress.</p>
+    <p style="color:var(--muted);font-size:13.5px;margin:0 0 18px">Enrol a school, then hand its head-teacher code to the head. The head signs up with it, creates classrooms and subject codes for their teachers, and shares one class code with students.</p>
 
-    <div class="card" style="margin-bottom:18px;max-width:560px"><b>Create a school code</b>
+    <div class="card" style="margin-bottom:14px;max-width:640px"><b>Enrol a school</b>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <input class="inp" id="scName" style="max-width:220px" placeholder="School name"/>
+        <input class="inp" id="scCity" style="max-width:130px" placeholder="City"/>
+        <input class="inp" id="scCountry" style="max-width:130px" placeholder="Country"/>
+        <button class="btn" id="scAdd">Enrol</button>
+      </div>
+      <div id="scMsg" style="font-size:12.5px;color:var(--muted);margin-top:8px"></div>
+    </div>
+    <div class="tbl" style="margin-bottom:24px"><table>
+      <thead><tr><th>School</th><th>Head code</th><th>Head(s)</th><th>Classrooms</th><th></th></tr></thead>
+      <tbody>${schools.length?schools.map(s=>`<tr>
+        <td>${esc(s.name)}<div style="font-size:11px;color:var(--muted)">${esc([s.city,s.country].filter(Boolean).join(", "))}</div></td>
+        <td><b style="color:var(--accent)">${esc(s.head_code||"—")}</b></td>
+        <td>${s.heads.length?s.heads.map(h=>esc(h.name)).join(", "):'<span style="color:var(--muted)">not signed up yet</span>'}</td>
+        <td>${s.classrooms.length}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn ghost sm" data-newhead="${s.id}">New head code</button>
+          <button class="btn danger sm" data-delschool="${s.id}">Delete</button></td>
+      </tr>`).join(""):`<tr><td colspan="5" style="color:var(--muted);padding:14px">No schools enrolled yet.</td></tr>`}</tbody>
+    </table></div>
+
+    <h3 style="margin:0 0 8px">Generic teacher codes (optional)</h3>
+    <div class="card" style="margin-bottom:18px;max-width:560px"><b>Create a generic teacher code</b>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <input class="inp" id="tcCode" style="max-width:170px" placeholder="Code e.g. STMARY-2026"/>
         <input class="inp" id="tcSchool" style="max-width:220px" placeholder="School name (optional)"/>
@@ -653,6 +677,23 @@ async function renderSchools(){
       <b>Subjects in use:</b> ${(d.subjects||[]).length?d.subjects.map(esc).join(", "):"<span style='color:var(--muted)'>none yet</span>"}
     </div>`;
 
+  $("#scAdd").onclick=async()=>{
+    const name=($("#scName").value||"").trim(); const m=$("#scMsg");
+    if(!name){ m.textContent="Enter a school name."; return; }
+    m.textContent="Enrolling…";
+    try{ const r=await api.post("/api/admin/school",{name,city:$("#scCity").value,country:$("#scCountry").value});
+      alert("School enrolled.\n\nHead-teacher code: "+r.head_code+"\n\nGive this to the head teacher — they sign up with it."); renderSchools(); }
+    catch(e){ m.textContent=e.message; }
+  };
+  document.querySelectorAll("[data-newhead]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Make a new head code? The old one stops working, and you can then remove the previous head's account.")) return;
+    try{ const r=await api.post("/api/admin/school/"+b.dataset.newhead+"/head-code",{}); alert("New head code: "+r.head_code); renderSchools(); }
+    catch(e){ alert(e.message); }
+  });
+  document.querySelectorAll("[data-delschool]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Delete this school? Classrooms stay but lose their school link.")) return;
+    await api.del("/api/admin/school/"+b.dataset.delschool).catch(()=>{}); renderSchools();
+  });
   $("#tcAdd").onclick=async()=>{
     const code=($("#tcCode").value||"").trim(); const school=($("#tcSchool").value||"").trim();
     const m=$("#tcMsg"); if(!code){ m.textContent="Enter a code."; return; }

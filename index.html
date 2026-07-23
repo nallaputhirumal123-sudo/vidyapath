@@ -1945,48 +1945,86 @@ async function submitAsg(aid, clear){
   catch(e){ if(m)m.textContent=e.message; }
 }
 
-/* ---------- teacher: classes list ---------- */
+/* ---------- teacher: classes list (branches head vs subject teacher) ---------- */
 let TEACHER_CLASS=null;
 async function renderTeacher(cid){
   if(cid) return renderTeacherClass(cid);
+  if(USER.is_head) return renderHead();
   $("#main").innerHTML=`<div class="h1">🧑‍🏫 Teacher dashboard</div><p class="sub">Loading…</p>`;
   let data; try{ data=await api.get("/api/teacher/classes"); }
   catch(e){ $("#main").innerHTML=`<div class="h1">🧑‍🏫 Teacher dashboard</div><p class="sub">${esc(e.message)}</p>`; return; }
   const cls=data.classes||[];
   $("#main").innerHTML=`<div class="h1">🧑‍🏫 Teacher dashboard</div>
-    <p class="sub">A classroom (like 6-A) has <b>one code</b>. The head teacher creates it; every subject teacher joins with that same code and adds their subject. Students join with it too and see all subjects together.</p>
-    <div class="two" style="margin-bottom:18px">
-      <div class="card"><b>Create a classroom</b> <span style="font-size:12px;color:var(--dim)">(you become head teacher)</span>
-        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
-          <input id="tcName" class="ask-input" style="max-width:220px" placeholder="e.g. 6-A"/>
-          <button class="btn sm" data-cls="mkclass">Create →</button></div>
-        <div id="tcMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
-      <div class="card"><b>Join a classroom</b> <span style="font-size:12px;color:var(--dim)">(as a subject teacher)</span>
-        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
-          <input id="tcJoin" class="ask-input" style="max-width:200px" placeholder="Class code"/>
-          <button class="btn sm" data-cls="tjoin">Join →</button></div>
-        <div id="tjMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
-    </div>
+    <p class="sub">You teach the subject(s) your head teacher assigned you. Enter the code they gave you to open your subject in a classroom. You can't create classrooms or new subjects yourself — ask your head teacher.</p>
+    <div class="card" style="margin-bottom:18px"><b>Open your subject</b> <span style="font-size:12px;color:var(--dim)">(enter the code your head teacher gave you)</span>
+      <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+        <input id="tcJoin" class="ask-input" style="max-width:200px" placeholder="Your subject code"/>
+        <button class="btn sm" data-cls="tjoin">Open →</button></div>
+      <div id="tjMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
     ${cls.length?cls.map(c=>`<div class="card" style="margin-bottom:12px">
       <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
-        <div style="min-width:0"><div style="font-size:16px;font-weight:650">${esc(c.name)} <span class="pill">${esc(c.role||"")}</span></div>
-          <div style="font-size:12.5px;color:var(--dim);margin-top:2px">Code <b style="color:var(--accent);letter-spacing:1.5px">${esc(c.join_code)}</b> · ${c.students} student${c.students===1?"":"s"} · ${c.teachers||1} teacher${(c.teachers||1)===1?"":"s"} · ${c.assignments} assignment${c.assignments===1?"":"s"}</div></div>
+        <div style="min-width:0"><div style="font-size:16px;font-weight:650">${esc(c.name)}</div>
+          <div style="font-size:12.5px;color:var(--dim);margin-top:2px">Your subject${(c.my_subjects||[]).length>1?"s":""}: <b style="color:var(--accent)">${esc((c.my_subjects||[]).join(", ")||"—")}</b> · ${c.students} students</div></div>
         <button class="btn sm ghost" data-cls="openclass" data-id="${c.id}">Open →</button></div>
-    </div>`).join(""):`<div class="card" style="color:var(--dim)">No classrooms yet. Create one, or join one with a code.</div>`}`;
-  const n=$("#tcName"); if(n)n.onkeydown=e=>{ if(e.key==="Enter")tcCreate(); };
+    </div>`).join(""):`<div class="card" style="color:var(--dim)">No subjects yet. Enter the code your head teacher gave you.</div>`}`;
   const j=$("#tcJoin"); if(j)j.onkeydown=e=>{ if(e.key==="Enter")tcJoin(); };
-}
-async function tcCreate(){
-  const el=$("#tcName"); if(!el)return; const name=(el.value||"").trim(); if(!name)return;
-  const m=$("#tcMsg"); if(m)m.textContent="Creating…";
-  try{ await api.post("/api/teacher/class",{name}); renderTeacher(); }
-  catch(e){ if(m)m.textContent=e.message; }
 }
 async function tcJoin(){
   const el=$("#tcJoin"); if(!el)return; const code=(el.value||"").trim(); if(!code)return;
-  const m=$("#tjMsg"); if(m)m.textContent="Joining…";
+  const m=$("#tjMsg"); if(m)m.textContent="Opening…";
   try{ await api.post("/api/class/join",{code}); renderTeacher(); }
   catch(e){ if(m)m.textContent=e.message; }
+}
+
+/* ---------- HEAD TEACHER: runs the whole school ---------- */
+async function renderHead(){
+  $("#main").innerHTML=`<div class="h1">🏫 Head teacher</div><p class="sub">Loading…</p>`;
+  let d; try{ d=await api.get("/api/head/overview"); }
+  catch(e){ $("#main").innerHTML=`<div class="h1">🏫 Head teacher</div><p class="sub">${esc(e.message)}</p>`; return; }
+  const cr=d.classrooms||[], reqs=d.requests||[];
+  $("#main").innerHTML=`<div class="h1">🏫 Head teacher${d.school?" · "+esc(d.school):""}</div>
+    <p class="sub">Create classrooms, add a subject for each teacher (each subject gets its own code you give that teacher), and share the one class code with students. You see everything in your school.</p>
+    <div class="card" style="margin-bottom:18px"><b>Create a classroom</b>
+      <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+        <input id="hName" class="ask-input" style="max-width:220px" placeholder="e.g. 6-A"/>
+        <button class="btn sm" data-cls="hmk">Create →</button></div>
+      <div id="hMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
+
+    ${reqs.length?`<div class="card" style="margin-bottom:18px;border-color:var(--accent)"><b>Requests from teachers (${reqs.length})</b>
+      ${reqs.map(r=>`<div class="pj-step" style="align-items:center"><div style="flex:1"><b>${esc(r.teacher)}</b>: ${esc(r.message)}</div>
+        <button class="btn sm ghost" data-cls="reqdone" data-id="${r.id}">Done</button></div>`).join("")}</div>`:""}
+
+    ${cr.length?cr.map(c=>`<div class="card" style="margin-bottom:14px">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><div style="font-size:16px;font-weight:650">${esc(c.name)}</div>
+          <div style="font-size:12.5px;color:var(--dim)">Student code <b style="color:var(--accent);letter-spacing:1.5px">${esc(c.join_code)}</b> · ${c.students} students</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn sm ghost" data-cls="openclass" data-id="${c.id}">Open class →</button>
+          <button class="btn sm ghost" data-cls="hrotclass" data-id="${c.id}">Rotate code</button>
+          <button class="btn ghost sm" data-cls="hdelclass" data-id="${c.id}">Delete</button></div>
+      </div>
+      <div class="eyebrow" style="margin:14px 0 6px">Subjects &amp; teacher codes</div>
+      ${(c.subjects||[]).length?c.subjects.map(s=>`<div class="pj-step" style="align-items:center">
+        <div style="flex:1;min-width:0"><b>${esc(s.subject)}</b> —
+          code <b style="color:var(--accent);letter-spacing:1px">${esc(s.code)}</b>
+          ${s.teacher?`· <span style="color:#4bbf82">${esc(s.teacher)}</span>`:`· <span style="color:var(--dim)">not claimed yet</span>`}</div>
+        <button class="btn sm ghost" data-cls="hrotslot" data-id="${s.id}">New code</button>
+        <button class="btn ghost sm" data-cls="hdelslot" data-id="${s.id}">×</button></div>`).join(""):`<div style="color:var(--dim);font-size:13.5px">No subjects yet.</div>`}
+      <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+        <input class="ask-input hsub" data-id="${c.id}" style="max-width:200px" placeholder="Add subject e.g. Science"/>
+        <button class="btn sm" data-cls="haddslot" data-id="${c.id}">Add subject</button></div>
+    </div>`).join(""):`<div class="card" style="color:var(--dim)">No classrooms yet. Create your first one above.</div>`}`;
+  const n=$("#hName"); if(n)n.onkeydown=e=>{ if(e.key==="Enter")hMk(); };
+}
+async function hMk(){
+  const el=$("#hName"); if(!el)return; const name=(el.value||"").trim(); if(!name)return;
+  const m=$("#hMsg"); if(m)m.textContent="Creating…";
+  try{ await api.post("/api/teacher/class",{name}); renderHead(); }catch(e){ if(m)m.textContent=e.message; }
+}
+async function hAddSlot(cid){
+  const inp=document.querySelector('.hsub[data-id="'+cid+'"]'); if(!inp)return;
+  const subject=(inp.value||"").trim(); if(!subject)return;
+  try{ await api.post("/api/head/class/"+cid+"/slot",{subject}); renderHead(); }catch(e){ alert(e.message); }
 }
 
 /* ---------- teacher: one class ---------- */
@@ -2025,8 +2063,14 @@ async function renderTeacherClass(cid){
       </div></div>`).join(""):`<div class="card" style="color:var(--dim)">No assignments yet.</div>`}
 
     <div class="card" style="margin:14px 0"><b>New assignment</b>
+      ${(d.my_subjects&&d.my_subjects.length&&!d.is_head)?`<div style="font-size:12.5px;color:var(--dim);margin-top:4px">You teach <b style="color:var(--accent)">${esc(d.my_subjects.join(", "))}</b> here. <button class="btn ghost sm" data-cls="reqnew" style="margin-left:6px">Request another subject</button></div>`:""}
       <div class="two" style="margin-top:8px">
-        <div class="field"><label>Subject</label><input id="asSub" placeholder="e.g. Science"/></div>
+        <div class="field"><label>Subject</label>
+          ${(d.my_subjects&&d.my_subjects.length&&!d.is_head)
+            ? (d.my_subjects.length===1
+                ? `<input id="asSub" value="${esc(d.my_subjects[0])}" readonly style="opacity:.8"/>`
+                : `<select id="asSub">${d.my_subjects.map(s=>`<option>${esc(s)}</option>`).join("")}</select>`)
+            : `<input id="asSub" placeholder="e.g. Science"/>`}</div>
         <div class="field"><label>Due date (optional)</label><input type="date" id="asDue"/></div>
       </div>
       <div class="field"><label>Title</label><input id="asTitle" placeholder="e.g. Chapter 3 questions"/></div>
@@ -2116,8 +2160,15 @@ document.addEventListener("click",e=>{
   else if(k==="htab"){ ASG_TAB=id; paintAssignment(); }
   else if(k==="aihelp") aiHelp();
   else if(k==="sendmsg") sendMsg();
-  else if(k==="mkclass") tcCreate();
   else if(k==="tjoin") tcJoin();
+  else if(k==="hmk") hMk();
+  else if(k==="haddslot") hAddSlot(id);
+  else if(k==="hrotslot"){ api.post("/api/head/slot/"+id+"/rotate",{}).then(()=>renderHead()).catch(e=>alert(e.message)); }
+  else if(k==="hdelslot"){ if(confirm("Remove this subject? Its teacher loses access.")) api.del("/api/head/slot/"+id).then(()=>renderHead()).catch(()=>{}); }
+  else if(k==="hrotclass"){ if(confirm("New student code? Students must re-enter the new code.")) api.post("/api/head/class/"+id+"/rotate",{}).then(()=>renderHead()).catch(()=>{}); }
+  else if(k==="hdelclass"){ if(confirm("Delete this whole classroom?")) api.del("/api/teacher/class/"+id).then(()=>renderHead()).catch(e=>alert(e.message)); }
+  else if(k==="reqdone"){ api.post("/api/head/request/"+id+"/done",{}).then(()=>renderHead()).catch(()=>{}); }
+  else if(k==="reqnew"){ const msg=prompt("What do you need from your head teacher? (e.g. add me to Maths in 6-B)"); if(msg) api.post("/api/teacher/request",{message:msg}).then(()=>alert("Request sent to your head teacher.")).catch(e=>alert(e.message)); }
   else if(k==="openclass"){ S.view={page:"teacher",cid:id}; render(); }
   else if(k==="backteacher"){ S.view={page:"teacher"}; render(); }
   else if(k==="addasg") tcAddAsg(id);

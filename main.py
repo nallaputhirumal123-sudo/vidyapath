@@ -265,30 +265,45 @@ class AskCache(Base):
 
 
 # ---- School / classroom system (all NEW tables, existing ones untouched) --
+class School(Base):
+    """A school we (the platform admin) enrol. Everything below belongs to a
+    school, so two different '6-A' classes never collide."""
+    __tablename__ = "schools"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    city = Column(String(120), default="")
+    country = Column(String(120), default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+
+
 class TeacherCode(Base):
-    """A secret code you give a school. Signing up with it grants teacher
-    rights. Managed from the admin panel."""
+    """A secret code we hand to a school. Signing up with it grants teacher
+    rights. is_head=True codes create the school's head teacher."""
     __tablename__ = "teacher_codes"
     id = Column(Integer, primary_key=True)
     code = Column(String(40), unique=True, nullable=False, index=True)
     school = Column(String(160), default="")
+    school_id = Column(Integer, default=0)
+    is_head = Column(Boolean, default=False)
     active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=now)
 
 
 class TeacherAccess(Base):
-    """Presence of a row = this user is a teacher. Kept separate so we never
-    have to alter the users table."""
+    """Presence of a row = this user is a teacher. role is 'head' (runs the
+    whole school) or 'teacher' (locked to their subject)."""
     __tablename__ = "teacher_access"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                      unique=True, nullable=False, index=True)
     school = Column(String(160), default="")
+    school_id = Column(Integer, default=0)
+    role = Column(String(12), default="teacher")   # 'head' | 'teacher'
     created_at = Column(DateTime(timezone=True), default=now)
 
 
 class Klass(Base):
-    """A class a teacher runs. Students join with join_code."""
+    """A classroom (e.g. 6-A), created by a head teacher. ONE student code."""
     __tablename__ = "classes"
     id = Column(Integer, primary_key=True)
     name = Column(String(160), nullable=False)
@@ -296,7 +311,8 @@ class Klass(Base):
     teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                         nullable=False, index=True)
     school = Column(String(160), default="")
-    schedule = Column(Text, default="")     # free text / timetable notes
+    school_id = Column(Integer, default=0)
+    schedule = Column(Text, default="")     # legacy; schedule is now a list
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -312,9 +328,8 @@ class ClassMember(Base):
 
 
 class ClassroomTeacher(Base):
-    """Lets several subject teachers share one classroom. The classroom's
-    creator is the head teacher (Klass.teacher_id); others join with the same
-    class code and appear here."""
+    """Legacy co-teacher link (v1.11). Superseded by SubjectSlot below, kept
+    so old rows and references remain valid."""
     __tablename__ = "classroom_teachers"
     id = Column(Integer, primary_key=True)
     class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
@@ -324,6 +339,22 @@ class ClassroomTeacher(Base):
     subject = Column(String(80), default="")
     created_at = Column(DateTime(timezone=True), default=now)
     __table_args__ = (UniqueConstraint("class_id", "teacher_id", name="uq_class_teacher"),)
+
+
+class SubjectSlot(Base):
+    """A subject taught in a classroom. The head teacher creates one per
+    subject with its own join code; a subject teacher claims it by entering
+    that code, which locks them to this classroom + subject. A fresh table
+    (no teacher foreign key) so an unclaimed slot can have teacher_id = 0."""
+    __tablename__ = "subject_slots"
+    id = Column(Integer, primary_key=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    subject = Column(String(80), nullable=False)
+    code = Column(String(16), unique=True, nullable=False, index=True)
+    teacher_id = Column(Integer, default=0, index=True)   # 0 = unclaimed
+    status = Column(String(12), default="open")           # 'open' | 'claimed'
+    created_at = Column(DateTime(timezone=True), default=now)
 
 
 class Assignment(Base):
@@ -369,6 +400,19 @@ class AssignmentMessage(Base):
     sender_id = Column(Integer, nullable=False)
     from_teacher = Column(Boolean, default=False)
     body = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+
+
+class TeacherRequest(Base):
+    """A subject teacher asking the head teacher for something (a new subject,
+    a change). Subject teachers cannot create classes/subjects themselves."""
+    __tablename__ = "teacher_requests"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    class_id = Column(Integer, default=0)
+    teacher_id = Column(Integer, nullable=False)
+    message = Column(Text, default="")
+    status = Column(String(12), default="open")   # 'open' | 'done'
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -839,21 +883,66 @@ def signup(body: SignupIn, response: Response, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    # A valid school code turns this account into a teacher account.
-    made_teacher = False
-    code = (body.school_code or "").strip()
-    if code:
-        tc = db.query(TeacherCode).filter(
-            func.lower(TeacherCode.code) == code.lower(),
-            TeacherCode.active == True).first()  # noqa: E712
-        if tc:
-            db.add(TeacherAccess(user_id=user.id, school=tc.school))
-            db.commit()
-            made_teacher = True
+    # A code entered at signup can make this a head teacher, claim a subject
+    # slot (subject teacher), or grant generic teacher access.
+    role = apply_school_code(db, user, (body.school_code or "").strip())
 
     set_session(response, user)
     return {"id": user.id, "name": user.name, "email": user.email,
-            "is_admin": user.is_admin, "is_teacher": made_teacher}
+            "is_admin": user.is_admin, "is_teacher": role in ("head", "teacher"),
+            "role": role}
+
+
+def apply_school_code(db, user, code):
+    """Resolve a code entered at signup / join. Returns '' if it matched
+    nothing, or 'head' / 'teacher'."""
+    if not code:
+        return ""
+    low = code.lower()
+
+    # 1) Head-teacher code from the admin panel.
+    hc = db.query(TeacherCode).filter(
+        func.lower(TeacherCode.code) == low, TeacherCode.active == True,  # noqa: E712
+        TeacherCode.is_head == True).first()  # noqa: E712
+    if hc:
+        _grant_teacher(db, user, hc.school, hc.school_id, "head")
+        return "head"
+
+    # 2) Subject-slot code created by a head teacher — claims that slot.
+    slot = db.query(SubjectSlot).filter(
+        func.upper(SubjectSlot.code) == code.upper()).first()
+    if slot:
+        k = db.get(Klass, slot.class_id)
+        if slot.teacher_id and slot.teacher_id != user.id:
+            raise HTTPException(400, "That subject already has a teacher")
+        slot.teacher_id = user.id
+        slot.status = "claimed"
+        _grant_teacher(db, user, (k.school if k else ""), (k.school_id if k else 0), "teacher")
+        db.commit()
+        return "teacher"
+
+    # 3) Generic (non-head) teacher code.
+    tc = db.query(TeacherCode).filter(
+        func.lower(TeacherCode.code) == low, TeacherCode.active == True,  # noqa: E712
+        TeacherCode.is_head == False).first()  # noqa: E712
+    if tc:
+        _grant_teacher(db, user, tc.school, tc.school_id, "teacher")
+        return "teacher"
+    return ""
+
+
+def _grant_teacher(db, user, school, school_id, role):
+    ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == user.id).first()
+    if ta:
+        # never downgrade a head to teacher
+        if role == "head":
+            ta.role = "head"
+        ta.school = school or ta.school
+        ta.school_id = school_id or ta.school_id
+    else:
+        db.add(TeacherAccess(user_id=user.id, school=school or "",
+                             school_id=school_id or 0, role=role))
+    db.commit()
 
 
 @app.post("/api/auth/login")
@@ -866,9 +955,10 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
     user.last_seen = now()
     db.commit()
     set_session(response, user)
-    is_teacher = bool(teacher_row(user, db)) or user.is_admin
+    t = teacher_row(user, db)
     return {"id": user.id, "name": user.name, "email": user.email,
-            "is_admin": user.is_admin, "is_teacher": is_teacher}
+            "is_admin": user.is_admin, "is_teacher": bool(t) or user.is_admin,
+            "is_head": is_head(user, db)}
 
 
 @app.post("/api/auth/logout")
@@ -975,6 +1065,11 @@ def teacher_row(user: User, db: Session):
     return db.query(TeacherAccess).filter(TeacherAccess.user_id == user.id).first()
 
 
+def is_head(user: User, db: Session):
+    t = teacher_row(user, db)
+    return user.is_admin or (t is not None and t.role == "head")
+
+
 def teacher_user(user: User = Depends(current_user),
                  db: Session = Depends(get_db)) -> User:
     if not teacher_row(user, db) and not user.is_admin:
@@ -982,13 +1077,23 @@ def teacher_user(user: User = Depends(current_user),
     return user
 
 
+def head_user(user: User = Depends(current_user),
+              db: Session = Depends(get_db)) -> User:
+    if not is_head(user, db):
+        raise HTTPException(403, "Head teacher access required")
+    return user
+
+
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = teacher_row(user, db)
+    role = "admin" if user.is_admin else (t.role if t else "student")
     return {
         "id": user.id, "name": user.name, "email": user.email,
         "is_admin": user.is_admin, "path": user.path,
         "is_teacher": bool(t) or user.is_admin,
+        "is_head": is_head(user, db),
+        "role": role,
         "school": (t.school if t else ""),
         "joined": user.created_at.isoformat() if user.created_at else None,
     }
@@ -1034,14 +1139,30 @@ class TeacherCodeIn(BaseModel):
     school: str = ""
 
 
-def _gen_join_code(db) -> str:
+def _gen_code(db, prefix, model, field):
     import random
     alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     for _ in range(25):
-        code = "VP-" + "".join(random.choice(alpha) for _ in range(4))
-        if not db.query(Klass).filter(Klass.join_code == code).first():
+        code = prefix + "".join(random.choice(alpha) for _ in range(4))
+        if not db.query(model).filter(field == code).first():
             return code
-    return "VP-" + secrets.token_hex(3).upper()
+    return prefix + secrets.token_hex(3).upper()
+
+
+def _gen_join_code(db) -> str:
+    return _gen_code(db, "VP-", Klass, Klass.join_code)
+
+
+def _gen_slot_code(db) -> str:
+    return _gen_code(db, "T-", SubjectSlot, SubjectSlot.code)
+
+
+def _my_subjects(db, cid, user):
+    """Subjects this user is allowed to manage in a class. Head/admin → all."""
+    if is_head(user, db):
+        return None   # None = all subjects allowed
+    return {s.subject for s in db.query(SubjectSlot).filter(
+        SubjectSlot.class_id == cid, SubjectSlot.teacher_id == user.id).all()}
 
 
 def _submitted_ids(db, assignment_id):
@@ -1062,11 +1183,13 @@ def _asg_json(a, done=None):
 
 # ---- teacher side ----
 @app.post("/api/teacher/class")
-def create_class(body: ClassIn, user: User = Depends(teacher_user),
+def create_class(body: ClassIn, user: User = Depends(head_user),
                  db: Session = Depends(get_db)):
+    """Only a head teacher creates classrooms (in their own school)."""
     t = teacher_row(user, db)
     klass = Klass(name=body.name.strip()[:160], join_code=_gen_join_code(db),
-                  teacher_id=user.id, school=(t.school if t else ""))
+                  teacher_id=user.id, school=(t.school if t else ""),
+                  school_id=(t.school_id if t else 0))
     db.add(klass)
     db.commit()
     db.refresh(klass)
@@ -1075,21 +1198,32 @@ def create_class(body: ClassIn, user: User = Depends(teacher_user),
 
 @app.get("/api/teacher/classes")
 def my_classes(user: User = Depends(teacher_user), db: Session = Depends(get_db)):
-    head_ids = {k.id for k in db.query(Klass).filter(Klass.teacher_id == user.id).all()}
-    co_ids = {r.class_id for r in db.query(ClassroomTeacher)
-              .filter(ClassroomTeacher.teacher_id == user.id).all()}
-    ids = head_ids | co_ids
-    classes = db.query(Klass).filter(Klass.id.in_(ids)) \
-        .order_by(Klass.created_at.desc()).all() if ids else []
+    t = teacher_row(user, db)
+    head = is_head(user, db)
+    if head:
+        # a head teacher sees every classroom in their school
+        sid = t.school_id if t else 0
+        q = db.query(Klass)
+        classes = (q.filter(Klass.school_id == sid) if sid
+                   else q.filter(Klass.teacher_id == user.id)).order_by(Klass.created_at.desc()).all()
+        my_ids = {k.id for k in classes}
+    else:
+        # a subject teacher sees only classrooms where they hold a subject
+        ids = {s.class_id for s in db.query(SubjectSlot).filter(
+            SubjectSlot.teacher_id == user.id).all()}
+        classes = db.query(Klass).filter(Klass.id.in_(ids)).order_by(Klass.created_at.desc()).all() if ids else []
+        my_ids = set()
     out = []
     for k in classes:
         n = db.query(func.count(ClassMember.id)).filter(ClassMember.class_id == k.id).scalar()
         a = db.query(func.count(Assignment.id)).filter(Assignment.class_id == k.id).scalar()
-        nt = db.query(func.count(ClassroomTeacher.id)).filter(ClassroomTeacher.class_id == k.id).scalar()
+        subs = {s.subject for s in db.query(SubjectSlot).filter(
+            SubjectSlot.class_id == k.id, SubjectSlot.teacher_id == user.id).all()}
         out.append({"id": k.id, "name": k.name, "join_code": k.join_code,
-                    "students": n, "assignments": a, "teachers": (nt or 0) + 1,
-                    "role": "head" if k.id in head_ids else "subject teacher"})
-    return {"classes": out}
+                    "students": n, "assignments": a,
+                    "role": "head" if head else "subject teacher",
+                    "my_subjects": sorted(subs)})
+    return {"classes": out, "is_head": head}
 
 
 @app.get("/api/teacher/class/{cid}")
@@ -1120,13 +1254,15 @@ def class_detail(cid: int, user: User = Depends(teacher_user),
     # list of teachers in this classroom (head + co-teachers)
     head = db.get(User, k.teacher_id)
     teachers = [{"id": k.teacher_id, "name": head.name if head else "", "role": "head teacher"}]
-    for ct in db.query(ClassroomTeacher).filter(ClassroomTeacher.class_id == cid).all():
-        tu = db.get(User, ct.teacher_id)
-        teachers.append({"id": ct.teacher_id, "name": tu.name if tu else "",
-                         "role": ct.subject or "subject teacher"})
+    for s in db.query(SubjectSlot).filter(SubjectSlot.class_id == cid, SubjectSlot.teacher_id != 0).all():
+        tu = db.get(User, s.teacher_id)
+        teachers.append({"id": s.teacher_id, "name": tu.name if tu else "",
+                         "role": s.subject or "subject teacher"})
+    allowed = _my_subjects(db, cid, user)   # None = head/admin
     return {"id": k.id, "name": k.name, "join_code": k.join_code,
-            "is_head": (k.teacher_id == user.id or user.is_admin),
+            "is_head": is_head(user, db) or k.teacher_id == user.id,
             "my_id": user.id, "teachers": teachers,
+            "my_subjects": (None if allowed is None else sorted(allowed)),
             "assignments": asg_out, "roster": roster,
             "schedule": [{"id": s.id, "day": s.day, "text": s.text} for s in sched]}
 
@@ -1150,35 +1286,57 @@ def delete_class(cid: int, user: User = Depends(teacher_user),
 
 
 def _is_coteacher(db, cid, user):
+    # a claimed subject slot, or a legacy co-teacher row
+    if db.query(SubjectSlot).filter(SubjectSlot.class_id == cid,
+                                    SubjectSlot.teacher_id == user.id).first():
+        return True
     return db.query(ClassroomTeacher).filter(
         ClassroomTeacher.class_id == cid,
         ClassroomTeacher.teacher_id == user.id).first() is not None
 
 
 def _own_class(db, cid, user):
-    """Any teacher OF this classroom (head teacher, a co-teacher, or admin)."""
+    """Any teacher OF this classroom (head teacher of the school, a subject
+    teacher who holds a slot here, or admin)."""
     k = db.get(Klass, cid)
     if not k:
         raise HTTPException(404, "Class not found")
-    if k.teacher_id == user.id or user.is_admin or _is_coteacher(db, cid, user):
+    t = teacher_row(user, db)
+    head_of_school = t and t.role == "head" and (t.school_id == k.school_id or k.teacher_id == user.id)
+    if k.teacher_id == user.id or user.is_admin or head_of_school or _is_coteacher(db, cid, user):
         return k
     raise HTTPException(404, "Class not found")
 
 
 def _head_or_admin(db, cid, user):
-    """Only the classroom's head teacher (creator) or an admin."""
+    """Only the classroom's head teacher (creator/school head) or an admin."""
     k = db.get(Klass, cid)
-    if not k or (k.teacher_id != user.id and not user.is_admin):
-        raise HTTPException(403, "Only the head teacher can do that")
-    return k
+    if not k:
+        raise HTTPException(404, "Class not found")
+    t = teacher_row(user, db)
+    if k.teacher_id == user.id or user.is_admin or (t and t.role == "head" and t.school_id == k.school_id):
+        return k
+    raise HTTPException(403, "Only the head teacher can do that")
 
 
 @app.post("/api/teacher/class/{cid}/assignment")
 def add_assignment(cid: int, body: AssignmentIn, user: User = Depends(teacher_user),
                    db: Session = Depends(get_db)):
     _own_class(db, cid, user)
+    subject = body.subject.strip()[:80]
+    # A subject teacher is LOCKED to the subject(s) they hold in this class.
+    allowed = _my_subjects(db, cid, user)   # None = head/admin, any subject
+    if allowed is not None:
+        if not allowed:
+            raise HTTPException(403, "You have no subject in this class yet")
+        if subject not in allowed:
+            # default to their (only) subject rather than reject if blank
+            if not subject and len(allowed) == 1:
+                subject = next(iter(allowed))
+            else:
+                raise HTTPException(403, f"You can only set assignments for: {', '.join(sorted(allowed))}")
     a = Assignment(class_id=cid, teacher_id=user.id, kind="task",
-                   subject=body.subject.strip()[:80], title=body.title.strip()[:240],
+                   subject=subject, title=body.title.strip()[:240],
                    body=body.body.strip()[:20000], due_date=body.due_date.strip()[:20])
     db.add(a)
     db.commit()
@@ -1306,26 +1464,30 @@ def delete_schedule(sid: int, user: User = Depends(teacher_user),
 @app.post("/api/class/join")
 def join_class(body: JoinIn, user: User = Depends(current_user),
                db: Session = Depends(get_db)):
-    """One code per classroom. A teacher who enters it becomes a co-teacher
-    (adds their subject); a student who enters it is enrolled."""
-    code = body.code.strip().upper()
+    """Codes: a subject-slot code (from a head teacher) claims that subject
+    and locks the teacher to it; a classroom's student code enrols a student."""
+    raw = body.code.strip()
+    code = raw.upper()
+
+    # 1) A subject-slot code → the teacher claims that subject.
+    slot = db.query(SubjectSlot).filter(func.upper(SubjectSlot.code) == code).first()
+    if slot:
+        if slot.teacher_id and slot.teacher_id != user.id:
+            raise HTTPException(400, "That subject already has a teacher")
+        k = db.get(Klass, slot.class_id)
+        slot.teacher_id = user.id
+        slot.status = "claimed"
+        _grant_teacher(db, user, (k.school if k else ""), (k.school_id if k else 0), "teacher")
+        db.commit()
+        return {"ok": True, "class": (k.name if k else ""), "subject": slot.subject, "role": "teacher"}
+
+    # 2) A classroom student code.
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
     if not k:
-        raise HTTPException(404, "No class found with that code")
+        raise HTTPException(404, "No class or subject found with that code")
     if k.teacher_id == user.id:
         return {"ok": True, "class": k.name, "role": "head teacher"}
-
-    # Teachers join as co-teachers of the same classroom.
-    if teacher_row(user, db) or user.is_admin:
-        exists = db.query(ClassroomTeacher).filter(
-            ClassroomTeacher.class_id == k.id,
-            ClassroomTeacher.teacher_id == user.id).first()
-        if not exists:
-            db.add(ClassroomTeacher(class_id=k.id, teacher_id=user.id))
-            db.commit()
-        return {"ok": True, "class": k.name, "role": "teacher"}
-
-    # Students are enrolled.
+    # Head/admin viewing does not need enrolment; everyone else enrols as student.
     exists = db.query(ClassMember).filter(
         ClassMember.class_id == k.id, ClassMember.user_id == user.id).first()
     if not exists:
@@ -1560,6 +1722,182 @@ async def assignment_help(aid: int, body: HelpIn, user: User = Depends(current_u
 
 
 # ---- admin: teacher codes and roles ----
+# ============ Head teacher: run a school ============
+class SubjectIn(BaseModel):
+    subject: str = Field(min_length=1, max_length=80)
+
+
+class RequestIn(BaseModel):
+    class_id: int = 0
+    message: str = Field(min_length=2, max_length=2000)
+
+
+def _slot_json(db, s):
+    tu = db.get(User, s.teacher_id) if s.teacher_id else None
+    return {"id": s.id, "subject": s.subject, "code": s.code,
+            "status": s.status, "teacher": tu.name if tu else "",
+            "teacher_id": s.teacher_id or 0}
+
+
+@app.get("/api/head/overview")
+def head_overview(user: User = Depends(head_user), db: Session = Depends(get_db)):
+    t = teacher_row(user, db)
+    sid = t.school_id if t else 0
+    classes = (db.query(Klass).filter(Klass.school_id == sid).all() if sid
+               else db.query(Klass).filter(Klass.teacher_id == user.id).all())
+    out = []
+    for k in classes:
+        slots = db.query(SubjectSlot).filter(SubjectSlot.class_id == k.id) \
+            .order_by(SubjectSlot.subject).all()
+        nstu = db.query(func.count(ClassMember.id)).filter(ClassMember.class_id == k.id).scalar()
+        out.append({"id": k.id, "name": k.name, "join_code": k.join_code,
+                    "students": nstu,
+                    "subjects": [_slot_json(db, s) for s in slots]})
+    reqs = db.query(TeacherRequest).filter(
+        TeacherRequest.school_id == sid, TeacherRequest.status == "open").all()
+    requests = []
+    for r in reqs:
+        ru = db.get(User, r.teacher_id)
+        requests.append({"id": r.id, "teacher": ru.name if ru else "",
+                         "message": r.message, "class_id": r.class_id})
+    return {"school": (t.school if t else ""), "classrooms": out, "requests": requests}
+
+
+@app.post("/api/head/class/{cid}/slot")
+def head_add_slot(cid: int, body: SubjectIn, user: User = Depends(head_user),
+                  db: Session = Depends(get_db)):
+    _head_or_admin(db, cid, user)
+    s = SubjectSlot(class_id=cid, subject=body.subject.strip()[:80],
+                    code=_gen_slot_code(db))
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return _slot_json(db, s)
+
+
+@app.post("/api/head/slot/{sid}/rotate")
+def head_rotate_slot(sid: int, user: User = Depends(head_user),
+                     db: Session = Depends(get_db)):
+    s = db.get(SubjectSlot, sid)
+    if not s:
+        raise HTTPException(404, "Not found")
+    _head_or_admin(db, s.class_id, user)
+    s.code = _gen_slot_code(db)
+    s.teacher_id = 0            # rotating a code unassigns the current teacher
+    s.status = "open"
+    db.commit()
+    return _slot_json(db, s)
+
+
+@app.delete("/api/head/slot/{sid}")
+def head_delete_slot(sid: int, user: User = Depends(head_user),
+                     db: Session = Depends(get_db)):
+    s = db.get(SubjectSlot, sid)
+    if s:
+        _head_or_admin(db, s.class_id, user)
+        db.delete(s)
+        db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/head/class/{cid}/rotate")
+def head_rotate_class(cid: int, user: User = Depends(head_user),
+                      db: Session = Depends(get_db)):
+    k = _head_or_admin(db, cid, user)
+    k.join_code = _gen_join_code(db)
+    db.commit()
+    return {"join_code": k.join_code}
+
+
+@app.post("/api/teacher/request")
+def teacher_request(body: RequestIn, user: User = Depends(teacher_user),
+                    db: Session = Depends(get_db)):
+    """A subject teacher asks the head for a new subject/class."""
+    t = teacher_row(user, db)
+    db.add(TeacherRequest(school_id=(t.school_id if t else 0),
+                          class_id=body.class_id, teacher_id=user.id,
+                          message=body.message.strip()[:2000]))
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/head/request/{rid}/done")
+def head_close_request(rid: int, user: User = Depends(head_user),
+                       db: Session = Depends(get_db)):
+    r = db.get(TeacherRequest, rid)
+    if r:
+        r.status = "done"
+        db.commit()
+    return {"ok": True}
+
+
+# ============ Admin: enrol schools and head teachers ============
+class SchoolIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    city: str = ""
+    country: str = ""
+
+
+@app.post("/api/admin/school")
+def admin_create_school(body: SchoolIn, user: User = Depends(admin_user),
+                        db: Session = Depends(get_db)):
+    sc = School(name=body.name.strip()[:200], city=body.city.strip()[:120],
+                country=body.country.strip()[:120])
+    db.add(sc)
+    db.commit()
+    db.refresh(sc)
+    # auto-create a head-teacher code for this school
+    code = _gen_code(db, "HEAD-", TeacherCode, TeacherCode.code)
+    db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
+    db.commit()
+    return {"id": sc.id, "name": sc.name, "head_code": code}
+
+
+@app.post("/api/admin/school/{sid}/head-code")
+def admin_new_head_code(sid: int, user: User = Depends(admin_user),
+                        db: Session = Depends(get_db)):
+    sc = db.get(School, sid)
+    if not sc:
+        raise HTTPException(404, "School not found")
+    # deactivate old head codes so a former head cannot re-register
+    for old in db.query(TeacherCode).filter(TeacherCode.school_id == sid,
+                                            TeacherCode.is_head == True).all():  # noqa: E712
+        old.active = False
+    code = _gen_code(db, "HEAD-", TeacherCode, TeacherCode.code)
+    db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
+    db.commit()
+    return {"head_code": code}
+
+
+@app.delete("/api/admin/school/{sid}")
+def admin_delete_school(sid: int, user: User = Depends(admin_user),
+                        db: Session = Depends(get_db)):
+    sc = db.get(School, sid)
+    if sc:
+        db.delete(sc)
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/admin/schools")
+def admin_list_schools(user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    out = []
+    for sc in db.query(School).order_by(School.created_at.desc()).all():
+        heads = db.query(TeacherAccess, User).join(User, User.id == TeacherAccess.user_id) \
+            .filter(TeacherAccess.school_id == sc.id, TeacherAccess.role == "head").all()
+        classes = db.query(Klass).filter(Klass.school_id == sc.id).all()
+        active_code = db.query(TeacherCode).filter(
+            TeacherCode.school_id == sc.id, TeacherCode.is_head == True,  # noqa: E712
+            TeacherCode.active == True).order_by(TeacherCode.created_at.desc()).first()  # noqa: E712
+        out.append({
+            "id": sc.id, "name": sc.name, "city": sc.city, "country": sc.country,
+            "head_code": active_code.code if active_code else None,
+            "heads": [{"id": u.id, "name": u.name, "email": u.email} for ta, u in heads],
+            "classrooms": [{"id": k.id, "name": k.name, "code": k.join_code} for k in classes],
+        })
+    return {"schools": out}
+
+
 @app.get("/api/admin/teacher-codes")
 def list_teacher_codes(user: User = Depends(admin_user), db: Session = Depends(get_db)):
     codes = db.query(TeacherCode).order_by(TeacherCode.created_at.desc()).all()
