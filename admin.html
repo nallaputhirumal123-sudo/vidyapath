@@ -627,13 +627,31 @@ async function renderSchools(){
     </table></div>
 
     <h3 style="margin:0 0 8px">Teachers (${teachers.length})</h3>
-    <div class="tbl"><table>
-      <thead><tr><th>Name</th><th>Email</th><th>School</th><th></th></tr></thead>
+    <div class="tbl" style="margin-bottom:22px"><table>
+      <thead><tr><th>Name</th><th>Email</th><th>School</th><th>Status</th><th></th></tr></thead>
       <tbody>${teachers.length?teachers.map(t=>`<tr>
         <td>${esc(t.name)}</td><td>${esc(t.email)}</td><td>${esc(t.school||"—")}</td>
-        <td style="text-align:right"><button class="btn ghost sm" data-unteacher="${t.id}">Remove teacher</button></td>
-      </tr>`).join(""):`<tr><td colspan="4" style="color:var(--muted);padding:14px">No teachers yet.</td></tr>`}</tbody>
-    </table></div>`;
+        <td>${t.online?'<span class="pill ok">online</span>':'<span class="pill">offline</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn ghost sm" data-unteacher="${t.id}">Demote</button>
+          <button class="btn danger sm" data-delacct="${t.id}">Delete</button></td>
+      </tr>`).join(""):`<tr><td colspan="5" style="color:var(--muted);padding:14px">No teachers yet.</td></tr>`}</tbody>
+    </table></div>
+
+    <h3 style="margin:0 0 8px">Classrooms (${(d.classrooms||[]).length})</h3>
+    <div class="tbl" style="margin-bottom:22px"><table>
+      <thead><tr><th>Class</th><th>Code</th><th>Head teacher</th><th>School</th><th>Students</th><th>Teachers</th></tr></thead>
+      <tbody>${(d.classrooms||[]).length?d.classrooms.map(c=>`<tr>
+        <td>${esc(c.name)}</td><td><b style="color:var(--accent)">${esc(c.code)}</b></td>
+        <td>${esc(c.head||"—")}</td><td>${esc(c.school||"—")}</td>
+        <td>${c.students}</td><td>${c.teachers}</td></tr>`).join(""):`<tr><td colspan="6" style="color:var(--muted);padding:14px">No classrooms yet.</td></tr>`}</tbody>
+    </table></div>
+
+    <h3 style="margin:0 0 8px">Schools &amp; subjects</h3>
+    <div class="card" style="font-size:13.5px">
+      <b>Schools:</b> ${(d.schools||[]).length?d.schools.map(esc).join(", "):"<span style='color:var(--muted)'>none yet</span>"}<br>
+      <b>Subjects in use:</b> ${(d.subjects||[]).length?d.subjects.map(esc).join(", "):"<span style='color:var(--muted)'>none yet</span>"}
+    </div>`;
 
   $("#tcAdd").onclick=async()=>{
     const code=($("#tcCode").value||"").trim(); const school=($("#tcSchool").value||"").trim();
@@ -647,8 +665,13 @@ async function renderSchools(){
     await api.del("/api/admin/teacher-code/"+b.dataset.delcode).catch(()=>{}); renderSchools();
   });
   document.querySelectorAll("[data-unteacher]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Remove teacher rights from this user?")) return;
+    if(!confirm("Remove teacher rights from this user? Their account stays, but they can no longer run classes.")) return;
     await api.del("/api/admin/make-teacher/"+b.dataset.unteacher).catch(()=>{}); renderSchools();
+  });
+  document.querySelectorAll("[data-delacct]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Permanently DELETE this teacher's account and all their data? This cannot be undone.")) return;
+    try{ await api.del("/api/admin/student/"+b.dataset.delacct); }catch(e){ alert(e.message); }
+    renderSchools();
   });
 }
 

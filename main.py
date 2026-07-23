@@ -311,6 +311,21 @@ class ClassMember(Base):
     __table_args__ = (UniqueConstraint("class_id", "user_id", name="uq_class_user"),)
 
 
+class ClassroomTeacher(Base):
+    """Lets several subject teachers share one classroom. The classroom's
+    creator is the head teacher (Klass.teacher_id); others join with the same
+    class code and appear here."""
+    __tablename__ = "classroom_teachers"
+    id = Column(Integer, primary_key=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    subject = Column(String(80), default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+    __table_args__ = (UniqueConstraint("class_id", "teacher_id", name="uq_class_teacher"),)
+
+
 class Assignment(Base):
     __tablename__ = "assignments"
     id = Column(Integer, primary_key=True)
@@ -750,7 +765,6 @@ def status(db: Session = Depends(get_db)):
 
     try:
         tracks = db.query(Track).order_by(Track.position).all()
-        accounts = db.query(User).all()
     except Exception as e:
         base["database_error"] = f"{type(e).__name__}: {e}"
         base["hint"] = ("The app is running but cannot reach the database. "
@@ -758,21 +772,13 @@ def status(db: Session = Depends(get_db)):
                         "the Postgres service in Railway Variables.")
         return base
 
-    def mask(email):
-        # a@b.com -> a***@b.com, enough to spot a typo, not enough to harvest
-        if not email or "@" not in email:
-            return "?"
-        name, domain = email.split("@", 1)
-        return (name[0] + "***@" + domain) if name else ("***@" + domain)
-
+    # PRIVACY: this endpoint is public, so it exposes NO account details —
+    # no emails, no user list. Only aggregate, non-identifying diagnostics.
+    # Account information is available only to signed-in admins via
+    # /api/admin/students.
     base.update({
         "tracks": len(tracks),
         "lessons": db.query(func.count(Lesson.id)).scalar(),
-        "users": len(accounts),
-        "admins": sum(1 for u in accounts if u.is_admin),
-        "admin_email_variable": mask(ADMIN_EMAIL) if ADMIN_EMAIL else None,
-        "accounts": [{"email": mask(u.email), "is_admin": u.is_admin,
-                      "active": u.is_active} for u in accounts],
         "loaded": [{"id": t.slug, "name": t.name, "stage": t.audience,
                     "lessons": len(t.lessons)} for t in tracks],
     })
@@ -1069,23 +1075,27 @@ def create_class(body: ClassIn, user: User = Depends(teacher_user),
 
 @app.get("/api/teacher/classes")
 def my_classes(user: User = Depends(teacher_user), db: Session = Depends(get_db)):
-    classes = db.query(Klass).filter(Klass.teacher_id == user.id) \
-        .order_by(Klass.created_at.desc()).all()
+    head_ids = {k.id for k in db.query(Klass).filter(Klass.teacher_id == user.id).all()}
+    co_ids = {r.class_id for r in db.query(ClassroomTeacher)
+              .filter(ClassroomTeacher.teacher_id == user.id).all()}
+    ids = head_ids | co_ids
+    classes = db.query(Klass).filter(Klass.id.in_(ids)) \
+        .order_by(Klass.created_at.desc()).all() if ids else []
     out = []
     for k in classes:
         n = db.query(func.count(ClassMember.id)).filter(ClassMember.class_id == k.id).scalar()
         a = db.query(func.count(Assignment.id)).filter(Assignment.class_id == k.id).scalar()
+        nt = db.query(func.count(ClassroomTeacher.id)).filter(ClassroomTeacher.class_id == k.id).scalar()
         out.append({"id": k.id, "name": k.name, "join_code": k.join_code,
-                    "students": n, "assignments": a})
+                    "students": n, "assignments": a, "teachers": (nt or 0) + 1,
+                    "role": "head" if k.id in head_ids else "subject teacher"})
     return {"classes": out}
 
 
 @app.get("/api/teacher/class/{cid}")
 def class_detail(cid: int, user: User = Depends(teacher_user),
                  db: Session = Depends(get_db)):
-    k = db.get(Klass, cid)
-    if not k or (k.teacher_id != user.id and not user.is_admin):
-        raise HTTPException(404, "Class not found")
+    k = _own_class(db, cid, user)
     assignments = db.query(Assignment).filter(Assignment.class_id == cid) \
         .order_by(Assignment.created_at.desc()).all()
     members = db.query(ClassMember, User).join(User, User.id == ClassMember.user_id) \
@@ -1107,7 +1117,16 @@ def class_detail(cid: int, user: User = Depends(teacher_user),
                         "members": len(members)})
     sched = db.query(ScheduleItem).filter(ScheduleItem.class_id == cid) \
         .order_by(ScheduleItem.position, ScheduleItem.id).all()
+    # list of teachers in this classroom (head + co-teachers)
+    head = db.get(User, k.teacher_id)
+    teachers = [{"id": k.teacher_id, "name": head.name if head else "", "role": "head teacher"}]
+    for ct in db.query(ClassroomTeacher).filter(ClassroomTeacher.class_id == cid).all():
+        tu = db.get(User, ct.teacher_id)
+        teachers.append({"id": ct.teacher_id, "name": tu.name if tu else "",
+                         "role": ct.subject or "subject teacher"})
     return {"id": k.id, "name": k.name, "join_code": k.join_code,
+            "is_head": (k.teacher_id == user.id or user.is_admin),
+            "my_id": user.id, "teachers": teachers,
             "assignments": asg_out, "roster": roster,
             "schedule": [{"id": s.id, "day": s.day, "text": s.text} for s in sched]}
 
@@ -1115,9 +1134,7 @@ def class_detail(cid: int, user: User = Depends(teacher_user),
 @app.put("/api/teacher/class/{cid}")
 def update_class(cid: int, body: ClassIn, user: User = Depends(teacher_user),
                  db: Session = Depends(get_db)):
-    k = db.get(Klass, cid)
-    if not k or (k.teacher_id != user.id and not user.is_admin):
-        raise HTTPException(404, "Class not found")
+    k = _head_or_admin(db, cid, user)
     k.name = body.name.strip()[:160]
     db.commit()
     return {"ok": True}
@@ -1126,18 +1143,33 @@ def update_class(cid: int, body: ClassIn, user: User = Depends(teacher_user),
 @app.delete("/api/teacher/class/{cid}")
 def delete_class(cid: int, user: User = Depends(teacher_user),
                  db: Session = Depends(get_db)):
-    k = db.get(Klass, cid)
-    if not k or (k.teacher_id != user.id and not user.is_admin):
-        raise HTTPException(404, "Class not found")
+    k = _head_or_admin(db, cid, user)
     db.delete(k)
     db.commit()
     return {"ok": True}
 
 
+def _is_coteacher(db, cid, user):
+    return db.query(ClassroomTeacher).filter(
+        ClassroomTeacher.class_id == cid,
+        ClassroomTeacher.teacher_id == user.id).first() is not None
+
+
 def _own_class(db, cid, user):
+    """Any teacher OF this classroom (head teacher, a co-teacher, or admin)."""
+    k = db.get(Klass, cid)
+    if not k:
+        raise HTTPException(404, "Class not found")
+    if k.teacher_id == user.id or user.is_admin or _is_coteacher(db, cid, user):
+        return k
+    raise HTTPException(404, "Class not found")
+
+
+def _head_or_admin(db, cid, user):
+    """Only the classroom's head teacher (creator) or an admin."""
     k = db.get(Klass, cid)
     if not k or (k.teacher_id != user.id and not user.is_admin):
-        raise HTTPException(404, "Class not found")
+        raise HTTPException(403, "Only the head teacher can do that")
     return k
 
 
@@ -1274,18 +1306,32 @@ def delete_schedule(sid: int, user: User = Depends(teacher_user),
 @app.post("/api/class/join")
 def join_class(body: JoinIn, user: User = Depends(current_user),
                db: Session = Depends(get_db)):
+    """One code per classroom. A teacher who enters it becomes a co-teacher
+    (adds their subject); a student who enters it is enrolled."""
     code = body.code.strip().upper()
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
     if not k:
         raise HTTPException(404, "No class found with that code")
     if k.teacher_id == user.id:
-        raise HTTPException(400, "That is your own class")
+        return {"ok": True, "class": k.name, "role": "head teacher"}
+
+    # Teachers join as co-teachers of the same classroom.
+    if teacher_row(user, db) or user.is_admin:
+        exists = db.query(ClassroomTeacher).filter(
+            ClassroomTeacher.class_id == k.id,
+            ClassroomTeacher.teacher_id == user.id).first()
+        if not exists:
+            db.add(ClassroomTeacher(class_id=k.id, teacher_id=user.id))
+            db.commit()
+        return {"ok": True, "class": k.name, "role": "teacher"}
+
+    # Students are enrolled.
     exists = db.query(ClassMember).filter(
         ClassMember.class_id == k.id, ClassMember.user_id == user.id).first()
     if not exists:
         db.add(ClassMember(class_id=k.id, user_id=user.id))
         db.commit()
-    return {"ok": True, "class": k.name}
+    return {"ok": True, "class": k.name, "role": "student"}
 
 
 @app.post("/api/class/leave/{cid}")
@@ -1518,11 +1564,32 @@ async def assignment_help(aid: int, body: HelpIn, user: User = Depends(current_u
 def list_teacher_codes(user: User = Depends(admin_user), db: Session = Depends(get_db)):
     codes = db.query(TeacherCode).order_by(TeacherCode.created_at.desc()).all()
     teachers = db.query(TeacherAccess, User).join(User, User.id == TeacherAccess.user_id).all()
+    online_since = now() - dt.timedelta(minutes=10)
+
+    # classrooms with head teacher, code, counts
+    classrooms = []
+    subjects = set()
+    for k in db.query(Klass).order_by(Klass.created_at.desc()).all():
+        head = db.get(User, k.teacher_id)
+        nstu = db.query(func.count(ClassMember.id)).filter(ClassMember.class_id == k.id).scalar()
+        nco = db.query(func.count(ClassroomTeacher.id)).filter(ClassroomTeacher.class_id == k.id).scalar()
+        for (s,) in db.query(Assignment.subject).filter(Assignment.class_id == k.id).distinct():
+            if s:
+                subjects.add(s)
+        classrooms.append({"id": k.id, "name": k.name, "code": k.join_code,
+                           "school": k.school, "head": head.name if head else "",
+                           "students": nstu, "teachers": (nco or 0) + 1})
+
     return {
         "codes": [{"id": c.id, "code": c.code, "school": c.school, "active": c.active}
                   for c in codes],
-        "teachers": [{"id": u.id, "name": u.name, "email": u.email, "school": ta.school}
+        "teachers": [{"id": u.id, "name": u.name, "email": u.email, "school": ta.school,
+                      "online": bool(u.last_seen and (u.last_seen if u.last_seen.tzinfo
+                                     else u.last_seen.replace(tzinfo=dt.timezone.utc)) >= online_since)}
                      for ta, u in teachers],
+        "schools": sorted({(ta.school or "").strip() for ta, u in teachers if (ta.school or "").strip()}),
+        "classrooms": classrooms,
+        "subjects": sorted(subjects),
     }
 
 
