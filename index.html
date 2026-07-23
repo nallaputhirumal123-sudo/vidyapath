@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>VidyaPath — Learn to Code, Data & AI</title>
-<meta name="description" content="Hands-on learning platform for Indian students. Python, JavaScript, SQL, Java, C, Data Science and AI — with runnable labs, videos and references."/>
+<meta name="description" content="Hands-on learning platform for students worldwide. Python, JavaScript, SQL, Java, C, Data Science and AI — with runnable labs, videos and references."/>
 <style>
 :root{
   --bg:#0b0f16; --panel:#131923; --panel2:#1a2230; --line:#252e3d;
@@ -370,7 +370,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   <div class="land">
 
     <section class="lhero">
-      <span class="lbadge">100% FREE · NO ADS · BUILT FOR INDIAN STUDENTS</span>
+      <span class="lbadge">100% FREE · NO ADS · OPEN TO EVERYONE, WORLDWIDE</span>
       <h1>Learn to code.<br>Then build with <span>AI</span>.</h1>
       <p>One continuous path from "what is a computer?" to building real AI systems.
          Every lesson taught in full; Python and SQL exercises run and auto-grade
@@ -413,7 +413,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
       <div class="lstep"><span class="n">3</span><div><b>🗄️ Databases &amp; SQL</b><small> — real queries on a real database. This skill alone gets data analyst interviews</small></div></div>
       <div class="lstep"><span class="n">4</span><div><b>📊 Data analysis</b><small> — clean messy real data and report it honestly</small></div></div>
       <div class="lstep"><span class="n">5</span><div><b>📈 Machine learning &amp; AI engineering</b><small> — build the learning loop by hand, then RAG, agents and cost control</small></div></div>
-      <div class="lstep"><span class="n">6</span><div><b>🧰 Languages &amp; career</b><small> — JavaScript, Java/C for placements, portfolio projects, interviews</small></div></div>
+      <div class="lstep"><span class="n">6</span><div><b>🧰 Languages &amp; career</b><small> — JavaScript, Java/C and CS core, portfolio projects, real job interviews</small></div></div>
     </section>
 
     <section class="lsec faq">
@@ -484,7 +484,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
     </section>
 
     <footer class="lfoot">
-      VidyaPath · Free learning for Indian students · Python &amp; SQL exercises auto-grade in your browser<br>
+      VidyaPath · Free, open learning worldwide · Python &amp; SQL exercises auto-grade in your browser<br>
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
       <br><span data-version style="opacity:.7"></span>
@@ -502,7 +502,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 <div class="scrim" id="scrim"></div>
 <div class="app" id="app">
   <nav class="sidebar">
-    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Code · Data · AI — built for India</p></div>
+    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Code · Data · AI — learn anywhere</p></div>
     <div class="who" id="who"></div>
     <div class="searchwrap"><input class="search" id="search" placeholder="Search lessons…" autocomplete="off"/></div>
     <div id="nav"></div>
@@ -559,8 +559,8 @@ const PATH_PRESETS=[
   {id:"web",name:"Web Developer",icon:"🌐",months:"5–6 months",
    desc:"Build the interfaces and services everything else plugs into.",
    tracks:["s-start","s-think","s-build","js","p2-text","s3-sql","career"]},
-  {id:"placement",name:"Campus Placement",icon:"🎓",months:"4–6 months",
-   desc:"Java, DSA and SQL — what on-campus recruitment actually tests.",
+  {id:"placement",name:"Job & Interview Prep",icon:"🎓",months:"4–6 months",
+   desc:"Java, DSA and SQL — what technical hiring actually tests, anywhere.",
    tracks:["s-start","s-think","s-build","javac","s3-sql","career"]},
 ];
 
@@ -794,6 +794,7 @@ function renderNav(){
       <button class="navitem ${S.view.page==="projects"?"active":""}" data-nav="projects"><span class="ic">🛠️</span><span class="nm">Projects</span></button>
       <button class="navitem ${S.view.page==="ask"?"active":""}" data-nav="ask"><span class="ic">💬</span><span class="nm">Ask Vidya anything</span></button>
       <button class="navitem ${S.view.page==="class"?"active":""}" data-nav="class"><span class="ic">🎓</span><span class="nm">My class</span></button>
+      <button class="navitem ${S.view.page==="careers"?"active":""}" data-nav="careers"><span class="ic">💼</span><span class="nm">Careers &amp; jobs</span></button>
       <button class="navitem ${S.view.page==="resources"?"active":""}" data-nav="resources"><span class="ic">🔗</span><span class="nm">All resources</span></button>`;
   if(USER.is_teacher) h+=`<button class="navitem ${S.view.page==="teacher"?"active":""}" data-nav="teacher"><span class="ic">🧑‍🏫</span><span class="nm">Teacher dashboard</span></button>`;
   if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
@@ -841,7 +842,7 @@ const STAGES=[
   { key:"stage4",  n:5, icon:"📈", name:"Maths, machine learning & AI engineering",
     blurb:"The maths first — vectors, statistics, Bayes and derivatives, built by hand in code. Then the learning loop, prompting, retrieval, agents and cost control." },
   { key:"graduate",n:6, icon:"🧰", name:"Other languages & career",
-    blurb:"JavaScript and the web, Java and C for placements, portfolio projects and interview preparation." },
+    blurb:"JavaScript and the web, Java and C and CS core, portfolio projects and real job-interview preparation." },
 ];
 
 function stageStatus(tracks){
@@ -985,7 +986,7 @@ function renderPaths(){
     <p style="color:var(--muted);font-size:14px;margin-top:6px">
       Never written code and want a job as fast as realistically possible → <b>Data Analyst</b>.<br>
       Want to work on AI specifically → <b>AI Engineer</b>.<br>
-      Final-year student with campus placements coming → <b>Campus Placement</b>.</p></div>`;
+      Getting ready for tech job interviews → <b>Job &amp; Interview Prep</b>.</p></div>`;
 }
 
 /* ===================== TRACK ===================== */
@@ -1216,7 +1217,7 @@ const PROJECTS=[
    what:"Take a genuinely messy public dataset, clean it properly in pandas, find three real insights, and ship a Streamlit dashboard with filters and charts.",
    proves:"You can handle real data, not tutorial data.",
    steps:["Pick a dataset from data.gov.in or Kaggle that you actually care about","Document what's wrong with it before you touch it — nulls, duplicates, wrong types","Clean it, recording every decision and why","Find 3 insights that are specific and quantified","Streamlit dashboard: 2+ filters, 3+ charts, key metrics at the top","Deploy free on Streamlit Community Cloud","README: the question you asked, what you found, what you'd do next"],
-   links:[{t:"data.gov.in — Indian open data",u:"https://data.gov.in/"},{t:"Kaggle datasets",u:"https://www.kaggle.com/datasets"},{t:"Streamlit docs",u:"https://docs.streamlit.io/"}]},
+   links:[{t:"Our World in Data — open datasets",u:"https://ourworldindata.org/"},{t:"Kaggle datasets",u:"https://www.kaggle.com/datasets"},{t:"data.world open data",u:"https://data.world/datasets/open-data"},{t:"Streamlit docs",u:"https://docs.streamlit.io/"}]},
   {n:2,icon:"⚡",title:"Deployed model API",after:"After the Machine Learning track",
    what:"Train or load a model, wrap it in FastAPI, containerise it with Docker, deploy it with a live URL.",
    proves:"You can ship — the single biggest gap between students and hires.",
@@ -1367,7 +1368,7 @@ const ASK_SAMPLES={
   "Maths":["What is a fraction?","Explain the Pythagoras theorem","What is a derivative?"],
   "Computers & Coding":["What is a variable?","How does a database work?","What is an API?"],
   "Medicine & Biology":["How does the heart pump blood?","What is DNA?","Why do we get fever?"],
-  "Business & Economics":["What is GST?","What is supply and demand?","What is a startup?"],
+  "Business & Economics":["What is inflation?","What is supply and demand?","What is a startup?"],
   "History & Civics":["Who was Ashoka?","What is the Constitution?","What caused 1857?"],
   "English":["What is a metaphor?","When to use a comma?","Active vs passive voice?"],
   "Physics":["What is Newton's first law?","Why do objects fall?","What is voltage?"],
@@ -2109,6 +2110,111 @@ document.addEventListener("click",e=>{
   else if(k==="tasend") taSend();
 });
 
+/* ===================== CAREERS & JOBS ===================== */
+const CAREER_ROLES=[
+  {icon:"🖥️",role:"Software / Backend Developer",
+   does:"Builds and maintains the code and APIs behind apps and websites.",
+   learn:"Python or Java, SQL, Git, testing, one framework (FastAPI, Django, Spring).",
+   atwork:"You pick a ticket, write a function, add a test, open a pull request, get it reviewed and merged. You debug why an endpoint is slow and fix it.",
+   example:"A retailer's checkout API times out on sale days. You add caching and cut response time from 3s to 200ms.",
+   search:"software+developer"},
+  {icon:"🎨",role:"Frontend / Web Developer",
+   does:"Turns designs into the screens users actually click on.",
+   learn:"JavaScript, HTML & CSS, React, working from a design file.",
+   atwork:"You take a Figma design and build the page, make it work on mobile, and fix bugs users report.",
+   example:"A signup form loses users on step 3. You redesign it into one screen and conversions rise.",
+   search:"frontend+developer"},
+  {icon:"📊",role:"Data Analyst",
+   does:"Turns raw data into decisions the business can act on.",
+   learn:"SQL, Excel or Google Sheets, Python (pandas), charts and dashboards.",
+   atwork:"You pull last quarter's numbers, find why a metric dropped, and present three charts with a recommendation.",
+   example:"Sign-ups fell 20%. You trace it to one broken country's payment page and flag it — revenue recovers.",
+   search:"data+analyst"},
+  {icon:"🤖",role:"Data Scientist / ML Engineer",
+   does:"Builds models that predict or classify, then ships them.",
+   learn:"Python, statistics, scikit-learn, model evaluation, then deep learning.",
+   atwork:"You train a model to predict which customers will cancel, measure its accuracy honestly, and expose it as an API the product calls.",
+   example:"You build a churn model at 82% precision; the retention team uses it to target offers and saves accounts.",
+   search:"machine+learning+engineer"},
+  {icon:"🧠",role:"AI / LLM Engineer",
+   does:"Builds real applications on top of large language models.",
+   learn:"LLM APIs, prompt design, RAG (retrieval), agents, cost and safety.",
+   atwork:"You build a support assistant that answers from the company's own documents, cites its sources, and says 'I don't know' when it should.",
+   example:"Support tickets drop 30% because customers get instant, grounded answers from an assistant you built.",
+   search:"AI+engineer"},
+  {icon:"✅",role:"QA / Automation Engineer",
+   does:"Makes sure software works before customers ever see it.",
+   learn:"Testing fundamentals, Python or JS, Playwright/Selenium, CI.",
+   atwork:"You write automated tests that run on every code change and catch bugs before release.",
+   example:"A checkout bug that would have hit thousands of users is caught by a test you wrote the week before.",
+   search:"qa+automation+engineer"},
+];
+const JOB_BOARDS=[
+  {t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/",note:"the default worldwide — set your location or 'Remote'"},
+  {t:"Indeed",u:"https://www.indeed.com/",note:"huge listings in almost every country"},
+  {t:"Wellfound (startups)",u:"https://wellfound.com/jobs",note:"startup and early-stage roles, remote-friendly"},
+  {t:"Y Combinator — Work at a Startup",u:"https://www.workatastartup.com/",note:"vetted startup jobs, junior-friendly"},
+  {t:"RemoteOK",u:"https://remoteok.com/",note:"remote-only, global"},
+  {t:"We Work Remotely",u:"https://weworkremotely.com/",note:"remote-only, well established"},
+  {t:"Hacker News — Who is Hiring",u:"https://hn.algolia.com/?query=who%20is%20hiring&type=story",note:"monthly thread, real teams posting directly"},
+  {t:"Otta / Welcome to the Jungle",u:"https://app.otta.com/",note:"curated tech roles, strong matching"},
+  {t:"Kaggle",u:"https://www.kaggle.com/",note:"data/ML — competitions that double as portfolio + hiring"},
+  {t:"Upwork (freelance)",u:"https://www.upwork.com/",note:"first paid experience while you build a CV"},
+];
+const REAL_PRACTICE=[
+  {icon:"🔧",title:"Fix a bug like a developer",
+   body:"Find an 'good first issue' on a real open-source project on GitHub, fork it, fix it, and open a pull request. This is literally the daily loop of a software job — and a merged PR is proof you can work in a real codebase.",
+   link:{t:"GitHub good-first-issues",u:"https://github.com/topics/good-first-issue"}},
+  {icon:"📈",title:"Answer a business question like an analyst",
+   body:"Take a real public dataset, pick one question a manager would ask ('which product line is shrinking and why?'), find the answer in the data, make 2–3 charts, and write a one-paragraph recommendation. That one paragraph is what analysts are paid for.",
+   link:{t:"Free datasets (data.world)",u:"https://data.world/datasets/open-data"}},
+  {icon:"⚡",title:"Ship a model as an API like an engineer",
+   body:"Train a simple model, wrap it in FastAPI, containerise it, and deploy it with a live URL. In a real job, a model that only runs in your notebook is worth nothing — shipping it is the skill.",
+   link:{t:"FastAPI docs",u:"https://fastapi.tiangolo.com/"}},
+  {icon:"🧩",title:"Build an internal tool like an AI engineer",
+   body:"Pick a set of documents (a manual, a policy, a handbook) and build an assistant that answers questions from them with citations. This 'RAG over our docs' task is one of the most requested AI jobs right now.",
+   link:{t:"LangChain RAG tutorial",u:"https://python.langchain.com/docs/tutorials/rag/"}},
+];
+function renderCareers(){
+  $("#main").innerHTML=`
+  <div class="h1">💼 Careers &amp; jobs</div>
+  <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply — worldwide — and practice that mirrors what you'd do on day one.</p>
+
+  <div class="eyebrow">Roles you can aim for — and what the job is really like</div>
+  ${CAREER_ROLES.map(r=>`<div class="card" style="margin-bottom:14px">
+    <div style="font-size:17px;font-weight:650">${r.icon} ${esc(r.role)}</div>
+    <p style="color:var(--body);font-size:14px;margin:8px 0 4px">${esc(r.does)}</p>
+    <p style="font-size:13.5px;margin:6px 0"><b style="color:var(--accent)">Learn:</b> <span style="color:var(--body)">${esc(r.learn)}</span></p>
+    <p style="font-size:13.5px;margin:6px 0"><b>A day at work:</b> <span style="color:var(--body)">${esc(r.atwork)}</span></p>
+    <div style="background:var(--panel2);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--body);margin-top:8px">
+      <b>Real example:</b> ${esc(r.example)}</div>
+    <div style="margin-top:10px"><a class="btn ghost sm" href="https://www.linkedin.com/jobs/search/?keywords=${r.search}" target="_blank" rel="noopener">See live ${esc(r.role.split(" /")[0])} jobs ↗</a></div>
+  </div>`).join("")}
+
+  <div class="eyebrow">Practice the actual job, not just lessons</div>
+  <p class="sub" style="margin-top:0">Each of these mirrors a real task you'd be paid to do. Do them, and you have proof — not just a certificate.</p>
+  ${REAL_PRACTICE.map(p=>`<div class="card" style="margin-bottom:12px">
+    <div style="font-weight:650">${p.icon} ${esc(p.title)}</div>
+    <p style="color:var(--body);font-size:14px;margin:8px 0">${esc(p.body)}</p>
+    <a class="reslink" href="${p.link.u}" target="_blank" rel="noopener"><span>🔗</span><span>${esc(p.link.t)}</span><span class="ex">↗</span></a>
+  </div>`).join("")}
+
+  <div class="eyebrow">Where to actually apply — worldwide</div>
+  <div class="card"><div class="reslist">
+    ${JOB_BOARDS.map(j=>`<a class="reslink" href="${j.u}" target="_blank" rel="noopener"><span>💼</span><span>${esc(j.t)} <span style="color:var(--dim);font-size:12px">— ${esc(j.note)}</span></span><span class="ex">↗</span></a>`).join("")}
+  </div></div>
+
+  <div class="card" style="margin-top:16px;border-color:var(--accent)">
+    <b>How to land it, honestly</b>
+    <ul style="margin:9px 0 0 19px;color:var(--body);font-size:14px">
+      <li>One deep, deployed project with a live URL beats ten tutorials. Put it at the top of your CV and GitHub.</li>
+      <li>Apply before you feel ready — job posts list wishes, not requirements. Match 60% and apply.</li>
+      <li>Set your location to your city <i>and</i> "Remote" — remote roles open the whole world to you.</li>
+      <li>For every application, be able to explain out loud one decision you were unsure about in your project.</li>
+    </ul>
+  </div>`;
+}
+
 /* ===================== ROUTER ===================== */
 function render(){
   if(!AUTHED) return showGate();
@@ -2120,6 +2226,7 @@ function render(){
   else if(v.page==="resources") renderResources();
   else if(v.page==="ask")       renderAsk();
   else if(v.page==="class")     renderClass();
+  else if(v.page==="careers")   renderCareers();
   else if(v.page==="assignment") renderAssignment(v.aid);
   else if(v.page==="teacher")   renderTeacher(v.cid);
   else if(v.page==="tassign")   renderTeacherAssignment(v.cid,v.aid);
@@ -2166,6 +2273,7 @@ document.addEventListener("click",e=>{
   else if(n==="resources") S.view={page:"resources"};
   else if(n==="ask")       S.view={page:"ask"};
   else if(n==="class")     S.view={page:"class"};
+  else if(n==="careers")   S.view={page:"careers"};
   else if(n==="teacher")   S.view={page:"teacher"};
   else if(n==="track")     S.view={page:"track",track:b.dataset.id};
   else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};
