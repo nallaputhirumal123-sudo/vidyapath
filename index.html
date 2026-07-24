@@ -2315,7 +2315,7 @@ function renderCareers(){
 
 /* ===================== COLORING FUN ===================== */
 const CLR_SWATCHES=["#e74c3c","#e67e22","#f1c40f","#7ed957","#2ecc71","#00b5d8","#3498db","#5b6cff","#9b59b6","#ff77c8","#8d5524","#111111","#9aa5b1","#ffffff"];
-const CLR_CATS=["Animals","Nature","Fun","Vehicles","Food","Shapes"];
+const CLR_CATS=["Animals","Nature","Fun","Vehicles","Food","Shapes","Mandalas","Patterns"];
 /* Each page is line art. Every element with class="reg" is a tappable region. */
 const CLR_PAGES=[
  {id:"cat",cat:"Animals",name:"Cat",art:`
@@ -2556,7 +2556,52 @@ const CLR_PAGES=[
   <polygon class="reg" data-r="triangle" points="60,110 96,175 24,175"/>
   <polygon class="reg" data-r="diamond" points="142,110 174,142 142,174 110,142"/>`},
 ];
-const COLORING={cat:"Animals", pageId:null, color:"#f1c40f"};
+const COLORING={cat:"Animals", pageId:null, color:"#f1c40f", grid:0};
+/* ---- procedurally generated pages (symmetric mandalas + patterns) ---- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function genMandala(seed){
+  const rnd=mulberry32(seed), pick=a=>a[Math.floor(rnd()*a.length)];
+  let k=0; const R=()=>"r"+(k++);
+  let s=`<rect class="reg" data-r="${R()}" x="0" y="0" width="200" height="200"/>`;
+  const rings=3+Math.floor(rnd()*2); let radius=82;
+  for(let ring=0; ring<rings; ring++){
+    const n=pick([8,10,12,16]), shape=pick(["petal","diamond","circle","triangle"]);
+    const rx=6+Math.floor(rnd()*8), ry=9+Math.floor(rnd()*11);
+    for(let i=0;i<n;i++){
+      const a=((360/n)*i).toFixed(1), cy=100-radius;
+      if(shape==="circle") s+=`<circle class="reg" data-r="${R()}" cx="100" cy="${cy}" r="${8+Math.floor(rnd()*6)}" transform="rotate(${a} 100 100)"/>`;
+      else if(shape==="diamond") s+=`<polygon class="reg" data-r="${R()}" points="100,${cy-16} 112,${cy} 100,${cy+16} 88,${cy}" transform="rotate(${a} 100 100)"/>`;
+      else if(shape==="triangle") s+=`<polygon class="reg" data-r="${R()}" points="100,${cy-14} 110,${cy+8} 90,${cy+8}" transform="rotate(${a} 100 100)"/>`;
+      else s+=`<ellipse class="reg" data-r="${R()}" cx="100" cy="${cy}" rx="${rx}" ry="${ry}" transform="rotate(${a} 100 100)"/>`;
+    }
+    radius-=19+Math.floor(rnd()*7); if(radius<18) break;
+  }
+  s+=`<circle class="reg" data-r="${R()}" cx="100" cy="100" r="${12+Math.floor(rnd()*10)}"/>`;
+  return s;
+}
+function genGrid(seed){
+  const rnd=mulberry32(seed);
+  let k=0; const R=()=>"r"+(k++);
+  const cols=4+Math.floor(rnd()*3), shape=["circle","square","triangle","diamond"][Math.floor(rnd()*4)];
+  const cell=200/cols, r=(cell*0.36).toFixed(1);
+  let s=`<rect class="reg" data-r="${R()}" x="0" y="0" width="200" height="200"/>`;
+  for(let y=0;y<cols;y++)for(let x=0;x<cols;x++){
+    const cx=(x*cell+cell/2).toFixed(1), cy=(y*cell+cell/2).toFixed(1);
+    if(shape==="circle") s+=`<circle class="reg" data-r="${R()}" cx="${cx}" cy="${cy}" r="${r}"/>`;
+    else if(shape==="square") s+=`<rect class="reg" data-r="${R()}" x="${cx-r}" y="${cy-r}" width="${2*r}" height="${2*r}"/>`;
+    else if(shape==="diamond") s+=`<polygon class="reg" data-r="${R()}" points="${cx},${cy-r} ${(+cx+ +r)},${cy} ${cx},${(+cy+ +r)} ${(cx-r)},${cy}"/>`;
+    else s+=`<polygon class="reg" data-r="${R()}" points="${cx},${cy-r} ${(+cx+ +r)},${(+cy+ +r)} ${(cx-r)},${(+cy+ +r)}"/>`;
+  }
+  return s;
+}
+for(let i=0;i<120;i++) CLR_PAGES.push({id:"md"+i,cat:"Mandalas",name:"Mandala "+(i+1),gen:"mandala",seed:1000+i});
+for(let i=0;i<70;i++)  CLR_PAGES.push({id:"pt"+i,cat:"Patterns",name:"Pattern "+(i+1),gen:"grid",seed:5000+i});
+function artOf(p){
+  if(p.art!==undefined) return p.art;
+  if(p._art) return p._art;
+  p._art = p.gen==="mandala" ? genMandala(p.seed) : p.gen==="grid" ? genGrid(p.seed) : "";
+  return p._art;
+}
 function clrFills(id){ try{ return JSON.parse(S.notes["clr_"+id]||"{}"); }catch(e){ return {}; } }
 function clrSaveFills(id, fills){
   const v=JSON.stringify(fills).slice(0,4900);
@@ -2564,25 +2609,34 @@ function clrSaveFills(id, fills){
   clearTimeout(COLORING._t); COLORING._t=setTimeout(()=>api.post("/api/note",{key:"clr_"+id,value:v}).catch(()=>{}),400);
 }
 function clrSvg(page, fills, size, interactive){
-  const inner=page.art.replace(/class="reg" data-r="([a-z0-9]+)"/gi,(m,r)=>
+  const inner=artOf(page).replace(/class="reg" data-r="([a-z0-9]+)"/gi,(m,r)=>
     `class="reg${interactive?' i':''}" data-r="${r}" fill="${fills[r]||'#ffffff'}"`);
   return `<svg viewBox="0 0 200 200" width="${size}" height="${size}" class="clr-svg" ${interactive?'id="colorSvg"':''}
     style="touch-action:manipulation">${inner}</svg>`;
 }
+const CLR_PER_PAGE=24;
 function renderColoring(){
   if(COLORING.pageId) return renderColorPage();
-  const pages=CLR_PAGES.filter(p=>p.cat===COLORING.cat);
+  const all=CLR_PAGES.filter(p=>p.cat===COLORING.cat);
+  const pages=Math.max(1,Math.ceil(all.length/CLR_PER_PAGE));
+  if(COLORING.grid>=pages) COLORING.grid=0;
+  const start=COLORING.grid*CLR_PER_PAGE;
+  const shown=all.slice(start,start+CLR_PER_PAGE);
   $("#main").innerHTML=`
   <div class="h1">🎨 Coloring fun</div>
-  <p class="sub">Pick a picture, tap a colour, then tap the parts to fill them. Your colours save automatically. Great on a tablet!</p>
+  <p class="sub">Pick a picture, tap a colour, then tap the parts to fill them. Your colours save automatically. Great on a tablet! (${all.length} pictures in ${esc(COLORING.cat)})</p>
   <div class="ask-chips" style="margin-bottom:16px">
     ${CLR_CATS.map(c=>`<button class="ask-chip ${COLORING.cat===c?"on":""}" data-clr="cat" data-v="${c}">${c}</button>`).join("")}
   </div>
   <div class="clr-grid">
-    ${pages.map(p=>`<button class="clr-thumb" data-clr="open" data-v="${p.id}">
+    ${shown.map(p=>`<button class="clr-thumb" data-clr="open" data-v="${p.id}">
       <div class="clr-thumbart">${clrSvg(p,clrFills(p.id),150,false)}</div>
       <div class="clr-thumbname">${esc(p.name)}</div></button>`).join("")}
-  </div>`;
+  </div>
+  ${pages>1?`<div class="ask-slidebar" style="display:flex;margin-top:16px">
+    <button class="ask-sbtn" data-clr="gprev">‹</button>
+    <span>Page ${COLORING.grid+1} / ${pages}</span>
+    <button class="ask-sbtn" data-clr="gnext">›</button></div>`:""}`;
 }
 function renderColorPage(){
   const p=CLR_PAGES.find(x=>x.id===COLORING.pageId); if(!p){ COLORING.pageId=null; return renderColoring(); }
@@ -2628,7 +2682,9 @@ document.addEventListener("click",e=>{
   if(reg && S.view.page==="color"){ clrPaintRegion(reg); return; }
   const b=e.target.closest("[data-clr]"); if(!b)return;
   const k=b.dataset.clr, v=b.dataset.v;
-  if(k==="cat"){ COLORING.cat=v; renderColoring(); }
+  if(k==="cat"){ COLORING.cat=v; COLORING.grid=0; renderColoring(); }
+  else if(k==="gprev"){ COLORING.grid=Math.max(0,COLORING.grid-1); renderColoring(); window.scrollTo(0,0); }
+  else if(k==="gnext"){ COLORING.grid+=1; renderColoring(); window.scrollTo(0,0); }
   else if(k==="open"){ COLORING.pageId=v; renderColorPage(); }
   else if(k==="back"){ COLORING.pageId=null; renderColoring(); }
   else if(k==="pick"){ COLORING.color=v; document.querySelectorAll(".clr-sw").forEach(s=>s.classList.toggle("on",s.dataset.v===v)); }
