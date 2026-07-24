@@ -2238,7 +2238,9 @@ def _ask_prompt(question: str, subject: str, level: str) -> str:
         f"Respond with ONLY valid JSON, no markdown, no backticks, in exactly "
         f"this shape:\n"
         f'{{"title": "<topic in 2-6 words>", "steps": ["<line 1>", "<line 2>", '
-        f'"... 5 to 9 short lines"], "takeaway": "<one sentence to remember>"}}'
+        f'"... use as many short lines as the question needs: a few for a '
+        f'simple question, more for a detailed one (up to about 25)"], '
+        f'"takeaway": "<one sentence to remember>"}}'
     )
 
 
@@ -2257,7 +2259,7 @@ def _parse_lesson(text: str, question: str) -> dict:
         raise ValueError("empty lesson")
     return {
         "title": str(les.get("title", question))[:120],
-        "steps": [str(s)[:300] for s in les["steps"]][:10],
+        "steps": [str(s)[:300] for s in les["steps"]][:40],
         "takeaway": str(les.get("takeaway", ""))[:300],
     }
 
