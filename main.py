@@ -687,6 +687,7 @@ def seed_if_empty():
                 _seed_file(db, "stage3b.json",    "stage3b",  90),   # Stage 4
                 _seed_file(db, "stage4.json",     "stage4",   95),   # Stage 5
                 _seed_file(db, "curriculum.json", "graduate", 120),  # Stage 6
+                _seed_file(db, "placement.json",  "graduate", 150),  # DSA + aptitude
             ]
             db.commit()
             total = sum(counts)

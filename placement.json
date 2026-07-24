@@ -1,0 +1,678 @@
+{
+ "tracks": [
+  {
+   "id": "dsa",
+   "icon": "🧮",
+   "name": "Data Structures & Algorithms",
+   "level": "Placement · core CS",
+   "color": "#5b6cff",
+   "weeks": 6,
+   "lang": "Python",
+   "audience": "graduate",
+   "position": 0,
+   "desc": "Arrays, strings, complexity, stacks, queues, linked lists, searching, sorting, recursion and trees — the exact toolkit technical interviews test, every one runnable in your browser.",
+   "outcomes": [
+    "Solve array/string problems with two pointers",
+    "Reason about Big-O out loud",
+    "Implement stacks, queues, linked lists and trees",
+    "Search, sort and recurse with confidence"
+   ],
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "dsa-arr",
+     "title": "Arrays and strings: the two-pointer toolkit",
+     "mins": 30,
+     "lang": "py",
+     "content": "\n<h3>An array is just a list with positions</h3>\n<p>In Python the array you will use every day is the <b>list</b>. Every item has an index starting at 0. Almost every coding interview starts here: scanning a list, comparing items, moving pointers.</p>\n<pre><code>nums = [4, 8, 15, 16, 23, 42]\nnums[0]      # 4      first\nnums[-1]     # 42     last\nlen(nums)    # 6\nnums[1:3]    # [8, 15]  a slice</code></pre>\n<h3>The two-pointer idea</h3>\n<p>Many problems are solved by two indices moving toward each other or together. Reversing, checking a palindrome, or finding a pair that sums to a target all use it.</p>\n<pre><code>i, j = 0, len(nums)-1\nwhile i < j:\n    # look at nums[i] and nums[j], then move a pointer\n    i += 1\n    j -= 1</code></pre>\n<h3>Scanning to find something</h3>\n<pre><code>biggest = nums[0]\nfor x in nums:\n    if x > biggest:\n        biggest = x\nprint(biggest)   # 42</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Print the <b>first</b> and <b>last</b> item of the list, on two lines.",
+       "starter": "nums = [4, 8, 15, 16, 23, 42]\n",
+       "hint": "nums[0] and nums[-1].",
+       "solution": "nums = [4, 8, 15, 16, 23, 42]\nprint(nums[0])\nprint(nums[-1])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4",
+         "42"
+        ]
+       }
+      },
+      {
+       "q": "Find and print the <b>largest</b> number by scanning the list (don't use max).",
+       "starter": "nums = [4, 8, 15, 16, 23, 42]\nbiggest = nums[0]\n# loop and compare\n",
+       "hint": "Loop, keep the biggest seen so far.",
+       "solution": "nums=[4,8,15,16,23,42]\nb=nums[0]\nfor x in nums:\n    if x>b: b=x\nprint(b)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "42"
+        ]
+       }
+      },
+      {
+       "q": "Reverse the list <b>using two pointers</b> (not .reverse or [::-1]) and print it.",
+       "starter": "nums = [1, 2, 3, 4, 5]\ni, j = 0, len(nums)-1\n# swap ends, move inward\nprint(nums)",
+       "hint": "Swap nums[i] and nums[j], then i+=1, j-=1, while i<j.",
+       "solution": "nums=[1,2,3,4,5]\ni,j=0,len(nums)-1\nwhile i<j:\n    nums[i],nums[j]=nums[j],nums[i]\n    i+=1; j-=1\nprint(nums)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "[5, 4, 3, 2, 1]"
+        ]
+       }
+      },
+      {
+       "q": "Check if <b>racecar</b> is a palindrome with two pointers. Print True or False.",
+       "starter": "s = 'racecar'\ni, j = 0, len(s)-1\n",
+       "hint": "Compare s[i] and s[j] moving inward; if any differ it's not a palindrome.",
+       "solution": "s='racecar'\ni,j=0,len(s)-1\nok=True\nwhile i<j:\n    if s[i]!=s[j]: ok=False\n    i+=1; j-=1\nprint(ok)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      },
+      {
+       "q": "Two numbers in the list add up to <b>24</b>. Print them (smaller first) on one line, space separated.",
+       "starter": "nums = [4, 8, 15, 16, 23, 42]\n# find a pair summing to 24\n",
+       "hint": "Two loops; find i<j with nums[i]+nums[j]==24. That pair is 8 and 16.",
+       "solution": "nums=[4,8,15,16,23,42]\nfor i in range(len(nums)):\n    for j in range(i+1,len(nums)):\n        if nums[i]+nums[j]==24:\n            print(nums[i], nums[j])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "8 16"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "dsa-bigo",
+     "title": "Big-O: how to talk about speed",
+     "mins": 25,
+     "lang": "py",
+     "content": "\n<h3>Big-O counts the work as input grows</h3>\n<p>Big-O is not about seconds — it is about how the number of steps grows when the input gets bigger. Interviewers ask it constantly.</p>\n<ul>\n<li><b>O(1)</b> — constant. Reading <code>nums[5]</code> takes the same time no matter how big the list is.</li>\n<li><b>O(n)</b> — linear. One loop over n items. Doubling the list doubles the work.</li>\n<li><b>O(n²)</b> — quadratic. A loop inside a loop. 10 items = 100 steps, 100 items = 10,000.</li>\n<li><b>O(log n)</b> — logarithmic. Halving the problem each step (binary search).</li>\n</ul>\n<pre><code># O(n): one pass\nfor x in nums:\n    total += x\n\n# O(n^2): nested pass — every pair\nfor i in range(len(nums)):\n    for j in range(len(nums)):\n        ...</code></pre>\n<div class=\"callout\">Rule of thumb: count the deepest nesting of loops over the input. One loop = O(n). Two nested = O(n²).</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Count how many <b>steps</b> a single loop over 5 items does. Print the count.",
+       "starter": "nums = [1,2,3,4,5]\nsteps = 0\n# add 1 to steps each iteration\n",
+       "hint": "steps += 1 inside a single for loop.",
+       "solution": "nums=[1,2,3,4,5]\nsteps=0\nfor x in nums:\n    steps+=1\nprint(steps)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "5"
+        ]
+       }
+      },
+      {
+       "q": "A nested loop over 5 items is O(n²). Print how many <b>steps</b> it does (5×5).",
+       "starter": "nums=[1,2,3,4,5]\nsteps=0\n# nested loop\n",
+       "hint": "steps += 1 in the inner loop; 5*5 = 25.",
+       "solution": "nums=[1,2,3,4,5]\nsteps=0\nfor i in nums:\n    for j in nums:\n        steps+=1\nprint(steps)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "25"
+        ]
+       }
+      },
+      {
+       "q": "Binary search halves the range each step. Starting from 1000 items, print how many <b>halvings</b> until you reach 1 (count while dividing by 2). It is 9.",
+       "starter": "n = 1000\ncount = 0\n# while n>1: halve it, count\n",
+       "hint": "n = n//2 each loop; count the loops. ~9-10.",
+       "solution": "n=1000\ncount=0\nwhile n>1:\n    n=n//2\n    count+=1\nprint(count)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "9"
+        ]
+       }
+      },
+      {
+       "q": "Print the Big-O of reading one item by index, like nums[3]. (Print exactly: O(1))",
+       "starter": "# what is the complexity of nums[3]?\n",
+       "hint": "Indexing is constant time.",
+       "solution": "print('O(1)')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "O(1)"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "dsa-stack",
+     "title": "Stacks and queues",
+     "mins": 30,
+     "lang": "py",
+     "content": "\n<h3>A stack is last-in, first-out (LIFO)</h3>\n<p>Think of a stack of plates: you add to the top and remove from the top. In Python a list is a ready-made stack: <code>append</code> to push, <code>pop</code> to pop.</p>\n<pre><code>stack = []\nstack.append(1)   # push\nstack.append(2)\nstack.pop()       # 2  (last in, first out)</code></pre>\n<p>Stacks power undo buttons, the back button, and checking balanced brackets.</p>\n<h3>A queue is first-in, first-out (FIFO)</h3>\n<p>Like a line at a shop: first to arrive is first served. Use <code>append</code> to enqueue and <code>pop(0)</code> to dequeue (or <code>collections.deque</code> for speed).</p>\n<pre><code>queue = []\nqueue.append('a')  # enqueue\nqueue.append('b')\nqueue.pop(0)       # 'a'  (first in, first out)</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Push 1, 2, 3 onto a stack, then pop once and print what comes off.",
+       "starter": "stack = []\n# push 1,2,3 then pop\n",
+       "hint": "append three times, then pop() returns 3.",
+       "solution": "stack=[]\nfor x in [1,2,3]: stack.append(x)\nprint(stack.pop())",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "Enqueue 'a','b','c' into a queue, then dequeue once and print what comes off.",
+       "starter": "queue = []\n# enqueue a,b,c then dequeue (pop(0))\n",
+       "hint": "append three, then pop(0) returns 'a'.",
+       "solution": "queue=[]\nfor x in ['a','b','c']: queue.append(x)\nprint(queue.pop(0))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "a"
+        ]
+       }
+      },
+      {
+       "q": "Use a stack to check if <b>( ( ) )</b> is balanced. Print True or False.",
+       "starter": "s = '(())'\nstack = []\n# push on '(', pop on ')'\n",
+       "hint": "For '(' push; for ')' pop. Balanced if stack empties and never pops empty.",
+       "solution": "s='(())'\nstack=[]\nok=True\nfor c in s:\n    if c=='(': stack.append(c)\n    else:\n        if stack: stack.pop()\n        else: ok=False\nprint(ok and not stack)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      },
+      {
+       "q": "Check if <b>( ) )</b> is balanced (it is not). Print True or False.",
+       "starter": "s = '())'\nstack = []\n",
+       "hint": "The extra ')' pops an empty stack → not balanced.",
+       "solution": "s='())'\nstack=[]\nok=True\nfor c in s:\n    if c=='(': stack.append(c)\n    else:\n        if stack: stack.pop()\n        else: ok=False\nprint(ok and not stack)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "False"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "dsa-linked",
+     "title": "Linked lists",
+     "mins": 30,
+     "lang": "py",
+     "content": "\n<h3>A linked list is nodes joined by arrows</h3>\n<p>Instead of one block of memory like an array, a linked list is separate <b>nodes</b>, each holding a value and a pointer to the <b>next</b> node. Insertion is cheap; random access is not.</p>\n<pre><code>class Node:\n    def __init__(self, value):\n        self.value = value\n        self.next = None\n\na = Node(1)\nb = Node(2)\na.next = b        # 1 -> 2</code></pre>\n<h3>Walking the list</h3>\n<pre><code>current = head\nwhile current is not None:\n    print(current.value)\n    current = current.next</code></pre>\n<div class=\"callout\">The classic interview task is <b>reversing</b> a linked list: flip every <code>next</code> pointer to face backwards, tracking previous, current and the next node so you don't lose the rest.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Build the chain 10 -> 20 -> 30 with Node objects and print each value on its own line by walking it.",
+       "starter": "class Node:\n    def __init__(self, v):\n        self.value=v; self.next=None\n# build 10->20->30 and walk it\n",
+       "hint": "Set a.next=b, b.next=c. Then while current: print, move to .next.",
+       "solution": "class Node:\n    def __init__(self,v):\n        self.value=v; self.next=None\na=Node(10); b=Node(20); c=Node(30)\na.next=b; b.next=c\ncur=a\nwhile cur:\n    print(cur.value)\n    cur=cur.next",
+       "answer": "",
+       "check": {
+        "lines": [
+         "10",
+         "20",
+         "30"
+        ]
+       }
+      },
+      {
+       "q": "Count how many nodes are in the chain 5 -> 6 -> 7 -> 8 by walking it. Print the count.",
+       "starter": "class Node:\n    def __init__(self,v):\n        self.value=v; self.next=None\na=Node(5); b=Node(6); c=Node(7); d=Node(8)\na.next=b; b.next=c; c.next=d\n# count nodes\n",
+       "hint": "Walk with a counter until current is None.",
+       "solution": "class Node:\n    def __init__(self,v):\n        self.value=v; self.next=None\na=Node(5);b=Node(6);c=Node(7);d=Node(8)\na.next=b;b.next=c;c.next=d\nn=0;cur=a\nwhile cur:\n    n+=1;cur=cur.next\nprint(n)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4"
+        ]
+       }
+      },
+      {
+       "q": "Reverse the chain 1 -> 2 -> 3 and print the values from the new head. Should print 3,2,1.",
+       "starter": "class Node:\n    def __init__(self,v):\n        self.value=v; self.next=None\na=Node(1); b=Node(2); c=Node(3)\na.next=b; b.next=c\n# reverse pointers, then walk from new head\n",
+       "hint": "prev=None; cur=head; while cur: nxt=cur.next; cur.next=prev; prev=cur; cur=nxt. New head is prev.",
+       "solution": "class Node:\n    def __init__(self,v):\n        self.value=v; self.next=None\na=Node(1);b=Node(2);c=Node(3)\na.next=b;b.next=c\nprev=None;cur=a\nwhile cur:\n    nxt=cur.next; cur.next=prev; prev=cur; cur=nxt\ncur=prev\nwhile cur:\n    print(cur.value); cur=cur.next",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3",
+         "2",
+         "1"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "dsa-sort",
+     "title": "Searching and sorting",
+     "mins": 30,
+     "lang": "py",
+     "content": "\n<h3>Linear vs binary search</h3>\n<p><b>Linear search</b> checks each item — O(n). <b>Binary search</b> works only on a <i>sorted</i> list and halves the range each step — O(log n).</p>\n<pre><code># binary search for target in a sorted list\nlo, hi = 0, len(a)-1\nwhile lo <= hi:\n    mid = (lo+hi)//2\n    if a[mid] == target: found\n    elif a[mid] < target: lo = mid+1\n    else: hi = mid-1</code></pre>\n<h3>Sorting</h3>\n<p>You should understand one simple sort (bubble/insertion, both O(n²)) and know that Python's built-in <code>sorted()</code> is O(n log n) and is what you use in real life.</p>\n<pre><code>bubble idea: repeatedly swap neighbours that are out of order\nprint(sorted([3,1,2]))   # [1, 2, 3]</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Binary search for <b>23</b> in the sorted list. Print the index it is found at.",
+       "starter": "a = [4, 8, 15, 16, 23, 42]\ntarget = 23\nlo, hi = 0, len(a)-1\n",
+       "hint": "Compute mid=(lo+hi)//2, compare, move lo or hi. 23 is at index 4.",
+       "solution": "a=[4,8,15,16,23,42]\ntarget=23\nlo,hi=0,len(a)-1\nwhile lo<=hi:\n    mid=(lo+hi)//2\n    if a[mid]==target:\n        print(mid); break\n    elif a[mid]<target: lo=mid+1\n    else: hi=mid-1",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4"
+        ]
+       }
+      },
+      {
+       "q": "Sort <b>[5, 2, 9, 1, 7]</b> using Python's sorted() and print the result.",
+       "starter": "a = [5, 2, 9, 1, 7]\n",
+       "hint": "print(sorted(a)).",
+       "solution": "a=[5,2,9,1,7]\nprint(sorted(a))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "[1, 2, 5, 7, 9]"
+        ]
+       }
+      },
+      {
+       "q": "Bubble sort <b>[3, 1, 2]</b> by hand (nested loop, swap neighbours) and print it sorted.",
+       "starter": "a = [3, 1, 2]\n# nested loop, swap a[j],a[j+1] if out of order\n",
+       "hint": "For each pass, swap neighbours that are out of order.",
+       "solution": "a=[3,1,2]\nfor i in range(len(a)):\n    for j in range(len(a)-1):\n        if a[j]>a[j+1]:\n            a[j],a[j+1]=a[j+1],a[j]\nprint(a)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "[1, 2, 3]"
+        ]
+       }
+      },
+      {
+       "q": "Linear-search for <b>15</b> and print its index (scan each item).",
+       "starter": "a = [4, 8, 15, 16, 23, 42]\n",
+       "hint": "Loop with enumerate; print the index when found. 15 is at index 2.",
+       "solution": "a=[4,8,15,16,23,42]\nfor i,x in enumerate(a):\n    if x==15:\n        print(i); break",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "dsa-rec",
+     "title": "Recursion and trees",
+     "mins": 30,
+     "lang": "py",
+     "content": "\n<h3>Recursion: a function that calls itself</h3>\n<p>Every recursion needs a <b>base case</b> (when to stop) and a <b>recursive case</b> (a smaller version of the same problem).</p>\n<pre><code>def factorial(n):\n    if n <= 1:          # base case\n        return 1\n    return n * factorial(n-1)   # smaller problem</code></pre>\n<h3>Trees are recursive by nature</h3>\n<p>A binary tree node has a value and up to two children (left, right). Because each child is itself a tree, tree problems are naturally recursive.</p>\n<pre><code>class Node:\n    def __init__(self, v):\n        self.value = v\n        self.left = None\n        self.right = None\n\ndef total(node):\n    if node is None: return 0\n    return node.value + total(node.left) + total(node.right)</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Write factorial with recursion and print <b>factorial(5)</b>.",
+       "starter": "def factorial(n):\n    # base case then recursive case\n    pass\nprint(factorial(5))",
+       "hint": "if n<=1 return 1 else n*factorial(n-1). 5! = 120.",
+       "solution": "def factorial(n):\n    if n<=1: return 1\n    return n*factorial(n-1)\nprint(factorial(5))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "120"
+        ]
+       }
+      },
+      {
+       "q": "Sum 1+2+...+10 using recursion. Print the total.",
+       "starter": "def s(n):\n    # base case n==0 -> 0\n    pass\nprint(s(10))",
+       "hint": "if n==0 return 0 else n+s(n-1). = 55.",
+       "solution": "def s(n):\n    if n==0: return 0\n    return n+s(n-1)\nprint(s(10))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "55"
+        ]
+       }
+      },
+      {
+       "q": "Build a small tree (root 1, left 2, right 3) and print the <b>sum</b> of all values using recursion.",
+       "starter": "class Node:\n    def __init__(self,v):\n        self.value=v; self.left=None; self.right=None\nroot=Node(1); root.left=Node(2); root.right=Node(3)\n# recursive total\n",
+       "hint": "total(node)=0 if None else value+total(left)+total(right). = 6.",
+       "solution": "class Node:\n    def __init__(self,v):\n        self.value=v; self.left=None; self.right=None\nroot=Node(1); root.left=Node(2); root.right=Node(3)\ndef total(n):\n    if n is None: return 0\n    return n.value+total(n.left)+total(n.right)\nprint(total(root))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "6"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    }
+   ]
+  },
+  {
+   "id": "aptitude",
+   "icon": "🧩",
+   "name": "Aptitude & Reasoning",
+   "level": "Placement · aptitude",
+   "color": "#e8a33d",
+   "weeks": 4,
+   "lang": "Python",
+   "audience": "graduate",
+   "position": 1,
+   "desc": "The quantitative and logical reasoning that fills the first round of most graduate hiring tests — percentages, ratios, profit/loss, speed and work, number series, and word puzzles you solve by computing.",
+   "outcomes": [
+    "Do percentage, ratio and average problems fast",
+    "Handle profit/loss, interest, speed and work",
+    "Spot number-series patterns",
+    "Turn word puzzles into quick programs"
+   ],
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "apt-pct",
+     "title": "Percentages, ratios and averages",
+     "mins": 25,
+     "lang": "py",
+     "content": "\n<h3>Percentages</h3>\n<p>\"x percent\" means x per 100. To take p% of a number: <code>number * p / 100</code>.</p>\n<pre><code>25% of 800  = 800 * 25/100 = 200\na 25% discount on 800 = 800 * (100-25)/100 = 600</code></pre>\n<h3>Ratios</h3>\n<p>A ratio 2:3 splits a total into 2+3 = 5 parts. Each part = total / 5.</p>\n<h3>Averages</h3>\n<p>Average = sum of values / how many values.</p>\n<div class=\"callout\">In aptitude tests speed matters. Do the arithmetic in your head where you can, but here you'll compute it in Python to lock in the method.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A shirt costs 800. In a <b>25% off</b> sale, what do you pay? Print the price.",
+       "starter": "price = 800\n# 25% off\n",
+       "hint": "800 * (100-25)/100 = 600.",
+       "solution": "price=800\nprint(int(price*(100-25)/100))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "600"
+        ]
+       }
+      },
+      {
+       "q": "What is <b>15%</b> of 240? Print it.",
+       "starter": "# 15 percent of 240\n",
+       "hint": "240*15/100 = 36.",
+       "solution": "print(int(240*15/100))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "36"
+        ]
+       }
+      },
+      {
+       "q": "Split <b>1500</b> in the ratio <b>2:3</b>. Print the two parts (smaller first) on two lines.",
+       "starter": "total = 1500\n# 2:3 -> 5 parts\n",
+       "hint": "part = 1500/5 = 300. Parts are 2*300 and 3*300.",
+       "solution": "total=1500\np=total//5\nprint(2*p)\nprint(3*p)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "600",
+         "900"
+        ]
+       }
+      },
+      {
+       "q": "The scores are 70, 85, 90, 95. Print the <b>average</b>.",
+       "starter": "scores = [70, 85, 90, 95]\n",
+       "hint": "sum/len = 340/4 = 85.",
+       "solution": "scores=[70,85,90,95]\nprint(int(sum(scores)/len(scores)))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "85"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "apt-money",
+     "title": "Profit, loss and interest",
+     "mins": 25,
+     "lang": "py",
+     "content": "\n<h3>Profit and loss</h3>\n<p>Profit = selling price − cost price. Profit percent is measured <b>on the cost price</b>: <code>profit / cost * 100</code>.</p>\n<pre><code>cost 500, sold 650  -> profit 150 -> 150/500*100 = 30%</code></pre>\n<h3>Simple interest</h3>\n<p><code>interest = principal * rate * time / 100</code>. Rate is percent per year, time in years.</p>\n<pre><code>2000 at 5% for 3 years -> 2000*5*3/100 = 300</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Cost 500, sold for 650. Print the <b>profit percent</b>.",
+       "starter": "cost = 500\nsell = 650\n",
+       "hint": "(sell-cost)/cost*100 = 30.",
+       "solution": "cost=500; sell=650\nprint(int((sell-cost)/cost*100))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "30"
+        ]
+       }
+      },
+      {
+       "q": "Simple interest on <b>2000</b> at <b>5%</b> for <b>3</b> years. Print it.",
+       "starter": "p=2000; r=5; t=3\n",
+       "hint": "p*r*t/100 = 300.",
+       "solution": "p=2000; r=5; t=3\nprint(int(p*r*t/100))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "300"
+        ]
+       }
+      },
+      {
+       "q": "An item marked 1200 is sold at a <b>10% loss</b>. Print the selling price.",
+       "starter": "marked = 1200\n# 10% loss\n",
+       "hint": "1200*(100-10)/100 = 1080.",
+       "solution": "marked=1200\nprint(int(marked*(100-10)/100))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "1080"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "apt-speed",
+     "title": "Speed, time and work",
+     "mins": 25,
+     "lang": "py",
+     "content": "\n<h3>Speed, time, distance</h3>\n<p>The one formula: <code>distance = speed × time</code>. Rearrange for what you need. Keep units consistent (km &amp; hours, or m &amp; seconds).</p>\n<pre><code>60 km/h for 2 h -> 120 km\n120 km at 40 km/h -> 120/40 = 3 hours</code></pre>\n<h3>Work</h3>\n<p>If someone does a job in <b>n</b> days, in one day they do <code>1/n</code> of it. Two people together do <code>1/a + 1/b</code> per day; time = 1 divided by that.</p>\n<pre><code>A: 10 days, B: 15 days -> per day 1/10+1/15 = 1/6 -> 6 days together</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A car travels at <b>60</b> km/h for <b>2.5</b> hours. Print the distance (km).",
+       "starter": "speed=60; time=2.5\n",
+       "hint": "distance = speed*time = 150.",
+       "solution": "speed=60; time=2.5\nprint(int(speed*time))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "150"
+        ]
+       }
+      },
+      {
+       "q": "How many hours to cover <b>240</b> km at <b>80</b> km/h? Print it.",
+       "starter": "dist=240; speed=80\n",
+       "hint": "time = dist/speed = 3.",
+       "solution": "dist=240; speed=80\nprint(int(dist/speed))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "A does a job in 10 days, B in 15 days. Print how many days <b>together</b>.",
+       "starter": "a=10; b=15\n# per day 1/a+1/b, time=1/that\n",
+       "hint": "1/10+1/15 = 1/6 → 6 days.",
+       "solution": "a=10; b=15\nrate=1/a+1/b\nprint(int(round(1/rate)))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "6"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "apt-num",
+     "title": "Numbers, series and patterns",
+     "mins": 25,
+     "lang": "py",
+     "content": "\n<h3>Number series</h3>\n<p>Find the rule connecting the terms: adding a constant, multiplying, squares, or differences that themselves form a pattern.</p>\n<pre><code>2, 4, 6, 8, ?     -> +2 each -> 10\n3, 6, 12, 24, ?   -> ×2 each -> 48\n1, 4, 9, 16, ?    -> squares -> 25</code></pre>\n<h3>Divisibility, GCD, LCM, primes</h3>\n<ul>\n<li><b>GCD</b> — biggest number dividing both. <b>LCM</b> — smallest number both divide.</li>\n<li>A <b>prime</b> has exactly two divisors: 1 and itself.</li>\n</ul>\n<pre><code>import math\nmath.gcd(12, 18)   # 6</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Continue the series 3, 6, 12, 24, ... Print the <b>next</b> term.",
+       "starter": "# each term doubles\n",
+       "hint": "24 * 2 = 48.",
+       "solution": "print(24*2)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "48"
+        ]
+       }
+      },
+      {
+       "q": "Print the next term of 1, 4, 9, 16, ... (they are squares).",
+       "starter": "# squares: 1,4,9,16 -> next is 5 squared\n",
+       "hint": "5**2 = 25.",
+       "solution": "print(5**2)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "25"
+        ]
+       }
+      },
+      {
+       "q": "Print the <b>GCD</b> of 24 and 36.",
+       "starter": "import math\n",
+       "hint": "math.gcd(24,36) = 12.",
+       "solution": "import math\nprint(math.gcd(24,36))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "12"
+        ]
+       }
+      },
+      {
+       "q": "Print all <b>prime</b> numbers below 10, one per line.",
+       "starter": "# 2,3,5,7 are prime\nfor n in range(2,10):\n    pass\n",
+       "hint": "A number is prime if no number from 2..n-1 divides it.",
+       "solution": "for n in range(2,10):\n    prime=True\n    for d in range(2,n):\n        if n%d==0: prime=False\n    if prime: print(n)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2",
+         "3",
+         "5",
+         "7"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "apt-logic",
+     "title": "Logical reasoning you can compute",
+     "mins": 25,
+     "lang": "py",
+     "content": "\n<h3>Turn word puzzles into small programs</h3>\n<p>Many logical-reasoning questions become easy when you let the computer try every possibility. This is exactly how you'd verify your reasoning in an interview too.</p>\n<pre><code># \"A number, doubled and increased by 3, gives 17. What is it?\"\nfor n in range(1, 100):\n    if 2*n + 3 == 17:\n        print(n)   # 7</code></pre>\n<h3>Counting and arrangements</h3>\n<p>How many 2-digit numbers can be made from digits 1,2,3 with no repeat? Try them all and count.</p>\n<pre><code>count = 0\nfor a in [1,2,3]:\n    for b in [1,2,3]:\n        if a != b:\n            count += 1\nprint(count)   # 6</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A number doubled and increased by 3 gives <b>17</b>. Find it by trying values. Print it.",
+       "starter": "for n in range(1, 100):\n    # 2n+3 == 17 ?\n    pass\n",
+       "hint": "Loop and test 2*n+3==17. Answer 7.",
+       "solution": "for n in range(1,100):\n    if 2*n+3==17:\n        print(n)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "7"
+        ]
+       }
+      },
+      {
+       "q": "How many <b>two-digit</b> numbers can be formed from 1,2,3 with <b>no repeated</b> digit? Print the count.",
+       "starter": "count = 0\n# try all a,b with a!=b\n",
+       "hint": "Nested loop over [1,2,3], count when a!=b. Answer 6.",
+       "solution": "count=0\nfor a in [1,2,3]:\n    for b in [1,2,3]:\n        if a!=b: count+=1\nprint(count)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "6"
+        ]
+       }
+      },
+      {
+       "q": "Three consecutive numbers add up to <b>72</b>. Print the <b>middle</b> one.",
+       "starter": "for n in range(1, 100):\n    # n + (n+1) + (n+2) == 72 ?\n    pass\n",
+       "hint": "The middle is n+1. Sum is 3n+3=72 → n=23, middle 24.",
+       "solution": "for n in range(1,100):\n    if n+(n+1)+(n+2)==72:\n        print(n+1)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "24"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    }
+   ]
+  }
+ ]
+}
