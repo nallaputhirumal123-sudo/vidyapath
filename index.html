@@ -2315,7 +2315,7 @@ function renderCareers(){
 
 /* ===================== COLORING FUN ===================== */
 const CLR_SWATCHES=["#e74c3c","#e67e22","#f1c40f","#7ed957","#2ecc71","#00b5d8","#3498db","#5b6cff","#9b59b6","#ff77c8","#8d5524","#111111","#9aa5b1","#ffffff"];
-const CLR_CATS=["Animals","Nature","Fun","Vehicles"];
+const CLR_CATS=["Animals","Nature","Fun","Vehicles","Food","Shapes"];
 /* Each page is line art. Every element with class="reg" is a tappable region. */
 const CLR_PAGES=[
  {id:"cat",cat:"Animals",name:"Cat",art:`
@@ -2400,6 +2400,161 @@ const CLR_PAGES=[
   <rect class="reg" data-r="mast" x="102" y="55" width="6" height="75"/>
   <polygon class="reg" data-r="sail" points="100,58 100,122 55,122"/>
   <polygon class="reg" data-r="flag" points="108,58 108,74 132,66"/>`},
+ {id:"dog",cat:"Animals",name:"Dog",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="earL" cx="58" cy="95" rx="16" ry="34"/>
+  <ellipse class="reg" data-r="earR" cx="142" cy="95" rx="16" ry="34"/>
+  <circle class="reg" data-r="head" cx="100" cy="100" r="50"/>
+  <circle class="reg" data-r="eyeL" cx="84" cy="92" r="7"/>
+  <circle class="reg" data-r="eyeR" cx="116" cy="92" r="7"/>
+  <ellipse class="reg" data-r="snout" cx="100" cy="120" rx="26" ry="18"/>
+  <circle class="reg" data-r="nose" cx="100" cy="112" r="7"/>
+  <path class="noreg" d="M100 119 V130 M100 130 Q90 132 86 126 M100 130 Q110 132 114 126" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"rabbit",cat:"Animals",name:"Rabbit",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="earL" cx="82" cy="45" rx="12" ry="38"/>
+  <ellipse class="reg" data-r="earR" cx="118" cy="45" rx="12" ry="38"/>
+  <circle class="reg" data-r="head" cx="100" cy="110" r="44"/>
+  <circle class="reg" data-r="eyeL" cx="85" cy="104" r="6"/>
+  <circle class="reg" data-r="eyeR" cx="115" cy="104" r="6"/>
+  <ellipse class="reg" data-r="nose" cx="100" cy="120" rx="6" ry="4"/>
+  <path class="noreg" d="M100 124 V132 M80 126 H62 M80 132 H64 M120 126 H138 M120 132 H136" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"bird",cat:"Animals",name:"Bird",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="body" cx="100" cy="115" rx="48" ry="42"/>
+  <circle class="reg" data-r="head" cx="100" cy="62" r="30"/>
+  <polygon class="reg" data-r="beak" points="100,60 126,70 100,80"/>
+  <circle class="reg" data-r="eye" cx="92" cy="56" r="6"/>
+  <path class="reg" data-r="wing" d="M100 100 Q60 108 66 140 Q96 138 100 108 Z"/>
+  <ellipse class="reg" data-r="foot" cx="90" cy="158" rx="8" ry="6"/>
+  <ellipse class="reg" data-r="foot2" cx="112" cy="158" rx="8" ry="6"/>`},
+ {id:"turtle",cat:"Animals",name:"Turtle",art:`
+  <rect class="reg" data-r="water" x="0" y="0" width="200" height="200"/>
+  <circle class="reg" data-r="shell" cx="100" cy="105" r="48"/>
+  <circle class="reg" data-r="head" cx="100" cy="46" r="16"/>
+  <ellipse class="reg" data-r="legL" cx="58" cy="130" rx="14" ry="10"/>
+  <ellipse class="reg" data-r="legR" cx="142" cy="130" rx="14" ry="10"/>
+  <ellipse class="reg" data-r="tail" cx="100" cy="158" rx="10" ry="8"/>
+  <path class="noreg" d="M100 62 V148 M62 92 H138 M70 128 H130" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"ladybug",cat:"Animals",name:"Ladybug",art:`
+  <rect class="reg" data-r="leaf" x="0" y="0" width="200" height="200"/>
+  <circle class="reg" data-r="body" cx="100" cy="110" r="55"/>
+  <circle class="reg" data-r="head" cx="100" cy="58" r="20"/>
+  <circle class="reg" data-r="d1" cx="78" cy="100" r="9"/>
+  <circle class="reg" data-r="d2" cx="122" cy="100" r="9"/>
+  <circle class="reg" data-r="d3" cx="82" cy="132" r="9"/>
+  <circle class="reg" data-r="d4" cx="118" cy="132" r="9"/>
+  <path class="noreg" d="M100 58 V165" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"rainbow",cat:"Nature",name:"Rainbow",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="r1" d="M25 170 A75 75 0 0 1 175 170 L160 170 A60 60 0 0 0 40 170 Z"/>
+  <path class="reg" data-r="r2" d="M40 170 A60 60 0 0 1 160 170 L145 170 A45 45 0 0 0 55 170 Z"/>
+  <path class="reg" data-r="r3" d="M55 170 A45 45 0 0 1 145 170 L130 170 A30 30 0 0 0 70 170 Z"/>
+  <circle class="reg" data-r="cloudL" cx="35" cy="170" r="20"/>
+  <circle class="reg" data-r="cloudR" cx="165" cy="170" r="20"/>`},
+ {id:"mushroom",cat:"Nature",name:"Mushroom",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="cap" d="M40 105 Q100 25 160 105 Z"/>
+  <rect class="reg" data-r="stem" x="82" y="105" width="36" height="70" rx="8"/>
+  <circle class="reg" data-r="s1" cx="80" cy="80" r="9"/>
+  <circle class="reg" data-r="s2" cx="118" cy="72" r="7"/>
+  <circle class="reg" data-r="s3" cx="105" cy="95" r="6"/>`},
+ {id:"cactus",cat:"Nature",name:"Cactus",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <rect class="reg" data-r="body" x="86" y="60" width="28" height="115" rx="14"/>
+  <path class="reg" data-r="armL" d="M86 105 H64 Q54 105 54 92 V78 Q54 70 62 70 Q70 70 70 78 V95 H86 Z"/>
+  <path class="reg" data-r="armR" d="M114 120 H136 Q146 120 146 107 V95 Q146 87 138 87 Q130 87 130 95 V110 H114 Z"/>
+  <rect class="reg" data-r="pot" x="70" y="150" width="60" height="35" rx="5"/>`},
+ {id:"robot",cat:"Fun",name:"Robot",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <rect class="reg" data-r="head" x="62" y="35" width="76" height="60" rx="10"/>
+  <circle class="reg" data-r="eyeL" cx="85" cy="62" r="8"/>
+  <circle class="reg" data-r="eyeR" cx="115" cy="62" r="8"/>
+  <rect class="reg" data-r="body" x="55" y="100" width="90" height="70" rx="8"/>
+  <rect class="reg" data-r="tummy" x="80" y="118" width="40" height="34" rx="5"/>
+  <rect class="reg" data-r="armL" x="34" y="105" width="18" height="55" rx="8"/>
+  <rect class="reg" data-r="armR" x="148" y="105" width="18" height="55" rx="8"/>
+  <path class="noreg" d="M100 35 V20 M100 20 a4 4 0 1 0 0.1 0" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"crown",cat:"Fun",name:"Crown",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="crown" d="M40 150 L40 80 L70 110 L100 60 L130 110 L160 80 L160 150 Z"/>
+  <rect class="reg" data-r="band" x="40" y="150" width="120" height="22"/>
+  <circle class="reg" data-r="g1" cx="70" cy="90" r="7"/>
+  <circle class="reg" data-r="g2" cx="100" cy="78" r="8"/>
+  <circle class="reg" data-r="g3" cx="130" cy="90" r="7"/>`},
+ {id:"kite",cat:"Fun",name:"Kite",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <polygon class="reg" data-r="top" points="100,30 140,90 100,105 60,90"/>
+  <polygon class="reg" data-r="bottom" points="60,90 100,105 140,90 100,150"/>
+  <path class="noreg" d="M100 150 Q112 168 96 188 M100 150 Q88 170 104 190" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"gift",cat:"Fun",name:"Gift box",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <rect class="reg" data-r="box" x="48" y="90" width="104" height="90"/>
+  <rect class="reg" data-r="lid" x="40" y="72" width="120" height="24"/>
+  <rect class="reg" data-r="ribbon" x="90" y="72" width="20" height="108"/>
+  <path class="reg" data-r="bow" d="M100 72 Q70 42 66 66 Q64 82 100 72 Q136 82 134 66 Q130 42 100 72 Z"/>`},
+ {id:"rocket",cat:"Vehicles",name:"Rocket",art:`
+  <rect class="reg" data-r="space" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="body" d="M100 25 Q135 70 130 140 H70 Q65 70 100 25 Z"/>
+  <circle class="reg" data-r="window" cx="100" cy="80" r="16"/>
+  <polygon class="reg" data-r="finL" points="70,120 45,155 70,145"/>
+  <polygon class="reg" data-r="finR" points="130,120 155,155 130,145"/>
+  <polygon class="reg" data-r="flame" points="80,140 120,140 100,185"/>
+  <circle class="reg" data-r="st1" cx="35" cy="50" r="5"/>
+  <circle class="reg" data-r="st2" cx="165" cy="70" r="5"/>`},
+ {id:"train",cat:"Vehicles",name:"Train",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="140"/>
+  <rect class="reg" data-r="ground" x="0" y="140" width="200" height="60"/>
+  <rect class="reg" data-r="body" x="35" y="80" width="110" height="60" rx="8"/>
+  <rect class="reg" data-r="cab" x="120" y="55" width="45" height="85" rx="6"/>
+  <rect class="reg" data-r="window" x="128" y="68" width="30" height="26"/>
+  <rect class="reg" data-r="chimney" x="55" y="55" width="20" height="28"/>
+  <circle class="reg" data-r="wheelL" cx="65" cy="150" r="16"/>
+  <circle class="reg" data-r="wheelR" cx="120" cy="150" r="16"/>`},
+ {id:"plane",cat:"Vehicles",name:"Plane",art:`
+  <rect class="reg" data-r="sky" x="0" y="0" width="200" height="200"/>
+  <ellipse class="reg" data-r="body" cx="100" cy="100" rx="70" ry="22"/>
+  <polygon class="reg" data-r="wing" points="90,100 130,55 140,60 110,100"/>
+  <polygon class="reg" data-r="wing2" points="90,100 130,145 140,140 110,100"/>
+  <polygon class="reg" data-r="tail" points="30,100 45,75 55,100"/>
+  <circle class="reg" data-r="win1" cx="95" cy="100" r="7"/>
+  <circle class="reg" data-r="win2" cx="120" cy="100" r="7"/>`},
+ {id:"apple",cat:"Food",name:"Apple",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="apple" d="M100 65 Q70 55 55 90 Q45 140 100 165 Q155 140 145 90 Q130 55 100 65 Z"/>
+  <path class="reg" data-r="leaf" d="M100 62 Q120 40 140 50 Q125 70 100 66 Z"/>
+  <rect class="reg" data-r="stem" x="97" y="42" width="6" height="24" rx="3"/>`},
+ {id:"icecream",cat:"Food",name:"Ice cream",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <circle class="reg" data-r="scoop1" cx="100" cy="70" r="34"/>
+  <circle class="reg" data-r="scoop2" cx="78" cy="95" r="26"/>
+  <circle class="reg" data-r="scoop3" cx="122" cy="95" r="26"/>
+  <polygon class="reg" data-r="cone" points="62,110 138,110 100,185"/>
+  <circle class="reg" data-r="cherry" cx="100" cy="40" r="9"/>`},
+ {id:"cupcake",cat:"Food",name:"Cupcake",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="top" d="M55 100 Q55 55 100 55 Q145 55 145 100 Z"/>
+  <path class="reg" data-r="cup" d="M62 105 H138 L128 175 H72 Z"/>
+  <circle class="reg" data-r="cherry" cx="100" cy="50" r="10"/>
+  <path class="noreg" d="M78 120 V170 M100 118 V172 M122 120 V170" fill="none" stroke="#111" stroke-width="2"/>`},
+ {id:"watermelon",cat:"Food",name:"Watermelon",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="rind" d="M30 70 A70 70 0 0 0 170 70 Z"/>
+  <path class="reg" data-r="flesh" d="M45 70 A55 55 0 0 0 155 70 Z"/>
+  <circle class="reg" data-r="s1" cx="80" cy="95" r="5"/>
+  <circle class="reg" data-r="s2" cx="100" cy="110" r="5"/>
+  <circle class="reg" data-r="s3" cx="120" cy="95" r="5"/>`},
+ {id:"heart",cat:"Shapes",name:"Heart",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <path class="reg" data-r="heart" d="M100 165 Q35 120 35 78 Q35 45 68 45 Q90 45 100 70 Q110 45 132 45 Q165 45 165 78 Q165 120 100 165 Z"/>
+  <circle class="reg" data-r="s1" cx="40" cy="40" r="6"/>
+  <circle class="reg" data-r="s2" cx="160" cy="150" r="6"/>`},
+ {id:"shapes",cat:"Shapes",name:"Shapes",art:`
+  <rect class="reg" data-r="bg" x="0" y="0" width="200" height="200"/>
+  <circle class="reg" data-r="circle" cx="60" cy="60" r="34"/>
+  <rect class="reg" data-r="square" x="110" y="28" width="64" height="64"/>
+  <polygon class="reg" data-r="triangle" points="60,110 96,175 24,175"/>
+  <polygon class="reg" data-r="diamond" points="142,110 174,142 142,174 110,142"/>`},
 ];
 const COLORING={cat:"Animals", pageId:null, color:"#f1c40f"};
 function clrFills(id){ try{ return JSON.parse(S.notes["clr_"+id]||"{}"); }catch(e){ return {}; } }
