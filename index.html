@@ -309,6 +309,10 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .clr-sw{width:44px;height:44px;border-radius:12px;border:3px solid var(--line);cursor:pointer;padding:0}
 .clr-sw.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,153,51,.3)}
 @media(max-width:520px){.clr-palette{grid-template-columns:repeat(4,44px)}}
+.std-wrap{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.std-col{flex:1;min-width:280px}
+#stdCode{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:12px;outline:none}
+#stdCode:focus{border-color:var(--accent)}
 @keyframes askChalk{from{opacity:0;filter:blur(3px);transform:translateY(4px)}to{opacity:1;filter:blur(0);transform:none}}
 .ask-empty{font-family:'Kalam',cursive;font-size:23px;color:rgba(234,255,242,.55);min-height:290px;
   display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.5}
@@ -842,7 +846,7 @@ function renderNav(){
       <button class="navitem ${S.view.page==="class"?"active":""}" data-nav="class"><span class="ic">🎓</span><span class="nm">My class</span></button>
       <button class="navitem ${S.view.page==="careers"?"active":""}" data-nav="careers"><span class="ic">💼</span><span class="nm">Careers &amp; jobs</span></button>
       <button class="navitem ${S.view.page==="color"?"active":""}" data-nav="color"><span class="ic">🎨</span><span class="nm">Coloring fun</span></button>
-      <button class="navitem ${S.view.page==="arcade"?"active":""}" data-nav="arcade"><span class="ic">🎮</span><span class="nm">Arcade — play &amp; build</span></button>
+      <button class="navitem ${S.view.page==="studio"?"active":""}" data-nav="studio"><span class="ic">🎮</span><span class="nm">Game Studio — build one</span></button>
       <button class="navitem ${S.view.page==="resources"?"active":""}" data-nav="resources"><span class="ic">🔗</span><span class="nm">All resources</span></button>`;
   if(USER.is_teacher) h+=`<button class="navitem ${S.view.page==="teacher"?"active":""}" data-nav="teacher"><span class="ic">🧑‍🏫</span><span class="nm">Teacher dashboard</span></button>`;
   if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
@@ -2732,187 +2736,288 @@ document.addEventListener("click",e=>{
   render();
 });
 
-/* ===================== ARCADE (playable games) ===================== */
-window.ARCADE={raf:0, iv:0, keyfn:null, game:null};
-function stopArcade(){
-  if(ARCADE.raf) cancelAnimationFrame(ARCADE.raf);
-  if(ARCADE.iv) clearInterval(ARCADE.iv);
-  if(ARCADE.keyfn) window.removeEventListener("keydown",ARCADE.keyfn);
-  ARCADE.raf=0; ARCADE.iv=0; ARCADE.keyfn=null;
+/* ===================== GAME STUDIO (build a game step by step) ===================== */
+/* The student writes real canvas/JS code for each step and runs it live in a
+   sandboxed preview. By the last step they have coded a complete playable game. */
+const STUDIO_STEPS=[
+{title:"1. The canvas & the game loop", instr:`
+<p>Every game is a <b>loop</b> that repaints the screen ~60 times a second. Here it just paints a blue sky each frame. Press <b>Run ▶</b> and you'll see it.</p>
+<p><code>requestAnimationFrame(loop)</code> is what asks the browser to run your loop again next frame.</p>`,
+code:`// The game loop runs about 60 times a second.
+function loop(){
+  ctx.fillStyle = "#8ecae6";      // sky blue
+  ctx.fillRect(0, 0, 320, 420);   // paint the whole screen
+  requestAnimationFrame(loop);    // run me again next frame
 }
-const ARCADE_GAMES=[
-  {id:"build",emoji:"🧱",name:"Block Builder",desc:"Build a world block by block — pick a block, paint the land, like Minecraft in 2D. Saves automatically."},
-  {id:"snake",emoji:"🐍",name:"Snake",desc:"The classic. Eat the apples, grow longer, don't hit yourself. Arrow keys or the on-screen buttons."},
-  {id:"memory",emoji:"🧠",name:"Memory Match",desc:"Flip the cards and find the matching pairs in as few moves as you can."},
-  {id:"catch",emoji:"🧺",name:"Fruit Catch",desc:"Move the basket and catch the falling fruit. Miss three and it's over."},
-];
-function renderArcade(){
-  stopArcade();
-  if(ARCADE.game==="build") return gameBuild();
-  if(ARCADE.game==="snake") return gameSnake();
-  if(ARCADE.game==="memory") return gameMemory();
-  if(ARCADE.game==="catch") return gameCatch();
-  $("#main").innerHTML=`<div class="h1">🎮 Arcade — play &amp; build</div>
-  <p class="sub">Play games right here, then head to the Game Development track to learn how they're made. More coming.</p>
-  <div class="clr-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
-    ${ARCADE_GAMES.map(g=>`<button class="card" style="text-align:left;cursor:pointer" data-arc="play" data-v="${g.id}">
-      <div style="font-size:30px">${g.emoji}</div>
-      <div style="font-weight:700;font-size:16px;margin-top:6px">${esc(g.name)}</div>
-      <div style="font-size:13px;color:var(--dim);margin-top:4px">${esc(g.desc)}</div>
-    </button>`).join("")}
-  </div>`;
-}
-function arcadeHead(name){
-  return `<div class="crumb"><button data-arc="menu">← All games</button></div><div class="h1" style="margin-bottom:6px">${name}</div>`;
-}
+loop();`},
 
-/* ---- Block Builder (Minecraft-style 2D) ---- */
-const BLK=[{n:"Grass",c:"#6ab04c"},{n:"Dirt",c:"#8d5524"},{n:"Stone",c:"#7f8c8d"},{n:"Wood",c:"#a0522d"},
-  {n:"Leaf",c:"#2ecc71"},{n:"Water",c:"#3498db"},{n:"Sand",c:"#f1c40f"},{n:"Brick",c:"#c0392b"},{n:"Erase",c:""}];
-let BUILD={sel:0, world:{}, cols:26, rows:18};
-function gameBuild(){
-  try{ BUILD.world=JSON.parse(S.notes["arcade_world"]||"{}"); }catch(e){ BUILD.world={}; }
-  $("#main").innerHTML=arcadeHead("🧱 Block Builder")+`
-  <p class="sub">Pick a block, then click or drag on the world to place it. Choose Erase to remove.</p>
-  <div class="ask-chips" style="margin-bottom:10px">
-    ${BLK.map((b,i)=>`<button class="ask-chip ${BUILD.sel===i?"on":""}" data-arc="blk" data-v="${i}">${b.c?`<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${b.c};vertical-align:-1px;margin-right:5px"></span>`:"🧽 "}${b.n}</button>`).join("")}
-  </div>
-  <div style="background:#111;border-radius:12px;padding:8px;display:inline-block;max-width:100%">
-    <canvas id="bcv" width="${BUILD.cols*22}" height="${BUILD.rows*22}" style="display:block;max-width:100%;height:auto;touch-action:none;border-radius:6px"></canvas>
-  </div>
-  <div class="row" style="margin-top:10px;gap:8px"><button class="btn ghost sm" data-arc="bclear">Clear world</button></div>`;
-  const cv=$("#bcv"), ctx=cv.getContext("2d"), cs=22;
-  function draw(){
-    ctx.fillStyle="#8ecae6"; ctx.fillRect(0,0,cv.width,cv.height);            // sky
-    ctx.fillStyle="rgba(255,255,255,.06)";
-    for(let x=0;x<=BUILD.cols;x++){ctx.fillRect(x*cs,0,1,cv.height);} for(let y=0;y<=BUILD.rows;y++){ctx.fillRect(0,y*cs,cv.width,1);}
-    for(const k in BUILD.world){ const [x,y]=k.split(",").map(Number); const b=BLK[BUILD.world[k]]; if(!b||!b.c)continue;
-      ctx.fillStyle=b.c; ctx.fillRect(x*cs+1,y*cs+1,cs-2,cs-2);
-      ctx.fillStyle="rgba(0,0,0,.12)"; ctx.fillRect(x*cs+1,y*cs+cs-5,cs-2,4); }
-  }
-  draw();
-  let painting=false;
-  function cellFromEvent(e){
-    const r=cv.getBoundingClientRect(), sx=cv.width/r.width;
-    const p=e.touches?e.touches[0]:e;
-    const x=Math.floor((p.clientX-r.left)*sx/cs), y=Math.floor((p.clientY-r.top)*sx/cs);
-    return [x,y];
-  }
-  function place(e){
-    const [x,y]=cellFromEvent(e); if(x<0||y<0||x>=BUILD.cols||y>=BUILD.rows)return;
-    const k=x+","+y;
-    if(BLK[BUILD.sel].c==="") delete BUILD.world[k]; else BUILD.world[k]=BUILD.sel;
-    draw();
-    clearTimeout(BUILD._t); BUILD._t=setTimeout(()=>api.post("/api/note",{key:"arcade_world",value:JSON.stringify(BUILD.world).slice(0,4900)}).catch(()=>{}),500);
-  }
-  cv.onpointerdown=e=>{painting=true;place(e);};
-  cv.onpointermove=e=>{if(painting)place(e);};
-  window.addEventListener("pointerup",()=>painting=false);
-}
+{title:"2. Draw the basket", instr:`
+<p>Now draw a <b>basket</b> near the bottom — a brown rectangle. We redraw it every frame (right after clearing the sky) so it stays visible.</p>
+<p>Try changing the colour or size and Run again.</p>`,
+code:`function loop(){
+  ctx.fillStyle = "#8ecae6";
+  ctx.fillRect(0, 0, 320, 420);
 
-/* ---- Snake ---- */
-function gameSnake(){
-  $("#main").innerHTML=arcadeHead("🐍 Snake")+`
-  <p class="sub">Arrow keys / WASD, or the buttons below. Score: <b id="sscore">0</b></p>
-  <div style="background:#0d1f17;border-radius:12px;padding:8px;display:inline-block;max-width:100%">
-    <canvas id="scv" width="400" height="400" style="display:block;max-width:100%;height:auto;border-radius:6px"></canvas></div>
-  <div id="sover" style="margin-top:10px"></div>
-  <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
-    <button class="btn ghost sm" data-arc="sdir" data-v="up">↑</button>
-    <button class="btn ghost sm" data-arc="sdir" data-v="left">←</button>
-    <button class="btn ghost sm" data-arc="sdir" data-v="down">↓</button>
-    <button class="btn ghost sm" data-arc="sdir" data-v="right">→</button></div>`;
-  const cv=$("#scv"), ctx=cv.getContext("2d"), N=20, cs=20;
-  let snake=[{x:10,y:10}], dir={x:1,y:0}, nd={x:1,y:0}, food={x:15,y:10}, score=0, dead=false;
-  window.SNAKE_SET=d=>{ const map={up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}}[d];
-    if(map&&(map.x!==-dir.x||map.y!==-dir.y)) nd=map; };
-  ARCADE.keyfn=e=>{ const m={ArrowUp:"up",ArrowDown:"down",ArrowLeft:"left",ArrowRight:"right",w:"up",s:"down",a:"left",d:"right"}[e.key];
-    if(m){ e.preventDefault(); window.SNAKE_SET(m);} };
-  window.addEventListener("keydown",ARCADE.keyfn);
-  function food_new(){ food={x:Math.floor(Math.random()*N),y:Math.floor(Math.random()*N)}; }
-  function tick(){
-    if(dead)return;
-    dir=nd; const head={x:(snake[0].x+dir.x+N)%N,y:(snake[0].y+dir.y+N)%N};
-    if(snake.some(s=>s.x===head.x&&s.y===head.y)){ dead=true; $("#sover").innerHTML=`<b style="color:#e05a5a">Game over — score ${score}.</b> <button class="btn sm" data-arc="play" data-v="snake">Play again</button>`; return; }
-    snake.unshift(head);
-    if(head.x===food.x&&head.y===food.y){ score++; $("#sscore").textContent=score; food_new(); } else snake.pop();
-    ctx.fillStyle="#0d1f17"; ctx.fillRect(0,0,400,400);
-    ctx.fillStyle="#e05a5a"; ctx.fillRect(food.x*cs+2,food.y*cs+2,cs-4,cs-4);
-    ctx.fillStyle="#8fe3b0"; snake.forEach((s,i)=>{ ctx.fillStyle=i===0?"#c8ffe0":"#8fe3b0"; ctx.fillRect(s.x*cs+1,s.y*cs+1,cs-2,cs-2); });
-  }
-  ARCADE.iv=setInterval(tick,110);
-}
+  // the basket: x=130, y=380, width 60, height 20
+  ctx.fillStyle = "#a0522d";
+  ctx.fillRect(130, 380, 60, 20);
 
-/* ---- Memory Match ---- */
-function gameMemory(){
-  const ico=["🐶","🐱","🦊","🐼","🐸","🦁","🐵","🐧"];
-  let deck=[...ico,...ico].map(v=>({v,up:false,done:false})).sort(()=>Math.random()-0.5);
-  let first=-1, moves=0, lock=false;
-  $("#main").innerHTML=arcadeHead("🧠 Memory Match")+`<p class="sub">Moves: <b id="mmoves">0</b></p>
-  <div id="mgrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;max-width:420px"></div>
-  <div id="mwin" style="margin-top:12px"></div>`;
-  function paint(){
-    $("#mgrid").innerHTML=deck.map((c,i)=>`<button class="card" data-mm="${i}" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:34px;cursor:pointer;${c.done?"opacity:.35":""}">${(c.up||c.done)?c.v:"❓"}</button>`).join("");
-  }
-  paint();
-  window.MM_CLICK=i=>{
-    if(lock)return; const c=deck[i]; if(c.up||c.done)return;
-    c.up=true; paint();
-    if(first<0){ first=i; return; }
-    moves++; $("#mmoves").textContent=moves;
-    if(deck[first].v===c.v){ deck[first].done=c.done=true; deck[first].up=c.up=false; first=-1; paint();
-      if(deck.every(x=>x.done)) $("#mwin").innerHTML=`<b style="color:#4bbf82">You won in ${moves} moves!</b> <button class="btn sm" data-arc="play" data-v="memory">Play again</button>`;
-    } else { lock=true; setTimeout(()=>{ deck[first].up=false; c.up=false; first=-1; lock=false; paint(); },700); }
-  };
+  requestAnimationFrame(loop);
 }
+loop();`},
 
-/* ---- Fruit Catch ---- */
-function gameCatch(){
-  $("#main").innerHTML=arcadeHead("🧺 Fruit Catch")+`
-  <p class="sub">Move with the mouse, touch, or ← →. Score: <b id="cscore">0</b> · Lives: <b id="clives">3</b></p>
-  <div style="background:#1a2230;border-radius:12px;padding:8px;display:inline-block;max-width:100%">
-    <canvas id="ccv" width="360" height="440" style="display:block;max-width:100%;height:auto;touch-action:none;border-radius:6px"></canvas></div>
-  <div id="cover" style="margin-top:10px"></div>`;
-  const cv=$("#ccv"), ctx=cv.getContext("2d");
-  let bx=160, items=[], score=0, lives=3, dead=false, t=0;
-  const fruits=["🍎","🍌","🍇","🍊","🍓"];
-  cv.onpointermove=e=>{ const r=cv.getBoundingClientRect(); bx=(e.clientX-r.left)*(cv.width/r.width)-30; };
-  ARCADE.keyfn=e=>{ if(e.key==="ArrowLeft")bx-=24; if(e.key==="ArrowRight")bx+=24; };
-  window.addEventListener("keydown",ARCADE.keyfn);
-  function loop(){
-    if(dead)return;
-    t++; if(t%38===0) items.push({x:20+Math.random()*320,y:-20,v:2+Math.random()*2,f:fruits[Math.floor(Math.random()*5)]});
-    ctx.fillStyle="#1a2230"; ctx.fillRect(0,0,360,440);
-    bx=Math.max(0,Math.min(300,bx));
-    ctx.font="30px serif";
-    items.forEach(it=>{ it.y+=it.v; ctx.fillText(it.f,it.x,it.y); });
-    // basket
-    ctx.font="40px serif"; ctx.fillText("🧺",bx,428);
-    for(let i=items.length-1;i>=0;i--){ const it=items[i];
-      if(it.y>398&&it.y<430&&it.x>bx-10&&it.x<bx+60){ score++; $("#cscore").textContent=score; items.splice(i,1); }
-      else if(it.y>440){ items.splice(i,1); lives--; $("#clives").textContent=lives;
-        if(lives<=0){ dead=true; $("#cover").innerHTML=`<b style="color:#e05a5a">Game over — score ${score}.</b> <button class="btn sm" data-arc="play" data-v="catch">Play again</button>`; } }
-    }
-    ARCADE.raf=requestAnimationFrame(loop);
-  }
-  loop();
-}
+{title:"3. Move the basket with the mouse", instr:`
+<p>Store the basket's x in a variable, and update it whenever the mouse moves over the game. Now <b>you control it</b> — move your mouse across the preview.</p>`,
+code:`let basketX = 130;
 
-document.addEventListener("click",e=>{
-  const b=e.target.closest("[data-arc]"); if(!b)return;
-  const k=b.dataset.arc, v=b.dataset.v;
-  if(k==="play"){ ARCADE.game=v; renderArcade(); }
-  else if(k==="menu"){ ARCADE.game=null; renderArcade(); }
-  else if(k==="blk"){ BUILD.sel=+v; document.querySelectorAll("[data-arc='blk']").forEach(x=>x.classList.toggle("on",x.dataset.v===v)); }
-  else if(k==="bclear"){ if(confirm("Clear the whole world?")){ BUILD.world={}; api.post("/api/note",{key:"arcade_world",value:"{}"}).catch(()=>{}); gameBuild(); } }
-  else if(k==="sdir"){ if(window.SNAKE_SET)window.SNAKE_SET(v); }
+// when the mouse moves, put the basket under it
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  basketX = (e.clientX - r.left) - 30;   // -30 centres the 60-wide basket
 });
-document.addEventListener("click",e=>{ const m=e.target.closest("[data-mm]"); if(m&&window.MM_CLICK)window.MM_CLICK(+m.dataset.mm); });
 
+function loop(){
+  ctx.fillStyle = "#8ecae6";
+  ctx.fillRect(0, 0, 320, 420);
+
+  ctx.fillStyle = "#a0522d";
+  ctx.fillRect(basketX, 380, 60, 20);
+
+  requestAnimationFrame(loop);
+}
+loop();`},
+
+{title:"4. Drop an apple", instr:`
+<p>Add an <b>apple</b> with a position. Each frame, add to its y so it <b>falls</b>. We draw it as a red circle. It falls once and disappears — we'll fix that next.</p>`,
+code:`let basketX = 130;
+let apple = { x: 150, y: 0 };
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  basketX = (e.clientX - r.left) - 30;
+});
+
+function loop(){
+  ctx.fillStyle = "#8ecae6";
+  ctx.fillRect(0, 0, 320, 420);
+
+  apple.y += 3;                         // gravity: fall 3px per frame
+  ctx.fillStyle = "#e63946";
+  ctx.beginPath();
+  ctx.arc(apple.x, apple.y, 12, 0, 7);  // a circle
+  ctx.fill();
+
+  ctx.fillStyle = "#a0522d";
+  ctx.fillRect(basketX, 380, 60, 20);
+
+  requestAnimationFrame(loop);
+}
+loop();`},
+
+{title:"5. Make apples keep coming", instr:`
+<p>When the apple falls off the bottom (y &gt; 420), send it back to the top at a <b>random x</b>. Now apples fall forever.</p>`,
+code:`let basketX = 130;
+let apple = { x: 150, y: 0 };
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  basketX = (e.clientX - r.left) - 30;
+});
+
+function newApple(){
+  apple.y = 0;
+  apple.x = 20 + Math.random() * 280;   // random horizontal spot
+}
+
+function loop(){
+  ctx.fillStyle = "#8ecae6";
+  ctx.fillRect(0, 0, 320, 420);
+
+  apple.y += 3;
+  if (apple.y > 420) newApple();        // fell off -> respawn at top
+
+  ctx.fillStyle = "#e63946";
+  ctx.beginPath(); ctx.arc(apple.x, apple.y, 12, 0, 7); ctx.fill();
+
+  ctx.fillStyle = "#a0522d";
+  ctx.fillRect(basketX, 380, 60, 20);
+
+  requestAnimationFrame(loop);
+}
+loop();`},
+
+{title:"6. Catch it! (collision + score)", instr:`
+<p>This is the heart of the game: <b>collision detection</b>. When the apple reaches the basket's height <i>and</i> is within the basket's width, you caught it — add to the score and respawn the apple. Move the basket to catch them.</p>`,
+code:`let basketX = 130;
+let apple = { x: 150, y: 0 };
+let score = 0;
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  basketX = (e.clientX - r.left) - 30;
+});
+
+function newApple(){ apple.y = 0; apple.x = 20 + Math.random() * 280; }
+
+function loop(){
+  ctx.fillStyle = "#8ecae6"; ctx.fillRect(0, 0, 320, 420);
+
+  apple.y += 3;
+
+  // CAUGHT? apple at basket height AND within basket's x range
+  if (apple.y > 375 && apple.y < 400 && apple.x > basketX && apple.x < basketX + 60) {
+    score += 1;
+    newApple();
+  }
+  if (apple.y > 420) newApple();
+
+  ctx.fillStyle = "#e63946";
+  ctx.beginPath(); ctx.arc(apple.x, apple.y, 12, 0, 7); ctx.fill();
+  ctx.fillStyle = "#a0522d"; ctx.fillRect(basketX, 380, 60, 20);
+
+  requestAnimationFrame(loop);
+}
+loop();`},
+
+{title:"7. Show the score", instr:`
+<p>Draw the score as text so the player can see it. Text is drawn with <code>ctx.fillText</code>. Catch a few apples and watch it go up.</p>`,
+code:`let basketX = 130;
+let apple = { x: 150, y: 0 };
+let score = 0;
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  basketX = (e.clientX - r.left) - 30;
+});
+function newApple(){ apple.y = 0; apple.x = 20 + Math.random() * 280; }
+
+function loop(){
+  ctx.fillStyle = "#8ecae6"; ctx.fillRect(0, 0, 320, 420);
+
+  apple.y += 3;
+  if (apple.y > 375 && apple.y < 400 && apple.x > basketX && apple.x < basketX + 60) { score += 1; newApple(); }
+  if (apple.y > 420) newApple();
+
+  ctx.fillStyle = "#e63946";
+  ctx.beginPath(); ctx.arc(apple.x, apple.y, 12, 0, 7); ctx.fill();
+  ctx.fillStyle = "#a0522d"; ctx.fillRect(basketX, 380, 60, 20);
+
+  // the score
+  ctx.fillStyle = "#1d3557";
+  ctx.font = "20px sans-serif";
+  ctx.fillText("Score: " + score, 10, 28);
+
+  requestAnimationFrame(loop);
+}
+loop();`},
+
+{title:"8. Lives & game over — your finished game!", instr:`
+<p>Last step: give the player <b>3 lives</b>. Every apple that falls past the basket costs a life; at zero lives it's <b>game over</b> and the loop stops. That's a complete game — one <i>you</i> coded. Change the speed, colours or number of lives and make it yours!</p>`,
+code:`let basketX = 130;
+let apple = { x: 150, y: 0 };
+let score = 0;
+let lives = 3;
+let over = false;
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  basketX = (e.clientX - r.left) - 30;
+});
+function newApple(){ apple.y = 0; apple.x = 20 + Math.random() * 280; }
+
+function loop(){
+  ctx.fillStyle = "#8ecae6"; ctx.fillRect(0, 0, 320, 420);
+
+  apple.y += 3;
+  if (apple.y > 375 && apple.y < 400 && apple.x > basketX && apple.x < basketX + 60) { score += 1; newApple(); }
+  else if (apple.y > 420) { lives -= 1; newApple(); }     // missed -> lose a life
+
+  ctx.fillStyle = "#e63946";
+  ctx.beginPath(); ctx.arc(apple.x, apple.y, 12, 0, 7); ctx.fill();
+  ctx.fillStyle = "#a0522d"; ctx.fillRect(basketX, 380, 60, 20);
+
+  ctx.fillStyle = "#1d3557"; ctx.font = "20px sans-serif";
+  ctx.fillText("Score: " + score, 10, 28);
+  ctx.fillText("Lives: " + lives, 220, 28);
+
+  if (lives <= 0) {                       // game over
+    ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, 320, 420);
+    ctx.fillStyle = "#fff"; ctx.font = "34px sans-serif";
+    ctx.fillText("Game Over", 60, 200);
+    ctx.font = "18px sans-serif";
+    ctx.fillText("You scored " + score, 95, 235);
+    return;                               // stop the loop
+  }
+  requestAnimationFrame(loop);
+}
+loop();`},
+];
+const STUDIO={step:0};
+function studioCode(i){
+  const saved = S.notes["studio_"+i];
+  return (saved!==undefined && saved!=="") ? saved : STUDIO_STEPS[i].code;
+}
+function studioSrcdoc(code){
+  return `<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#0e1522;display:flex;align-items:center;justify-content:center;font-family:sans-serif}
+canvas{background:#8ecae6;border-radius:8px;touch-action:none}</style></head>
+<body><canvas id="game" width="320" height="420"></canvas>
+<script>
+try{
+var canvas=document.getElementById("game");
+var ctx=canvas.getContext("2d");
+${code}
+}catch(err){document.body.innerHTML='<pre style="color:#ffb4b4;padding:14px;white-space:pre-wrap">'+String(err)+'</pre>';}
+<\/script></body></html>`;
+}
+function renderStudio(){
+  const i=STUDIO.step, st=STUDIO_STEPS[i];
+  $("#main").innerHTML=`
+  <div class="h1">🎮 Game Studio — build a catch game</div>
+  <p class="sub">Write real game code, press Run, and watch your own game grow step by step. By step 8 you'll have a complete game you coded yourself.</p>
+  <div class="ask-chips" style="margin-bottom:14px">
+    ${STUDIO_STEPS.map((s,k)=>`<button class="ask-chip ${i===k?"on":""}" data-std="go" data-v="${k}">${k+1}</button>`).join("")}
+  </div>
+  <div class="card" style="margin-bottom:14px;border-color:var(--accent)">
+    <b>${esc(st.title)}</b>
+    <div style="color:var(--body);font-size:14px;margin-top:6px">${st.instr}</div>
+  </div>
+  <div class="std-wrap">
+    <div class="std-col">
+      <div class="eyebrow" style="margin:0 0 6px">Your code</div>
+      <textarea id="stdCode" class="code" spellcheck="false" style="width:100%;min-height:320px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.5">${esc(studioCode(i))}</textarea>
+      <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+        <button class="btn sm" data-std="run">Run ▶</button>
+        <button class="btn ghost sm" data-std="reset">Reset this step's code</button>
+        ${i<STUDIO_STEPS.length-1?`<button class="btn ghost sm" data-std="next">Next step →</button>`:`<span class="pill hot">🎉 Final step</span>`}
+      </div>
+    </div>
+    <div class="std-col">
+      <div class="eyebrow" style="margin:0 0 6px">Your game (live)</div>
+      <iframe id="stdPreview" title="game preview" sandbox="allow-scripts"
+        style="width:100%;max-width:340px;height:440px;border:1px solid var(--line);border-radius:12px;background:#0e1522"></iframe>
+    </div>
+  </div>`;
+  studioRun();   // auto-run on open
+}
+function studioRun(){
+  const ta=$("#stdCode"), fr=$("#stdPreview"); if(!ta||!fr)return;
+  const code=ta.value;
+  S.notes["studio_"+STUDIO.step]=code;
+  api.post("/api/note",{key:"studio_"+STUDIO.step,value:code.slice(0,4900)}).catch(()=>{});
+  fr.srcdoc=studioSrcdoc(code);
+}
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-std]"); if(!b)return;
+  const k=b.dataset.std;
+  if(k==="run") studioRun();
+  else if(k==="go"){ STUDIO.step=+b.dataset.v; renderStudio(); }
+  else if(k==="next"){ STUDIO.step=Math.min(STUDIO_STEPS.length-1,STUDIO.step+1); renderStudio(); window.scrollTo(0,0); }
+  else if(k==="reset"){ delete S.notes["studio_"+STUDIO.step]; api.post("/api/note",{key:"studio_"+STUDIO.step,value:""}).catch(()=>{}); renderStudio(); }
+});
 /* ===================== ROUTER ===================== */
 function render(){
   if(!AUTHED) return showGate();
-  if(S.view.page!=="arcade") stopArcade();
   renderWho();
   const v=S.view;
   if(v.page==="home")           renderHome();
@@ -2924,7 +3029,7 @@ function render(){
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="color")     renderColoring();
-  else if(v.page==="arcade")    renderArcade();
+  else if(v.page==="studio")    renderStudio();
   else if(v.page==="assignment") renderAssignment(v.aid);
   else if(v.page==="teacher")   renderTeacher(v.cid);
   else if(v.page==="tassign")   renderTeacherAssignment(v.cid,v.aid);
@@ -2974,7 +3079,7 @@ document.addEventListener("click",e=>{
   else if(n==="class")     S.view={page:"class"};
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="color")     S.view={page:"color"};
-  else if(n==="arcade")    S.view={page:"arcade"};
+  else if(n==="studio")    S.view={page:"studio"};
   else if(n==="teacher")   S.view={page:"teacher"};
   else if(n==="track")     S.view={page:"track",track:b.dataset.id};
   else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};
