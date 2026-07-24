@@ -2448,6 +2448,120 @@ async def resume_ai(body: ResumeAIIn, user: User = Depends(current_user)):
     }
 
 
+def _ai_json(text):
+    clean = (text or "").replace("```json", "").replace("```", "").strip()
+    return json.loads(clean)
+
+
+class BulletsIn(BaseModel):
+    role: str = Field(default="", max_length=120)
+    company: str = Field(default="", max_length=120)
+    context: str = Field(default="", max_length=1000)
+
+
+@app.post("/api/resume/bullets")
+async def resume_bullets(body: BulletsIn, user: User = Depends(current_user)):
+    """AI-written ATS achievement bullets for one job."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI writer is not switched on")
+    role = (body.role or "the role").strip()[:120]
+    prompt = (
+        f"You are an expert resume writer. Write 6 strong, ATS-friendly, "
+        f"one-line achievement bullet points for a '{role}'"
+        + (f" at {body.company.strip()}" if body.company.strip() else "")
+        + ".\n"
+        + (f"What the person did: {body.context.strip()}\n" if body.context.strip() else "")
+        + "Each bullet: start with a strong action verb, describe the task, and "
+        "show impact. Use realistic, generic impact phrasing the person can "
+        "edit with their own numbers — do NOT fabricate specific company names "
+        "or precise false statistics. Keep each to one line.\n\n"
+        'Respond with ONLY valid JSON: {"bullets": ["...", "...", "..."]}'
+    )
+    try:
+        data = _ai_json(await _ai_text(prompt, 700))
+    except Exception as e:
+        print(f"Resume bullets failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The AI writer could not respond. Try again.")
+    return {"bullets": [str(b)[:300] for b in (data.get("bullets") or [])][:8]}
+
+
+class RoleIn(BaseModel):
+    role: str = Field(default="", max_length=120)
+
+
+@app.post("/api/resume/skills")
+async def resume_skills(body: RoleIn, user: User = Depends(current_user)):
+    """AI-suggested, ATS-searchable skills matched to a target role."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI writer is not switched on")
+    role = (body.role or "").strip()[:120]
+    if not role:
+        raise HTTPException(400, "Enter a target role first")
+    prompt = (
+        f"List 16 concrete, ATS-searchable skills that recruiters look for in a "
+        f"'{role}'. Include specific tools, technologies, methods and hard "
+        f"skills — the exact keywords a job post would use. No sentences, just "
+        f"the skill names.\n\n"
+        'Respond with ONLY valid JSON: {"skills": ["Python", "SQL", "..."]}'
+    )
+    try:
+        data = _ai_json(await _ai_text(prompt, 500))
+    except Exception as e:
+        print(f"Resume skills failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The AI writer could not respond. Try again.")
+    return {"skills": [str(s)[:40] for s in (data.get("skills") or [])][:20]}
+
+
+class MatchIn(BaseModel):
+    resume: dict = {}
+    jd: str = Field(default="", max_length=8000)
+
+
+def _resume_text(r):
+    parts = [r.get("name", ""), r.get("title", ""), r.get("summary", ""), r.get("certs", "")]
+    for s in r.get("skills", []):
+        parts += [s.get("label", ""), s.get("items", "")]
+    for x in r.get("exp", []):
+        parts += [x.get("role", ""), x.get("company", ""), x.get("bullets", "")]
+    for x in r.get("proj", []):
+        parts += [x.get("name", ""), x.get("tech", ""), x.get("desc", "")]
+    for x in r.get("edu", []):
+        parts += [x.get("degree", ""), x.get("school", "")]
+    return " \n ".join(str(p) for p in parts).lower()
+
+
+@app.post("/api/resume/match")
+async def resume_match(body: MatchIn, user: User = Depends(current_user)):
+    """Score the resume against a pasted job description: extract the JD's key
+    requirements with AI, then check which appear in the resume."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI matcher is not switched on")
+    jd = (body.jd or "").strip()
+    if len(jd) < 40:
+        raise HTTPException(400, "Paste the full job description first")
+    prompt = (
+        "From this job description, extract the 18 most important skills, "
+        "tools, technologies and hard requirements that an ATS would scan a "
+        "resume for. Short keyword phrases only, no sentences.\n\n"
+        f"JOB DESCRIPTION:\n{jd[:6000]}\n\n"
+        'Respond with ONLY valid JSON: {"keywords": ["Python", "SQL", "..."]}'
+    )
+    try:
+        data = _ai_json(await _ai_text(prompt, 500))
+    except Exception as e:
+        print(f"Resume match failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The AI matcher could not respond. Try again.")
+    keywords = [str(k).strip() for k in (data.get("keywords") or []) if str(k).strip()][:20]
+    text = _resume_text(body.resume or {})
+    matched, missing = [], []
+    for k in keywords:
+        (matched if k.lower() in text else missing).append(k)
+    total = len(keywords) or 1
+    score = round(len(matched) / total * 100)
+    return {"score": score, "matched": matched, "missing": missing,
+            "total": len(keywords)}
+
+
 @app.get("/api/ask/config")
 def ask_config(user: User = Depends(current_user)):
     """Lets the page know whether the AI teacher is switched on."""
