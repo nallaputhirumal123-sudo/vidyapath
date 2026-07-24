@@ -1,0 +1,356 @@
+{
+ "tracks": [
+  {
+   "id": "gamedev",
+   "icon": "🎮",
+   "name": "Game Development",
+   "level": "Build & play",
+   "color": "#9b59b6",
+   "weeks": 5,
+   "lang": "JavaScript",
+   "audience": "graduate",
+   "position": 0,
+   "desc": "Learn how games really work by coding their logic in JavaScript — the game loop, movement and gravity, collision detection, score and lives, keyboard controls and simple enemy AI. Then see finished games running the same ideas in the Arcade.",
+   "outcomes": [
+    "Understand and build a game loop",
+    "Move objects with position and velocity",
+    "Detect collisions between hitboxes",
+    "Track score, lives and game state",
+    "Turn key presses into movement",
+    "Write a simple chasing enemy"
+   ],
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "gd-loop",
+     "title": "How games actually work: the game loop",
+     "mins": 25,
+     "lang": "js",
+     "content": "\n<h3>Every game is a loop that never stops (until you quit)</h3>\n<p>A game does the same three things ~60 times a second: <b>read input</b>, <b>update</b> the world a tiny bit, and <b>draw</b> it. That is called the <b>game loop</b>. Movement looks smooth because each frame changes things only slightly.</p>\n<pre><code>function loop() {\n  handleInput();\n  update();      // move everything a little\n  draw();        // paint the new picture\n  requestAnimationFrame(loop);  // do it again next frame\n}</code></pre>\n<p>In this track you'll build the <i>logic</i> of a game and check it with numbers. In the Arcade you can see finished games running this exact loop.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A game runs at 60 frames per second. Print how many frames happen in <b>3</b> seconds.",
+       "starter": "let fps = 60;\nlet seconds = 3;\n// print total frames\n",
+       "hint": "frames = fps * seconds = 180.",
+       "solution": "let fps=60, seconds=3;\nconsole.log(fps*seconds);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "180"
+        ]
+       }
+      },
+      {
+       "q": "Simulate 5 frames of a loop. Each frame, print 'frame N' (N from 1 to 5).",
+       "starter": "for (let f = 1; f <= 5; f++) {\n  // print 'frame N'\n}\n",
+       "hint": "console.log('frame ' + f) inside the loop.",
+       "solution": "for(let f=1;f<=5;f++){ console.log('frame '+f); }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "frame 1",
+         "frame 2",
+         "frame 3",
+         "frame 4",
+         "frame 5"
+        ]
+       }
+      },
+      {
+       "q": "A timer counts down 1 each frame from 3. Print each value until it reaches 0 (3,2,1,0).",
+       "starter": "let t = 3;\n// print t each frame until 0\n",
+       "hint": "while (t >= 0) { print t; t--; }",
+       "solution": "let t=3;\nwhile(t>=0){ console.log(t); t--; }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3",
+         "2",
+         "1",
+         "0"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "gd-move",
+     "title": "Moving things: position and velocity",
+     "mins": 25,
+     "lang": "js",
+     "content": "\n<h3>Position + velocity = movement</h3>\n<p>Every moving object has a <b>position</b> (x, y) and a <b>velocity</b> (how much x and y change each frame). Each frame you just add velocity to position.</p>\n<pre><code>let x = 0;\nlet vx = 5;          // moves 5 pixels right per frame\n\n// each frame:\nx = x + vx;          // after 1 frame x=5, after 2 x=10 ...</code></pre>\n<h3>Gravity is just downward velocity that grows</h3>\n<pre><code>let y = 0, vy = 0;\n// each frame:\nvy = vy + 1;   // gravity pulls harder each frame\ny = y + vy;    // 1, then 3, then 6, then 10 ... it accelerates</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A ball starts at x=0 with velocity 5. Print its x after <b>4</b> frames.",
+       "starter": "let x = 0, vx = 5;\n// advance 4 frames, then print x\n",
+       "hint": "Loop 4 times doing x += vx. 0->5->10->15->20.",
+       "solution": "let x=0, vx=5;\nfor(let i=0;i<4;i++){ x+=vx; }\nconsole.log(x);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "20"
+        ]
+       }
+      },
+      {
+       "q": "A player at x=10 moves left at velocity -3. Print x after <b>3</b> frames.",
+       "starter": "let x = 10, vx = -3;\n",
+       "hint": "10 -3 -3 -3 = 1.",
+       "solution": "let x=10, vx=-3;\nfor(let i=0;i<3;i++){ x+=vx; }\nconsole.log(x);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "1"
+        ]
+       }
+      },
+      {
+       "q": "Gravity: y starts 0, vy starts 0. Each frame vy+=1 then y+=vy. Print y after <b>4</b> frames.",
+       "starter": "let y = 0, vy = 0;\n// 4 frames of gravity\n",
+       "hint": "vy: 1,2,3,4 ; y: 1,3,6,10.",
+       "solution": "let y=0, vy=0;\nfor(let i=0;i<4;i++){ vy+=1; y+=vy; }\nconsole.log(y);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "10"
+        ]
+       }
+      },
+      {
+       "q": "Keep a ball on screen: if x goes above 100, bounce by flipping velocity. Start x=98, vx=5. Print x and vx after one frame where it crosses 100.",
+       "starter": "let x = 98, vx = 5;\n// move; if x>100 set vx=-vx\n",
+       "hint": "x becomes 103, then since >100, vx=-5. Print x then vx.",
+       "solution": "let x=98, vx=5;\nx+=vx;\nif(x>100){ vx=-vx; }\nconsole.log(x);\nconsole.log(vx);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "103",
+         "-5"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "gd-collide",
+     "title": "Collision detection",
+     "mins": 25,
+     "lang": "js",
+     "content": "\n<h3>Do two boxes overlap?</h3>\n<p>Most game collisions use rectangles (a \"hitbox\"). Two rectangles overlap when they overlap on <b>both</b> the x axis and the y axis. This is called AABB (axis-aligned bounding box) collision.</p>\n<pre><code>function overlap(ax, ay, aw, ah, bx, by, bw, bh) {\n  return ax < bx + bw &&\n         ax + aw > bx &&\n         ay < by + bh &&\n         ay + ah > by;\n}</code></pre>\n<h3>Distance for circles</h3>\n<p>Two circles touch when the distance between their centres is less than the sum of their radii.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Write overlap() and test two boxes that DO overlap: A(0,0,10,10) and B(5,5,10,10). Print true or false.",
+       "starter": "function overlap(ax,ay,aw,ah,bx,by,bw,bh){\n  // return true if they overlap\n}\nconsole.log(overlap(0,0,10,10, 5,5,10,10));",
+       "hint": "ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by.",
+       "solution": "function overlap(ax,ay,aw,ah,bx,by,bw,bh){\n  return ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by;\n}\nconsole.log(overlap(0,0,10,10,5,5,10,10));",
+       "answer": "",
+       "check": {
+        "lines": [
+         "true"
+        ]
+       }
+      },
+      {
+       "q": "Test two boxes that do NOT overlap: A(0,0,10,10) and B(50,50,10,10). Print true or false.",
+       "starter": "function overlap(ax,ay,aw,ah,bx,by,bw,bh){\n  return ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by;\n}\n// call it and print\n",
+       "hint": "They are far apart, so false.",
+       "solution": "function overlap(ax,ay,aw,ah,bx,by,bw,bh){\n  return ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by;\n}\nconsole.log(overlap(0,0,10,10,50,50,10,10));",
+       "answer": "",
+       "check": {
+        "lines": [
+         "false"
+        ]
+       }
+      },
+      {
+       "q": "Two circles: centres 10 apart, radii 6 and 5 (sum 11). Do they touch? Print true or false.",
+       "starter": "let dist = 10;\nlet r1 = 6, r2 = 5;\n// touch if dist < r1+r2\n",
+       "hint": "10 < 11, so true.",
+       "solution": "let dist=10, r1=6, r2=5;\nconsole.log(dist < r1+r2);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "true"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "gd-state",
+     "title": "Score, lives and game state",
+     "mins": 22,
+     "lang": "js",
+     "content": "\n<h3>Games are made of variables that change</h3>\n<p>Score, lives, level, \"is the game over?\" — these are just variables you update on events. The whole \"feel\" of a game is rules over these variables.</p>\n<pre><code>let score = 0;\nlet lives = 3;\nlet gameOver = false;\n\nfunction onCatchFruit(){ score += 1; }\nfunction onMiss(){ lives -= 1; if (lives === 0) gameOver = true; }</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Start score 0. Catch 3 fruits worth 10 points each. Print the final score.",
+       "starter": "let score = 0;\n// add 10 three times\n",
+       "hint": "score += 10 three times = 30.",
+       "solution": "let score=0;\nfor(let i=0;i<3;i++){ score+=10; }\nconsole.log(score);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "30"
+        ]
+       }
+      },
+      {
+       "q": "Start with 3 lives. Miss 3 times (lives -1 each). After each miss print the lives left (2,1,0).",
+       "starter": "let lives = 3;\n// miss 3 times, print each time\n",
+       "hint": "lives--; console.log(lives); three times.",
+       "solution": "let lives=3;\nfor(let i=0;i<3;i++){ lives--; console.log(lives); }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2",
+         "1",
+         "0"
+        ]
+       }
+      },
+      {
+       "q": "Game over when lives reach 0. Lives is 1, then you miss once. Print 'game over' if over, else 'keep playing'.",
+       "starter": "let lives = 1;\nlives -= 1;\n// if lives===0 print game over\n",
+       "hint": "if (lives===0) ... else ...",
+       "solution": "let lives=1;\nlives-=1;\nif(lives===0){ console.log('game over'); } else { console.log('keep playing'); }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "game over"
+        ]
+       }
+      },
+      {
+       "q": "Level up every 5 points. At score 10, print the level (level = score/5).",
+       "starter": "let score = 10;\n// level = score / 5\n",
+       "hint": "10/5 = 2.",
+       "solution": "let score=10;\nconsole.log(score/5);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "gd-input",
+     "title": "Keyboard controls (the logic)",
+     "mins": 22,
+     "lang": "js",
+     "content": "\n<h3>Turning key presses into movement</h3>\n<p>A key press just sets a direction. The classic rule in Snake: you may turn, but you can't instantly reverse into yourself.</p>\n<pre><code>// direction is {x, y}. 'up' is {x:0, y:-1}\nfunction setDir(key, dir){\n  const map = {up:{x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0}};\n  const nd = map[key];\n  // reject a reverse (opposite of current)\n  if (nd && !(nd.x === -dir.x && nd.y === -dir.y)) return nd;\n  return dir;\n}</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Moving right is {x:1,y:0}. Print the x and y for pressing <b>up</b> (0 and -1), on two lines.",
+       "starter": "let up = {x:0, y:-1};\n// print up.x then up.y\n",
+       "hint": "console.log(up.x); console.log(up.y);",
+       "solution": "let up={x:0,y:-1};\nconsole.log(up.x);\nconsole.log(up.y);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "0",
+         "-1"
+        ]
+       }
+      },
+      {
+       "q": "You are moving right (dir {x:1,y:0}). Pressing left would reverse. Print 'blocked' if the new dir is the exact opposite, else 'ok'.",
+       "starter": "let dir = {x:1, y:0};\nlet nd = {x:-1, y:0};   // left\n// opposite? print blocked or ok\n",
+       "hint": "opposite means nd.x===-dir.x && nd.y===-dir.y.",
+       "solution": "let dir={x:1,y:0}, nd={x:-1,y:0};\nif(nd.x===-dir.x && nd.y===-dir.y){ console.log('blocked'); } else { console.log('ok'); }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "blocked"
+        ]
+       }
+      },
+      {
+       "q": "Same setup but pressing <b>up</b> {x:0,y:-1} while moving right — that's a legal turn. Print 'ok' or 'blocked'.",
+       "starter": "let dir = {x:1, y:0};\nlet nd = {x:0, y:-1};   // up\n",
+       "hint": "up is not the opposite of right, so ok.",
+       "solution": "let dir={x:1,y:0}, nd={x:0,y:-1};\nif(nd.x===-dir.x && nd.y===-dir.y){ console.log('blocked'); } else { console.log('ok'); }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "ok"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "gd-ai",
+     "title": "Simple enemy AI: chase the player",
+     "mins": 22,
+     "lang": "js",
+     "content": "\n<h3>The simplest 'AI': move toward the target</h3>\n<p>A chasing enemy just compares its position to the player's and steps one unit closer on each axis. That is enough to feel alive.</p>\n<pre><code>function step(enemy, player){\n  if (player.x > enemy.x) enemy.x += 1;\n  else if (player.x < enemy.x) enemy.x -= 1;\n  if (player.y > enemy.y) enemy.y += 1;\n  else if (player.y < enemy.y) enemy.y -= 1;\n}</code></pre>\n<p>Better enemies add patrols, line-of-sight and pathfinding — but they all build on this idea.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Enemy at x=0, player at x=5. Step the enemy toward the player <b>3</b> times. Print the enemy x.",
+       "starter": "let ex = 0, px = 5;\n// 3 steps toward player\n",
+       "hint": "If px>ex, ex+=1. After 3 steps: 3.",
+       "solution": "let ex=0, px=5;\nfor(let i=0;i<3;i++){ if(px>ex)ex+=1; else if(px<ex)ex-=1; }\nconsole.log(ex);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "Enemy at (2,2), player at (2,6). Move the enemy one step toward the player, then print its y.",
+       "starter": "let e = {x:2, y:2};\nlet p = {x:2, y:6};\n// one step, then print e.y\n",
+       "hint": "p.y>e.y so e.y+=1 → 3. x stays.",
+       "solution": "let e={x:2,y:2}, p={x:2,y:6};\nif(p.x>e.x)e.x+=1; else if(p.x<e.x)e.x-=1;\nif(p.y>e.y)e.y+=1; else if(p.y<e.y)e.y-=1;\nconsole.log(e.y);",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "The enemy catches the player when they share a position. Enemy (4,4), player (4,4). Print 'caught' or 'chasing'.",
+       "starter": "let e = {x:4,y:4}, p = {x:4,y:4};\n// same spot?\n",
+       "hint": "if e.x===p.x && e.y===p.y → caught.",
+       "solution": "let e={x:4,y:4}, p={x:4,y:4};\nif(e.x===p.x && e.y===p.y){ console.log('caught'); } else { console.log('chasing'); }",
+       "answer": "",
+       "check": {
+        "lines": [
+         "caught"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    }
+   ]
+  }
+ ]
+}
