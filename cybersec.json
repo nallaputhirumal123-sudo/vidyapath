@@ -1,0 +1,604 @@
+{
+ "tracks": [
+  {
+   "id": "cybersec",
+   "icon": "🛡️",
+   "name": "Cybersecurity",
+   "level": "Zero to expert",
+   "color": "#e05a5a",
+   "weeks": 8,
+   "lang": "Python",
+   "audience": "graduate",
+   "position": 0,
+   "desc": "A full, ethical journey from zero to job-ready cybersecurity: the CIA triad, networking, passwords and hashing, ciphers (Caesar, XOR), public-key crypto and HTTPS, how attacks work and how to stop them, web security, secure coding, blue-team defence and monitoring, and how to build an ethical-hacking career. Concepts and defence only — never real attack tooling.",
+   "outcomes": [
+    "Explain and apply the CIA triad",
+    "Understand passwords, hashing and encryption",
+    "Implement and break simple ciphers",
+    "Recognise and defend against real attacks",
+    "Prevent web vulnerabilities in your own code",
+    "Defend, monitor and respond as a blue team",
+    "Start an ethical-hacking career the legal way"
+   ],
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "cs-intro",
+     "title": "What cybersecurity is: the CIA triad",
+     "mins": 22,
+     "lang": "py",
+     "content": "\n<h3>Protecting information from harm</h3>\n<p>Cybersecurity is keeping data and systems safe from people who shouldn't reach them. Everything in the field maps to three goals — the <b>CIA triad</b>:</p>\n<ul>\n<li><b>Confidentiality</b> — only the right people can read the data (encryption, passwords, access control).</li>\n<li><b>Integrity</b> — the data hasn't been secretly changed (hashing, checksums, signatures).</li>\n<li><b>Availability</b> — the system is up when you need it (backups, defending against overload).</li>\n</ul>\n<h3>Attackers vs defenders</h3>\n<p>People who defend systems are the <b>blue team</b>; people who test them (with permission) to find weaknesses are the <b>red team</b> / ethical hackers. This whole course is about defending, and about hacking <i>only</i> with permission — attacking systems you don't own is a crime.</p>\n<div class=\"callout\"><b>Golden rule of ethics:</b> never test, probe or attack a system you do not own or have written permission to test. Curiosity is good; consent is mandatory.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A hacker reads private messages they shouldn't. Which of the CIA triad is broken? Print exactly: Confidentiality",
+       "starter": "# which goal is broken when private data is read?\n",
+       "hint": "Reading data you shouldn't breaks confidentiality.",
+       "solution": "print('Confidentiality')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Confidentiality"
+        ]
+       }
+      },
+      {
+       "q": "Someone secretly edits a bank record. Which goal is broken? Print exactly: Integrity",
+       "starter": "# secretly changing data breaks...\n",
+       "hint": "Changing data breaks integrity.",
+       "solution": "print('Integrity')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Integrity"
+        ]
+       }
+      },
+      {
+       "q": "A website is knocked offline so no one can use it. Which goal is broken? Print exactly: Availability",
+       "starter": "# taking a system down breaks...\n",
+       "hint": "Downtime breaks availability.",
+       "solution": "print('Availability')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Availability"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-net",
+     "title": "How data travels: the internet, safely",
+     "mins": 24,
+     "lang": "py",
+     "content": "\n<h3>Addresses, names and ports</h3>\n<p>Every device online has an <b>IP address</b> (like a street address). <b>DNS</b> turns a name like <code>example.com</code> into that address. Programs talk through numbered <b>ports</b> — e.g. web traffic uses port 80 (HTTP) or 443 (HTTPS).</p>\n<h3>HTTP vs HTTPS</h3>\n<p><b>HTTP</b> sends data in the clear — anyone in between can read it. <b>HTTPS</b> wraps it in TLS encryption, so it stays private and can't be tampered with. The padlock in your browser means HTTPS. <b>Never</b> type a password into a plain <code>http://</code> page.</p>\n<pre><code>https://shop.example.com:443/cart\n  |         |            |    |\nscheme     host        port  path</code></pre>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Print the standard port for <b>HTTPS</b> (secure web). It is 443.",
+       "starter": "# secure web port\n",
+       "hint": "HTTPS uses 443.",
+       "solution": "print(443)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "443"
+        ]
+       }
+      },
+      {
+       "q": "From the URL, print the host part. The URL is 'https://shop.example.com/cart'.",
+       "starter": "url = 'https://shop.example.com/cart'\n# get the host between :// and the next /\n",
+       "hint": "Split off 'https://', then take up to the first '/'.",
+       "solution": "url='https://shop.example.com/cart'\nafter=url.split('://')[1]\nprint(after.split('/')[0])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "shop.example.com"
+        ]
+       }
+      },
+      {
+       "q": "A page starts with 'http://'. Is it safe to enter a password? Print 'unsafe' if it is plain http.",
+       "starter": "url = 'http://login.example.com'\n# http (no s) is not encrypted\n",
+       "hint": "If it starts with http:// (not https://) it's unsafe.",
+       "solution": "url='http://login.example.com'\nif url.startswith('http://') and not url.startswith('https://'):\n    print('unsafe')\nelse:\n    print('safe')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "unsafe"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-pass",
+     "title": "Passwords done right",
+     "mins": 24,
+     "lang": "py",
+     "content": "\n<h3>Why length beats complexity</h3>\n<p>A short \"clever\" password like <code>P@ss1</code> is weak; a long passphrase like <code>correct-horse-battery-staple</code> is far stronger because there are vastly more possibilities to guess. Length is the biggest factor.</p>\n<h3>Never store passwords as plain text</h3>\n<p>Systems must never keep your actual password. They store a <b>hash</b> (a scrambled, one-way fingerprint) with a random <b>salt</b> so two people with the same password get different stored values. When you log in, they hash what you typed and compare. This course's own backend uses bcrypt for exactly this.</p>\n<div class=\"callout\">If a website can email you your <i>original</i> password, they're storing it unsafely — a red flag.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Write a simple strength check: a password is 'strong' if it is at least 12 characters. Test 'correct-horse-battery' and print strong or weak.",
+       "starter": "pw = 'correct-horse-battery'\n# strong if len >= 12\n",
+       "hint": "len(pw) >= 12 -> strong.",
+       "solution": "pw='correct-horse-battery'\nprint('strong' if len(pw)>=12 else 'weak')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "strong"
+        ]
+       }
+      },
+      {
+       "q": "Test the password 'P@ss1' with the same rule (>=12 chars). Print strong or weak.",
+       "starter": "pw = 'P@ss1'\n",
+       "hint": "It's only 5 characters.",
+       "solution": "pw='P@ss1'\nprint('strong' if len(pw)>=12 else 'weak')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "weak"
+        ]
+       }
+      },
+      {
+       "q": "Check a password against a tiny 'common passwords' list. If 'password123' is in the banned list, print 'banned'.",
+       "starter": "banned = ['123456','password','password123','qwerty']\npw = 'password123'\n",
+       "hint": "Use: if pw in banned.",
+       "solution": "banned=['123456','password','password123','qwerty']\npw='password123'\nprint('banned' if pw in banned else 'ok')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "banned"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-caesar",
+     "title": "Your first cipher: Caesar",
+     "mins": 26,
+     "lang": "py",
+     "content": "\n<h3>Shifting letters to hide a message</h3>\n<p>The <b>Caesar cipher</b> shifts every letter forward by a fixed number. Shift 3: A→D, B→E, ... This is easy to break (only 25 shifts to try) but it teaches the core idea of encryption: a reversible transformation controlled by a key.</p>\n<pre><code>plain:  H E L L O\nshift+3\ncipher: K H O O R</code></pre>\n<p>To decrypt, shift back by the same amount. In Python, <code>ord('A')</code> gives a letter's number and <code>chr()</code> turns a number back into a letter.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Shift the single uppercase letter 'A' forward by 3 using ord/chr. Print the result (D).",
+       "starter": "c = 'A'\nshift = 3\n# (ord(c)-65+shift)%26 + 65 -> chr\n",
+       "hint": "chr((ord('A')-65+3)%26 + 65) = 'D'.",
+       "solution": "c='A'; shift=3\nprint(chr((ord(c)-65+shift)%26+65))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "D"
+        ]
+       }
+      },
+      {
+       "q": "Encrypt the word 'HELLO' with a Caesar shift of 3. Print the cipher text (KHOOR).",
+       "starter": "word = 'HELLO'\nshift = 3\nout = ''\n# shift each letter, build out\n",
+       "hint": "For each letter: chr((ord(c)-65+shift)%26+65).",
+       "solution": "word='HELLO'; shift=3; out=''\nfor c in word:\n    out+=chr((ord(c)-65+shift)%26+65)\nprint(out)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "KHOOR"
+        ]
+       }
+      },
+      {
+       "q": "Decrypt 'KHOOR' back with a shift of 3 (shift the other way). Print HELLO.",
+       "starter": "word = 'KHOOR'\nshift = 3\nout = ''\n# subtract the shift\n",
+       "hint": "Use -shift inside the same formula.",
+       "solution": "word='KHOOR'; shift=3; out=''\nfor c in word:\n    out+=chr((ord(c)-65-shift)%26+65)\nprint(out)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "HELLO"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-xor",
+     "title": "XOR and symmetric encryption",
+     "mins": 24,
+     "lang": "py",
+     "content": "\n<h3>One key to lock and unlock</h3>\n<p><b>Symmetric</b> encryption uses the <i>same</i> secret key to encrypt and decrypt. A simple example is <b>XOR</b>: combine each byte of the message with a key byte. XOR has a magic property — doing it twice with the same key gives you back the original.</p>\n<pre><code>5 XOR 3 = 6      (encrypt)\n6 XOR 3 = 5      (decrypt — back to the start!)</code></pre>\n<p>Real symmetric ciphers like <b>AES</b> are far stronger, but they rest on this same \"shared secret key\" idea. The hard part in real life is sharing the key safely — which is what public-key crypto (next lessons) solves.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Compute 5 XOR 3 in Python (the ^ operator). Print it.",
+       "starter": "# 5 XOR 3\n",
+       "hint": "print(5 ^ 3) -> 6.",
+       "solution": "print(5 ^ 3)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "6"
+        ]
+       }
+      },
+      {
+       "q": "XOR is reversible. Take 6 (the cipher) XOR 3 (the key) and print it — you should get the original 5.",
+       "starter": "cipher = 6\nkey = 3\n",
+       "hint": "print(cipher ^ key).",
+       "solution": "cipher=6; key=3\nprint(cipher ^ key)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "5"
+        ]
+       }
+      },
+      {
+       "q": "Encrypt the number list [72, 73] by XOR-ing each with key 10, then print the encrypted list.",
+       "starter": "msg = [72, 73]\nkey = 10\n# xor each with key\n",
+       "hint": "[m ^ key for m in msg].",
+       "solution": "msg=[72,73]; key=10\nprint([m ^ key for m in msg])",
+       "answer": "",
+       "check": {
+        "lines": [
+         "[66, 67]"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-hash",
+     "title": "Hashing and integrity",
+     "mins": 22,
+     "lang": "py",
+     "content": "\n<h3>A one-way fingerprint</h3>\n<p>A <b>hash</b> turns any data into a fixed-size fingerprint. It's <b>one-way</b>: you can't get the data back from the hash. Change one character of the input and the hash changes completely. That makes hashes perfect for two jobs:</p>\n<ul>\n<li><b>Integrity</b> — download a file, hash it, compare to the published hash. If they match, the file wasn't tampered with.</li>\n<li><b>Password storage</b> — store the hash, never the password.</li>\n</ul>\n<p><b>Hashing is not encryption.</b> Encryption is reversible with a key; hashing is deliberately not reversible.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A tiny 'checksum' hash: add up the character codes of 'HI' (H=72, I=73) and print the total.",
+       "starter": "s = 'HI'\n# sum of ord() of each character\n",
+       "hint": "sum(ord(c) for c in s) = 145.",
+       "solution": "s='HI'\nprint(sum(ord(c) for c in s))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "145"
+        ]
+       }
+      },
+      {
+       "q": "Show that changing one letter changes the checksum: print the checksum of 'HJ' (H=72, J=74).",
+       "starter": "s = 'HJ'\n",
+       "hint": "72+74 = 146 — different from 'HI'.",
+       "solution": "s='HJ'\nprint(sum(ord(c) for c in s))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "146"
+        ]
+       }
+      },
+      {
+       "q": "Integrity check: the published checksum is 145. Our file's checksum is 145. Print 'ok' if they match, else 'tampered'.",
+       "starter": "published = 145\nfile_sum = 145\n",
+       "hint": "if published == file_sum -> ok.",
+       "solution": "published=145; file_sum=145\nprint('ok' if published==file_sum else 'tampered')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "ok"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-crypto",
+     "title": "Public-key cryptography & HTTPS",
+     "mins": 26,
+     "lang": "py",
+     "content": "\n<h3>Two keys: one public, one private</h3>\n<p><b>Asymmetric</b> crypto uses a <b>pair</b> of keys. Anything locked with your <b>public</b> key can only be unlocked with your <b>private</b> key (which you never share). This solves the \"how do we agree a secret over the open internet?\" problem.</p>\n<ul>\n<li><b>Encrypt with public key</b> → only the private-key holder can read it.</li>\n<li><b>Sign with private key</b> → anyone can verify it with your public key (proves it's really you).</li>\n</ul>\n<h3>What HTTPS actually does</h3>\n<p>When you visit an <code>https://</code> site, your browser and the server use public-key crypto to agree on a temporary shared key, check the site's certificate (proving it's the real site), then switch to fast symmetric encryption for the rest. That's the padlock.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "The core of RSA is modular arithmetic. Compute (7 ** 3) % 33 in Python and print it.",
+       "starter": "# 7 to the power 3, mod 33\n",
+       "hint": "pow(7,3,33) or (7**3)%33 = 13.",
+       "solution": "print((7**3) % 33)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "13"
+        ]
+       }
+      },
+      {
+       "q": "Python has a built-in for modular exponentiation: pow(base, exp, mod). Print pow(7, 3, 33).",
+       "starter": "# pow(7,3,33)\n",
+       "hint": "It equals 13.",
+       "solution": "print(pow(7,3,33))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "13"
+        ]
+       }
+      },
+      {
+       "q": "A certificate is valid if today (day 100) is before its expiry (day 365). Print 'valid' or 'expired'.",
+       "starter": "today = 100\nexpiry = 365\n",
+       "hint": "if today < expiry -> valid.",
+       "solution": "today=100; expiry=365\nprint('valid' if today<expiry else 'expired')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "valid"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-attacks",
+     "title": "How attacks work — so you can stop them",
+     "mins": 24,
+     "lang": "py",
+     "content": "\n<h3>Know the enemy (to defend)</h3>\n<p>Most breaches don't use movie-style hacking — they use these:</p>\n<ul>\n<li><b>Phishing</b> — a fake email/message tricking you into a password or a bad link. The #1 way real breaches start.</li>\n<li><b>Social engineering</b> — manipulating a <i>person</i> (\"IT here, I need your password\").</li>\n<li><b>Malware</b> — malicious software (viruses, ransomware, spyware) run by mistake.</li>\n<li><b>Brute force</b> — trying millions of passwords. Long passwords + rate limits + lockouts defeat it.</li>\n</ul>\n<h3>Spotting phishing</h3>\n<p>Warning signs: urgency (\"act now!\"), a mismatched sender address, a link whose real destination differs from its text, unexpected attachments, and requests for passwords or payment. When unsure, go to the site directly instead of clicking.</p>\n<div class=\"callout\">We teach how attacks work only to defend against them. Building or sending real malware or phishing is illegal and off-limits.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A brute-force attacker tries 1000 passwords per second. A lockout triggers after 5 tries. Print how many tries the attacker actually gets (5).",
+       "starter": "lockout_after = 5\n# the attacker is stopped at the lockout\n",
+       "hint": "The lockout caps it at 5.",
+       "solution": "lockout_after=5\nprint(lockout_after)",
+       "answer": "",
+       "check": {
+        "lines": [
+         "5"
+        ]
+       }
+      },
+      {
+       "q": "Flag a phishing sign: the email demands you 'verify your password now'. If the text contains 'password', print 'phishing'.",
+       "starter": "email = 'Urgent: verify your password now'\n# a request for your password is a red flag\n",
+       "hint": "if 'password' in email.lower(): print('phishing').",
+       "solution": "email='Urgent: verify your password now'\nprint('phishing' if 'password' in email.lower() else 'ok')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "phishing"
+        ]
+       }
+      },
+      {
+       "q": "Check a link: the visible text says 'bank.com' but the real URL is 'bank-secure.ru'. If they don't match, print 'suspicious'.",
+       "starter": "text = 'bank.com'\nreal = 'bank-secure.ru'\n",
+       "hint": "if text != real -> suspicious.",
+       "solution": "text='bank.com'; real='bank-secure.ru'\nprint('suspicious' if text!=real else 'ok')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "suspicious"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-web",
+     "title": "Web security: injection & XSS (and how to prevent them)",
+     "mins": 26,
+     "lang": "py",
+     "content": "\n<h3>Never trust user input</h3>\n<p>Most web vulnerabilities come from mixing untrusted input with code or HTML.</p>\n<h4>SQL injection</h4>\n<p>If you build a query by gluing strings together, an attacker can inject SQL. The <b>fix</b> is <b>parameterized queries</b> — the database treats input as data, never as code.</p>\n<pre><code># WRONG — vulnerable\n\"SELECT * FROM users WHERE name = '\" + name + \"'\"\n\n# RIGHT — parameterized\ncursor.execute(\"SELECT * FROM users WHERE name = ?\", (name,))</code></pre>\n<h4>Cross-site scripting (XSS)</h4>\n<p>If you put user text straight into a page, they can inject a &lt;script&gt;. The <b>fix</b> is to <b>escape</b> output — turn <code>&lt;</code> into <code>&amp;lt;</code> so it shows as text, not code.</p>\n<div class=\"callout\">The lesson everywhere: validate input, and escape/parameterize output. This app does both.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Escape a dangerous character: replace '<' with '&lt;' in the string \"<script>\". Print the safe version.",
+       "starter": "s = '<script>'\n# replace < with &lt; and > with &gt;\n",
+       "hint": "s.replace('<','&lt;').replace('>','&gt;').",
+       "solution": "s='<script>'\nprint(s.replace('<','&lt;').replace('>','&gt;'))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "&lt;script&gt;"
+        ]
+       }
+      },
+      {
+       "q": "Basic input validation: a username should be letters/numbers only. Print 'valid' if 'Ravi42' is alphanumeric, else 'invalid'.",
+       "starter": "name = 'Ravi42'\n# use .isalnum()\n",
+       "hint": "name.isalnum() returns True here.",
+       "solution": "name='Ravi42'\nprint('valid' if name.isalnum() else 'invalid')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "valid"
+        ]
+       }
+      },
+      {
+       "q": "Reject a suspicious input: does \"a' OR '1'='1\" contain a single quote? If yes print 'reject'.",
+       "starter": "inp = \"a' OR '1'='1\"\n# a quote in a name is suspicious\n",
+       "hint": "if \"'\" in inp: print('reject').",
+       "solution": "inp=\"a' OR '1'='1\"\nprint('reject' if \"'\" in inp else 'allow')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "reject"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-secure",
+     "title": "Secure coding & handling secrets",
+     "mins": 22,
+     "lang": "py",
+     "content": "\n<h3>Habits that prevent most bugs</h3>\n<ul>\n<li><b>Validate all input</b> — assume anything from a user or the network is hostile.</li>\n<li><b>Least privilege</b> — give every account and program the minimum access it needs.</li>\n<li><b>Never hard-code secrets</b> — keep API keys and passwords in environment variables, never in code or a public repo (this app's keys live in Railway variables, not the code).</li>\n<li><b>Keep dependencies updated</b> — most breaches exploit known bugs in out-of-date libraries.</li>\n<li><b>Fail safely</b> — on error, deny access; never reveal stack traces or secrets to users.</li>\n</ul>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "A secret key should come from the environment, not the code. If the variable API_KEY is empty, print 'missing key' (never use a default secret).",
+       "starter": "API_KEY = ''\n# empty means not configured\n",
+       "hint": "if not API_KEY: print('missing key').",
+       "solution": "API_KEY=''\nprint('missing key' if not API_KEY else 'ok')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "missing key"
+        ]
+       }
+      },
+      {
+       "q": "Least privilege: a 'guest' role should NOT be able to delete. Print 'denied' when role is 'guest' and action is 'delete'.",
+       "starter": "role = 'guest'\naction = 'delete'\n# guests cannot delete\n",
+       "hint": "if role=='guest' and action=='delete': denied.",
+       "solution": "role='guest'; action='delete'\nprint('denied' if (role=='guest' and action=='delete') else 'allowed')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "denied"
+        ]
+       }
+      },
+      {
+       "q": "Validate age input is a number before using it. If '25' is all digits, print the age plus 1 (26).",
+       "starter": "age = '25'\n# check .isdigit() then int()\n",
+       "hint": "if age.isdigit(): print(int(age)+1).",
+       "solution": "age='25'\nif age.isdigit():\n    print(int(age)+1)\nelse:\n    print('invalid')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "26"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-blue",
+     "title": "Defence & monitoring (Blue Team)",
+     "mins": 24,
+     "lang": "py",
+     "content": "\n<h3>You can't stop what you can't see</h3>\n<p>Defenders watch systems constantly. Key ideas:</p>\n<ul>\n<li><b>Logging</b> — record logins, errors and important actions. Logs are how you spot and reconstruct an attack.</li>\n<li><b>IDS / SIEM</b> — tools that watch logs and network traffic for suspicious patterns and raise alerts.</li>\n<li><b>Rate limiting & lockouts</b> — stop brute force by capping attempts.</li>\n<li><b>Backups</b> — the answer to ransomware is a clean, tested backup.</li>\n</ul>\n<h3>Incident response (the calm checklist)</h3>\n<p><b>Prepare → Detect → Contain → Eradicate → Recover → Learn.</b> Panicking or hiding a breach makes it worse; a rehearsed plan makes it survivable.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Count failed logins in a log to spot an attack. Given the list, print how many are 'FAIL'.",
+       "starter": "log = ['OK','FAIL','FAIL','OK','FAIL']\n# count the FAILs\n",
+       "hint": "log.count('FAIL') = 3.",
+       "solution": "log=['OK','FAIL','FAIL','OK','FAIL']\nprint(log.count('FAIL'))",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "Raise an alert if failed logins exceed 4. There were 6. Print 'ALERT' or 'quiet'.",
+       "starter": "fails = 6\nthreshold = 4\n",
+       "hint": "if fails > threshold: ALERT.",
+       "solution": "fails=6; threshold=4\nprint('ALERT' if fails>threshold else 'quiet')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "ALERT"
+        ]
+       }
+      },
+      {
+       "q": "Incident response order: print the FIRST step of the checklist. Print exactly: Prepare",
+       "starter": "# the checklist starts with...\n",
+       "hint": "Prepare comes first.",
+       "solution": "print('Prepare')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Prepare"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    },
+    {
+     "id": "cs-career",
+     "title": "Ethical hacking & a cybersecurity career",
+     "mins": 22,
+     "lang": "py",
+     "content": "\n<h3>Hacking — the legal, paid kind</h3>\n<p><b>Penetration testers</b> and <b>bug-bounty hunters</b> break into systems <i>with permission</i> to find weaknesses before criminals do. It is one of the best-paid, most in-demand areas in tech, and it is global and remote-friendly.</p>\n<h3>Roles</h3>\n<ul>\n<li><b>SOC analyst / Blue team</b> — monitor and defend (great first job).</li>\n<li><b>Penetration tester / Red team</b> — authorised attacking to find holes.</li>\n<li><b>Security engineer</b> — build defences into products.</li>\n<li><b>GRC / compliance</b> — policies, risk, audits (less coding).</li>\n</ul>\n<h3>How to get in</h3>\n<p>Learn the fundamentals (this track), practise <b>legally</b> on sites built for it — TryHackMe, Hack The Box, PortSwigger Web Security Academy, OverTheWire — and aim for a certificate like <b>CompTIA Security+</b> (entry), then <b>CEH</b> or <b>OSCP</b> (hands-on). Build a habit of writing up what you learn.</p>\n<div class=\"callout\"><b>The line that defines your career:</b> only ever test systems you own or are explicitly authorised to test. Unauthorised access is a serious crime — ethics is the whole job.</div>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "The one rule of ethical hacking: you must have this before testing a system. Print exactly: permission",
+       "starter": "# what must you always have first?\n",
+       "hint": "You must have permission.",
+       "solution": "print('permission')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "permission"
+        ]
+       }
+      },
+      {
+       "q": "A good entry-level certificate for cybersecurity. Print exactly: Security+",
+       "starter": "# entry-level CompTIA cert\n",
+       "hint": "CompTIA Security+.",
+       "solution": "print('Security+')",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Security+"
+        ]
+       }
+      }
+     ],
+     "worksheet": []
+    }
+   ]
+  }
+ ]
+}
