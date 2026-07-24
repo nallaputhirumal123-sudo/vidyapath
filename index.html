@@ -425,6 +425,24 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
     </section>
 
     <section class="lsec">
+      <h2>Everything inside</h2>
+      <div class="lfeat">
+        <div class="card"><div class="ic">💬</div><h3>Ask Vidya anything</h3>
+          <p>An AI teacher at a blackboard. Ask any question in any subject, at any level — it writes the answer out and reads it aloud, then saves it.</p></div>
+        <div class="card"><div class="ic">🏫</div><h3>Real classrooms for schools</h3>
+          <p>Head teachers run a school, subject teachers set their own assignments (typed or photographed book pages), students hand in work and chat for help.</p></div>
+        <div class="card"><div class="ic">💼</div><h3>Careers &amp; real jobs</h3>
+          <p>What each tech role really does, where you use the skills at work, live job links worldwide, and practice that mirrors a paid task.</p></div>
+        <div class="card"><div class="ic">🤖</div><h3>Built around AI</h3>
+          <p>From "what is AI" in lesson one to building RAG systems and agents — plus an AI helper on every assignment that guides without doing it for you.</p></div>
+        <div class="card"><div class="ic">🎨</div><h3>Coloring for young kids</h3>
+          <p>Tap-to-colour pictures for the youngest learners, so a whole school — every age — has something here.</p></div>
+        <div class="card"><div class="ic">🔔</div><h3>Messages &amp; notifications</h3>
+          <p>Teacher replies, new assignments and requests all land in one inbox, so nobody misses an update.</p></div>
+      </div>
+    </section>
+
+    <section class="lsec">
       <h2>The six stages</h2>
       <div class="lstep"><span class="n">1</span><div><b>🌱 Absolute beginner</b><small> — what a program is, variables, decisions, loops, lists, functions, and what AI really is</small></div></div>
       <div class="lstep"><span class="n">2</span><div><b>📘 Getting fluent in Python</b><small> — real text handling, dictionaries, writing code like a professional</small></div></div>
@@ -490,8 +508,10 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
               <option>Postgraduate</option><option>Other</option>
             </select>
           </div>
-          <div class="field"><label>School / teacher code (optional)</label>
-            <input type="text" id="su_code" placeholder="Only if your school gave you one"/></div>
+          <div class="field" id="su_schoolWrap" style="display:none"><label>Your school</label>
+            <select id="su_school"><option value="">— Select your school —</option></select></div>
+          <div class="field"><label>Join code (from your school / teacher)</label>
+            <input type="text" id="su_code" placeholder="e.g. VP-7K3Q (students) or your subject code"/></div>
           <button class="btn wide" type="submit" id="su_btn">Create account →</button>
         </form>
 
@@ -567,19 +587,19 @@ const PATH_PRESETS=[
    tracks:["s-start","s-think","s-build"]},
   {id:"fluent",name:"Get fluent in Python",icon:"📘",months:"3 months",
    desc:"From zero to writing Python properly. The foundation before any specialisation.",
-   tracks:["s-start","s-think","s-build","p2-text","p2-data"]},
+   tracks:["s-think","s-build","p2-text","p2-data"]},
   {id:"analyst",name:"Data Analyst",icon:"📊",months:"5–6 months",
    desc:"The most realistic first job for someone starting from nothing. Python, SQL, then real analysis.",
-   tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","career"]},
+   tracks:["s-think","s-build","p2-text","p2-data","s3-sql","s3-data","career"]},
   {id:"ai",name:"AI Engineer",icon:"🤖",months:"9–12 months",
    desc:"The complete ladder, zero to building and deploying real AI systems.",
-   tracks:["s-start","s-think","s-build","p2-text","p2-data","s3-sql","s3-data","s4-math","s4-ml","s5-ai","career"]},
+   tracks:["s-think","s-build","p2-text","p2-data","s3-sql","s3-data","s4-math","s4-ml","s5-ai","career"]},
   {id:"web",name:"Web Developer",icon:"🌐",months:"5–6 months",
    desc:"Build the interfaces and services everything else plugs into.",
-   tracks:["s-start","s-think","s-build","js","p2-text","s3-sql","career"]},
+   tracks:["s-think","s-build","js","p2-text","s3-sql","career"]},
   {id:"placement",name:"Job & Interview Prep",icon:"🎓",months:"4–6 months",
    desc:"Java, DSA and SQL — what technical hiring actually tests, anywhere.",
-   tracks:["s-start","s-think","s-build","javac","s3-sql","career"]},
+   tracks:["s-think","s-build","javac","s3-sql","career"]},
 ];
 
 const T = id => TRACKS.find(t=>t.id===id);
@@ -743,6 +763,8 @@ async function boot(){
   showApp(); render();
 
   TUTOR.init();
+  refreshNotif();
+  if(!window._notifPoll) window._notifPoll=setInterval(refreshNotif, 60000);
   const first=(USER.name||"").trim().split(" ")[0];
   setTimeout(()=>{
     TUTOR.say(totalDone()
@@ -759,12 +781,17 @@ fetch("/api/version").then(r=>r.json()).then(v=>{
   });
 }).catch(()=>{});
 
-// Show the Google button only when the server has it configured.
+// Show the Google button + school list when the server provides them.
 api.get("/api/auth/config").then(c=>{
   if(c && c.google_enabled){
     const b=$("#googleBtn"), o=$("#googleOr");
     if(b)b.style.display="flex";
     if(o)o.style.display="flex";
+  }
+  if(c && c.schools && c.schools.length){
+    const sel=$("#su_school"), wrap=$("#su_schoolWrap");
+    if(sel){ c.schools.forEach(s=>{ const o=document.createElement("option"); o.value=s.name; o.textContent=s.name; sel.appendChild(o); }); }
+    if(wrap) wrap.style.display="";
   }
 }).catch(()=>{});
 // Surface an OAuth error returned via ?error=...
@@ -808,6 +835,7 @@ function renderNav(){
     $("#nav").innerHTML=h; return;
   }
   h+=`<button class="navitem ${S.view.page==="home"?"active":""}" data-nav="home"><span class="ic">🏠</span><span class="nm">Home</span></button>
+      <button class="navitem ${S.view.page==="messages"?"active":""}" data-nav="messages"><span class="ic">🔔</span><span class="nm">Messages</span>${NOTIF.unread?`<span class="ct" style="background:#e05a5a;color:#fff;border-radius:99px;padding:1px 7px">${NOTIF.unread}</span>`:""}</button>
       <button class="navitem ${S.view.page==="paths"?"active":""}" data-nav="paths"><span class="ic">🧭</span><span class="nm">Choose a path</span></button>
       <button class="navitem ${S.view.page==="projects"?"active":""}" data-nav="projects"><span class="ic">🛠️</span><span class="nm">Projects</span></button>
       <button class="navitem ${S.view.page==="ask"?"active":""}" data-nav="ask"><span class="ic">💬</span><span class="nm">Ask Vidya anything</span></button>
@@ -2453,12 +2481,52 @@ document.addEventListener("click",e=>{
   else if(k==="reset"){ if(confirm("Clear all colours on this picture?")){ clrSaveFills(COLORING.pageId,{}); renderColorPage(); } }
 });
 
+/* ===================== MESSAGES / NOTIFICATIONS ===================== */
+const NOTIF={unread:0, items:[]};
+function timeAgo(iso){
+  if(!iso) return "";
+  const s=Math.floor((Date.now()-new Date(iso).getTime())/1000);
+  if(s<60) return "just now";
+  if(s<3600) return Math.floor(s/60)+"m ago";
+  if(s<86400) return Math.floor(s/3600)+"h ago";
+  return Math.floor(s/86400)+"d ago";
+}
+async function refreshNotif(){
+  if(!AUTHED) return;
+  try{ const r=await api.get("/api/notifications"); NOTIF.items=r.items||[]; NOTIF.unread=r.unread||0; renderNav(); }catch(e){}
+}
+async function renderMessages(){
+  $("#main").innerHTML=`<div class="h1">🔔 Messages &amp; notifications</div><p class="sub">Loading…</p>`;
+  let r; try{ r=await api.get("/api/notifications"); }
+  catch(e){ $("#main").innerHTML=`<div class="h1">🔔 Messages</div><p class="sub">${esc(e.message)}</p>`; return; }
+  NOTIF.items=r.items||[]; NOTIF.unread=0;
+  api.post("/api/notifications/seen",{}).catch(()=>{});   // mark read
+  const items=r.items||[];
+  $("#main").innerHTML=`<div class="h1">🔔 Messages &amp; notifications</div>
+    <p class="sub">Replies from teachers, new assignments, and requests all show here. Newest first.</p>
+    ${items.length?items.map(it=>`<div class="card" style="margin-bottom:10px;display:flex;gap:12px;align-items:flex-start${it.aid?";cursor:pointer":""}" ${it.aid?`data-notif-aid="${it.aid}" ${it.cid?`data-notif-cid="${it.cid}"`:""}`:""}>
+      <span style="font-size:20px">${it.icon||"🔔"}</span>
+      <div style="flex:1;min-width:0"><div style="font-size:14.5px;color:var(--body)">${esc(it.text)}</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(timeAgo(it.when))}</div></div>
+      ${it.aid?`<span style="color:var(--dim)">→</span>`:""}
+    </div>`).join(""):`<div class="card" style="color:var(--dim)">Nothing yet. Notifications appear here when a teacher replies, an assignment is set, or a teacher sends a request.</div>`}`;
+  renderNav();
+}
+document.addEventListener("click",e=>{
+  const n=e.target.closest("[data-notif-aid]"); if(!n)return;
+  const aid=n.dataset.notifAid, cid=n.dataset.notifCid;
+  if(cid){ S.view={page:"tassign",cid:cid,aid:aid}; }   // teacher → submissions
+  else{ S.view={page:"assignment",aid:aid}; }           // student → assignment
+  render();
+});
+
 /* ===================== ROUTER ===================== */
 function render(){
   if(!AUTHED) return showGate();
   renderWho();
   const v=S.view;
   if(v.page==="home")           renderHome();
+  else if(v.page==="messages")  renderMessages();
   else if(v.page==="paths")     renderPaths();
   else if(v.page==="projects")  renderProjects();
   else if(v.page==="resources") renderResources();
@@ -2507,6 +2575,7 @@ document.addEventListener("click",e=>{
   closeDrawer();
   const n=b.dataset.nav;
   if(n==="home")           S.view={page:"home"};
+  else if(n==="messages")  S.view={page:"messages"};
   else if(n==="paths")     S.view={page:"paths"};
   else if(n==="projects")  S.view={page:"projects"};
   else if(n==="resources") S.view={page:"resources"};

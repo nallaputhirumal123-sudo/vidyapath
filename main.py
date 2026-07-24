@@ -969,9 +969,16 @@ def logout(response: Response):
 
 # ---- Google sign-in ------------------------------------------------------
 @app.get("/api/auth/config")
-def auth_config():
-    """Lets the sign-in page know whether the Google button should show."""
-    return {"google_enabled": GOOGLE_ENABLED}
+def auth_config(db: Session = Depends(get_db)):
+    """Lets the sign-in page know whether Google shows, plus the list of
+    enrolled schools so a student/teacher can pick theirs. Names only — no
+    private data — so this is safe to expose publicly."""
+    try:
+        schools = [{"id": s.id, "name": s.name} for s in
+                   db.query(School).order_by(School.name).all()]
+    except Exception:
+        schools = []
+    return {"google_enabled": GOOGLE_ENABLED, "schools": schools}
 
 
 def _redirect_uri(request: Request) -> str:
@@ -1828,6 +1835,81 @@ def head_close_request(rid: int, user: User = Depends(head_user),
     if r:
         r.status = "done"
         db.commit()
+    return {"ok": True}
+
+
+# ---- notifications / messages inbox ----
+def _aware(d):
+    if d is None:
+        return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+@app.get("/api/notifications")
+def notifications(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    items = []
+    t = teacher_row(user, db)
+    if not t and not user.is_admin:
+        # STUDENT: teacher replies to me, and assignments set in my classes
+        for m in db.query(AssignmentMessage).filter(
+                AssignmentMessage.student_id == user.id,
+                AssignmentMessage.from_teacher == True).order_by(  # noqa: E712
+                AssignmentMessage.created_at.desc()).limit(20).all():
+            a = db.get(Assignment, m.assignment_id)
+            if a:
+                items.append({"type": "reply", "icon": "💬",
+                              "text": f"Teacher replied on “{a.title}”",
+                              "when": _aware(m.created_at).isoformat(), "aid": a.id})
+        my_cids = [cm.class_id for cm in db.query(ClassMember).filter(
+            ClassMember.user_id == user.id).all()]
+        if my_cids:
+            for a in db.query(Assignment).filter(Assignment.class_id.in_(my_cids)) \
+                    .order_by(Assignment.created_at.desc()).limit(20).all():
+                items.append({"type": "assignment", "icon": "📌",
+                              "text": f"Assignment: {a.subject+' · ' if a.subject else ''}{a.title}",
+                              "when": _aware(a.created_at).isoformat(), "aid": a.id})
+    else:
+        # TEACHER: students messaging me on my assignments
+        my_aids = [a.id for a in db.query(Assignment).filter(
+            Assignment.teacher_id == user.id).all()]
+        if my_aids:
+            for m in db.query(AssignmentMessage).filter(
+                    AssignmentMessage.assignment_id.in_(my_aids),
+                    AssignmentMessage.from_teacher == False).order_by(  # noqa: E712
+                    AssignmentMessage.created_at.desc()).limit(25).all():
+                a = db.get(Assignment, m.assignment_id)
+                su = db.get(User, m.student_id)
+                items.append({"type": "msg", "icon": "💬",
+                              "text": f"{su.name if su else 'A student'} messaged on “{a.title if a else ''}”",
+                              "when": _aware(m.created_at).isoformat(),
+                              "aid": (a.id if a else 0), "cid": (a.class_id if a else 0)})
+        if t and t.role == "head":
+            for r in db.query(TeacherRequest).filter(
+                    TeacherRequest.school_id == t.school_id,
+                    TeacherRequest.status == "open").order_by(
+                    TeacherRequest.created_at.desc()).limit(20).all():
+                ru = db.get(User, r.teacher_id)
+                items.append({"type": "request", "icon": "🙋",
+                              "text": f"{ru.name if ru else 'A teacher'} requests: {r.message[:80]}",
+                              "when": _aware(r.created_at).isoformat()})
+    items.sort(key=lambda x: x["when"], reverse=True)
+    items = items[:40]
+    # unread = newer than the last time they opened the inbox
+    seen_row = db.query(Note).filter(Note.user_id == user.id, Note.k == "__notif_seen__").first()
+    seen = seen_row.v if seen_row else ""
+    unread = sum(1 for it in items if it["when"] > seen)
+    return {"items": items, "unread": unread}
+
+
+@app.post("/api/notifications/seen")
+def notifications_seen(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    stamp = now().isoformat()
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == "__notif_seen__").first()
+    if row:
+        row.v = stamp
+    else:
+        db.add(Note(user_id=user.id, k="__notif_seen__", v=stamp))
+    db.commit()
     return {"ok": True}
 
 
