@@ -3031,7 +3031,7 @@ const RZ_STYLES=[
   {name:"Corporate",accent:"#6d28a8", font:"'Calibri','Segoe UI',sans-serif",   rule:false, caps:true},
 ];
 function rzBlank(){
-  return {name:"",title:"",email:"",phone:"",location:"",links:"",role:"",summary:"",
+  return {name:"",title:"",email:"",phone:"",location:"",links:"",role:"",summary:"",photo:"",tone:"Professional",
     skills:[{label:"Skills",items:""}],
     exp:[{role:"",company:"",place:"",dates:"",bullets:"",ctx:""}],
     edu:[{degree:"",school:"",place:"",year:""}],
@@ -3081,6 +3081,16 @@ function renderResume(){
   $("#main").innerHTML=`
   <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· write with AI, format for ATS</span></div>
   <div class="card" style="margin-bottom:14px">
+    <b>Start faster</b>
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+      <label class="btn ghost sm" style="cursor:pointer">⬆ Import existing resume (PDF/DOCX)<input id="rzUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
+      <label class="btn ghost sm" style="cursor:pointer">🖼️ Add photo<input id="rzPhoto" type="file" accept="image/*" style="display:none"></label>
+      ${RESUME.photo?`<img src="${RESUME.photo}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:1px solid var(--line)"><button class="btn ghost sm" data-rz-act="delphoto">Remove photo</button>`:""}
+      <span id="rzUpMsg" style="font-size:12.5px;color:var(--dim)"></span>
+    </div>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:6px">A photo is optional — many strict ATS resumes leave it off. It appears on styled previews only.</div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
     <div class="row" style="justify-content:space-between"><b>Completeness</b><span style="color:var(--accent);font-weight:700">${pct}%</span></div>
     <div class="pj-bar" style="margin-top:8px"><div class="pj-fill" style="width:${pct}%"></div></div>
     <div style="font-size:12.5px;color:var(--dim);margin-top:6px">Fill Personal details, Contact, Summary, Employment, Skills and Education for a complete, ATS-ready resume.</div>
@@ -3089,7 +3099,10 @@ function renderResume(){
   <div class="card" style="margin-bottom:14px;border-color:var(--accent)">
     <b>🎯 Target role &amp; AI</b>
     <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
-      <input id="rzRole" class="ask-input" style="max-width:240px" value="${esc(RESUME.role||"")}" placeholder="Target role e.g. Data Analyst"/>
+      <input id="rzRole" class="ask-input" style="max-width:220px" value="${esc(RESUME.role||"")}" placeholder="Target role e.g. Data Analyst"/>
+      <select id="rzTone" class="ask-input" style="max-width:150px">
+        ${["Professional","Executive","Technical","Creative","Concise"].map(t=>`<option ${RESUME.tone===t?"selected":""}>${t}</option>`).join("")}
+      </select>
       <button class="btn sm" data-rz-act="ai">✨ Rewrite whole resume</button>
       <button class="btn ghost sm" data-rz-act="sklsug">✨ Suggest skills for this role</button>
     </div>
@@ -3127,7 +3140,28 @@ function renderResume(){
   </div>`;
   const ed=$("#rzEditor"); if(ed) ed.oninput=onResumeInput;
   const rl=$("#rzRole"); if(rl) rl.oninput=e=>{ RESUME.role=e.target.value; rzSave(); };
+  const tn=$("#rzTone"); if(tn) tn.onchange=e=>{ RESUME.tone=e.target.value; rzSave(); };
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
+  const up=$("#rzUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) rzUpload(e.target.files[0]); };
+  const ph=$("#rzPhoto"); if(ph) ph.onchange=e=>{ if(e.target.files[0]) rzPhoto(e.target.files[0]); };
+}
+async function rzUpload(file){
+  const m=$("#rzUpMsg"); if(m)m.textContent="Reading & structuring your resume…";
+  const fd=new FormData(); fd.append("file",file);
+  try{
+    const rr=await fetch("/api/resume/parse",{method:"POST",credentials:"same-origin",body:fd});
+    if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Import failed"); }
+    const d=await rr.json();
+    Object.assign(RESUME,d);   // keep style/photo/tone
+    rzSave(); renderResume();
+    const m2=$("#rzUpMsg"); if(m2)m2.textContent="Imported — review and refine below.";
+  }catch(e){ const m2=$("#rzUpMsg"); if(m2)m2.textContent=e.message; }
+}
+function rzPhoto(file){
+  if(file.size>2000000){ const m=$("#rzUpMsg"); if(m)m.textContent="Photo too big (max 2MB)."; return; }
+  const rd=new FileReader();
+  rd.onload=()=>{ RESUME.photo=rd.result; rzSave(); renderResume(); };
+  rd.readAsDataURL(file);
 }
 function rzField(label,key,ph){ return `<div class="field"><label>${label}</label><input data-rz="${key}" value="${esc(RESUME[key]||"")}" placeholder="${ph||""}"/></div>`; }
 function rzArea(label,key,ph){ return `<div class="field"><label>${label}</label><textarea class="pj-note" data-rz="${key}" style="min-height:64px" placeholder="${ph||""}">${esc(RESUME[key]||"")}</textarea></div>`; }
@@ -3197,10 +3231,11 @@ function rzPreviewHTML(){
   const contact=[r.email,r.phone,r.location].filter(Boolean).join("  •  ");
   /* the sheet: A4 proportions via padding; content flows naturally */
   let h=`<div style="font-family:${S.font};color:#1a1a1a;padding:46px 52px;font-size:12px;line-height:1.5;min-height:900px;box-sizing:border-box">`;
-  h+=`<div style="font-size:23px;font-weight:800;color:${S.accent}">${esc2(r.name)||"Your Name"}</div>`;
-  if(r.title) h+=`<div style="font-size:13px;color:#444;margin-top:2px">${esc2(r.title)}</div>`;
-  if(contact) h+=`<div style="font-size:11px;color:#555;margin-top:5px">${esc2(contact)}</div>`;
-  if(r.links) h+=`<div style="font-size:11px;color:${S.accent};margin-top:2px">${esc2(r.links)}</div>`;
+  const hdr=`<div style="flex:1"><div style="font-size:23px;font-weight:800;color:${S.accent}">${esc2(r.name)||"Your Name"}</div>`
+    +(r.title?`<div style="font-size:13px;color:#444;margin-top:2px">${esc2(r.title)}</div>`:"")
+    +(contact?`<div style="font-size:11px;color:#555;margin-top:5px">${esc2(contact)}</div>`:"")
+    +(r.links?`<div style="font-size:11px;color:${S.accent};margin-top:2px">${esc2(r.links)}</div>`:"")+`</div>`;
+  h+=`<div style="display:flex;gap:16px;align-items:flex-start">${hdr}${r.photo?`<img src="${r.photo}" style="width:76px;height:76px;border-radius:8px;object-fit:cover">`:""}</div>`;
   if(r.summary){ h+=H("Professional Summary")+`<div>${esc2(r.summary).replace(/\n/g,"<br>")}</div>`; }
   const ex=r.exp.filter(x=>x.role||x.company);
   if(ex.length){ h+=H("Employment History"); ex.forEach(x=>{
@@ -3236,6 +3271,7 @@ async function rzPDF(){
     parts.forEach(p=>{ ny(); doc.text(p,opt.x||M,y); y+=size*1.32; }); };
   const heading=t=>{ y+=8; ny(); doc.setDrawColor(ST.accent); doc.setLineWidth(1.2);
     text(ST.caps?t.toUpperCase():t,11,{bold:true,color:ST.accent}); if(ST.rule){ doc.line(M,y-3,M+W,y-3); y+=4; } };
+  if(r.photo){ try{ const fmt=/^data:image\/(png|jpe?g)/i.exec(r.photo); doc.addImage(r.photo, (fmt&&/png/i.test(fmt[1]))?"PNG":"JPEG", doc.internal.pageSize.getWidth()-M-64, 40, 64, 64); }catch(e){} }
   text(r.name||"Your Name",20,{bold:true,color:ST.accent});
   if(r.title) text(r.title,11,{color:"#444"});
   const contact=[r.email,r.phone,r.location].filter(Boolean).join("  |  ");
@@ -3272,7 +3308,7 @@ async function rzBulletsAI(i){
   const msg=$("#rzAiMsg"); if(msg)msg.textContent="✨ Writing bullet points…";
   const x=RESUME.exp[i]||{};
   try{
-    const res=await api.post("/api/resume/bullets",{role:x.role||RESUME.role||"",company:x.company||"",context:x.ctx||""});
+    const res=await api.post("/api/resume/bullets",{role:x.role||RESUME.role||"",company:x.company||"",context:x.ctx||"",tone:RESUME.tone||"Professional"});
     RZ_SUG.bullets[i]=res.bullets||[]; if(msg)msg.textContent="Bullet ideas ready — tap + Add.";
     renderResume();
   }catch(e){ if(msg)msg.textContent=e.message; }
@@ -3284,15 +3320,18 @@ async function rzSkillsAI(){
   try{ const res=await api.post("/api/resume/skills",{role}); RZ_SUG.skills=res.skills||[]; if(msg)msg.textContent="Tap a skill to add it."; renderResume(); }
   catch(e){ if(msg)msg.textContent=e.message; }
 }
+function rzScoreCol(n){ return n>=75?"#4bbf82":n>=50?"#e8a33d":"#e05a5a"; }
+function rzBar(label,n){ return `<div style="margin:6px 0"><div class="row" style="justify-content:space-between;font-size:12px"><span>${label}</span><span style="color:${rzScoreCol(n)};font-weight:600">${n}%</span></div><div class="pj-bar"><div class="pj-fill" style="width:${n}%;background:${rzScoreCol(n)}"></div></div></div>`; }
 function rzMatchHTML(){
   if(!RZ_MATCH) return "";
-  const m=RZ_MATCH, col=m.score>=75?"#4bbf82":m.score>=50?"#e8a33d":"#e05a5a";
-  return `<div class="row" style="justify-content:space-between;align-items:center"><b>ATS match score</b><span style="font-weight:800;font-size:20px;color:${col}">${m.score}%</span></div>
-    <div class="pj-bar" style="margin:8px 0"><div class="pj-fill" style="width:${m.score}%;background:${col}"></div></div>
-    <div style="font-size:12.5px;color:var(--dim);margin-bottom:8px">${m.matched.length} of ${m.total} key requirements found in your resume.</div>
-    ${m.matched.length?`<div style="margin-bottom:8px"><div style="font-size:12px;color:#4bbf82;margin-bottom:4px">✓ You have:</div><div class="ask-chips">${m.matched.map(k=>`<span class="pill" style="background:rgba(75,191,130,.15);color:#4bbf82;border-color:rgba(75,191,130,.4)">${esc(k)}</span>`).join("")}</div></div>`:""}
-    ${m.missing.length?`<div><div style="font-size:12px;color:#e05a5a;margin-bottom:4px">✗ Missing — add the ones that are true for you:</div><div class="ask-chips">${m.missing.map((k,i)=>`<button class="ask-chip" data-addmiss="${i}">+ ${esc(k)}</button>`).join("")}</div></div>`
-      :`<div style="color:#4bbf82;font-size:13px">Great — your resume covers every keyword.</div>`}`;
+  const m=RZ_MATCH, s=m.subscores||{}, col=rzScoreCol(m.score);
+  const crit=m.critical||[], weak=m.weak||[], strong=m.strong||[], adv=m.advice||[];
+  return `<div class="row" style="justify-content:space-between;align-items:center"><b>ATS match score</b><span style="font-weight:800;font-size:22px;color:${col}">${m.score}%</span></div>
+    ${rzBar("Keyword match",s.keywords||0)}${rzBar("Experience & qualifications",s.experience||0)}${rzBar("ATS readability & impact",s.readability||0)}
+    ${strong.length?`<div style="margin-top:10px"><div style="font-size:12px;color:#4bbf82;margin-bottom:4px">🟢 Strong alignment</div><div class="ask-chips">${strong.map(k=>`<span class="pill" style="background:rgba(75,191,130,.15);color:#4bbf82;border-color:rgba(75,191,130,.4)">${esc(k)}</span>`).join("")}</div></div>`:""}
+    ${weak.length?`<div style="margin-top:10px"><div style="font-size:12px;color:#e8a33d;margin-bottom:4px">🟡 Weak / partial — add detail or metrics (tap to add as a skill)</div><div class="ask-chips">${weak.map((k,i)=>`<button class="ask-chip" data-addmiss="w${i}">+ ${esc(k)}</button>`).join("")}</div></div>`:""}
+    ${crit.length?`<div style="margin-top:10px"><div style="font-size:12px;color:#e05a5a;margin-bottom:4px">🔴 Critical missing — add the ones true for you (tap to add)</div><div class="ask-chips">${crit.map((k,i)=>`<button class="ask-chip" data-addmiss="c${i}">+ ${esc(k)}</button>`).join("")}</div></div>`:""}
+    ${adv.length?`<div style="margin-top:10px;font-size:12.5px"><b>Next steps:</b><ul style="margin:5px 0 0 18px">${adv.map(a=>`<li>${esc(a)}</li>`).join("")}</ul></div>`:""}`;
 }
 async function rzMatch(){
   const ta=$("#rzJD"); RZ_JD=(ta&&ta.value)||"";
@@ -3304,12 +3343,12 @@ async function rzMatch(){
 }
 document.addEventListener("click",e=>{
   const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss]"); if(!b)return;
-  if(b.dataset.addmiss!==undefined){ const sk=(RZ_MATCH&&RZ_MATCH.missing[+b.dataset.addmiss]);
+  if(b.dataset.addmiss!==undefined && RZ_MATCH){
+    const v=b.dataset.addmiss, list=v[0]==="c"?RZ_MATCH.critical:RZ_MATCH.weak, idx=+v.slice(1), sk=list&&list[idx];
     if(sk){ const g=RESUME.skills[0]||(RESUME.skills.push({label:"Skills",items:""}),RESUME.skills[0]);
       const items=g.items.split(",").map(s=>s.trim()).filter(Boolean);
       if(!items.some(s=>s.toLowerCase()===sk.toLowerCase())){ items.push(sk); g.items=items.join(", "); }
-      RZ_MATCH.missing.splice(+b.dataset.addmiss,1); RZ_MATCH.matched.push(sk);
-      RZ_MATCH.score=Math.round(RZ_MATCH.matched.length/RZ_MATCH.total*100);
+      list.splice(idx,1); (RZ_MATCH.strong=RZ_MATCH.strong||[]).push(sk);
       rzSave(); renderResume(); const ta=$("#rzJD"); if(ta)ta.value=RZ_JD; return; } }
   if(b.dataset.rzstyle!==undefined){ RESUME.style=+b.dataset.rzstyle; rzSave(); renderResume(); }
   else if(b.dataset.rzadd){ const L=b.dataset.rzadd;
@@ -3327,6 +3366,7 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="bull") rzBulletsAI(+b.dataset.i);
   else if(b.dataset.rzAct==="sklsug") rzSkillsAI();
   else if(b.dataset.rzAct==="match") rzMatch();
+  else if(b.dataset.rzAct==="delphoto"){ RESUME.photo=""; rzSave(); renderResume(); }
 });
 /* ===================== ROUTER ===================== */
 function render(){

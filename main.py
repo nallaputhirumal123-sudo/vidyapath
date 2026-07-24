@@ -2457,24 +2457,27 @@ class BulletsIn(BaseModel):
     role: str = Field(default="", max_length=120)
     company: str = Field(default="", max_length=120)
     context: str = Field(default="", max_length=1000)
+    tone: str = Field(default="Professional", max_length=20)
 
 
 @app.post("/api/resume/bullets")
 async def resume_bullets(body: BulletsIn, user: User = Depends(current_user)):
-    """AI-written ATS achievement bullets for one job."""
+    """AI-written ATS achievement bullets for one job, using the STAR framework."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI writer is not switched on")
     role = (body.role or "the role").strip()[:120]
+    tone = (body.tone or "Professional").strip()[:20]
     prompt = (
         f"You are an expert resume writer. Write 6 strong, ATS-friendly, "
         f"one-line achievement bullet points for a '{role}'"
         + (f" at {body.company.strip()}" if body.company.strip() else "")
-        + ".\n"
+        + f", in a {tone} tone.\n"
         + (f"What the person did: {body.context.strip()}\n" if body.context.strip() else "")
-        + "Each bullet: start with a strong action verb, describe the task, and "
-        "show impact. Use realistic, generic impact phrasing the person can "
-        "edit with their own numbers — do NOT fabricate specific company names "
-        "or precise false statistics. Keep each to one line.\n\n"
+        + "Follow the STAR idea (Situation/Task/Action/Result) compressed into "
+        "one line: start with a strong action verb, state what was done, and "
+        "end with a measurable result. Use realistic, generic impact phrasing "
+        "the person can edit with their own numbers — do NOT fabricate specific "
+        "company names or precise false statistics. Keep each to one line.\n\n"
         'Respond with ONLY valid JSON: {"bullets": ["...", "...", "..."]}'
     )
     try:
@@ -2532,34 +2535,124 @@ def _resume_text(r):
 
 @app.post("/api/resume/match")
 async def resume_match(body: MatchIn, user: User = Depends(current_user)):
-    """Score the resume against a pasted job description: extract the JD's key
-    requirements with AI, then check which appear in the resume."""
+    """Full AI analysis of the resume against a JD: overall score, sub-scores,
+    and gaps categorised as critical / weak / strong."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI matcher is not switched on")
     jd = (body.jd or "").strip()
     if len(jd) < 40:
         raise HTTPException(400, "Paste the full job description first")
+    rtext = _resume_text(body.resume or {})[:6000]
     prompt = (
-        "From this job description, extract the 18 most important skills, "
-        "tools, technologies and hard requirements that an ATS would scan a "
-        "resume for. Short keyword phrases only, no sentences.\n\n"
-        f"JOB DESCRIPTION:\n{jd[:6000]}\n\n"
-        'Respond with ONLY valid JSON: {"keywords": ["Python", "SQL", "..."]}'
+        "You are an ATS resume analyst. Compare the RESUME to the JOB "
+        "DESCRIPTION and score the fit.\n\n"
+        f"RESUME:\n{rtext}\n\nJOB DESCRIPTION:\n{jd[:6000]}\n\n"
+        "Return ONLY valid JSON in exactly this shape (scores are 0-100 "
+        "integers):\n"
+        '{"score": <overall>, '
+        '"subscores": {"keywords": <n>, "experience": <n>, "readability": <n>}, '
+        '"critical": ["<must-have keyword fully missing from the resume>", "..."], '
+        '"weak": ["<skill present but lacking detail/metrics vs the JD>", "..."], '
+        '"strong": ["<exact strength that matches the JD well>", "..."], '
+        '"advice": ["<one short, specific next step>", "..."]}'
     )
     try:
-        data = _ai_json(await _ai_text(prompt, 500))
+        d = _ai_json(await _ai_text(prompt, 900))
     except Exception as e:
         print(f"Resume match failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI matcher could not respond. Try again.")
-    keywords = [str(k).strip() for k in (data.get("keywords") or []) if str(k).strip()][:20]
-    text = _resume_text(body.resume or {})
-    matched, missing = [], []
-    for k in keywords:
-        (matched if k.lower() in text else missing).append(k)
-    total = len(keywords) or 1
-    score = round(len(matched) / total * 100)
-    return {"score": score, "matched": matched, "missing": missing,
-            "total": len(keywords)}
+    def lst(k, n=12):
+        return [str(x)[:60] for x in (d.get(k) or []) if str(x).strip()][:n]
+    sub = d.get("subscores") or {}
+    def sc(v):
+        try:
+            return max(0, min(100, int(v)))
+        except Exception:
+            return 0
+    return {
+        "score": sc(d.get("score", 0)),
+        "subscores": {"keywords": sc(sub.get("keywords", 0)),
+                      "experience": sc(sub.get("experience", 0)),
+                      "readability": sc(sub.get("readability", 0))},
+        "critical": lst("critical"), "weak": lst("weak"),
+        "strong": lst("strong"), "advice": lst("advice", 6),
+    }
+
+
+# ---- parse an uploaded resume (PDF / DOCX / TXT) into the builder ----
+def _extract_resume_text(filename, raw):
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(raw))
+        return "\n".join((p.extract_text() or "") for p in reader.pages)
+    if name.endswith(".docx"):
+        from docx import Document
+        doc = Document(io.BytesIO(raw))
+        return "\n".join(p.text for p in doc.paragraphs)
+    if name.endswith(".txt"):
+        return raw.decode("utf-8", "ignore")
+    raise HTTPException(400, "Upload a PDF, DOCX or TXT file")
+
+
+@app.post("/api/resume/parse")
+async def resume_parse(file: UploadFile = File(...),
+                       user: User = Depends(current_user)):
+    """Read an existing resume file and let the AI structure it into the
+    builder's sections — so the student starts from what they already have."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI parser is not switched on")
+    raw = await file.read()
+    if len(raw) > 4_000_000:
+        raise HTTPException(400, "File too large (max 4 MB)")
+    try:
+        text = _extract_resume_text(file.filename, raw)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Could not read that file: {e}")
+    text = (text or "").strip()
+    if len(text) < 30:
+        raise HTTPException(400, "No readable text found in that file")
+    prompt = (
+        "Parse this resume text into structured JSON. Use ONLY information "
+        "present; leave fields empty if absent. Keep each experience 'bullets' "
+        "as newline-separated lines.\n\n"
+        f"RESUME TEXT:\n{text[:8000]}\n\n"
+        "Return ONLY valid JSON in this shape:\n"
+        '{"name":"","title":"","email":"","phone":"","location":"","links":"",'
+        '"summary":"","skills":[{"label":"Skills","items":""}],'
+        '"exp":[{"role":"","company":"","place":"","dates":"","bullets":""}],'
+        '"edu":[{"degree":"","school":"","place":"","year":""}],'
+        '"proj":[{"name":"","tech":"","desc":"","link":""}],"certs":""}'
+    )
+    try:
+        d = _ai_json(await _ai_text(prompt, 2200))
+    except Exception as e:
+        print(f"Resume parse failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The AI could not structure that resume. Try again.")
+
+    def s(v, n=400): return str(v or "")[:n]
+    out = {
+        "name": s(d.get("name"), 120), "title": s(d.get("title"), 120),
+        "email": s(d.get("email"), 120), "phone": s(d.get("phone"), 60),
+        "location": s(d.get("location"), 120), "links": s(d.get("links"), 300),
+        "summary": s(d.get("summary"), 1500),
+        "skills": [{"label": s(x.get("label"), 40) or "Skills", "items": s(x.get("items"))}
+                   for x in (d.get("skills") or []) if isinstance(x, dict)][:6] or [{"label": "Skills", "items": ""}],
+        "exp": [{"role": s(x.get("role"), 120), "company": s(x.get("company"), 120),
+                 "place": s(x.get("place"), 80), "dates": s(x.get("dates"), 40),
+                 "bullets": s(x.get("bullets"), 2000), "ctx": ""}
+                for x in (d.get("exp") or []) if isinstance(x, dict)][:8] or [{"role": "", "company": "", "place": "", "dates": "", "bullets": "", "ctx": ""}],
+        "edu": [{"degree": s(x.get("degree"), 120), "school": s(x.get("school"), 120),
+                 "place": s(x.get("place"), 80), "year": s(x.get("year"), 20)}
+                for x in (d.get("edu") or []) if isinstance(x, dict)][:6] or [{"degree": "", "school": "", "place": "", "year": ""}],
+        "proj": [{"name": s(x.get("name"), 120), "tech": s(x.get("tech"), 120),
+                  "desc": s(x.get("desc"), 300), "link": s(x.get("link"), 200)}
+                 for x in (d.get("proj") or []) if isinstance(x, dict)][:8] or [{"name": "", "tech": "", "desc": "", "link": ""}],
+        "certs": s(d.get("certs"), 1000),
+    }
+    return out
 
 
 @app.get("/api/ask/config")
