@@ -2655,6 +2655,64 @@ async def resume_parse(file: UploadFile = File(...),
     return out
 
 
+class ResumeChatIn(BaseModel):
+    resume: dict = {}
+    history: list = []      # [{"role": "user"|"assistant", "content": "..."}]
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/api/resume/chat")
+async def resume_chat(body: ResumeChatIn, user: User = Depends(current_user)):
+    """The interactive resume co-pilot. Replies to the user and, when it
+    suggests a concrete edit, returns apply-able actions."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The resume assistant is not switched on")
+    rtext = _resume_text(body.resume or {})[:4000]
+    convo = ""
+    for m in (body.history or [])[-8:]:
+        role = "User" if str(m.get("role")) == "user" else "Assistant"
+        convo += f"{role}: {str(m.get('content',''))[:600]}\n"
+    prompt = (
+        "You are the Vidya AI Resume Specialist — an encouraging, practical "
+        "career coach. Help the user improve their resume. Be concise (2-5 "
+        "sentences). Ask for missing context when needed. When you propose a "
+        "concrete edit, ALSO return it in 'actions' so the user can apply it "
+        "with one click. Use ONLY facts the user provides — never invent "
+        "employers, dates or false metrics.\n\n"
+        f"CURRENT RESUME:\n{rtext}\n\n"
+        f"CONVERSATION SO FAR:\n{convo}\n"
+        f"User: {body.message.strip()}\n\n"
+        "Return ONLY valid JSON in this shape (actions optional, 0-4 items):\n"
+        '{"reply": "<your helpful reply>", "actions": ['
+        '{"type": "summary", "label": "Use this summary", "value": "<text>"}, '
+        '{"type": "title", "label": "Set title", "value": "<text>"}, '
+        '{"type": "skill", "label": "Add skill", "value": "<one skill>"}, '
+        '{"type": "bullet", "label": "Add to <job>", "exp": <index>, "value": "<bullet>"}'
+        "]}"
+    )
+    try:
+        d = _ai_json(await _ai_text(prompt, 900))
+    except Exception as e:
+        print(f"Resume chat failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The assistant could not respond. Try again.")
+    acts = []
+    for a in (d.get("actions") or [])[:5]:
+        if not isinstance(a, dict):
+            continue
+        t = str(a.get("type", ""))
+        if t not in ("summary", "title", "skill", "bullet"):
+            continue
+        item = {"type": t, "label": str(a.get("label", "Apply"))[:60],
+                "value": str(a.get("value", ""))[:600]}
+        if t == "bullet":
+            try:
+                item["exp"] = int(a.get("exp", 0))
+            except Exception:
+                item["exp"] = 0
+        acts.append(item)
+    return {"reply": str(d.get("reply", ""))[:1500], "actions": acts}
+
+
 @app.get("/api/ask/config")
 def ask_config(user: User = Depends(current_user)):
     """Lets the page know whether the AI teacher is switched on."""
