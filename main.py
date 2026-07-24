@@ -573,7 +573,13 @@ def _seed_file(db, filename, audience, position_offset):
         return 0
     data = json.loads(path.read_text(encoding="utf-8"))
     tracks = [t for t in data["tracks"] if t["id"] not in SUPERSEDED_TRACKS]
+    added = 0
     for t in tracks:
+        # idempotent: skip a track that is already in the database, so new
+        # curriculum files load automatically on deploy without duplicating.
+        if db.query(Track).filter(Track.slug == t["id"]).first():
+            continue
+        added += 1
         track = Track(
             slug=t["id"], icon=t.get("icon", ""), name=t["name"],
             audience=t.get("audience", audience),
@@ -598,7 +604,7 @@ def _seed_file(db, filename, audience, position_offset):
                 worksheet=json.dumps(l.get("worksheet", [])),
                 position=l.get("position", 0),
             ))
-    return len(tracks)
+    return added
 
 
 def _count_users():
@@ -678,25 +684,27 @@ def seed_if_empty():
         files = sorted(p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json")
         print(f"Startup: {existing} tracks in database | curriculum files found: {files}")
 
-        if existing == 0:
-            # One continuous ladder. Position ranges keep the stages in order.
-            counts = [
-                _seed_file(db, "school.json",     "school",   0),    # Stage 1
-                _seed_file(db, "stage2.json",     "stage2",   50),   # Stage 2
-                _seed_file(db, "stage3a.json",    "stage3a",  80),   # Stage 3
-                _seed_file(db, "stage3b.json",    "stage3b",  90),   # Stage 4
-                _seed_file(db, "stage4.json",     "stage4",   95),   # Stage 5
-                _seed_file(db, "curriculum.json", "graduate", 120),  # Stage 6
-                _seed_file(db, "placement.json",  "graduate", 150),  # DSA + aptitude
-                _seed_file(db, "gamedev.json",     "graduate", 160),  # Game development
-                _seed_file(db, "cybersec.json",     "graduate", 170),  # Cybersecurity
-            ]
-            db.commit()
-            total = sum(counts)
-            if total:
-                print(f"Seeded {total} tracks across 6 stages: {counts}")
-            else:
-                print("WARNING: no curriculum files found - content is empty.")
+        # Always run: _seed_file skips tracks already present, so this both
+        # seeds an empty database AND auto-adds any NEW curriculum file on a
+        # later deploy — without a manual "reload curriculum" and without
+        # touching existing tracks or student progress.
+        counts = [
+            _seed_file(db, "school.json",     "school",   0),    # Stage 1
+            _seed_file(db, "stage2.json",     "stage2",   50),   # Stage 2
+            _seed_file(db, "stage3a.json",    "stage3a",  80),   # Stage 3
+            _seed_file(db, "stage3b.json",    "stage3b",  90),   # Stage 4
+            _seed_file(db, "stage4.json",     "stage4",   95),   # Stage 5
+            _seed_file(db, "curriculum.json", "graduate", 120),  # Stage 6
+            _seed_file(db, "placement.json",  "graduate", 150),  # DSA + aptitude
+            _seed_file(db, "gamedev.json",    "graduate", 160),  # Game development
+            _seed_file(db, "cybersec.json",   "graduate", 170),  # Cybersecurity
+        ]
+        db.commit()
+        added = sum(counts)
+        if added:
+            print(f"Seeded/added {added} new tracks: {counts}")
+        else:
+            print("Curriculum already up to date — no new tracks to add.")
 
         # ---- Admin bootstrap -------------------------------------------
         if ADMIN_EMAIL:
@@ -2343,6 +2351,101 @@ async def _call_model(question: str, subject: str, level: str) -> dict:
     if not text:
         raise RuntimeError(f"{AI_PROVIDER} returned no text (model={_PROVIDER_MODEL})")
     return _parse_lesson(text, question)
+
+
+async def _ai_text(prompt: str, max_tokens: int = 1500) -> str:
+    """Generic single-prompt call to the configured provider; returns raw text."""
+    import httpx
+    async with httpx.AsyncClient(timeout=60) as client:
+        if AI_PROVIDER == "gemini":
+            gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
+            if "2.5" in GEMINI_MODEL:
+                gen["thinkingConfig"] = {"thinkingBudget": 0}
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen})
+            _upstream_ok(r, "gemini")
+            return "".join(p.get("text", "") for c in r.json().get("candidates", [])
+                           for p in c.get("content", {}).get("parts", [])).strip()
+        elif AI_PROVIDER == "groq":
+            r = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "content-type": "application/json"},
+                json={"model": GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.4,
+                      "messages": [{"role": "user", "content": prompt}]})
+            _upstream_ok(r, "groq")
+            return r.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        else:
+            r = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+                json={"model": ANTHROPIC_MODEL, "max_tokens": max_tokens,
+                      "messages": [{"role": "user", "content": prompt}]})
+            _upstream_ok(r, "claude")
+            return "".join(b.get("text", "") for b in r.json().get("content", [])
+                           if b.get("type") == "text").strip()
+
+
+class ResumeAIIn(BaseModel):
+    resume: dict = {}
+    target_role: str = Field(default="", max_length=120)
+
+
+@app.post("/api/resume/ai")
+async def resume_ai(body: ResumeAIIn, user: User = Depends(current_user)):
+    """Rewrite a resume into strong, ATS-optimized wording — using only the
+    facts the student provided (never inventing employers, dates or degrees)."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI writer is not switched on")
+    r = body.resume or {}
+    role = (body.target_role or r.get("title") or "the role").strip()[:120]
+    exp = r.get("exp", []) or []
+    facts = {
+        "name": r.get("name", ""), "title": r.get("title", ""),
+        "summary": r.get("summary", ""),
+        "skills": r.get("skills", []),
+        "experience": [{"role": x.get("role", ""), "company": x.get("company", ""),
+                        "dates": x.get("dates", ""), "bullets": x.get("bullets", "")}
+                       for x in exp],
+        "projects": r.get("proj", []), "education": r.get("edu", []),
+    }
+    prompt = (
+        "You are an expert resume writer optimising for Applicant Tracking "
+        f"Systems (ATS). Target role: {role}.\n\n"
+        "Rewrite the following resume facts into strong, concise, ATS-friendly "
+        "content. RULES: use ONLY the facts given — never invent employers, "
+        "job titles, dates, degrees or numbers that aren't there. Improve "
+        "wording: start experience bullets with strong action verbs, keep each "
+        "bullet to one line, weave in keywords a recruiter for this role would "
+        "search. If the person has little experience, lean on projects and "
+        "skills.\n\n"
+        f"FACTS (JSON):\n{json.dumps(facts, ensure_ascii=False)}\n\n"
+        "Respond with ONLY valid JSON, no markdown, in exactly this shape:\n"
+        '{"summary": "<2-3 line professional summary>", '
+        '"skills": [{"label": "<group>", "items": "<comma separated>"}], '
+        '"experience": ["<newline-separated improved bullets for job 1>", '
+        '"<for job 2>", ...same order and count as the input experience...], '
+        '"tips": ["<short actionable tip>", "..."]}'
+    )
+    try:
+        text = await _ai_text(prompt, 1600)
+    except Exception as e:
+        print(f"Resume AI failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The AI writer could not respond. Try again.")
+    clean = (text or "").replace("```json", "").replace("```", "").strip()
+    try:
+        data = json.loads(clean)
+    except Exception:
+        raise HTTPException(502, "The AI returned an unexpected format. Try again.")
+    return {
+        "summary": str(data.get("summary", ""))[:1200],
+        "skills": [{"label": str(s.get("label", ""))[:40], "items": str(s.get("items", ""))[:400]}
+                   for s in (data.get("skills") or []) if isinstance(s, dict)][:8],
+        "experience": [str(b)[:1500] for b in (data.get("experience") or [])][:len(exp)],
+        "tips": [str(t)[:200] for t in (data.get("tips") or [])][:6],
+    }
 
 
 @app.get("/api/ask/config")
