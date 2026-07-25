@@ -14,6 +14,17 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.27.0 — Always-visible version badge + robust resume preview
+
+- **Version badge on every page.** A small "VidyaPath v1.27.0" pill is now fixed
+  to the bottom-right corner of every screen, so you can always tell exactly
+  which build is live. After you deploy, it should read v1.27.0 — if it doesn't,
+  the push didn't land.
+- **Resume preview is now SVG** — it scales to fit the preview panel at any
+  width and can't be clipped or appear blank in a narrow column.
+- **PDF scanning limits raised** (up to 6 pages / 220 lines) so longer resumes
+  are captured in full.
+
 ## 1.26.0 — Resume: keep your original layout, download an exact copy
 
 - **Upload a PDF and keep its exact look.** We now scan every line's position,
