@@ -3178,6 +3178,14 @@ function renderResume(){
   </div>
 
   <div class="card" style="margin-bottom:14px">
+    <b>🔤 Spelling &amp; grammar check</b>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Scan your resume for spelling and grammar mistakes. It lists what to fix — you make the change so nothing is altered without you.</div>
+    <button class="btn sm" data-rz-act="proof">Check spelling &amp; grammar</button>
+    <span id="rzProofMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span>
+    <div id="rzProofOut" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
     <b>💬 Resume co-pilot</b>
     <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Ask anything — "make my summary punchier", "how do I show Docker experience?", "is this ready for a senior role?". It gives clear advice and example wording you can copy in.</div>
     <div id="rzChatThread" style="max-height:300px;overflow-y:auto;margin-bottom:8px">${rzChatHTML()}</div>
@@ -3240,12 +3248,13 @@ function rzLayoutPreviewHTML(){
   const L=RESUME.layout; if(!L||!L.pages||!L.pages.length) return `<div style="color:#eee;padding:20px;text-align:center">No preview available for this file.</div>`;
   // SVG scales to the panel width via viewBox — it can never be clipped.
   return L.pages.map(pg=>{
+    const rects=(pg.rects||[]).map(r=>`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${r.c}"/>`).join("");
     const els=pg.lines.map(ln=>{
       const fam=ln.font==="times"?"Georgia, 'Times New Roman', serif":ln.font==="courier"?"'Courier New', monospace":"Arial, Helvetica, sans-serif";
       const yb=(ln.y+ln.size*0.82).toFixed(1);   // baseline (same math as the PDF)
-      return `<text x="${ln.x.toFixed(1)}" y="${yb}" font-size="${ln.size}" font-family="${fam}" ${ln.bold?'font-weight="700"':''} ${ln.italic?'font-style="italic"':''} fill="#111">${esc2(ln.t)}</text>`;
+      return `<text x="${ln.x.toFixed(1)}" y="${yb}" font-size="${ln.size}" font-family="${fam}" ${ln.bold?'font-weight="700"':''} ${ln.italic?'font-style="italic"':''} fill="${ln.color||"#111"}">${esc2(ln.t)}</text>`;
     }).join("");
-    return `<svg viewBox="0 0 ${pg.w} ${pg.h}" width="100%" preserveAspectRatio="xMidYMin meet" style="display:block;background:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:760px">${els}</svg>`;
+    return `<svg viewBox="0 0 ${pg.w} ${pg.h}" width="100%" preserveAspectRatio="xMidYMin meet" style="display:block;background:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:760px">${rects}${els}</svg>`;
   }).join("");
 }
 async function rzLayoutPDF(){
@@ -3254,11 +3263,13 @@ async function rzLayoutPDF(){
   const p0=L.pages[0]; const doc=new jsPDF({unit:"pt",format:[p0.w,p0.h]});
   L.pages.forEach((pg,pi)=>{
     if(pi>0) doc.addPage([pg.w,pg.h]);
+    (pg.rects||[]).forEach(r=>{ try{ const m=/^#([0-9a-f]{6})$/i.exec(r.c);
+      if(m){ doc.setFillColor("#"+m[1]); doc.rect(r.x,r.y,r.w,r.h,"F"); } }catch(e){} });
     pg.lines.forEach(ln=>{
       let style="normal";
       if(ln.bold&&ln.italic) style="bolditalic"; else if(ln.bold) style="bold"; else if(ln.italic) style="italic";
       try{ doc.setFont(ln.font||"helvetica",style); }catch(e){ doc.setFont("helvetica",ln.bold?"bold":"normal"); }
-      doc.setFontSize(ln.size); doc.setTextColor("#111111");
+      doc.setFontSize(ln.size); doc.setTextColor(ln.color||"#111111");
       // extract 'y' is the top of the text box; jsPDF draws from the baseline
       doc.text(pdfSafe(ln.t), ln.x, ln.y + ln.size*0.82);
     });
@@ -3459,6 +3470,19 @@ async function rzMatch(){
     const out=$("#rzMatchOut"); if(out)out.innerHTML=rzMatchHTML(); if(msg)msg.textContent=""; }
   catch(e){ if(msg)msg.textContent=e.message; }
 }
+async function rzProofread(){
+  const msg=$("#rzProofMsg"), out=$("#rzProofOut");
+  if(msg)msg.textContent="Checking…"; if(out)out.innerHTML="";
+  try{
+    const res=await api.post("/api/resume/proofread",{resume:RESUME});
+    const list=res.issues||[];
+    if(msg)msg.textContent=list.length?(list.length+" to review"):"";
+    if(out) out.innerHTML = list.length
+      ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:6px">Fix these in your resume:</div>`+list.map(it=>
+          `<div class="pj-step" style="align-items:flex-start"><div style="flex:1;font-size:13px"><span style="text-decoration:line-through;color:#e05a5a">${esc(it.wrong)}</span> → <b style="color:#4bbf82">${esc(it.right)}</b>${it.why?` <span style="color:var(--dim)">(${esc(it.why)})</span>`:""}</div></div>`).join("")
+      : `<div style="font-size:13px;color:#4bbf82">✓ No spelling or grammar issues found.</div>`;
+  }catch(e){ if(msg)msg.textContent=e.message; }
+}
 function rzChatHTML(){
   if(!RZ_CHAT.length) return `<div style="color:var(--dim);font-size:13px">👋 I'm your resume co-pilot. Ask me to improve anything — I'll give clear advice and example wording you can copy straight into your resume.</div>`;
   return RZ_CHAT.map(m=>`<div style="margin:5px 0;text-align:${m.role==="user"?"right":"left"}"><span style="display:inline-block;max-width:85%;padding:8px 12px;border-radius:12px;font-size:13.5px;background:${m.role==="user"?"#8fe3b0":"var(--panel2)"};color:${m.role==="user"?"#0d2018":"var(--text)"};white-space:pre-wrap">${esc(m.content)}</span></div>`).join("");
@@ -3504,6 +3528,7 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="sklsug") rzSkillsAI();
   else if(b.dataset.rzAct==="match") rzMatch();
   else if(b.dataset.rzAct==="chat") rzChatSend();
+  else if(b.dataset.rzAct==="proof") rzProofread();
   else if(b.dataset.rzAct==="delphoto"){ RESUME.photo=""; rzSave(); renderResume(); }
   else if(b.dataset.rzAct==="saveas") rzSaveAs();
   else if(b.dataset.rzAct==="newres") rzNew();

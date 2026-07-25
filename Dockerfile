@@ -6,6 +6,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# LibreOffice (Writer only) + common fonts, so we can convert an uploaded
+# Word .docx into a PDF on the server and then reproduce its exact layout.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libreoffice-writer libreoffice-core fonts-liberation fonts-dejavu \
+    && rm -rf /var/lib/apt/lists/*
+
 # Dependencies first, so Docker caches this layer between code changes
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

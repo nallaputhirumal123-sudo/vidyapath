@@ -14,6 +14,24 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.29.0 — Word resumes keep their exact look; multi-page; spell-check
+
+- **Word (.docx) uploads now keep their original design.** The server renders
+  your Word file to PDF (LibreOffice) and reproduces it exactly — same fonts,
+  spacing, and the coloured section-heading bars — instead of reformatting it
+  into a template. Tested on a real 4-page resume: all 4 pages, every section.
+- **Corrupt embedded images no longer block import.** A common export bug (a
+  broken image inside the .docx) used to make the whole file fail to load; we
+  now repair it automatically before converting.
+- **All pages are shown and editable** — no more single-page cut-off, nothing
+  silently dropped.
+- **Preview matches the download**, including the coloured heading bars and text
+  colours, all rebuilt from the original's real positions.
+- **Uploaded resumes keep their own style;** the style picker now only appears
+  when you start a brand-new resume.
+- **New: spelling & grammar check.** Scans your resume and lists exactly what to
+  fix (it never changes anything without you).
+
 ## 1.28.0 — DOCX import now captures your name, contact and all jobs
 
 - **Fixed the big DOCX gap:** a name and contact details placed in the Word

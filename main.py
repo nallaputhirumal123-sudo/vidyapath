@@ -2609,6 +2609,85 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
     }
 
 
+# ---- repair a .docx whose embedded images are corrupt -------------------
+def _tiny_jpeg():
+    try:
+        from PIL import Image
+        b = io.BytesIO()
+        Image.new("RGB", (8, 8), (255, 255, 255)).save(b, "JPEG")
+        return b.getvalue()
+    except Exception:
+        return b""  # empty; LibreOffice will just skip a broken image
+
+
+def _sanitize_docx(raw):
+    """Rebuild a .docx, replacing any unreadable member (a corrupt embedded
+    image is a common export bug) so LibreOffice can still open it. Returns the
+    original bytes unchanged if everything is already fine."""
+    import zipfile
+    try:
+        src = zipfile.ZipFile(io.BytesIO(raw))
+    except Exception:
+        return raw
+    bad = None
+    try:
+        bad = src.testzip()      # first member that fails its CRC, or None
+    except Exception:
+        bad = "?"
+    if not bad:
+        return raw               # nothing to repair
+    placeholder = _tiny_jpeg()
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            try:
+                data = src.read(info.filename)
+            except Exception:
+                ext = info.filename.lower().rsplit(".", 1)[-1]
+                if ext in ("jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "emf", "wmf"):
+                    data = placeholder            # swap corrupt image for a clean one
+                else:
+                    continue                       # drop other unreadable parts
+            dst.writestr(info.filename, data)
+    return out.getvalue()
+
+
+# ---- convert an uploaded Word .docx to a PDF (to preserve its layout) ----
+def _docx_to_pdf(raw):
+    """Render a .docx to PDF with LibreOffice so we can then reproduce its
+    exact visual layout. Returns PDF bytes, or None if conversion is
+    unavailable/fails (caller then falls back to text-only structured import)."""
+    import shutil
+    import subprocess
+    import tempfile
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        return None
+    try:
+        raw = _sanitize_docx(raw)      # repair corrupt embedded images first
+    except Exception:
+        pass
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "in.docx")
+            with open(src, "wb") as f:
+                f.write(raw)
+            # A private profile dir avoids clashes between concurrent requests.
+            prof = "-env:UserInstallation=file://" + os.path.join(d, "profile")
+            subprocess.run(
+                [soffice, "--headless", prof, "--convert-to", "pdf",
+                 "--outdir", d, src],
+                check=True, capture_output=True, timeout=60,
+                env={**os.environ, "HOME": d})
+            out = os.path.join(d, "in.pdf")
+            if os.path.exists(out):
+                with open(out, "rb") as f:
+                    return f.read()
+    except Exception as e:
+        print(f"docx->pdf conversion failed: {type(e).__name__}: {e}")
+    return None
+
+
 # ---- capture the ORIGINAL layout of an uploaded PDF ---------------------
 def _font_family(fontname):
     f = (fontname or "").lower()
@@ -2617,6 +2696,34 @@ def _font_family(fontname):
     if "courier" in f or "mono" in f or "consol" in f:
         return "courier"
     return "helvetica"
+
+
+def _color_hex(c):
+    """Convert a pdfplumber colour (grayscale float, RGB/CMYK tuple, or None)
+    to a #rrggbb string. Returns None when there is no usable colour."""
+    try:
+        if c is None:
+            return None
+        if isinstance(c, (int, float)):
+            v = max(0, min(255, int(round(float(c) * 255))))
+            return "#%02x%02x%02x" % (v, v, v)
+        if isinstance(c, (list, tuple)):
+            vals = [float(x) for x in c]
+            if len(vals) == 1:
+                v = max(0, min(255, int(round(vals[0] * 255))))
+                return "#%02x%02x%02x" % (v, v, v)
+            if len(vals) == 3:
+                r, g, b = [max(0, min(255, int(round(x * 255)))) for x in vals]
+                return "#%02x%02x%02x" % (r, g, b)
+            if len(vals) == 4:
+                cc, m, y, k = vals
+                r = int(round(255 * (1 - cc) * (1 - k)))
+                g = int(round(255 * (1 - m) * (1 - k)))
+                b = int(round(255 * (1 - y) * (1 - k)))
+                return "#%02x%02x%02x" % (r, g, b)
+    except Exception:
+        return None
+    return None
 
 
 def _extract_pdf_layout(raw):
@@ -2668,10 +2775,44 @@ def _extract_pdf_layout(raw):
                     row_top = t
             flush(row)
             lines.sort(key=lambda l: (round(l["y"], 0), l["x"]))
+
+            # Filled rectangles (e.g. coloured section-heading bars). Skip white
+            # fills and any near-full-page fill that would cover the text.
+            rects = []
+            try:
+                for r in (page.rects or [])[:80]:
+                    fill = _color_hex(r.get("non_stroking_color"))
+                    if not fill or fill in ("#ffffff", "#fefefe"):
+                        continue
+                    x0 = float(r["x0"]); top = float(r["top"])
+                    w = float(r["x1"]) - x0; h = float(r["bottom"]) - top
+                    if w < 4 or h < 2:
+                        continue
+                    if w > page.width * 0.98 and h > page.height * 0.9:
+                        continue
+                    rects.append({"x": round(x0, 1), "y": round(top, 1),
+                                  "w": round(w, 1), "h": round(h, 1), "c": fill})
+            except Exception:
+                rects = []
+
+            # Per-line text colour (captures blue links, coloured headings).
+            try:
+                chars = page.chars or []
+                for ln in lines:
+                    for c in chars:
+                        if abs(float(c.get("top", 0)) - ln["y"]) <= ln["size"] * 0.7 \
+                                and ln["x"] - 2 <= float(c.get("x0", 0)) <= ln["x"] + 300:
+                            hx = _color_hex(c.get("non_stroking_color"))
+                            if hx and hx != "#000000":
+                                ln["color"] = hx
+                            break
+            except Exception:
+                pass
+
             if lines:
                 pages.append({"w": round(float(page.width), 1),
                               "h": round(float(page.height), 1),
-                              "lines": lines[:220]})
+                              "lines": lines[:220], "rects": rects[:40]})
     except Exception:
         return None
     if not pages:
@@ -2764,12 +2905,19 @@ async def resume_parse(file: UploadFile = File(...),
     raw = await file.read()
     if len(raw) > 4_000_000:
         raise HTTPException(400, "File too large (max 4 MB)")
-    # Capture the original visual layout (PDF only) so the user can edit the
-    # text in place and download a near-identical copy.
+    # Capture the original visual layout so the user can edit the text in place
+    # and download a near-identical copy. PDFs are used directly; Word files are
+    # rendered to PDF first (via LibreOffice) so they keep their exact look too.
+    fname = (file.filename or "").lower()
     layout = None
-    if (file.filename or "").lower().endswith(".pdf"):
+    layout_pdf = None
+    if fname.endswith(".pdf"):
+        layout_pdf = raw
+    elif fname.endswith(".docx"):
+        layout_pdf = _docx_to_pdf(raw)
+    if layout_pdf:
         try:
-            layout = _extract_pdf_layout(raw)
+            layout = _extract_pdf_layout(layout_pdf)
         except Exception:
             layout = None
     try:
@@ -2825,6 +2973,45 @@ async def resume_parse(file: UploadFile = File(...),
     if layout:
         out["layout"] = layout
     return out
+
+
+class ProofreadIn(BaseModel):
+    resume: dict = {}
+
+
+@app.post("/api/resume/proofread")
+async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)):
+    """Flag spelling and grammar issues in the resume text so the user can fix
+    them. Returns a list of {wrong, right, why} — it does not auto-edit."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The proofreader is not switched on")
+    rtext = _resume_text(body.resume or {})[:6000]
+    if len(rtext.strip()) < 20:
+        raise HTTPException(400, "Add some resume content first")
+    prompt = (
+        "You are a meticulous proofreader for resumes. Find SPELLING and GRAMMAR "
+        "mistakes in the text below. For each mistake, give the exact wrong text, "
+        "the correction, and a 2-4 word reason. Ignore names, companies, "
+        "technologies and acronyms (e.g. Kubernetes, OWASP, VMware) — those are "
+        "not misspellings. If there are no real mistakes, return an empty list.\n\n"
+        f"RESUME TEXT:\n{rtext}\n\n"
+        'Respond with ONLY valid JSON: {"issues":[{"wrong":"<text>",'
+        '"right":"<correction>","why":"<short reason>"}]}'
+    )
+    try:
+        d = _ai_json(await _ai_text(prompt, 1200))
+    except Exception as e:
+        print(f"Resume proofread failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The proofreader could not respond. Try again.")
+    issues = []
+    for it in (d.get("issues") or [])[:40]:
+        if not isinstance(it, dict):
+            continue
+        w = str(it.get("wrong", "")).strip()[:80]
+        r = str(it.get("right", "")).strip()[:80]
+        if w and r and w.lower() != r.lower():
+            issues.append({"wrong": w, "right": r, "why": str(it.get("why", "")).strip()[:60]})
+    return {"issues": issues}
 
 
 class ChatIn(BaseModel):
