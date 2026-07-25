@@ -2295,112 +2295,81 @@ def _ai_error_message(e):
     return "The AI could not respond just now. Please try again in a moment."
 
 
-async def _call_model(question: str, subject: str, level: str) -> dict:
-    """Dispatch to whichever provider is configured. Server-side only.
-    The API key never leaves this process."""
-    import httpx  # imported lazily so the app boots even before it installs
-    prompt = _ask_prompt(question, subject, level)
-
-    async with httpx.AsyncClient(timeout=45) as client:
-        if AI_PROVIDER == "gemini":
-            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-                   f"{GEMINI_MODEL}:generateContent")
-            gen = {"maxOutputTokens": 2048, "temperature": 0.5,
-                   "responseMimeType": "application/json"}
-            # 2.5-family models "think" and can spend the whole budget before
-            # emitting text; turning that off keeps answers reliable.
-            if "2.5" in GEMINI_MODEL:
-                gen["thinkingConfig"] = {"thinkingBudget": 0}
-            r = await client.post(
-                url,
-                headers={"x-goog-api-key": GEMINI_API_KEY,
-                         "content-type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": gen},
-            )
-            _upstream_ok(r, "gemini")
-            data = r.json()
-            text = "".join(
-                p.get("text", "")
-                for c in data.get("candidates", [])
-                for p in c.get("content", {}).get("parts", [])
-            ).strip()
-
-        elif AI_PROVIDER == "groq":
-            r = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}",
-                         "content-type": "application/json"},
-                json={
-                    "model": GROQ_MODEL,
-                    "max_tokens": 1200,
-                    "temperature": 0.5,
-                    "response_format": {"type": "json_object"},
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            _upstream_ok(r, "groq")
-            data = r.json()
-            text = (data.get("choices", [{}])[0]
-                        .get("message", {}).get("content", "")).strip()
-
-        else:  # claude / anthropic
-            r = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": ANTHROPIC_API_KEY,
-                         "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-                json={
-                    "model": ANTHROPIC_MODEL,
-                    "max_tokens": 1200,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            _upstream_ok(r, "claude")
-            data = r.json()
-            text = "".join(
-                b.get("text", "") for b in data.get("content", [])
-                if b.get("type") == "text"
-            ).strip()
-
-    if not text:
-        raise RuntimeError(f"{AI_PROVIDER} returned no text (model={_PROVIDER_MODEL})")
-    return _parse_lesson(text, question)
+def _providers_in_order():
+    """Providers to try, in order: the configured one first, then any others
+    that also have a key — so if one is rate-limited we fall back to the next."""
+    keyed = {"gemini": GEMINI_API_KEY, "groq": GROQ_API_KEY, "claude": ANTHROPIC_API_KEY}
+    order = [AI_PROVIDER] + [p for p in ("gemini", "groq", "claude") if p != AI_PROVIDER]
+    return [p for p in order if keyed.get(p)]
 
 
-async def _ai_text(prompt: str, max_tokens: int = 1500) -> str:
-    """Generic single-prompt call to the configured provider; returns raw text."""
+async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False):
+    """One raw generation call to a single provider. Raises on HTTP error."""
+    if provider == "gemini":
+        gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
+        if json_mode:
+            gen["responseMimeType"] = "application/json"
+        if "2.5" in GEMINI_MODEL:
+            gen["thinkingConfig"] = {"thinkingBudget": 0}
+        r = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen})
+        _upstream_ok(r, "gemini")
+        return "".join(p.get("text", "") for c in r.json().get("candidates", [])
+                       for p in c.get("content", {}).get("parts", [])).strip()
+    if provider == "groq":
+        body = {"model": GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.4,
+                "messages": [{"role": "user", "content": prompt}]}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        r = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "content-type": "application/json"},
+            json=body)
+        _upstream_ok(r, "groq")
+        return r.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    # claude / anthropic
+    r = await client.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                 "content-type": "application/json"},
+        json={"model": ANTHROPIC_MODEL, "max_tokens": max_tokens,
+              "messages": [{"role": "user", "content": prompt}]})
+    _upstream_ok(r, "claude")
+    return "".join(b.get("text", "") for b in r.json().get("content", [])
+                   if b.get("type") == "text").strip()
+
+
+async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False) -> str:
+    """Generate text, trying each available provider in turn. If one is rate-
+    limited or errors, automatically fall back to the next configured provider."""
     import httpx
+    providers = _providers_in_order()
+    if not providers:
+        raise RuntimeError("No AI provider key is configured")
+    last = None
     async with httpx.AsyncClient(timeout=60) as client:
-        if AI_PROVIDER == "gemini":
-            gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
-            if "2.5" in GEMINI_MODEL:
-                gen["thinkingConfig"] = {"thinkingBudget": 0}
-            r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-                headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen})
-            _upstream_ok(r, "gemini")
-            return "".join(p.get("text", "") for c in r.json().get("candidates", [])
-                           for p in c.get("content", {}).get("parts", [])).strip()
-        elif AI_PROVIDER == "groq":
-            r = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "content-type": "application/json"},
-                json={"model": GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.4,
-                      "messages": [{"role": "user", "content": prompt}]})
-            _upstream_ok(r, "groq")
-            return r.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        else:
-            r = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-                json={"model": ANTHROPIC_MODEL, "max_tokens": max_tokens,
-                      "messages": [{"role": "user", "content": prompt}]})
-            _upstream_ok(r, "claude")
-            return "".join(b.get("text", "") for b in r.json().get("content", [])
-                           if b.get("type") == "text").strip()
+        for prov in providers:
+            try:
+                txt = await _provider_generate(client, prov, prompt, max_tokens, json_mode)
+                if txt:
+                    return txt
+                last = RuntimeError(f"{prov} returned no text")
+            except Exception as e:
+                last = e
+                print(f"AI provider '{prov}' failed, trying next: {type(e).__name__}: {e}")
+                continue
+    raise last if last else RuntimeError("AI generation failed")
+
+
+async def _call_model(question: str, subject: str, level: str) -> dict:
+    """Build an Ask-Vidya lesson, with automatic provider fallback."""
+    prompt = _ask_prompt(question, subject, level)
+    text = await _ai_text(prompt, 1500, json_mode=True)
+    if not text:
+        raise RuntimeError("AI returned no text")
+    return _parse_lesson(text, question)
 
 
 class ResumeAIIn(BaseModel):
@@ -3159,7 +3128,8 @@ async def ai_selftest(user: User = Depends(admin_user)):
     upstream error, so we can see exactly what the provider says (e.g. the real
     Gemini rate-limit/quota reason). Visit /api/ai/selftest while signed in as
     an admin."""
-    info = {"provider": AI_PROVIDER, "model": _PROVIDER_MODEL, "enabled": ASK_ENABLED}
+    info = {"provider": AI_PROVIDER, "model": _PROVIDER_MODEL, "enabled": ASK_ENABLED,
+            "fallback_order": _providers_in_order()}
     if not ASK_ENABLED:
         return {**info, "ok": False, "error": "No AI key configured on the server"}
     try:

@@ -14,6 +14,14 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.36.0 — Automatic AI provider fallback
+
+- If the primary AI provider is rate-limited or errors, the app now
+  automatically tries the next configured provider (Gemini → Groq → Claude, in
+  whatever order keys exist). One provider being tapped out no longer blocks the
+  AI features — it uses whichever still has free quota.
+- Self-test now reports the fallback order it will try.
+
 ## 1.35.0 — Admin AI self-test
 
 - Added `/api/ai/selftest` (admin only): makes one tiny AI call and returns the
