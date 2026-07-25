@@ -2284,6 +2284,100 @@ const JOB_BOARDS=[
   {t:"Kaggle",u:"https://www.kaggle.com/",note:"data/ML — competitions that double as portfolio + hiring"},
   {t:"Upwork (freelance)",u:"https://www.upwork.com/",note:"first paid experience while you build a CV"},
 ];
+/* Company career pages + job boards, grouped by country. */
+const CAREER_HUBS=[
+ {c:"India", flag:"🇮🇳",
+  boards:[
+   {t:"Naukri",u:"https://www.naukri.com/"},{t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},
+   {t:"Indeed India",u:"https://in.indeed.com/"},{t:"Instahyre",u:"https://www.instahyre.com/"},
+   {t:"Cutshort",u:"https://cutshort.io/"},{t:"Hirist (tech)",u:"https://www.hirist.tech/"},
+   {t:"foundit (Monster)",u:"https://www.foundit.in/"},{t:"Wellfound (startups)",u:"https://wellfound.com/"},
+   {t:"Shine",u:"https://www.shine.com/"},{t:"TimesJobs",u:"https://www.timesjobs.com/"}],
+  companies:[
+   {t:"TCS",u:"https://www.tcs.com/careers"},{t:"Infosys",u:"https://www.infosys.com/careers/"},
+   {t:"Wipro",u:"https://careers.wipro.com/"},{t:"HCLTech",u:"https://www.hcltech.com/careers"},
+   {t:"Tech Mahindra",u:"https://careers.techmahindra.com/"},{t:"Accenture India",u:"https://www.accenture.com/in-en/careers"},
+   {t:"Cognizant",u:"https://careers.cognizant.com/global/en"},{t:"Capgemini",u:"https://www.capgemini.com/careers/"},
+   {t:"LTIMindtree",u:"https://www.ltimindtree.com/careers/"},{t:"Flipkart",u:"https://www.flipkartcareers.com/"},
+   {t:"Zoho",u:"https://www.zoho.com/careers/"},{t:"Freshworks",u:"https://www.freshworks.com/company/careers/"},
+   {t:"Razorpay",u:"https://razorpay.com/jobs/"},{t:"Swiggy",u:"https://careers.swiggy.com/"},{t:"Zomato",u:"https://www.zomato.com/careers"}]},
+ {c:"United States", flag:"🇺🇸",
+  boards:[
+   {t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},{t:"Indeed",u:"https://www.indeed.com/"},
+   {t:"Glassdoor",u:"https://www.glassdoor.com/Job/"},{t:"Dice (tech)",u:"https://www.dice.com/"},
+   {t:"Built In",u:"https://builtin.com/jobs"},{t:"Wellfound",u:"https://wellfound.com/"},
+   {t:"ZipRecruiter",u:"https://www.ziprecruiter.com/"},{t:"Y Combinator jobs",u:"https://www.workatastartup.com/"}],
+  companies:[
+   {t:"Google",u:"https://careers.google.com/"},{t:"Microsoft",u:"https://careers.microsoft.com/"},
+   {t:"Amazon",u:"https://www.amazon.jobs/"},{t:"Meta",u:"https://www.metacareers.com/"},
+   {t:"Apple",u:"https://jobs.apple.com/"},{t:"Netflix",u:"https://jobs.netflix.com/"},
+   {t:"IBM",u:"https://www.ibm.com/careers/"},{t:"Oracle",u:"https://careers.oracle.com/"},
+   {t:"Salesforce",u:"https://careers.salesforce.com/"},{t:"Adobe",u:"https://careers.adobe.com/"},
+   {t:"NVIDIA",u:"https://www.nvidia.com/en-us/about-nvidia/careers/"}]},
+ {c:"United Kingdom", flag:"🇬🇧",
+  boards:[
+   {t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},{t:"Indeed UK",u:"https://uk.indeed.com/"},
+   {t:"Reed",u:"https://www.reed.co.uk/"},{t:"Totaljobs",u:"https://www.totaljobs.com/"},
+   {t:"CV-Library",u:"https://www.cv-library.co.uk/"},{t:"Otta",u:"https://app.otta.com/"}],
+  companies:[
+   {t:"Google UK",u:"https://careers.google.com/"},{t:"Microsoft UK",u:"https://careers.microsoft.com/"},
+   {t:"Amazon UK",u:"https://www.amazon.jobs/en-gb"},{t:"Deloitte UK",u:"https://www.deloitte.com/uk/en/careers.html"},
+   {t:"Revolut",u:"https://www.revolut.com/careers/"},{t:"Monzo",u:"https://monzo.com/careers/"}]},
+ {c:"Canada", flag:"🇨🇦",
+  boards:[
+   {t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},{t:"Indeed Canada",u:"https://ca.indeed.com/"},
+   {t:"Job Bank (Govt)",u:"https://www.jobbank.gc.ca/"},{t:"Glassdoor CA",u:"https://www.glassdoor.ca/"},
+   {t:"Wellfound",u:"https://wellfound.com/"}],
+  companies:[
+   {t:"Shopify",u:"https://www.shopify.com/careers"},{t:"Google Canada",u:"https://careers.google.com/"},
+   {t:"Amazon Canada",u:"https://www.amazon.jobs/en-ca"},{t:"RBC",u:"https://jobs.rbc.com/"},
+   {t:"OpenText",u:"https://careers.opentext.com/"}]},
+ {c:"Australia", flag:"🇦🇺",
+  boards:[
+   {t:"Seek",u:"https://www.seek.com.au/"},{t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},
+   {t:"Indeed AU",u:"https://au.indeed.com/"},{t:"Jora",u:"https://au.jora.com/"}],
+  companies:[
+   {t:"Atlassian",u:"https://www.atlassian.com/company/careers"},{t:"Canva",u:"https://www.lifeatcanva.com/en/jobs/"},
+   {t:"Google Australia",u:"https://careers.google.com/"},{t:"Amazon AU",u:"https://www.amazon.jobs/en-au"},
+   {t:"Commonwealth Bank",u:"https://www.commbank.com.au/about-us/careers.html"}]},
+ {c:"UAE & Gulf", flag:"🇦🇪",
+  boards:[
+   {t:"Bayt",u:"https://www.bayt.com/"},{t:"Naukrigulf",u:"https://www.naukrigulf.com/"},
+   {t:"GulfTalent",u:"https://www.gulftalent.com/"},{t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},
+   {t:"Indeed UAE",u:"https://ae.indeed.com/"}],
+  companies:[
+   {t:"Emirates Group",u:"https://www.emiratesgroupcareers.com/"},{t:"e& (Etisalat)",u:"https://careers.eand.com/"},
+   {t:"Careem",u:"https://careers.careem.com/"},{t:"Amazon MENA",u:"https://www.amazon.jobs/en/locations/united-arab-emirates"}]},
+ {c:"Singapore & SE Asia", flag:"🇸🇬",
+  boards:[
+   {t:"JobStreet",u:"https://www.jobstreet.com.sg/"},{t:"MyCareersFuture",u:"https://www.mycareersfuture.gov.sg/"},
+   {t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},{t:"Indeed SG",u:"https://sg.indeed.com/"},
+   {t:"Glints",u:"https://glints.com/"}],
+  companies:[
+   {t:"Grab",u:"https://grab.careers/"},{t:"Sea / Shopee",u:"https://careers.sea.com/"},
+   {t:"Google Singapore",u:"https://careers.google.com/"},{t:"GovTech SG",u:"https://www.tech.gov.sg/careers/"}]},
+ {c:"Germany & Europe", flag:"🇩🇪",
+  boards:[
+   {t:"StepStone",u:"https://www.stepstone.de/"},{t:"XING",u:"https://www.xing.com/jobs"},
+   {t:"LinkedIn Jobs",u:"https://www.linkedin.com/jobs/"},{t:"Indeed DE",u:"https://de.indeed.com/"},
+   {t:"EURES (EU jobs)",u:"https://eures.europa.eu/"}],
+  companies:[
+   {t:"SAP",u:"https://jobs.sap.com/"},{t:"Siemens",u:"https://jobs.siemens.com/"},
+   {t:"Zalando",u:"https://jobs.zalando.com/"},{t:"Google Germany",u:"https://careers.google.com/"},
+   {t:"Amazon DE",u:"https://www.amazon.jobs/en/locations/germany"}]},
+ {c:"Remote / Global", flag:"🌍",
+  boards:[
+   {t:"We Work Remotely",u:"https://weworkremotely.com/"},{t:"Remote OK",u:"https://remoteok.com/"},
+   {t:"Working Nomads",u:"https://www.workingnomads.com/"},{t:"Wellfound Remote",u:"https://wellfound.com/role/r/remote"},
+   {t:"Turing",u:"https://www.turing.com/"},{t:"Toptal",u:"https://www.toptal.com/"},
+   {t:"Hacker News — Who is Hiring",u:"https://hn.algolia.com/?query=who%20is%20hiring&type=story"}],
+  companies:[
+   {t:"GitLab (all-remote)",u:"https://about.gitlab.com/jobs/"},{t:"Automattic",u:"https://automattic.com/work-with-us/"},
+   {t:"Zapier",u:"https://zapier.com/jobs"},{t:"Stripe",u:"https://stripe.com/jobs"},
+   {t:"Canonical",u:"https://canonical.com/careers"}]},
+];
+let CAREER_CTRY=0;   // selected country in the careers hub
+document.addEventListener("click",e=>{ const b=e.target.closest("[data-ctry]"); if(!b)return; CAREER_CTRY=+b.dataset.ctry; renderCareers(); });
 const REAL_PRACTICE=[
   {icon:"🔧",title:"Fix a bug like a developer",
    body:"Find an 'good first issue' on a real open-source project on GitHub, fork it, fix it, and open a pull request. This is literally the daily loop of a software job — and a merged PR is proof you can work in a real codebase.",
@@ -2326,6 +2420,25 @@ function renderCareers(){
   <div class="card"><div class="reslist">
     ${JOB_BOARDS.map(j=>`<a class="reslink" href="${j.u}" target="_blank" rel="noopener"><span>💼</span><span>${esc(j.t)} <span style="color:var(--dim);font-size:12px">— ${esc(j.note)}</span></span><span class="ex">↗</span></a>`).join("")}
   </div></div>
+
+  <div class="eyebrow" style="margin-top:22px">Company careers &amp; job sites by country</div>
+  <p class="sub" style="margin-top:0">Apply directly on a company's own careers page (referrals and direct applies convert best), or use the job boards for that country. Pick your location below.</p>
+  <div class="ask-chips" style="margin-bottom:12px">
+    ${CAREER_HUBS.map((h,i)=>`<button class="ask-chip ${CAREER_CTRY===i?"on":""}" data-ctry="${i}">${h.flag} ${esc(h.c)}</button>`).join("")}
+  </div>
+  ${(function(){const h=CAREER_HUBS[CAREER_CTRY]||CAREER_HUBS[0];return `
+    <div class="card" style="margin-bottom:14px">
+      <b>${h.flag} ${esc(h.c)} — job sites</b>
+      <div class="reslist" style="margin-top:8px">
+        ${h.boards.map(b=>`<a class="reslink" href="${b.u}" target="_blank" rel="noopener"><span>💼</span><span>${esc(b.t)}</span><span class="ex">↗</span></a>`).join("")}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <b>${h.flag} ${esc(h.c)} — company careers pages</b>
+      <div class="reslist" style="margin-top:8px">
+        ${h.companies.map(c=>`<a class="reslink" href="${c.u}" target="_blank" rel="noopener"><span>🏢</span><span>${esc(c.t)}</span><span class="ex">↗</span></a>`).join("")}
+      </div>
+    </div>`;})()}
 
   <div class="card" style="margin-top:16px;border-color:var(--accent)">
     <b>How to land it, honestly</b>
@@ -3056,6 +3169,7 @@ let RESUME=rzBlank(), rzLoaded=false;
 let RZ_SUG={bullets:{}, skills:[]};   // AI suggestions (not saved)
 let RZ_MATCH=null, RZ_JD="";          // job-match result + pasted JD
 let RZ_CHAT=[];                        // co-pilot conversation (advice only)
+let RZ_UPTEXT="", RZ_UPNAME="";       // a loaded resume's text (for checks only)
 function rzLoad(){
   if(rzLoaded) return;
   try{ const d=JSON.parse(S.notes["resume_data"]||"null"); if(d) RESUME=Object.assign(rzBlank(),d); }catch(e){}
@@ -3127,8 +3241,8 @@ function renderResume(){
   <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· write with AI, format for ATS</span></div>
   <div class="card" style="margin-bottom:14px">
     <b>Your resumes</b>
-    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-      <label class="btn ghost sm" style="cursor:pointer">⬆ Import (PDF/DOCX/TXT)<input id="rzUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
+    <div style="font-size:12.5px;color:var(--dim);margin:3px 0 8px">Build a clean, ATS-ready resume from scratch — the live preview on the right is exactly what downloads.</div>
+    <div class="row" style="gap:8px;margin-top:4px;flex-wrap:wrap;align-items:center">
       <button class="btn ghost sm" data-rz-act="saveas">💾 Save this resume</button>
       <button class="btn ghost sm" data-rz-act="newres">＋ New blank</button>
       <span id="rzUpMsg" style="font-size:12.5px;color:var(--dim)"></span>
@@ -3152,25 +3266,19 @@ function renderResume(){
     <div style="font-size:12.5px;color:var(--dim);margin-top:6px">Fill Personal details, Contact, Summary, Employment, Skills and Education for a complete, ATS-ready resume.</div>
   </div>`}
 
-  ${orig?"":`<div class="card" style="margin-bottom:14px;border-color:var(--accent)">
-    <b>🎯 Target role &amp; AI</b>
-    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
-      <input id="rzRole" class="ask-input" style="max-width:220px" value="${esc(RESUME.role||"")}" placeholder="Target role e.g. Data Analyst"/>
-      <select id="rzTone" class="ask-input" style="max-width:150px">
-        ${["Professional","Executive","Technical","Creative","Concise"].map(t=>`<option ${RESUME.tone===t?"selected":""}>${t}</option>`).join("")}
-      </select>
-      <button class="btn sm" data-rz-act="ai">✨ Rewrite whole resume</button>
-      <button class="btn ghost sm" data-rz-act="sklsug">✨ Suggest skills for this role</button>
+  <div class="card" style="margin-bottom:14px;border-color:var(--accent2)">
+    <b>🔎 Check an existing resume</b>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Have a resume already? Load it to get its job-match score, the changes to make, and a grammar check. ${RZ_UPNAME?`Loaded: <b style="color:var(--text)">${esc(RZ_UPNAME)}</b>.`:"This is only for checking — it does not change your builder."}</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+      <label class="btn ghost sm" style="cursor:pointer">⬆ Load a resume (PDF/DOCX/TXT)<input id="rzUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
+      ${RZ_UPNAME?`<button class="btn ghost sm" data-rz-act="clrup">✕ Use my built resume instead</button>`:""}
+      <span id="rzUpMsg" style="font-size:12.5px;color:var(--dim)"></span>
     </div>
-    <div id="rzAiMsg" style="font-size:12.5px;color:var(--dim);margin-top:6px"></div>
-    ${RZ_SUG.skills.length?`<div style="margin-top:10px"><div style="font-size:12.5px;color:var(--dim);margin-bottom:5px">Tap a skill to add it:</div>
-      <div class="ask-chips">${RZ_SUG.skills.map((s,i)=>`<button class="ask-chip" data-addskl="${i}">+ ${esc(s)}</button>`).join("")}</div></div>`:""}
-    <div id="rzTips"></div>
-  </div>`}
+  </div>
 
   <div class="card" style="margin-bottom:14px">
     <b>🎯 Match to a job description</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Paste a job post — see your ATS match score and which keywords you're missing, so you can add the ones that are true for you.</div>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Paste a job post to score ${RZ_UPNAME?"your loaded resume":"your resume"} against it — see the match score and the exact keywords and changes to make.</div>
     <textarea id="rzJD" class="pj-note" style="min-height:90px;width:100%" placeholder="Paste the full job description here…"></textarea>
     <div style="margin-top:8px"><button class="btn sm" data-rz-act="match">Check my match</button>
       <span id="rzMatchMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span></div>
@@ -3179,7 +3287,7 @@ function renderResume(){
 
   <div class="card" style="margin-bottom:14px">
     <b>🔤 Spelling &amp; grammar check</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Scan your resume for spelling and grammar mistakes. It lists what to fix — you make the change so nothing is altered without you.</div>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Scan ${RZ_UPNAME?"your loaded resume":"your resume"} for spelling and grammar mistakes — it lists exactly what to fix.</div>
     <button class="btn sm" data-rz-act="proof">Check spelling &amp; grammar</button>
     <span id="rzProofMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span>
     <div id="rzProofOut" style="margin-top:10px"></div>
@@ -3187,7 +3295,7 @@ function renderResume(){
 
   <div class="card" style="margin-bottom:14px">
     <b>💬 Resume co-pilot</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Ask anything — "make my summary punchier", "how do I show Docker experience?", "is this ready for a senior role?". It gives clear advice and example wording you can copy in.</div>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Ask what to change — "what should I improve for a senior role?", "which keywords am I missing?". It tells you the changes to make; you apply them.</div>
     <div id="rzChatThread" style="max-height:300px;overflow-y:auto;margin-bottom:8px">${rzChatHTML()}</div>
     <div class="row" style="gap:8px"><input id="rzChatIn" class="ask-input" placeholder="Ask the resume co-pilot…"/><button class="btn sm" data-rz-act="chat">Send</button></div>
   </div>
@@ -3210,24 +3318,23 @@ function renderResume(){
   const rl=$("#rzRole"); if(rl) rl.oninput=e=>{ RESUME.role=e.target.value; rzSave(); };
   const tn=$("#rzTone"); if(tn) tn.onchange=e=>{ RESUME.tone=e.target.value; rzSave(); };
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
-  const up=$("#rzUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) rzUpload(e.target.files[0]); };
+  const up=$("#rzUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) rzAnalyzeUpload(e.target.files[0]); };
   const ph=$("#rzPhoto"); if(ph) ph.onchange=e=>{ if(e.target.files[0]) rzPhoto(e.target.files[0]); };
   const rzci=$("#rzChatIn"); if(rzci) rzci.onkeydown=e=>{ if(e.key==="Enter") rzChatSend(); };
 }
-async function rzUpload(file){
-  const m=$("#rzUpMsg"); if(m)m.textContent="Reading & structuring your resume…";
+async function rzAnalyzeUpload(file){
+  const m=$("#rzUpMsg"); if(m)m.textContent="Reading your resume…";
   const fd=new FormData(); fd.append("file",file);
   try{
-    const rr=await fetch("/api/resume/parse",{method:"POST",credentials:"same-origin",body:fd});
-    if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Import failed"); }
+    const rr=await fetch("/api/resume/extract",{method:"POST",credentials:"same-origin",body:fd});
+    if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Could not read that file"); }
     const d=await rr.json();
-    Object.assign(RESUME,d);   // fill the structured builder from the resume
-    RESUME.sections=null; RESUME.lmode="build";
-    rzSave(); renderResume(); window.scrollTo(0,0);
-    const njobs=(RESUME.exp||[]).filter(x=>x.role||x.company).length;
-    const m2=$("#rzUpMsg"); if(m2)m2.textContent="Imported "+njobs+" job"+(njobs===1?"":"s")+" — review the fields below. Everything shows in the live preview.";
+    RZ_UPTEXT=d.text||""; RZ_UPNAME=d.name||file.name; RZ_MATCH=null;
+    renderResume();
+    const m2=$("#rzUpMsg"); if(m2)m2.textContent="Loaded — now paste a job description or run the checks below.";
   }catch(e){ const m2=$("#rzUpMsg"); if(m2)m2.textContent=e.message; }
 }
+function rzClearUpload(){ RZ_UPTEXT=""; RZ_UPNAME=""; RZ_MATCH=null; renderResume(); }
 function rzHasSections(){ return !!(RESUME.sections&&RESUME.sections.length); }
 let RZ_OPENSEC={0:true};   // which imported sections are expanded for editing
 /* ---- section editor: one text box per section heading ---- */
@@ -3506,7 +3613,7 @@ async function rzMatch(){
   const ta=$("#rzJD"); RZ_JD=(ta&&ta.value)||"";
   const msg=$("#rzMatchMsg"); if(!RZ_JD.trim()||RZ_JD.trim().length<40){ if(msg)msg.textContent="Paste the full job description first."; return; }
   if(msg)msg.textContent="Scoring your match…";
-  try{ const res=await api.post("/api/resume/match",{resume:RESUME,jd:RZ_JD}); RZ_MATCH=res;
+  try{ const res=await api.post("/api/resume/match",{resume:RESUME,jd:RZ_JD,resume_text:RZ_UPTEXT}); RZ_MATCH=res;
     const out=$("#rzMatchOut"); if(out)out.innerHTML=rzMatchHTML(); if(msg)msg.textContent=""; }
   catch(e){ if(msg)msg.textContent=e.message; }
 }
@@ -3514,7 +3621,7 @@ async function rzProofread(){
   const msg=$("#rzProofMsg"), out=$("#rzProofOut");
   if(msg)msg.textContent="Checking…"; if(out)out.innerHTML="";
   try{
-    const res=await api.post("/api/resume/proofread",{resume:RESUME});
+    const res=await api.post("/api/resume/proofread",{resume:RESUME,resume_text:RZ_UPTEXT});
     const list=res.issues||[];
     if(msg)msg.textContent=list.length?(list.length+" to review"):"";
     if(out) out.innerHTML = list.length
@@ -3532,7 +3639,7 @@ async function rzChatSend(){
   const el=$("#rzChatIn"); if(!el)return; const msg=(el.value||"").trim(); if(!msg)return; el.value="";
   RZ_CHAT.push({role:"user",content:msg}); paintChat();
   RZ_CHAT.push({role:"assistant",content:"…thinking"}); paintChat();
-  try{ const res=await api.post("/api/resume/chat",{resume:RESUME,history:RZ_CHAT.slice(0,-2),message:msg});
+  try{ const res=await api.post("/api/resume/chat",{resume:RESUME,history:RZ_CHAT.slice(0,-2),message:msg,resume_text:RZ_UPTEXT});
     RZ_CHAT.pop(); RZ_CHAT.push({role:"assistant",content:res.reply||"(no reply)"}); paintChat(); }
   catch(e){ RZ_CHAT.pop(); RZ_CHAT.push({role:"assistant",content:e.message}); paintChat(); }
 }
@@ -3570,6 +3677,7 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="match") rzMatch();
   else if(b.dataset.rzAct==="chat") rzChatSend();
   else if(b.dataset.rzAct==="proof") rzProofread();
+  else if(b.dataset.rzAct==="clrup") rzClearUpload();
   else if(b.dataset.rzAct==="delphoto"){ RESUME.photo=""; rzSave(); renderResume(); }
   else if(b.dataset.rzAct==="saveas") rzSaveAs();
   else if(b.dataset.rzAct==="newres") rzNew();

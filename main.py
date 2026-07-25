@@ -2527,6 +2527,7 @@ async def resume_skills(body: RoleIn, user: User = Depends(current_user)):
 class MatchIn(BaseModel):
     resume: dict = {}
     jd: str = Field(default="", max_length=8000)
+    resume_text: str = Field(default="", max_length=40000)
 
 
 def _resume_text(r):
@@ -2564,7 +2565,7 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
     jd = (body.jd or "").strip()
     if len(jd) < 40:
         raise HTTPException(400, "Paste the full job description first")
-    rtext = _resume_text(body.resume or {})[:6000]
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:9000]
     prompt = (
         "You are an ATS resume analyst. Compare the RESUME to the JOB "
         "DESCRIPTION and score the fit honestly.\n\n"
@@ -3031,8 +3032,30 @@ async def resume_parse(file: UploadFile = File(...),
     return out
 
 
+@app.post("/api/resume/extract")
+async def resume_extract(file: UploadFile = File(...),
+                         user: User = Depends(current_user)):
+    """Read an uploaded resume and return its plain text — used only to score it
+    against a job description and to suggest changes. It does not build or edit
+    anything."""
+    raw = await file.read()
+    if len(raw) > 4_000_000:
+        raise HTTPException(400, "File too large (max 4 MB)")
+    try:
+        text = _extract_resume_text(file.filename, raw)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Could not read that file: {e}")
+    text = (text or "").strip()
+    if len(text) < 30:
+        raise HTTPException(400, "No readable text found in that file")
+    return {"text": text[:40000], "name": (file.filename or "resume")[:120]}
+
+
 class ProofreadIn(BaseModel):
     resume: dict = {}
+    resume_text: str = Field(default="", max_length=40000)
 
 
 @app.post("/api/resume/proofread")
@@ -3041,7 +3064,7 @@ async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)
     them. Returns a list of {wrong, right, why} — it does not auto-edit."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The proofreader is not switched on")
-    rtext = _resume_text(body.resume or {})[:6000]
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:8000]
     if len(rtext.strip()) < 20:
         raise HTTPException(400, "Add some resume content first")
     prompt = (
@@ -3074,6 +3097,7 @@ class ChatIn(BaseModel):
     resume: dict = {}
     message: str = Field(min_length=1, max_length=1000)
     history: list = []
+    resume_text: str = Field(default="", max_length=40000)
 
 
 @app.post("/api/resume/chat")
@@ -3082,7 +3106,7 @@ async def resume_chat(body: ChatIn, user: User = Depends(current_user)):
     user reads and applies themselves — it never edits the resume directly."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI co-pilot is not switched on")
-    rtext = _resume_text(body.resume or {})[:4500]
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:6000]
     hist = ""
     for m in (body.history or [])[-6:]:
         who = "User" if str(m.get("role")) == "user" else "Coach"

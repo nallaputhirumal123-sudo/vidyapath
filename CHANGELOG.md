@@ -14,6 +14,19 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.32.0 — Resume: build-only + check-an-existing; careers by country
+
+- **Resume builder is build-from-scratch only.** Removed the import-into-builder
+  flow and the "Target role & AI" auto-rewrite section. You build your resume in
+  one clean ATS style; the live preview is exactly what downloads.
+- **New "Check an existing resume" (analysis only).** Load a PDF/DOCX/TXT to get
+  its job-match score, the exact changes to make, and a grammar check — it never
+  edits or builds anything. The match, co-pilot and grammar tools all run on the
+  loaded resume when one is present, otherwise on your built resume.
+- **Careers: company career pages + job sites by country.** Pick your country
+  (India, US, UK, Canada, Australia, UAE/Gulf, Singapore/SE Asia, Germany/Europe,
+  Remote/Global) to see direct company careers links and the top job boards there.
+
 ## 1.31.0 — One clean ATS style; preview = download; all jobs imported
 
 - **Back to the structured builder as the single path.** Uploading a resume now
