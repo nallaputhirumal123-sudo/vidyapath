@@ -2976,17 +2976,25 @@ async def resume_parse(file: UploadFile = File(...),
     text = (text or "").strip()
     if len(text) < 30:
         raise HTTPException(400, "No readable text found in that file")
-    # Group the resume into editable sections (heading + whole-section body),
-    # keeping the original wording and the order of the document.
-    sections = _split_sections(text)
     prompt = (
-        "Parse this resume text into structured JSON. Use ONLY information "
-        "present; leave fields empty if absent. The candidate's NAME and CONTACT "
-        "details often appear on the very first lines (from the document header) "
-        "— capture them. Capture EVERY job in 'exp' (do not skip any) and keep "
-        "each job's 'bullets' as newline-separated lines.\n\n"
-        f"RESUME TEXT:\n{text[:16000]}\n\n"
-        "Return ONLY valid JSON in this shape:\n"
+        "You are extracting a resume into structured JSON for a resume builder. "
+        "Read the WHOLE text and capture EVERYTHING — do not summarise, shorten "
+        "or drop anything. Use ONLY information present; leave a field empty only "
+        "if it is truly absent.\n\n"
+        "Critical rules:\n"
+        "- NAME and CONTACT are usually on the first lines (from the document "
+        "header): capture name, email, phone, city/location and any links.\n"
+        "- 'exp' MUST contain EVERY job listed, in order, each as its own object. "
+        "Do NOT merge jobs and do NOT put every bullet under the first job. For "
+        "each job set role (job title), company, place (city), dates (e.g. "
+        "'Jan 2021 - Dec 2023'), and bullets = that job's OWN bullet lines "
+        "(newline-separated, one per line, keep them all).\n"
+        "- Put professional-summary lines in 'summary' (newline-separated).\n"
+        "- Put all skills into 'skills' items.\n"
+        "- Capture every 'edu' entry and any certifications in 'certs'.\n\n"
+        f"RESUME TEXT:\n{text[:24000]}\n\n"
+        "Return ONLY valid JSON in this shape (arrays may have as many items as "
+        "needed):\n"
         '{"name":"","title":"","email":"","phone":"","location":"","links":"",'
         '"summary":"","skills":[{"label":"Skills","items":""}],'
         '"exp":[{"role":"","company":"","place":"","dates":"","bullets":""}],'
@@ -2994,7 +3002,7 @@ async def resume_parse(file: UploadFile = File(...),
         '"proj":[{"name":"","tech":"","desc":"","link":""}],"certs":""}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 3600))
+        d = _ai_json(await _ai_text(prompt, 6000))
     except Exception as e:
         print(f"Resume parse failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI could not structure that resume. Try again.")
@@ -3010,18 +3018,16 @@ async def resume_parse(file: UploadFile = File(...),
                    for x in (d.get("skills") or []) if isinstance(x, dict)][:6] or [{"label": "Skills", "items": ""}],
         "exp": [{"role": s(x.get("role"), 120), "company": s(x.get("company"), 120),
                  "place": s(x.get("place"), 80), "dates": s(x.get("dates"), 40),
-                 "bullets": s(x.get("bullets"), 2000), "ctx": ""}
-                for x in (d.get("exp") or []) if isinstance(x, dict)][:8] or [{"role": "", "company": "", "place": "", "dates": "", "bullets": "", "ctx": ""}],
+                 "bullets": s(x.get("bullets"), 4000), "ctx": ""}
+                for x in (d.get("exp") or []) if isinstance(x, dict)][:14] or [{"role": "", "company": "", "place": "", "dates": "", "bullets": "", "ctx": ""}],
         "edu": [{"degree": s(x.get("degree"), 120), "school": s(x.get("school"), 120),
                  "place": s(x.get("place"), 80), "year": s(x.get("year"), 20)}
                 for x in (d.get("edu") or []) if isinstance(x, dict)][:6] or [{"degree": "", "school": "", "place": "", "year": ""}],
         "proj": [{"name": s(x.get("name"), 120), "tech": s(x.get("tech"), 120),
                   "desc": s(x.get("desc"), 300), "link": s(x.get("link"), 200)}
                  for x in (d.get("proj") or []) if isinstance(x, dict)][:8] or [{"name": "", "tech": "", "desc": "", "link": ""}],
-        "certs": s(d.get("certs"), 1000),
+        "certs": s(d.get("certs"), 2000),
     }
-    if sections:
-        out["sections"] = sections
     return out
 
 

@@ -3122,7 +3122,7 @@ function rzTip(t){ return `<div style="font-size:12.5px;color:var(--dim);margin:
 function renderResume(){
   rzLoad();
   const pct=rzProgress();
-  const orig=RESUME.lmode==="sections"&&rzHasSections();
+  const orig=false;   // one path only: the structured ATS builder
   $("#main").innerHTML=`
   <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· write with AI, format for ATS</span></div>
   <div class="card" style="margin-bottom:14px">
@@ -3192,9 +3192,6 @@ function renderResume(){
     <div class="row" style="gap:8px"><input id="rzChatIn" class="ask-input" placeholder="Ask the resume co-pilot…"/><button class="btn sm" data-rz-act="chat">Send</button></div>
   </div>
 
-  ${orig?"":`<div class="ask-chips" style="margin-bottom:6px"><b style="align-self:center;font-size:13px;margin-right:4px">Style:</b>
-    ${RZ_STYLES.map((s,i)=>`<button class="ask-chip ${RESUME.style===i?"on":""}" data-rzstyle="${i}">${s.name}</button>`).join("")}
-  </div>`}
   <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <button class="btn sm" data-rz-act="${orig?"spdf":"pdf"}">⬇ Download A4 PDF</button>
     <span style="font-size:12.5px;color:#4bbf82;align-self:center">saved automatically</span>
@@ -3224,12 +3221,11 @@ async function rzUpload(file){
     const rr=await fetch("/api/resume/parse",{method:"POST",credentials:"same-origin",body:fd});
     if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Import failed"); }
     const d=await rr.json();
-    Object.assign(RESUME,d);   // keep style/photo/tone
-    if(d.sections&&d.sections.length){ RESUME.sections=d.sections; RESUME.lmode="sections"; RZ_OPENSEC={0:true,1:true}; }
-    rzSave(); renderResume();
-    const m2=$("#rzUpMsg"); if(m2)m2.textContent=RESUME.lmode==="sections"
-      ?"Imported by section — open a heading below to edit that whole section."
-      :"Imported — review and refine below.";
+    Object.assign(RESUME,d);   // fill the structured builder from the resume
+    RESUME.sections=null; RESUME.lmode="build";
+    rzSave(); renderResume(); window.scrollTo(0,0);
+    const njobs=(RESUME.exp||[]).filter(x=>x.role||x.company).length;
+    const m2=$("#rzUpMsg"); if(m2)m2.textContent="Imported "+njobs+" job"+(njobs===1?"":"s")+" — review the fields below. Everything shows in the live preview.";
   }catch(e){ const m2=$("#rzUpMsg"); if(m2)m2.textContent=e.message; }
 }
 function rzHasSections(){ return !!(RESUME.sections&&RESUME.sections.length); }
@@ -3377,71 +3373,92 @@ function onResumeInput(e){
 function rzPaintPreview(){ const p=$("#rzPreview"); if(p)p.innerHTML=(RESUME.lmode==="sections"&&rzHasSections())?rzSectionsPreviewHTML():rzPreviewHTML(); }
 function rzPaintProgress(){ /* progress updates on next full render; cheap enough */ }
 function esc2(s){ return esc(String(s==null?"":s)); }
+/* ===== ONE ATS style, shared by the on-screen preview and the PDF so they
+   look identical. Navy headings with a rule and a clear gap before the body
+   (no touching). Dates are right-aligned; bullets are real bullets. ===== */
+const RZ_NAVY="#1a3c5e";
 function rzPreviewHTML(){
-  const r=RESUME, S=RZ_STYLES[r.style]||RZ_STYLES[0];
-  const H=t=>`<div style="color:${S.accent};font-weight:700;font-size:11.5px;${S.caps?"text-transform:uppercase;letter-spacing:1px;":""}margin:15px 0 5px;${S.rule?`border-bottom:1.5px solid ${S.accent};padding-bottom:3px`:""}">${t}</div>`;
-  const contact=[r.email,r.phone,r.location].filter(Boolean).join("  •  ");
-  /* the sheet: A4 proportions via padding; content flows naturally */
-  let h=`<div style="font-family:${S.font};color:#1a1a1a;padding:46px 52px;font-size:12px;line-height:1.5;min-height:900px;box-sizing:border-box">`;
-  const hdr=`<div style="flex:1"><div style="font-size:23px;font-weight:800;color:${S.accent}">${esc2(r.name)||"Your Name"}</div>`
-    +(r.title?`<div style="font-size:13px;color:#444;margin-top:2px">${esc2(r.title)}</div>`:"")
-    +(contact?`<div style="font-size:11px;color:#555;margin-top:5px">${esc2(contact)}</div>`:"")
-    +(r.links?`<div style="font-size:11px;color:${S.accent};margin-top:2px">${esc2(r.links)}</div>`:"")+`</div>`;
-  h+=`<div style="display:flex;gap:16px;align-items:flex-start">${hdr}${r.photo?`<img src="${r.photo}" style="width:76px;height:76px;border-radius:8px;object-fit:cover">`:""}</div>`;
-  if(r.summary){ h+=H("Professional Summary")+`<div>${esc2(r.summary).replace(/\n/g,"<br>")}</div>`; }
+  const r=RESUME;
+  const H=t=>`<div style="color:${RZ_NAVY};font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.6px;border-bottom:1.5px solid ${RZ_NAVY};padding-bottom:4px;margin:17px 0 9px">${esc2(t)}</div>`;
+  const contact=[r.email,r.phone,r.location].filter(Boolean).join("   |   ");
+  let h=`<div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:44px 50px;font-size:12px;line-height:1.45;min-height:900px;box-sizing:border-box">`;
+  h+=`<div style="font-size:22px;font-weight:800;color:${RZ_NAVY};letter-spacing:.3px">${esc2(r.name)||"Your Name"}</div>`;
+  if(r.title) h+=`<div style="font-size:12.5px;color:#555;margin-top:2px">${esc2(r.title)}</div>`;
+  if(contact) h+=`<div style="font-size:11px;color:#555;margin-top:4px">${esc2(contact)}</div>`;
+  if(r.links) h+=`<div style="font-size:11px;color:${RZ_NAVY};margin-top:2px">${esc2(r.links)}</div>`;
+  if((r.summary||"").trim()){ h+=H("Professional Summary"); r.summary.split("\n").filter(x=>x.trim()).forEach(l=>{ h+=`<div style="margin:1px 0">${esc2(l.trim())}</div>`; }); }
   const ex=r.exp.filter(x=>x.role||x.company);
-  if(ex.length){ h+=H("Employment History"); ex.forEach(x=>{
-    h+=`<div style="margin-top:8px"><b>${esc2(x.role)}</b>${x.company?", "+esc2(x.company):""}<span style="float:right;color:#666">${esc2(x.dates)}</span></div>`;
-    if(x.place) h+=`<div style="color:#666;font-size:11px">${esc2(x.place)}</div>`;
-    x.bullets.split("\n").filter(b=>b.trim()).forEach(b=>{ h+=`<div style="margin-left:14px">• ${esc2(b.trim())}</div>`; });
+  if(ex.length){ h+=H("Experience"); ex.forEach(x=>{
+    const rc=esc2(x.role)+(x.company?", "+esc2(x.company):"");
+    h+=`<div style="display:flex;justify-content:space-between;gap:12px;margin-top:8px"><b style="font-size:12.5px">${rc}</b><span style="color:#555;white-space:nowrap;font-size:11px">${esc2(x.dates||"")}</span></div>`;
+    if(x.place) h+=`<div style="color:#666;font-size:11px;font-style:italic">${esc2(x.place)}</div>`;
+    (x.bullets||"").split("\n").filter(b=>b.trim()).forEach(b=>{ h+=`<div style="margin:2px 0 2px 15px;text-indent:-12px">• ${esc2(b.trim())}</div>`; });
   }); }
   const sk=r.skills.filter(s=>s.items.trim());
-  if(sk.length){ h+=H("Skills"); sk.forEach(s=>{ h+=`<div><b>${esc2(s.label)}:</b> ${esc2(s.items)}</div>`; }); }
+  if(sk.length){ h+=H("Skills"); sk.forEach(s=>{ h+=`<div style="margin:2px 0"><b>${esc2(s.label)}:</b> ${esc2(s.items)}</div>`; }); }
   const pr=r.proj.filter(x=>x.name);
   if(pr.length){ h+=H("Projects"); pr.forEach(x=>{
     h+=`<div style="margin-top:6px"><b>${esc2(x.name)}</b>${x.tech?" — "+esc2(x.tech):""}</div>`;
-    if(x.desc) h+=`<div style="margin-left:14px">${esc2(x.desc)}</div>`;
-    if(x.link) h+=`<div style="margin-left:14px;color:${S.accent}">${esc2(x.link)}</div>`;
+    if(x.desc) h+=`<div style="margin:1px 0 1px 15px;text-indent:-12px">• ${esc2(x.desc)}</div>`;
+    if(x.link) h+=`<div style="margin-left:15px;color:${RZ_NAVY}">${esc2(x.link)}</div>`;
   }); }
   const ed=r.edu.filter(x=>x.degree||x.school);
   if(ed.length){ h+=H("Education"); ed.forEach(x=>{
-    h+=`<div style="margin-top:5px"><b>${esc2(x.degree)}</b>${x.school?", "+esc2(x.school):""}<span style="float:right;color:#666">${esc2(x.year)}</span></div>`;
+    const ds=esc2(x.degree)+(x.school?", "+esc2(x.school):"");
+    h+=`<div style="display:flex;justify-content:space-between;gap:12px;margin-top:5px"><b>${ds}</b><span style="color:#555;white-space:nowrap;font-size:11px">${esc2(x.year||"")}</span></div>`;
+    if(x.place) h+=`<div style="color:#666;font-size:11px">${esc2(x.place)}</div>`;
   }); }
-  if((r.certs||"").trim()){ h+=H("Certificates & Achievements"); r.certs.split("\n").filter(c=>c.trim()).forEach(c=>{ h+=`<div>• ${esc2(c.trim())}</div>`; }); }
+  if((r.certs||"").trim()){ h+=H("Certifications"); r.certs.split("\n").filter(c=>c.trim()).forEach(c=>{ h+=`<div style="margin:2px 0 2px 15px;text-indent:-12px">• ${esc2(c.trim())}</div>`; }); }
   h+=`</div>`;
   return h;
 }
 async function rzPDF(){
   try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool."); return; }
   const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"pt",format:"a4"});
-  const r=RESUME, ST=RZ_STYLES[r.style]||RZ_STYLES[0];
+  const r=RESUME;
   const M=48, W=doc.internal.pageSize.getWidth()-M*2, H=doc.internal.pageSize.getHeight();
   let y=54;
-  const ny=()=>{ if(y>H-50){ doc.addPage(); y=54; } };
-  const text=(t,size,opt)=>{ opt=opt||{}; doc.setFont("helvetica",opt.bold?"bold":"normal"); doc.setFontSize(size);
-    doc.setTextColor(opt.color||"#1a1a1a"); const parts=doc.splitTextToSize(pdfSafe(t),opt.w||W);
-    parts.forEach(p=>{ ny(); doc.text(p,opt.x||M,y); y+=size*1.32; }); };
-  const heading=t=>{ y+=8; ny(); doc.setDrawColor(ST.accent); doc.setLineWidth(1.2);
-    text(ST.caps?t.toUpperCase():t,11,{bold:true,color:ST.accent}); if(ST.rule){ doc.line(M,y-3,M+W,y-3); y+=4; } };
-  if(r.photo){ try{ const fmt=/^data:image\/(png|jpe?g)/i.exec(r.photo); doc.addImage(r.photo, (fmt&&/png/i.test(fmt[1]))?"PNG":"JPEG", doc.internal.pageSize.getWidth()-M-64, 40, 64, 64); }catch(e){} }
-  text(r.name||"Your Name",20,{bold:true,color:ST.accent});
-  if(r.title) text(r.title,11,{color:"#444"});
-  const contact=[r.email,r.phone,r.location].filter(Boolean).join("  |  ");
-  if(contact) text(contact,9.5,{color:"#555"});
-  if(r.links) text(r.links,9.5,{color:ST.accent});
-  if(r.summary){ heading("Professional Summary"); text(r.summary,10); }
+  const ny=h=>{ if(y+(h||0)>H-46){ doc.addPage(); y=54; } };
+  const txt=(t,size,opt)=>{ opt=opt||{}; doc.setFont("helvetica",opt.bold?"bold":"normal"); doc.setFontSize(size);
+    doc.setTextColor(opt.color||"#1a1a1a"); doc.splitTextToSize(pdfSafe(t),opt.w||W).forEach(p=>{ ny(size); doc.text(p,opt.x||M,y); y+=size*1.42; }); };
+  const heading=t=>{ y+=13; ny(24); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(RZ_NAVY);
+    doc.text(pdfSafe(t.toUpperCase()),M,y); const ry=y+4; doc.setDrawColor(26,60,94); doc.setLineWidth(1); doc.line(M,ry,M+W,ry); y=ry+13; };
+  // a heading line "Bold left ....... gray right" with the left part able to wrap
+  const headed=(left,right,size)=>{ doc.setFont("helvetica","bold"); doc.setFontSize(size); doc.setTextColor("#1a1a1a");
+    const dw=right?doc.getTextWidth(pdfSafe(right))+12:0;
+    const parts=doc.splitTextToSize(pdfSafe(left),W-dw);
+    parts.forEach((p,i)=>{ ny(size); doc.text(p,M,y);
+      if(i===0&&right){ doc.setFont("helvetica","normal"); doc.setFontSize(size-1); doc.setTextColor("#555"); doc.text(pdfSafe(right),M+W,y,{align:"right"});
+        doc.setFont("helvetica","bold"); doc.setFontSize(size); doc.setTextColor("#1a1a1a"); }
+      y+=size*1.42; }); };
+  // name + contact
+  txt(r.name||"Your Name",20,{bold:true,color:RZ_NAVY});
+  if(r.title) txt(r.title,10.5,{color:"#555"});
+  const contact=[r.email,r.phone,r.location].filter(Boolean).join("   |   ");
+  if(contact) txt(contact,9.5,{color:"#555"});
+  if(r.links) txt(r.links,9.5,{color:RZ_NAVY});
+  if((r.summary||"").trim()){ heading("Professional Summary"); r.summary.split("\n").filter(x=>x.trim()).forEach(l=>txt(l.trim(),10)); }
   const ex=r.exp.filter(x=>x.role||x.company);
-  if(ex.length){ heading("Employment History"); ex.forEach(x=>{ text((x.role||"")+(x.company?", "+x.company:"")+(x.dates?"   ("+x.dates+")":""),10.5,{bold:true});
-    if(x.place) text(x.place,9,{color:"#666"});
-    x.bullets.split("\n").filter(b=>b.trim()).forEach(b=>text("- "+b.trim(),10,{x:M+10,w:W-10})); y+=2; }); }
+  if(ex.length){ heading("Experience"); ex.forEach(x=>{
+    headed((x.role||"")+(x.company?", "+x.company:""),x.dates||"",11);
+    if(x.place){ txt(x.place,9,{color:"#666"}); }
+    (x.bullets||"").split("\n").filter(b=>b.trim()).forEach(b=>txt("•  "+b.trim(),10,{x:M+13,w:W-13}));
+    y+=5; }); }
   const sk=r.skills.filter(s=>s.items.trim());
-  if(sk.length){ heading("Skills"); sk.forEach(s=>text(s.label+": "+s.items,10)); }
+  if(sk.length){ heading("Skills"); sk.forEach(s=>{
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor("#1a1a1a");
+    const lab=(s.label||"Skills")+": "; const lw=doc.getTextWidth(pdfSafe(lab));
+    const items=doc.splitTextToSize(pdfSafe(s.items),W-lw);
+    ny(10); doc.text(pdfSafe(lab),M,y); doc.setFont("helvetica","normal");
+    items.forEach((p,i)=>{ if(i>0){ ny(10); } doc.text(p, i===0?M+lw:M, y); y+=14; });
+  }); }
   const pr=r.proj.filter(x=>x.name);
-  if(pr.length){ heading("Projects"); pr.forEach(x=>{ text(x.name+(x.tech?" - "+x.tech:""),10.5,{bold:true});
-    if(x.desc) text(x.desc,10,{x:M+10,w:W-10}); if(x.link) text(x.link,9.5,{x:M+10,color:ST.accent}); y+=2; }); }
+  if(pr.length){ heading("Projects"); pr.forEach(x=>{ txt(x.name+(x.tech?" — "+x.tech:""),10.5,{bold:true});
+    if(x.desc) txt("•  "+x.desc,10,{x:M+13,w:W-13}); if(x.link) txt(x.link,9.5,{x:M+13,color:RZ_NAVY}); y+=4; }); }
   const ed=r.edu.filter(x=>x.degree||x.school);
-  if(ed.length){ heading("Education"); ed.forEach(x=>text((x.degree||"")+(x.school?", "+x.school:"")+(x.year?"   ("+x.year+")":""),10.5)); }
-  if((r.certs||"").trim()){ heading("Certificates & Achievements"); r.certs.split("\n").filter(c=>c.trim()).forEach(c=>text("- "+c.trim(),10)); }
+  if(ed.length){ heading("Education"); ed.forEach(x=>{ headed((x.degree||"")+(x.school?", "+x.school:""),x.year||"",10);
+    if(x.place) txt(x.place,9,{color:"#666"}); y+=3; }); }
+  if((r.certs||"").trim()){ heading("Certifications"); r.certs.split("\n").filter(c=>c.trim()).forEach(c=>txt("•  "+c.trim(),10,{x:M+13,w:W-13})); }
   doc.save((r.name||"resume").replace(/[^a-z0-9]+/gi,"-").toLowerCase()+"-resume.pdf");
 }
 async function rzAI(){

@@ -14,6 +14,20 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.31.0 — One clean ATS style; preview = download; all jobs imported
+
+- **Back to the structured builder as the single path.** Uploading a resume now
+  fills the builder fields (name, title, contact, summary, every job with its
+  dates and bullets, skills, education) — no more separate "by section" mode.
+- **Imports capture EVERY job, not just the first.** Rewrote the extraction to
+  keep each job as its own entry with its own bullets, and raised all limits so
+  nothing is dropped.
+- **One ATS style, and the preview now equals the download.** Both are rendered
+  from the same spec: navy headings with an underline and a clear gap before the
+  body (headings no longer touch the text), dates right-aligned, real bullets.
+- Removed the multi-style picker and the photo from the ATS output (ATS parsers
+  can't read photos).
+
 ## 1.30.0 — Section-based resume editing (clean, not messy)
 
 - **Uploaded resumes now open by SECTION, not by line.** We detect the real
