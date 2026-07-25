@@ -3223,15 +3223,15 @@ function rzLayoutEditorHTML(){
   </div>`).join("");
 }
 function rzLayoutPreviewHTML(){
-  const L=RESUME.layout; if(!L) return "";
-  const BW=680;   // preview render width in px
+  const L=RESUME.layout; if(!L||!L.pages||!L.pages.length) return `<div style="color:#eee;padding:20px;text-align:center">No preview available for this file.</div>`;
+  // SVG scales to the panel width via viewBox — it can never be clipped.
   return L.pages.map(pg=>{
-    const sc=BW/pg.w, ph=pg.h*sc;
-    const lines=pg.lines.map(ln=>{
-      const fam=ln.font==="times"?"Georgia,'Times New Roman',serif":ln.font==="courier"?"'Courier New',monospace":"Arial,Helvetica,sans-serif";
-      return `<div style="position:absolute;left:${(ln.x*sc).toFixed(1)}px;top:${(ln.y*sc).toFixed(1)}px;font-size:${(ln.size*sc).toFixed(1)}px;font-family:${fam};${ln.bold?"font-weight:700;":""}${ln.italic?"font-style:italic;":""}color:#111;white-space:pre;line-height:1.05">${esc2(ln.t)}</div>`;
+    const els=pg.lines.map(ln=>{
+      const fam=ln.font==="times"?"Georgia, 'Times New Roman', serif":ln.font==="courier"?"'Courier New', monospace":"Arial, Helvetica, sans-serif";
+      const yb=(ln.y+ln.size*0.82).toFixed(1);   // baseline (same math as the PDF)
+      return `<text x="${ln.x.toFixed(1)}" y="${yb}" font-size="${ln.size}" font-family="${fam}" ${ln.bold?'font-weight="700"':''} ${ln.italic?'font-style="italic"':''} fill="#111">${esc2(ln.t)}</text>`;
     }).join("");
-    return `<div style="position:relative;width:${BW}px;height:${ph.toFixed(0)}px;background:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(0,0,0,.35)">${lines}</div>`;
+    return `<svg viewBox="0 0 ${pg.w} ${pg.h}" width="100%" preserveAspectRatio="xMidYMin meet" style="display:block;background:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:760px">${els}</svg>`;
   }).join("");
 }
 async function rzLayoutPDF(){

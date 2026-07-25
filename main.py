@@ -2634,7 +2634,7 @@ def _extract_pdf_layout(raw):
         return None
     pages = []
     try:
-        for page in pdf.pages[:4]:
+        for page in pdf.pages[:6]:
             try:
                 words = page.extract_words(
                     extra_attrs=["size", "fontname"], use_text_flow=False)
@@ -2671,7 +2671,7 @@ def _extract_pdf_layout(raw):
             if lines:
                 pages.append({"w": round(float(page.width), 1),
                               "h": round(float(page.height), 1),
-                              "lines": lines[:140]})
+                              "lines": lines[:220]})
     except Exception:
         return None
     if not pages:
