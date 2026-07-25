@@ -14,6 +14,12 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.35.0 — Admin AI self-test
+
+- Added `/api/ai/selftest` (admin only): makes one tiny AI call and returns the
+  raw provider result or the raw upstream error, so the exact reason (e.g. a
+  Gemini quota/rate-limit message) is visible for debugging.
+
 ## 1.34.0 — Friendly AI rate-limit messages
 
 - When the AI provider's free daily/rate limit is hit, users now see a clear,

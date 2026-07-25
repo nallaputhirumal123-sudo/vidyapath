@@ -3153,6 +3153,22 @@ def ask_config(user: User = Depends(current_user)):
             "model": _PROVIDER_MODEL if ASK_ENABLED else ""}
 
 
+@app.get("/api/ai/selftest")
+async def ai_selftest(user: User = Depends(admin_user)):
+    """Admin-only: make one tiny AI call and return the RAW result or the RAW
+    upstream error, so we can see exactly what the provider says (e.g. the real
+    Gemini rate-limit/quota reason). Visit /api/ai/selftest while signed in as
+    an admin."""
+    info = {"provider": AI_PROVIDER, "model": _PROVIDER_MODEL, "enabled": ASK_ENABLED}
+    if not ASK_ENABLED:
+        return {**info, "ok": False, "error": "No AI key configured on the server"}
+    try:
+        out = await _ai_text("Reply with exactly: OK", 20)
+        return {**info, "ok": True, "sample": (out or "")[:200]}
+    except Exception as e:
+        return {**info, "ok": False, "error": f"{type(e).__name__}: {e}"[:600]}
+
+
 @app.post("/api/ask")
 async def ask_vidya(body: AskIn, user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
