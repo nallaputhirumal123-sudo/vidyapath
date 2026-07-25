@@ -14,6 +14,21 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.25.0 — Resume co-pilot fixed + auto-edit experience
+
+- **AI co-pilot works again.** Fixed a fatal JS error (duplicate `RZ_CHAT`)
+  that silently killed the whole resume page after the co-pilot loaded.
+- **Backend `/api/resume/chat`** returns `{reply, actions}`. Actions can
+  rewrite the summary, change the title, add a skill, replace one bullet, or
+  **replace an entire experience block's bullets** (`setbullets`) — the
+  "auto-edit" the co-pilot suggests, applied on click, then re-exported to PDF.
+- **Create vs. saved resumes are separate.** A "Your resumes" card up top:
+  Import (PDF/DOCX/TXT), Save this resume, New blank, and a list to load/delete.
+- **DOCX import no longer crashes** on embedded images (reads only
+  `word/document.xml`, skips the corrupt-CRC media parts).
+- **Photo control moved** into Personal details; match-to-JD scoring sits above
+  the co-pilot so it's clear which resume it's scoring.
+
 ## 1.7.0 — Ask Vidya board: no flicker, slides, save, PDF
 
 - **The board no longer redraws on every line.** The whole answer appears at

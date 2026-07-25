@@ -2391,16 +2391,19 @@ async def _ai_text(prompt: str, max_tokens: int = 1500) -> str:
 class ResumeAIIn(BaseModel):
     resume: dict = {}
     target_role: str = Field(default="", max_length=120)
+    jd: str = Field(default="", max_length=8000)
 
 
 @app.post("/api/resume/ai")
 async def resume_ai(body: ResumeAIIn, user: User = Depends(current_user)):
     """Rewrite a resume into strong, ATS-optimized wording — using only the
-    facts the student provided (never inventing employers, dates or degrees)."""
+    facts the student provided (never inventing employers, dates or degrees).
+    If a job description is supplied, tailor the wording toward it."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI writer is not switched on")
     r = body.resume or {}
     role = (body.target_role or r.get("title") or "the role").strip()[:120]
+    jd = (body.jd or "").strip()
     exp = r.get("exp", []) or []
     facts = {
         "name": r.get("name", ""), "title": r.get("title", ""),
@@ -2414,7 +2417,9 @@ async def resume_ai(body: ResumeAIIn, user: User = Depends(current_user)):
     prompt = (
         "You are an expert resume writer optimising for Applicant Tracking "
         f"Systems (ATS). Target role: {role}.\n\n"
-        "Rewrite the following resume facts into strong, concise, ATS-friendly "
+        + (f"Tailor the wording toward THIS job description, weaving in its "
+           f"keywords where truthful:\n{jd[:3000]}\n\n" if jd else "")
+        + "Rewrite the following resume facts into strong, concise, ATS-friendly "
         "content. RULES: use ONLY the facts given — never invent employers, "
         "job titles, dates, degrees or numbers that aren't there. Improve "
         "wording: start experience bullets with strong action verbs, keep each "
@@ -2583,13 +2588,25 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
 def _extract_resume_text(filename, raw):
     name = (filename or "").lower()
     if name.endswith(".pdf"):
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(raw))
-        return "\n".join((p.extract_text() or "") for p in reader.pages)
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(raw))
+            return "\n".join((p.extract_text() or "") for p in reader.pages)
+        except Exception as e:
+            raise HTTPException(400, f"Could not read that PDF: {e}")
     if name.endswith(".docx"):
-        from docx import Document
-        doc = Document(io.BytesIO(raw))
-        return "\n".join(p.text for p in doc.paragraphs)
+        # Read ONLY the document text part via zipfile, so a corrupt embedded
+        # image (a common cause of "Bad CRC-32") can never break the import.
+        import zipfile
+        import re as _re2
+        import html as _html
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+            xml = zf.read("word/document.xml").decode("utf-8", "ignore")
+        except Exception as e:
+            raise HTTPException(400, f"Could not read that DOCX: {e}")
+        xml = xml.replace("</w:p>", "\n").replace("<w:tab/>", "  ")
+        return _html.unescape(_re2.sub(r"<[^>]+>", "", xml))
     if name.endswith(".txt"):
         return raw.decode("utf-8", "ignore")
     raise HTTPException(400, "Upload a PDF, DOCX or TXT file")
@@ -2632,7 +2649,8 @@ async def resume_parse(file: UploadFile = File(...),
         print(f"Resume parse failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI could not structure that resume. Try again.")
 
-    def s(v, n=400): return str(v or "")[:n]
+    def s0(v, n=400): return str(v or "")[:n]
+    s = s0
     out = {
         "name": s(d.get("name"), 120), "title": s(d.get("title"), 120),
         "email": s(d.get("email"), 120), "phone": s(d.get("phone"), 60),
@@ -2653,6 +2671,71 @@ async def resume_parse(file: UploadFile = File(...),
         "certs": s(d.get("certs"), 1000),
     }
     return out
+
+
+class ChatIn(BaseModel):
+    resume: dict = {}
+    message: str = Field(min_length=1, max_length=1000)
+    history: list = []
+
+
+@app.post("/api/resume/chat")
+async def resume_chat(body: ChatIn, user: User = Depends(current_user)):
+    """Conversational resume co-pilot. Replies, and returns one-tap 'actions'
+    that edit the resume (which also updates the PDF)."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI co-pilot is not switched on")
+    r = body.resume or {}
+    exp = r.get("exp") or []
+    facts = {
+        "title": r.get("title", ""), "summary": r.get("summary", ""),
+        "skills": r.get("skills", []),
+        "experience": [{"i": i, "role": x.get("role", ""), "bullets": x.get("bullets", "")}
+                       for i, x in enumerate(exp)],
+    }
+    hist = ""
+    for m in (body.history or [])[-6:]:
+        who = "User" if str(m.get("role")) == "user" else "You"
+        hist += f"{who}: {str(m.get('content',''))[:300]}\n"
+    prompt = (
+        "You are a friendly, expert resume co-pilot inside a resume builder. "
+        "Help the user improve their resume. Reply in 2-4 warm sentences, then "
+        "provide concrete one-tap ACTIONS that change the resume. Use ONLY the "
+        "user's real facts — never invent employers, dates, degrees or numbers.\n\n"
+        + (f"Conversation so far:\n{hist}\n" if hist else "")
+        + f"User now says: \"{body.message.strip()}\"\n\n"
+        f"Their resume (JSON, experience items have index 'i'): "
+        f"{json.dumps(facts, ensure_ascii=False)[:4500]}\n\n"
+        "Action types you may return (only when relevant):\n"
+        '- {"type":"summary","value":"<new summary>","label":"Update summary"}\n'
+        '- {"type":"title","value":"<new title>","label":"Set title"}\n'
+        '- {"type":"skill","value":"<one skill>","label":"Add: <skill>"}\n'
+        '- {"type":"bullet","exp":<index>,"value":"<one new bullet>","label":"Add bullet to <role>"}\n'
+        '- {"type":"setbullets","exp":<index>,"value":"<full newline-separated rewritten bullets>","label":"Rewrite <role> bullets"}\n\n'
+        'Respond with ONLY valid JSON: {"reply":"<message>","actions":[ ... ]}'
+    )
+    try:
+        d = _ai_json(await _ai_text(prompt, 1300))
+    except Exception as e:
+        print(f"Resume chat failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, "The co-pilot could not respond. Try again.")
+    acts = []
+    for a in (d.get("actions") or [])[:8]:
+        if not isinstance(a, dict):
+            continue
+        t = str(a.get("type", ""))
+        if t not in ("summary", "title", "skill", "bullet", "setbullets"):
+            continue
+        act = {"type": t, "value": str(a.get("value", ""))[:2000],
+               "label": str(a.get("label", "Apply"))[:60]}
+        if t in ("bullet", "setbullets"):
+            try:
+                act["exp"] = max(0, min(len(exp) - 1, int(a.get("exp", 0))))
+            except Exception:
+                act["exp"] = 0
+        if act["value"].strip():
+            acts.append(act)
+    return {"reply": str(d.get("reply", ""))[:1500], "actions": acts}
 
 
 class ResumeChatIn(BaseModel):

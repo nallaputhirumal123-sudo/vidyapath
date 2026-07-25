@@ -3053,6 +3053,27 @@ function rzSave(){
   clearTimeout(_rzT);
   _rzT=setTimeout(()=>api.post("/api/note",{key:"resume_data",value:JSON.stringify(RESUME).slice(0,4900)}).catch(()=>{}),600);
 }
+/* ---- saved resumes (multiple, stored as notes) ---- */
+function rzSaveList(){ try{ return JSON.parse(S.notes["resume_index"]||"[]"); }catch(e){ return []; } }
+function rzSaveIndex(list){ S.notes["resume_index"]=JSON.stringify(list); api.post("/api/note",{key:"resume_index",value:JSON.stringify(list).slice(0,4900)}).catch(()=>{}); }
+function rzSaveAs(){
+  const name=prompt("Name this resume (e.g. 'Data Analyst - Acme'):", RESUME.name?RESUME.name+" resume":"My resume");
+  if(!name) return;
+  const list=rzSaveList(); const id="r"+Date.now();
+  list.unshift({id,name:name.slice(0,60)}); if(list.length>20) list.length=20;
+  S.notes["resume_"+id]=JSON.stringify(RESUME);
+  api.post("/api/note",{key:"resume_"+id,value:JSON.stringify(RESUME).slice(0,4900)}).catch(()=>{});
+  rzSaveIndex(list); renderResume();
+}
+function rzLoadSaved(id){
+  try{ const d=JSON.parse(S.notes["resume_"+id]||"null"); if(d){ RESUME=Object.assign(rzBlank(),d); rzSave(); RZ_MATCH=null; renderResume(); } }catch(e){}
+}
+function rzDelSaved(id){
+  const list=rzSaveList().filter(r=>r.id!==id); rzSaveIndex(list);
+  delete S.notes["resume_"+id]; api.post("/api/note",{key:"resume_"+id,value:""}).catch(()=>{}); renderResume();
+}
+function rzNew(){ if(!confirm("Start a new blank resume? Save the current one first if you want to keep it.")) return; RESUME=rzBlank(); RZ_MATCH=null; RZ_JD=""; rzSave(); renderResume(); }
+
 function rzProgress(){
   const r=RESUME; let done=0; const total=7;
   if(r.name&&r.title) done++;
@@ -3082,14 +3103,15 @@ function renderResume(){
   $("#main").innerHTML=`
   <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· write with AI, format for ATS</span></div>
   <div class="card" style="margin-bottom:14px">
-    <b>Start faster</b>
+    <b>Your resumes</b>
     <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-      <label class="btn ghost sm" style="cursor:pointer">⬆ Import existing resume (PDF/DOCX)<input id="rzUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
-      <label class="btn ghost sm" style="cursor:pointer">🖼️ Add photo<input id="rzPhoto" type="file" accept="image/*" style="display:none"></label>
-      ${RESUME.photo?`<img src="${RESUME.photo}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:1px solid var(--line)"><button class="btn ghost sm" data-rz-act="delphoto">Remove photo</button>`:""}
+      <label class="btn ghost sm" style="cursor:pointer">⬆ Import (PDF/DOCX/TXT)<input id="rzUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
+      <button class="btn ghost sm" data-rz-act="saveas">💾 Save this resume</button>
+      <button class="btn ghost sm" data-rz-act="newres">＋ New blank</button>
       <span id="rzUpMsg" style="font-size:12.5px;color:var(--dim)"></span>
     </div>
-    <div style="font-size:11.5px;color:var(--dim);margin-top:6px">A photo is optional — many strict ATS resumes leave it off. It appears on styled previews only.</div>
+    ${(function(){const L=rzSaveList();return L.length?`<div style="margin-top:10px"><div style="font-size:12px;color:var(--dim);margin-bottom:5px">Saved resumes:</div>
+      ${L.map(r=>`<span class="pill" style="margin:2px 6px 2px 0"><button data-loadres="${r.id}" style="background:none;border:none;color:var(--accent);cursor:pointer;font:inherit">${esc(r.name)}</button> <button data-delres="${r.id}" style="background:none;border:none;color:var(--dim);cursor:pointer">×</button></span>`).join("")}</div>`:"";})()}
   </div>
   <div class="card" style="margin-bottom:14px">
     <div class="row" style="justify-content:space-between"><b>Completeness</b><span style="color:var(--accent);font-weight:700">${pct}%</span></div>
@@ -3152,6 +3174,7 @@ function renderResume(){
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
   const up=$("#rzUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) rzUpload(e.target.files[0]); };
   const ph=$("#rzPhoto"); if(ph) ph.onchange=e=>{ if(e.target.files[0]) rzPhoto(e.target.files[0]); };
+  const rzci=$("#rzChatIn"); if(rzci) rzci.onkeydown=e=>{ if(e.key==="Enter") rzChatSend(); };
   const ci=$("#rzChatIn"); if(ci) ci.onkeydown=e=>{ if(e.key==="Enter")rzChatSend(); };
 }
 async function rzUpload(file){
@@ -3179,7 +3202,11 @@ function rzEditorHTML(){
   const r=RESUME;
   return `
   <div class="card" style="margin-bottom:12px"><b>1 · Personal details</b>${rzTip(RZ_TIPS.profile)}
-    <div class="two">${rzField("Full name","name","Priya Sharma")}${rzField("Job title","title","Data Analyst")}</div></div>
+    <div class="two">${rzField("Full name","name","Priya Sharma")}${rzField("Job title","title","Data Analyst")}</div>
+    <div class="row" style="gap:10px;align-items:center;margin-top:6px">
+      <label class="btn ghost sm" style="cursor:pointer">🖼️ ${RESUME.photo?"Change":"Add"} photo (optional)<input id="rzPhoto" type="file" accept="image/*" style="display:none"></label>
+      ${RESUME.photo?`<img src="${RESUME.photo}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;border:1px solid var(--line)"><button class="btn ghost sm" data-rz-act="delphoto">Remove</button>`:`<span style="font-size:11.5px;color:var(--dim)">Strict-ATS resumes usually skip the photo. Shows on styled previews only.</span>`}
+    </div></div>
   <div class="card" style="margin-bottom:12px"><b>2 · Contact information</b>${rzTip(RZ_TIPS.contact)}
     <div class="two">${rzField("Email","email","priya@email.com")}${rzField("Phone","phone","+1 555 0100")}</div>
     <div class="two">${rzField("City / location","location","Remote · Bengaluru")}${rzField("Links","links","linkedin.com/in/you · github.com/you")}</div></div>
@@ -3373,11 +3400,14 @@ function rzApplyAction(i){
     const items=g.items.split(",").map(s=>s.trim()).filter(Boolean);
     if(!items.some(s=>s.toLowerCase()===a.value.toLowerCase())){ items.push(a.value); g.items=items.join(", "); } }
   else if(a.type==="bullet"){ const j=a.exp||0; if(RESUME.exp[j]){ const cur=RESUME.exp[j].bullets; RESUME.exp[j].bullets=(cur.trim()?cur.replace(/\n+$/,"")+"\n":"")+a.value; } }
+  else if(a.type==="setbullets"){ const j=a.exp||0; if(RESUME.exp[j]) RESUME.exp[j].bullets=a.value; }   // replace the whole experience — auto-edit
   RZ_ACTS.splice(i,1); rzSave(); renderResume();
 }
 document.addEventListener("click",e=>{
-  const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-rzapply]"); if(!b)return;
+  const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-rzapply],[data-loadres],[data-delres]"); if(!b)return;
   if(b.dataset.rzapply!==undefined){ rzApplyAction(+b.dataset.rzapply); return; }
+  if(b.dataset.loadres!==undefined){ rzLoadSaved(b.dataset.loadres); return; }
+  if(b.dataset.delres!==undefined){ if(confirm("Delete this saved resume?")) rzDelSaved(b.dataset.delres); return; }
   if(b.dataset.addmiss!==undefined && RZ_MATCH){
     const v=b.dataset.addmiss, list=v[0]==="c"?RZ_MATCH.critical:RZ_MATCH.weak, idx=+v.slice(1), sk=list&&list[idx];
     if(sk){ const g=RESUME.skills[0]||(RESUME.skills.push({label:"Skills",items:""}),RESUME.skills[0]);
@@ -3403,6 +3433,8 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="match") rzMatch();
   else if(b.dataset.rzAct==="chat") rzChatSend();
   else if(b.dataset.rzAct==="delphoto"){ RESUME.photo=""; rzSave(); renderResume(); }
+  else if(b.dataset.rzAct==="saveas") rzSaveAs();
+  else if(b.dataset.rzAct==="newres") rzNew();
 });
 /* ===================== ROUTER ===================== */
 function render(){
