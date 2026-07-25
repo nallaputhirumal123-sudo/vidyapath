@@ -14,6 +14,23 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.26.0 — Resume: keep your original layout, download an exact copy
+
+- **Upload a PDF and keep its exact look.** We now scan every line's position,
+  font size, weight and column, so what you download matches your uploaded file
+  — headings, two-column layouts and all. Verified to reproduce positions to
+  within half a point. Edit any line in place; the download stays identical.
+- **Switch modes anytime:** "Keep my original layout" (exact reproduction) or
+  "Rebuild in ATS template" (clean structured builder). Your original is never
+  lost when you switch.
+- **Auto-edit removed.** The co-pilot no longer changes your resume behind your
+  back. It gives clear, specific advice and example wording you copy in yourself.
+- **Job-match suggestions are clearer** — short keyword gaps (🔴 missing / 🟡
+  weak / 🟢 strong) plus concrete next steps with example lines to adapt.
+- **Saved resumes open reliably.** Root cause fixed: resume data was being
+  truncated on save (5 KB cap) into invalid JSON. Resume payloads now get room
+  to store the full content, photo and layout.
+
 ## 1.25.0 — Resume co-pilot fixed + auto-edit experience
 
 - **AI co-pilot works again.** Fixed a fatal JS error (duplicate `RZ_CHAT`)

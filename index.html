@@ -3036,12 +3036,12 @@ function rzBlank(){
     exp:[{role:"",company:"",place:"",dates:"",bullets:"",ctx:""}],
     edu:[{degree:"",school:"",place:"",year:""}],
     proj:[{name:"",tech:"",desc:"",link:""}],
-    certs:"", style:0};
+    certs:"", style:0, layout:null, lmode:"build"};
 }
 let RESUME=rzBlank(), rzLoaded=false;
 let RZ_SUG={bullets:{}, skills:[]};   // AI suggestions (not saved)
 let RZ_MATCH=null, RZ_JD="";          // job-match result + pasted JD
-let RZ_CHAT=[], RZ_ACTS=[];           // co-pilot conversation + last actions
+let RZ_CHAT=[];                        // co-pilot conversation (advice only)
 function rzLoad(){
   if(rzLoaded) return;
   try{ const d=JSON.parse(S.notes["resume_data"]||"null"); if(d) RESUME=Object.assign(rzBlank(),d); }catch(e){}
@@ -3049,24 +3049,32 @@ function rzLoad(){
 }
 let _rzT;
 function rzSave(){
-  S.notes["resume_data"]=JSON.stringify(RESUME);
+  const j=JSON.stringify(RESUME);
+  S.notes["resume_data"]=j;
   clearTimeout(_rzT);
-  _rzT=setTimeout(()=>api.post("/api/note",{key:"resume_data",value:JSON.stringify(RESUME).slice(0,4900)}).catch(()=>{}),600);
+  _rzT=setTimeout(()=>api.post("/api/note",{key:"resume_data",value:j}).catch(()=>{}),600);
 }
 /* ---- saved resumes (multiple, stored as notes) ---- */
 function rzSaveList(){ try{ return JSON.parse(S.notes["resume_index"]||"[]"); }catch(e){ return []; } }
-function rzSaveIndex(list){ S.notes["resume_index"]=JSON.stringify(list); api.post("/api/note",{key:"resume_index",value:JSON.stringify(list).slice(0,4900)}).catch(()=>{}); }
+function rzSaveIndex(list){ S.notes["resume_index"]=JSON.stringify(list); api.post("/api/note",{key:"resume_index",value:JSON.stringify(list)}).catch(()=>{}); }
 function rzSaveAs(){
   const name=prompt("Name this resume (e.g. 'Data Analyst - Acme'):", RESUME.name?RESUME.name+" resume":"My resume");
   if(!name) return;
   const list=rzSaveList(); const id="r"+Date.now();
   list.unshift({id,name:name.slice(0,60)}); if(list.length>20) list.length=20;
-  S.notes["resume_"+id]=JSON.stringify(RESUME);
-  api.post("/api/note",{key:"resume_"+id,value:JSON.stringify(RESUME).slice(0,4900)}).catch(()=>{});
-  rzSaveIndex(list); renderResume();
+  const j=JSON.stringify(RESUME);
+  S.notes["resume_"+id]=j;
+  api.post("/api/note",{key:"resume_"+id,value:j}).catch(()=>{});
+  rzSaveIndex(list);
+  const m=$("#rzUpMsg"); if(m)m.textContent="Saved “"+name+"”.";
+  renderResume();
 }
 function rzLoadSaved(id){
-  try{ const d=JSON.parse(S.notes["resume_"+id]||"null"); if(d){ RESUME=Object.assign(rzBlank(),d); rzSave(); RZ_MATCH=null; renderResume(); } }catch(e){}
+  const raw=S.notes["resume_"+id];
+  if(!raw){ const m=$("#rzUpMsg"); if(m)m.textContent="Could not find that saved resume."; return; }
+  let d=null; try{ d=JSON.parse(raw); }catch(e){ const m=$("#rzUpMsg"); if(m)m.textContent="That saved resume looks corrupted."; return; }
+  if(d){ RESUME=Object.assign(rzBlank(),d); rzSave(); RZ_MATCH=null; RZ_JD=""; RZ_CHAT=[]; window.scrollTo(0,0); renderResume();
+    const m=$("#rzUpMsg"); if(m)m.textContent="Opened saved resume."; }
 }
 function rzDelSaved(id){
   const list=rzSaveList().filter(r=>r.id!==id); rzSaveIndex(list);
@@ -3100,6 +3108,7 @@ function rzTip(t){ return `<div style="font-size:12.5px;color:var(--dim);margin:
 function renderResume(){
   rzLoad();
   const pct=rzProgress();
+  const orig=RESUME.lmode==="original"&&rzHasLayout();
   $("#main").innerHTML=`
   <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· write with AI, format for ATS</span></div>
   <div class="card" style="margin-bottom:14px">
@@ -3113,13 +3122,23 @@ function renderResume(){
     ${(function(){const L=rzSaveList();return L.length?`<div style="margin-top:10px"><div style="font-size:12px;color:var(--dim);margin-bottom:5px">Saved resumes:</div>
       ${L.map(r=>`<span class="pill" style="margin:2px 6px 2px 0"><button data-loadres="${r.id}" style="background:none;border:none;color:var(--accent);cursor:pointer;font:inherit">${esc(r.name)}</button> <button data-delres="${r.id}" style="background:none;border:none;color:var(--dim);cursor:pointer">×</button></span>`).join("")}</div>`:"";})()}
   </div>
-  <div class="card" style="margin-bottom:14px">
+  ${rzHasLayout()?`<div class="card" style="margin-bottom:14px;border-color:var(--accent)">
+    <b>How you're editing this resume</b>
+    <div class="ask-chips" style="margin-top:8px">
+      <button class="ask-chip ${orig?"on":""}" data-lmode="original">📄 Keep my original layout</button>
+      <button class="ask-chip ${orig?"":"on"}" data-lmode="build">🧱 Rebuild in ATS template</button>
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-top:6px">${orig
+      ?"Editing the text in place — the downloaded PDF matches your uploaded file's exact positions, columns and headings."
+      :"Using the structured builder and a clean ATS template. Your original layout is kept safe — switch back anytime."}</div>
+  </div>`:""}
+  ${orig?"":`<div class="card" style="margin-bottom:14px">
     <div class="row" style="justify-content:space-between"><b>Completeness</b><span style="color:var(--accent);font-weight:700">${pct}%</span></div>
     <div class="pj-bar" style="margin-top:8px"><div class="pj-fill" style="width:${pct}%"></div></div>
     <div style="font-size:12.5px;color:var(--dim);margin-top:6px">Fill Personal details, Contact, Summary, Employment, Skills and Education for a complete, ATS-ready resume.</div>
-  </div>
+  </div>`}
 
-  <div class="card" style="margin-bottom:14px;border-color:var(--accent)">
+  ${orig?"":`<div class="card" style="margin-bottom:14px;border-color:var(--accent)">
     <b>🎯 Target role &amp; AI</b>
     <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
       <input id="rzRole" class="ask-input" style="max-width:220px" value="${esc(RESUME.role||"")}" placeholder="Target role e.g. Data Analyst"/>
@@ -3133,7 +3152,7 @@ function renderResume(){
     ${RZ_SUG.skills.length?`<div style="margin-top:10px"><div style="font-size:12.5px;color:var(--dim);margin-bottom:5px">Tap a skill to add it:</div>
       <div class="ask-chips">${RZ_SUG.skills.map((s,i)=>`<button class="ask-chip" data-addskl="${i}">+ ${esc(s)}</button>`).join("")}</div></div>`:""}
     <div id="rzTips"></div>
-  </div>
+  </div>`}
 
   <div class="card" style="margin-bottom:14px">
     <b>🎯 Match to a job description</b>
@@ -3146,25 +3165,26 @@ function renderResume(){
 
   <div class="card" style="margin-bottom:14px">
     <b>💬 Resume co-pilot</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Ask anything — "make my summary punchier", "how do I show Docker experience?", "is this ready for a senior role?". Suggestions come with an Apply button.</div>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Ask anything — "make my summary punchier", "how do I show Docker experience?", "is this ready for a senior role?". It gives clear advice and example wording you can copy in.</div>
     <div id="rzChatThread" style="max-height:300px;overflow-y:auto;margin-bottom:8px">${rzChatHTML()}</div>
     <div class="row" style="gap:8px"><input id="rzChatIn" class="ask-input" placeholder="Ask the resume co-pilot…"/><button class="btn sm" data-rz-act="chat">Send</button></div>
   </div>
 
-  <div class="ask-chips" style="margin-bottom:6px"><b style="align-self:center;font-size:13px;margin-right:4px">Style:</b>
+  ${orig?"":`<div class="ask-chips" style="margin-bottom:6px"><b style="align-self:center;font-size:13px;margin-right:4px">Style:</b>
     ${RZ_STYLES.map((s,i)=>`<button class="ask-chip ${RESUME.style===i?"on":""}" data-rzstyle="${i}">${s.name}</button>`).join("")}
-  </div>
+  </div>`}
   <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <button class="btn sm" data-rz-act="pdf">⬇ Download A4 PDF</button>
+    <button class="btn sm" data-rz-act="${orig?"lpdf":"pdf"}">⬇ Download ${orig?"exact PDF":"A4 PDF"}</button>
     <span style="font-size:12.5px;color:#4bbf82;align-self:center">saved automatically</span>
   </div>
 
   <div class="std-wrap">
-    <div class="std-col" id="rzEditor">${rzEditorHTML()}</div>
+    <div class="std-col" id="rzEditor">${orig?rzLayoutEditorHTML():rzEditorHTML()}</div>
     <div class="std-col">
-      <div class="eyebrow" style="margin:0 0 6px">Live A4 preview</div>
+      <div class="eyebrow" style="margin:0 0 6px">${orig?"Exact preview — matches your download":"Live A4 preview"}</div>
       <div style="background:#5b6472;padding:14px;border-radius:10px;overflow:auto;max-height:82vh">
-        <div id="rzPreview" style="background:#fff;width:100%;max-width:720px;margin:0 auto;box-shadow:0 6px 24px rgba(0,0,0,.35)">${rzPreviewHTML()}</div>
+        ${orig?`<div id="rzPreview">${rzLayoutPreviewHTML()}</div>`
+              :`<div id="rzPreview" style="background:#fff;width:100%;max-width:720px;margin:0 auto;box-shadow:0 6px 24px rgba(0,0,0,.35)">${rzPreviewHTML()}</div>`}
       </div>
     </div>
   </div>`;
@@ -3175,7 +3195,6 @@ function renderResume(){
   const up=$("#rzUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) rzUpload(e.target.files[0]); };
   const ph=$("#rzPhoto"); if(ph) ph.onchange=e=>{ if(e.target.files[0]) rzPhoto(e.target.files[0]); };
   const rzci=$("#rzChatIn"); if(rzci) rzci.onkeydown=e=>{ if(e.key==="Enter") rzChatSend(); };
-  const ci=$("#rzChatIn"); if(ci) ci.onkeydown=e=>{ if(e.key==="Enter")rzChatSend(); };
 }
 async function rzUpload(file){
   const m=$("#rzUpMsg"); if(m)m.textContent="Reading & structuring your resume…";
@@ -3185,10 +3204,54 @@ async function rzUpload(file){
     if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Import failed"); }
     const d=await rr.json();
     Object.assign(RESUME,d);   // keep style/photo/tone
+    if(d.layout&&d.layout.pages&&d.layout.pages.length){ RESUME.layout=d.layout; RESUME.lmode="original"; }
     rzSave(); renderResume();
-    const m2=$("#rzUpMsg"); if(m2)m2.textContent="Imported — review and refine below.";
+    const m2=$("#rzUpMsg"); if(m2)m2.textContent=RESUME.lmode==="original"
+      ?"Imported with your original layout — edit the text below and download an exact copy."
+      :"Imported — review and refine below.";
   }catch(e){ const m2=$("#rzUpMsg"); if(m2)m2.textContent=e.message; }
 }
+function rzHasLayout(){ return !!(RESUME.layout&&RESUME.layout.pages&&RESUME.layout.pages.length); }
+/* ---- original-layout editor: edit text in place, keep the exact look ---- */
+function rzLayoutEditorHTML(){
+  const L=RESUME.layout; if(!L) return "";
+  return L.pages.map((pg,pi)=>`<div class="card" style="margin-bottom:12px">
+    <b>Page ${pi+1}</b><div style="font-size:12px;color:var(--dim);margin:3px 0 8px">Edit any line. Position, size and column stay exactly as your original. Use × to delete a line.</div>
+    ${pg.lines.map((ln,li)=>`<div class="row" style="gap:6px;align-items:center;margin:3px 0">
+      <input data-lp="${pi}" data-ll="${li}" value="${esc(ln.t)}" class="ask-input" style="flex:1;font-size:13px;${ln.bold?"font-weight:700;":""}"/>
+      <button class="btn ghost sm" data-ldel="${pi}.${li}" style="padding:2px 8px">×</button></div>`).join("")}
+  </div>`).join("");
+}
+function rzLayoutPreviewHTML(){
+  const L=RESUME.layout; if(!L) return "";
+  const BW=680;   // preview render width in px
+  return L.pages.map(pg=>{
+    const sc=BW/pg.w, ph=pg.h*sc;
+    const lines=pg.lines.map(ln=>{
+      const fam=ln.font==="times"?"Georgia,'Times New Roman',serif":ln.font==="courier"?"'Courier New',monospace":"Arial,Helvetica,sans-serif";
+      return `<div style="position:absolute;left:${(ln.x*sc).toFixed(1)}px;top:${(ln.y*sc).toFixed(1)}px;font-size:${(ln.size*sc).toFixed(1)}px;font-family:${fam};${ln.bold?"font-weight:700;":""}${ln.italic?"font-style:italic;":""}color:#111;white-space:pre;line-height:1.05">${esc2(ln.t)}</div>`;
+    }).join("");
+    return `<div style="position:relative;width:${BW}px;height:${ph.toFixed(0)}px;background:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(0,0,0,.35)">${lines}</div>`;
+  }).join("");
+}
+async function rzLayoutPDF(){
+  try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool."); return; }
+  const {jsPDF}=window.jspdf; const L=RESUME.layout;
+  const p0=L.pages[0]; const doc=new jsPDF({unit:"pt",format:[p0.w,p0.h]});
+  L.pages.forEach((pg,pi)=>{
+    if(pi>0) doc.addPage([pg.w,pg.h]);
+    pg.lines.forEach(ln=>{
+      let style="normal";
+      if(ln.bold&&ln.italic) style="bolditalic"; else if(ln.bold) style="bold"; else if(ln.italic) style="italic";
+      try{ doc.setFont(ln.font||"helvetica",style); }catch(e){ doc.setFont("helvetica",ln.bold?"bold":"normal"); }
+      doc.setFontSize(ln.size); doc.setTextColor("#111111");
+      // extract 'y' is the top of the text box; jsPDF draws from the baseline
+      doc.text(pdfSafe(ln.t), ln.x, ln.y + ln.size*0.82);
+    });
+  });
+  doc.save((RESUME.name||"resume").replace(/[^a-z0-9]+/gi,"-").toLowerCase()+"-resume.pdf");
+}
+function rzSwitchMode(m){ RESUME.lmode=m; rzSave(); renderResume(); }
 function rzPhoto(file){
   if(file.size>2000000){ const m=$("#rzUpMsg"); if(m)m.textContent="Photo too big (max 2MB)."; return; }
   const rd=new FileReader();
@@ -3252,13 +3315,18 @@ function rzEditorHTML(){
 }
 function onResumeInput(e){
   const el=e.target;
+  if(el.dataset.lp!==undefined && el.dataset.ll!==undefined){
+    const pg=RESUME.layout&&RESUME.layout.pages[+el.dataset.lp];
+    if(pg&&pg.lines[+el.dataset.ll]){ pg.lines[+el.dataset.ll].t=el.value; rzSave(); rzPaintPreview(); }
+    return;
+  }
   if(el.dataset.rz!==undefined && el.dataset.rz!==""){ RESUME[el.dataset.rz]=el.value; }
   else if(el.dataset.list){ RESUME[el.dataset.list][+el.dataset.i][el.dataset.k]=el.value; }
   else return;
   rzSave(); rzPaintPreview();
   if(el.dataset.rz==="name"||el.dataset.rz==="title") rzPaintProgress();
 }
-function rzPaintPreview(){ const p=$("#rzPreview"); if(p)p.innerHTML=rzPreviewHTML(); }
+function rzPaintPreview(){ const p=$("#rzPreview"); if(p)p.innerHTML=(RESUME.lmode==="original"&&rzHasLayout())?rzLayoutPreviewHTML():rzPreviewHTML(); }
 function rzPaintProgress(){ /* progress updates on next full render; cheap enough */ }
 function esc2(s){ return esc(String(s==null?"":s)); }
 function rzPreviewHTML(){
@@ -3378,34 +3446,23 @@ async function rzMatch(){
   catch(e){ if(msg)msg.textContent=e.message; }
 }
 function rzChatHTML(){
-  if(!RZ_CHAT.length) return `<div style="color:var(--dim);font-size:13px">👋 I'm your resume co-pilot. Fill in your details, then ask me to improve anything — I'll suggest edits you can apply with one tap.</div>`;
-  let h=RZ_CHAT.map(m=>`<div style="margin:5px 0;text-align:${m.role==="user"?"right":"left"}"><span style="display:inline-block;max-width:85%;padding:8px 12px;border-radius:12px;font-size:13.5px;background:${m.role==="user"?"#8fe3b0":"var(--panel2)"};color:${m.role==="user"?"#0d2018":"var(--text)"};white-space:pre-wrap">${esc(m.content)}</span></div>`).join("");
-  if(RZ_ACTS.length) h+=`<div class="ask-chips" style="margin-top:8px">${RZ_ACTS.map((a,i)=>`<button class="ask-chip" data-rzapply="${i}">✓ ${esc(a.label||"Apply")}</button>`).join("")}</div>`;
-  return h;
+  if(!RZ_CHAT.length) return `<div style="color:var(--dim);font-size:13px">👋 I'm your resume co-pilot. Ask me to improve anything — I'll give clear advice and example wording you can copy straight into your resume.</div>`;
+  return RZ_CHAT.map(m=>`<div style="margin:5px 0;text-align:${m.role==="user"?"right":"left"}"><span style="display:inline-block;max-width:85%;padding:8px 12px;border-radius:12px;font-size:13.5px;background:${m.role==="user"?"#8fe3b0":"var(--panel2)"};color:${m.role==="user"?"#0d2018":"var(--text)"};white-space:pre-wrap">${esc(m.content)}</span></div>`).join("");
 }
 function paintChat(){ const t=$("#rzChatThread"); if(t){ t.innerHTML=rzChatHTML(); t.scrollTop=t.scrollHeight; } }
 async function rzChatSend(){
   const el=$("#rzChatIn"); if(!el)return; const msg=(el.value||"").trim(); if(!msg)return; el.value="";
-  RZ_CHAT.push({role:"user",content:msg}); RZ_ACTS=[]; paintChat();
+  RZ_CHAT.push({role:"user",content:msg}); paintChat();
   RZ_CHAT.push({role:"assistant",content:"…thinking"}); paintChat();
   try{ const res=await api.post("/api/resume/chat",{resume:RESUME,history:RZ_CHAT.slice(0,-2),message:msg});
-    RZ_CHAT.pop(); RZ_CHAT.push({role:"assistant",content:res.reply||"(no reply)"}); RZ_ACTS=res.actions||[]; paintChat(); }
+    RZ_CHAT.pop(); RZ_CHAT.push({role:"assistant",content:res.reply||"(no reply)"}); paintChat(); }
   catch(e){ RZ_CHAT.pop(); RZ_CHAT.push({role:"assistant",content:e.message}); paintChat(); }
 }
-function rzApplyAction(i){
-  const a=RZ_ACTS[i]; if(!a)return;
-  if(a.type==="summary") RESUME.summary=a.value;
-  else if(a.type==="title") RESUME.title=a.value;
-  else if(a.type==="skill"){ const g=RESUME.skills[0]||(RESUME.skills.push({label:"Skills",items:""}),RESUME.skills[0]);
-    const items=g.items.split(",").map(s=>s.trim()).filter(Boolean);
-    if(!items.some(s=>s.toLowerCase()===a.value.toLowerCase())){ items.push(a.value); g.items=items.join(", "); } }
-  else if(a.type==="bullet"){ const j=a.exp||0; if(RESUME.exp[j]){ const cur=RESUME.exp[j].bullets; RESUME.exp[j].bullets=(cur.trim()?cur.replace(/\n+$/,"")+"\n":"")+a.value; } }
-  else if(a.type==="setbullets"){ const j=a.exp||0; if(RESUME.exp[j]) RESUME.exp[j].bullets=a.value; }   // replace the whole experience — auto-edit
-  RZ_ACTS.splice(i,1); rzSave(); renderResume();
-}
 document.addEventListener("click",e=>{
-  const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-rzapply],[data-loadres],[data-delres]"); if(!b)return;
-  if(b.dataset.rzapply!==undefined){ rzApplyAction(+b.dataset.rzapply); return; }
+  const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-loadres],[data-delres],[data-lmode],[data-ldel]"); if(!b)return;
+  if(b.dataset.lmode!==undefined){ rzSwitchMode(b.dataset.lmode); return; }
+  if(b.dataset.ldel!==undefined){ const [p,l]=b.dataset.ldel.split(".").map(Number);
+    const pg=RESUME.layout&&RESUME.layout.pages[p]; if(pg){ pg.lines.splice(l,1); rzSave(); renderResume(); } return; }
   if(b.dataset.loadres!==undefined){ rzLoadSaved(b.dataset.loadres); return; }
   if(b.dataset.delres!==undefined){ if(confirm("Delete this saved resume?")) rzDelSaved(b.dataset.delres); return; }
   if(b.dataset.addmiss!==undefined && RZ_MATCH){
@@ -3427,6 +3484,7 @@ document.addEventListener("click",e=>{
       const items=g.items.split(",").map(s=>s.trim()).filter(Boolean);
       if(!items.some(s=>s.toLowerCase()===sk.toLowerCase())){ items.push(sk); g.items=items.join(", "); rzSave(); renderResume(); } } }
   else if(b.dataset.rzAct==="pdf") rzPDF();
+  else if(b.dataset.rzAct==="lpdf") rzLayoutPDF();
   else if(b.dataset.rzAct==="ai") rzAI();
   else if(b.dataset.rzAct==="bull") rzBulletsAI(+b.dataset.i);
   else if(b.dataset.rzAct==="sklsug") rzSkillsAI();

@@ -2198,7 +2198,11 @@ def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = De
     if not row:
         row = Note(user_id=user.id, k=body.key[:120])
         db.add(row)
-    row.v = body.value[:5000]
+    # Resume payloads (which can include a base64 photo and a full positional
+    # layout) are much larger than a checklist note, so give resume keys plenty
+    # of room; everything else stays modest.
+    cap = 600_000 if body.key.startswith("resume") else 5000
+    row.v = body.value[:cap]
     db.commit()
     return {"ok": True}
 
@@ -2526,6 +2530,18 @@ class MatchIn(BaseModel):
 
 
 def _resume_text(r):
+    # If the resume is in "original layout" mode, its content lives in the
+    # positioned layout lines — use those for matching / advice.
+    lay = r.get("layout")
+    if isinstance(lay, dict) and lay.get("pages"):
+        out = []
+        for pg in lay.get("pages", []):
+            for ln in pg.get("lines", []):
+                t = str(ln.get("t", "")).strip()
+                if t:
+                    out.append(t)
+        if out:
+            return " \n ".join(out).lower()
     parts = [r.get("name", ""), r.get("title", ""), r.get("summary", ""), r.get("certs", "")]
     for s in r.get("skills", []):
         parts += [s.get("label", ""), s.get("items", "")]
@@ -2550,24 +2566,33 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
     rtext = _resume_text(body.resume or {})[:6000]
     prompt = (
         "You are an ATS resume analyst. Compare the RESUME to the JOB "
-        "DESCRIPTION and score the fit.\n\n"
+        "DESCRIPTION and score the fit honestly.\n\n"
         f"RESUME:\n{rtext}\n\nJOB DESCRIPTION:\n{jd[:6000]}\n\n"
+        "Rules for the lists:\n"
+        "- 'critical' / 'weak' / 'strong' items must be SHORT keyword phrases "
+        "(1-4 words) taken from the job description — e.g. 'Kubernetes', "
+        "'stakeholder management', 'A/B testing'. No sentences.\n"
+        "- 'critical' = required in the JD and NOT found in the resume.\n"
+        "- 'weak' = present but thin (no detail or metrics vs what the JD wants).\n"
+        "- 'strong' = clearly evidenced and matches the JD.\n"
+        "- 'advice' = 3-5 clear, specific next steps. Each step names the exact "
+        "keyword/section to change and, where useful, gives a short example line "
+        "the user could adapt (in quotes). Be concrete, not generic.\n\n"
         "Return ONLY valid JSON in exactly this shape (scores are 0-100 "
         "integers):\n"
         '{"score": <overall>, '
         '"subscores": {"keywords": <n>, "experience": <n>, "readability": <n>}, '
-        '"critical": ["<must-have keyword fully missing from the resume>", "..."], '
-        '"weak": ["<skill present but lacking detail/metrics vs the JD>", "..."], '
-        '"strong": ["<exact strength that matches the JD well>", "..."], '
-        '"advice": ["<one short, specific next step>", "..."]}'
+        '"critical": ["<kw>", "..."], "weak": ["<kw>", "..."], '
+        '"strong": ["<kw>", "..."], '
+        '"advice": ["<specific next step, with example wording>", "..."]}'
     )
     try:
         d = _ai_json(await _ai_text(prompt, 900))
     except Exception as e:
         print(f"Resume match failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI matcher could not respond. Try again.")
-    def lst(k, n=12):
-        return [str(x)[:60] for x in (d.get(k) or []) if str(x).strip()][:n]
+    def lst(k, n=12, cap=60):
+        return [str(x)[:cap] for x in (d.get(k) or []) if str(x).strip()][:n]
     sub = d.get("subscores") or {}
     def sc(v):
         try:
@@ -2580,8 +2605,99 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
                       "experience": sc(sub.get("experience", 0)),
                       "readability": sc(sub.get("readability", 0))},
         "critical": lst("critical"), "weak": lst("weak"),
-        "strong": lst("strong"), "advice": lst("advice", 6),
+        "strong": lst("strong"), "advice": lst("advice", 6, 280),
     }
+
+
+# ---- capture the ORIGINAL layout of an uploaded PDF ---------------------
+def _font_family(fontname):
+    f = (fontname or "").lower()
+    if "times" in f or "serif" in f or "georgia" in f or "garamond" in f:
+        return "times"
+    if "courier" in f or "mono" in f or "consol" in f:
+        return "courier"
+    return "helvetica"
+
+
+def _extract_pdf_layout(raw):
+    """Return a positional layout of a PDF so we can rebuild it almost exactly:
+    every text line keeps its x, y (from top), font size, weight and family.
+    Two-column resumes reproduce naturally because each line keeps its own x.
+    Returns None if the PDF has no usable text (e.g. a scanned image)."""
+    try:
+        import pdfplumber
+    except Exception:
+        return None
+    try:
+        pdf = pdfplumber.open(io.BytesIO(raw))
+    except Exception:
+        return None
+    pages = []
+    try:
+        for page in pdf.pages[:4]:
+            try:
+                words = page.extract_words(
+                    extra_attrs=["size", "fontname"], use_text_flow=False)
+            except Exception:
+                words = []
+            words.sort(key=lambda w: (round(w.get("top", 0), 0), w.get("x0", 0)))
+            lines = []
+            row = []           # words on the current visual line
+            row_top = None
+            def flush(row):
+                if not row:
+                    return
+                # split the visual row into segments across big x gaps (columns)
+                seg = [row[0]]
+                for w in row[1:]:
+                    gap = w.get("x0", 0) - seg[-1].get("x1", 0)
+                    if gap > 42:
+                        _emit(lines, seg)
+                        seg = [w]
+                    else:
+                        seg.append(w)
+                _emit(lines, seg)
+            for w in words:
+                t = w.get("top", 0)
+                if row_top is None or abs(t - row_top) <= max(3.0, w.get("size", 10) * 0.5):
+                    row.append(w)
+                    row_top = t if row_top is None else row_top
+                else:
+                    flush(row)
+                    row = [w]
+                    row_top = t
+            flush(row)
+            lines.sort(key=lambda l: (round(l["y"], 0), l["x"]))
+            if lines:
+                pages.append({"w": round(float(page.width), 1),
+                              "h": round(float(page.height), 1),
+                              "lines": lines[:140]})
+    except Exception:
+        return None
+    if not pages:
+        return None
+    return {"pages": pages[:4]}
+
+
+def _emit(lines, seg):
+    if not seg:
+        return
+    text = " ".join(str(w.get("text", "")) for w in seg).strip()
+    if not text:
+        return
+    sizes = [w.get("size", 10) for w in seg if w.get("size")]
+    size = round(sorted(sizes)[len(sizes) // 2], 1) if sizes else 10.0
+    bold = any("bold" in str(w.get("fontname", "")).lower() for w in seg)
+    italic = any(("italic" in str(w.get("fontname", "")).lower()
+                  or "oblique" in str(w.get("fontname", "")).lower()) for w in seg)
+    lines.append({
+        "t": text[:300],
+        "x": round(seg[0].get("x0", 0), 1),
+        "y": round(seg[0].get("top", 0), 1),
+        "size": max(5.0, min(48.0, size)),
+        "bold": bold, "italic": italic,
+        "font": _font_family(seg[0].get("fontname", "")),
+    })
 
 
 # ---- parse an uploaded resume (PDF / DOCX / TXT) into the builder ----
@@ -2622,6 +2738,14 @@ async def resume_parse(file: UploadFile = File(...),
     raw = await file.read()
     if len(raw) > 4_000_000:
         raise HTTPException(400, "File too large (max 4 MB)")
+    # Capture the original visual layout (PDF only) so the user can edit the
+    # text in place and download a near-identical copy.
+    layout = None
+    if (file.filename or "").lower().endswith(".pdf"):
+        try:
+            layout = _extract_pdf_layout(raw)
+        except Exception:
+            layout = None
     try:
         text = _extract_resume_text(file.filename, raw)
     except HTTPException:
@@ -2670,6 +2794,8 @@ async def resume_parse(file: UploadFile = File(...),
                  for x in (d.get("proj") or []) if isinstance(x, dict)][:8] or [{"name": "", "tech": "", "desc": "", "link": ""}],
         "certs": s(d.get("certs"), 1000),
     }
+    if layout:
+        out["layout"] = layout
     return out
 
 
@@ -2681,119 +2807,36 @@ class ChatIn(BaseModel):
 
 @app.post("/api/resume/chat")
 async def resume_chat(body: ChatIn, user: User = Depends(current_user)):
-    """Conversational resume co-pilot. Replies, and returns one-tap 'actions'
-    that edit the resume (which also updates the PDF)."""
+    """Advice-only resume co-pilot. It gives clear, specific suggestions the
+    user reads and applies themselves — it never edits the resume directly."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI co-pilot is not switched on")
-    r = body.resume or {}
-    exp = r.get("exp") or []
-    facts = {
-        "title": r.get("title", ""), "summary": r.get("summary", ""),
-        "skills": r.get("skills", []),
-        "experience": [{"i": i, "role": x.get("role", ""), "bullets": x.get("bullets", "")}
-                       for i, x in enumerate(exp)],
-    }
+    rtext = _resume_text(body.resume or {})[:4500]
     hist = ""
     for m in (body.history or [])[-6:]:
-        who = "User" if str(m.get("role")) == "user" else "You"
+        who = "User" if str(m.get("role")) == "user" else "Coach"
         hist += f"{who}: {str(m.get('content',''))[:300]}\n"
     prompt = (
-        "You are a friendly, expert resume co-pilot inside a resume builder. "
-        "Help the user improve their resume. Reply in 2-4 warm sentences, then "
-        "provide concrete one-tap ACTIONS that change the resume. Use ONLY the "
-        "user's real facts — never invent employers, dates, degrees or numbers.\n\n"
+        "You are the Vidya Resume Coach — a warm, practical career advisor "
+        "inside a resume builder. The user will ask for help. Give clear, "
+        "specific, actionable advice they can apply themselves. When you "
+        "suggest better wording, show the exact rewritten line(s) in quotes so "
+        "they can copy it. Be concise. Use ONLY the user's real facts — never "
+        "invent employers, dates, degrees or numbers.\n\n"
         + (f"Conversation so far:\n{hist}\n" if hist else "")
-        + f"User now says: \"{body.message.strip()}\"\n\n"
-        f"Their resume (JSON, experience items have index 'i'): "
-        f"{json.dumps(facts, ensure_ascii=False)[:4500]}\n\n"
-        "Action types you may return (only when relevant):\n"
-        '- {"type":"summary","value":"<new summary>","label":"Update summary"}\n'
-        '- {"type":"title","value":"<new title>","label":"Set title"}\n'
-        '- {"type":"skill","value":"<one skill>","label":"Add: <skill>"}\n'
-        '- {"type":"bullet","exp":<index>,"value":"<one new bullet>","label":"Add bullet to <role>"}\n'
-        '- {"type":"setbullets","exp":<index>,"value":"<full newline-separated rewritten bullets>","label":"Rewrite <role> bullets"}\n\n'
-        'Respond with ONLY valid JSON: {"reply":"<message>","actions":[ ... ]}'
+        + f"Their resume (text):\n{rtext}\n\n"
+        + f"User asks: \"{body.message.strip()}\"\n\n"
+        "Reply in plain text: 2-5 short sentences of advice, and where useful a "
+        "few concrete example lines. Do NOT return JSON, code fences or lists of "
+        "actions — just your helpful written answer."
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 1300))
+        reply = await _ai_text(prompt, 900)
     except Exception as e:
         print(f"Resume chat failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The co-pilot could not respond. Try again.")
-    acts = []
-    for a in (d.get("actions") or [])[:8]:
-        if not isinstance(a, dict):
-            continue
-        t = str(a.get("type", ""))
-        if t not in ("summary", "title", "skill", "bullet", "setbullets"):
-            continue
-        act = {"type": t, "value": str(a.get("value", ""))[:2000],
-               "label": str(a.get("label", "Apply"))[:60]}
-        if t in ("bullet", "setbullets"):
-            try:
-                act["exp"] = max(0, min(len(exp) - 1, int(a.get("exp", 0))))
-            except Exception:
-                act["exp"] = 0
-        if act["value"].strip():
-            acts.append(act)
-    return {"reply": str(d.get("reply", ""))[:1500], "actions": acts}
-
-
-class ResumeChatIn(BaseModel):
-    resume: dict = {}
-    history: list = []      # [{"role": "user"|"assistant", "content": "..."}]
-    message: str = Field(min_length=1, max_length=2000)
-
-
-@app.post("/api/resume/chat")
-async def resume_chat(body: ResumeChatIn, user: User = Depends(current_user)):
-    """The interactive resume co-pilot. Replies to the user and, when it
-    suggests a concrete edit, returns apply-able actions."""
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The resume assistant is not switched on")
-    rtext = _resume_text(body.resume or {})[:4000]
-    convo = ""
-    for m in (body.history or [])[-8:]:
-        role = "User" if str(m.get("role")) == "user" else "Assistant"
-        convo += f"{role}: {str(m.get('content',''))[:600]}\n"
-    prompt = (
-        "You are the Vidya AI Resume Specialist — an encouraging, practical "
-        "career coach. Help the user improve their resume. Be concise (2-5 "
-        "sentences). Ask for missing context when needed. When you propose a "
-        "concrete edit, ALSO return it in 'actions' so the user can apply it "
-        "with one click. Use ONLY facts the user provides — never invent "
-        "employers, dates or false metrics.\n\n"
-        f"CURRENT RESUME:\n{rtext}\n\n"
-        f"CONVERSATION SO FAR:\n{convo}\n"
-        f"User: {body.message.strip()}\n\n"
-        "Return ONLY valid JSON in this shape (actions optional, 0-4 items):\n"
-        '{"reply": "<your helpful reply>", "actions": ['
-        '{"type": "summary", "label": "Use this summary", "value": "<text>"}, '
-        '{"type": "title", "label": "Set title", "value": "<text>"}, '
-        '{"type": "skill", "label": "Add skill", "value": "<one skill>"}, '
-        '{"type": "bullet", "label": "Add to <job>", "exp": <index>, "value": "<bullet>"}'
-        "]}"
-    )
-    try:
-        d = _ai_json(await _ai_text(prompt, 900))
-    except Exception as e:
-        print(f"Resume chat failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, "The assistant could not respond. Try again.")
-    acts = []
-    for a in (d.get("actions") or [])[:5]:
-        if not isinstance(a, dict):
-            continue
-        t = str(a.get("type", ""))
-        if t not in ("summary", "title", "skill", "bullet"):
-            continue
-        item = {"type": t, "label": str(a.get("label", "Apply"))[:60],
-                "value": str(a.get("value", ""))[:600]}
-        if t == "bullet":
-            try:
-                item["exp"] = int(a.get("exp", 0))
-            except Exception:
-                item["exp"] = 0
-        acts.append(item)
-    return {"reply": str(d.get("reply", ""))[:1500], "actions": acts}
+    reply = (reply or "").replace("```", "").strip()
+    return {"reply": reply[:2000]}
 
 
 @app.get("/api/ask/config")
