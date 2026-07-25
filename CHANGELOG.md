@@ -14,6 +14,13 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.34.0 — Friendly AI rate-limit messages
+
+- When the AI provider's free daily/rate limit is hit, users now see a clear,
+  calm message ("The free AI limit has been reached for now — it refreshes
+  shortly; try again in a little while") instead of a raw provider error.
+- Applied across Ask Vidya and all resume checks (match, grammar, co-pilot).
+
 ## 1.33.0 — Resume redesign + 2 styles; careers with startups by country
 
 - **Resume page redesigned.** The old wide "Completeness" bar is now a compact

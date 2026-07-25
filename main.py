@@ -2284,6 +2284,17 @@ def _upstream_ok(r, provider):
         raise RuntimeError(f"{provider} HTTP {r.status_code}: {body}")
 
 
+def _ai_error_message(e):
+    """Turn a raw upstream error into a friendly message for the user. Rate
+    limits (very common on free AI tiers) get their own clear explanation."""
+    s = str(e).lower()
+    if "429" in s or "rate limit" in s or "tokens per day" in s or "quota" in s:
+        return ("The free AI limit has been reached for now. It refreshes shortly "
+                "(short bursts free up in about a minute; the daily pool resets "
+                "each day). Please try again in a little while.")
+    return "The AI could not respond just now. Please try again in a moment."
+
+
 async def _call_model(question: str, subject: str, level: str) -> dict:
     """Dispatch to whichever provider is configured. Server-side only.
     The API key never leaves this process."""
@@ -2592,7 +2603,7 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
         d = _ai_json(await _ai_text(prompt, 900))
     except Exception as e:
         print(f"Resume match failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, "The AI matcher could not respond. Try again.")
+        raise HTTPException(503, _ai_error_message(e))
     def lst(k, n=12, cap=60):
         return [str(x)[:cap] for x in (d.get(k) or []) if str(x).strip()][:n]
     sub = d.get("subscores") or {}
@@ -3006,7 +3017,7 @@ async def resume_parse(file: UploadFile = File(...),
         d = _ai_json(await _ai_text(prompt, 6000))
     except Exception as e:
         print(f"Resume parse failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, "The AI could not structure that resume. Try again.")
+        raise HTTPException(503, _ai_error_message(e))
 
     def s0(v, n=400): return str(v or "")[:n]
     s = s0
@@ -3081,7 +3092,7 @@ async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)
         d = _ai_json(await _ai_text(prompt, 1200))
     except Exception as e:
         print(f"Resume proofread failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, "The proofreader could not respond. Try again.")
+        raise HTTPException(503, _ai_error_message(e))
     issues = []
     for it in (d.get("issues") or [])[:40]:
         if not isinstance(it, dict):
@@ -3129,7 +3140,7 @@ async def resume_chat(body: ChatIn, user: User = Depends(current_user)):
         reply = await _ai_text(prompt, 900)
     except Exception as e:
         print(f"Resume chat failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, "The co-pilot could not respond. Try again.")
+        raise HTTPException(503, _ai_error_message(e))
     reply = (reply or "").replace("```", "").strip()
     return {"reply": reply[:2000]}
 
@@ -3170,12 +3181,8 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
     try:
         lesson = await _call_model(question, subject, level)
     except Exception as e:
-        reason = f"{type(e).__name__}: {e}"
-        print(f"Ask Vidya call failed ({AI_PROVIDER}): {reason}")
-        # DIAGNOSTIC: show the real upstream reason to every logged-in user
-        # while we get the AI teacher working. Lock back to admins-only later.
-        raise HTTPException(status_code=503,
-                            detail=f"Vidya could not reach the board. Reason: {reason}"[:400])
+        print(f"Ask Vidya call failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(status_code=503, detail=_ai_error_message(e))
 
     db.add(AskCache(qkey=qkey, subject=subject, level=level,
                     question=question[:2000], lesson=json.dumps(lesson), hits=0))
