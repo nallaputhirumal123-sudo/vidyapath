@@ -14,6 +14,20 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.33.0 — Resume redesign + 2 styles; careers with startups by country
+
+- **Resume page redesigned.** The old wide "Completeness" bar is now a compact
+  circular % meter, and the "Your resume" card now holds everything up top:
+  load (check-only), save, new blank. Order below: match score → grammar →
+  co-pilot → the builder itself.
+- **Two ATS styles** — "Classic (left)" and "Centered" — both rendered by the
+  same engine, so the live preview still equals the downloaded PDF exactly.
+- Only the built resume is previewed; a loaded resume is used just for checks.
+- **Careers: far more companies + a startups section per country.** India ~75
+  and the US ~50 entries, plus every country now has a Startups list with
+  founding years. Startups automatically graduate into the main company list as
+  they mature (cutoff currently 8 years), so it re-sorts itself over time.
+
 ## 1.32.0 — Resume: build-only + check-an-existing; careers by country
 
 - **Resume builder is build-from-scratch only.** Removed the import-into-builder
