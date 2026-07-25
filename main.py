@@ -2711,18 +2711,44 @@ def _extract_resume_text(filename, raw):
         except Exception as e:
             raise HTTPException(400, f"Could not read that PDF: {e}")
     if name.endswith(".docx"):
-        # Read ONLY the document text part via zipfile, so a corrupt embedded
-        # image (a common cause of "Bad CRC-32") can never break the import.
+        # Read the text parts via zipfile, so a corrupt embedded image (a common
+        # cause of "Bad CRC-32") can never break the import. IMPORTANT: the
+        # candidate's name and contact details are very often in the document
+        # HEADER (word/header*.xml), not the body — so we must read those too.
         import zipfile
         import re as _re2
         import html as _html
+
+        def _docx_part_text(zf, part):
+            try:
+                xml = zf.read(part).decode("utf-8", "ignore")
+            except Exception:
+                return ""
+            xml = xml.replace("</w:p>", "\n").replace("<w:tab/>", "  ")
+            txt = _html.unescape(_re2.sub(r"<[^>]+>", "", xml))
+            # strip leading drawing/anchor digit-noise that can precede a header name
+            return _re2.sub(r"^[\d\s]{6,}", "", txt).strip()
+
         try:
             zf = zipfile.ZipFile(io.BytesIO(raw))
-            xml = zf.read("word/document.xml").decode("utf-8", "ignore")
         except Exception as e:
             raise HTTPException(400, f"Could not read that DOCX: {e}")
-        xml = xml.replace("</w:p>", "\n").replace("<w:tab/>", "  ")
-        return _html.unescape(_re2.sub(r"<[^>]+>", "", xml))
+        names = zf.namelist()
+        headers = sorted(n for n in names if _re2.match(r"word/header\d*\.xml$", n))
+        footers = sorted(n for n in names if _re2.match(r"word/footer\d*\.xml$", n))
+        parts = []
+        for h in headers:                       # name + contact usually live here
+            t = _docx_part_text(zf, h)
+            if t:
+                parts.append(t)
+        body = _docx_part_text(zf, "word/document.xml")
+        if body:
+            parts.append(body)
+        for f in footers:
+            t = _docx_part_text(zf, f)
+            if t:
+                parts.append(t)
+        return "\n".join(parts)
     if name.endswith(".txt"):
         return raw.decode("utf-8", "ignore")
     raise HTTPException(400, "Upload a PDF, DOCX or TXT file")
@@ -2757,9 +2783,11 @@ async def resume_parse(file: UploadFile = File(...),
         raise HTTPException(400, "No readable text found in that file")
     prompt = (
         "Parse this resume text into structured JSON. Use ONLY information "
-        "present; leave fields empty if absent. Keep each experience 'bullets' "
-        "as newline-separated lines.\n\n"
-        f"RESUME TEXT:\n{text[:8000]}\n\n"
+        "present; leave fields empty if absent. The candidate's NAME and CONTACT "
+        "details often appear on the very first lines (from the document header) "
+        "— capture them. Capture EVERY job in 'exp' (do not skip any) and keep "
+        "each job's 'bullets' as newline-separated lines.\n\n"
+        f"RESUME TEXT:\n{text[:16000]}\n\n"
         "Return ONLY valid JSON in this shape:\n"
         '{"name":"","title":"","email":"","phone":"","location":"","links":"",'
         '"summary":"","skills":[{"label":"Skills","items":""}],'
@@ -2768,7 +2796,7 @@ async def resume_parse(file: UploadFile = File(...),
         '"proj":[{"name":"","tech":"","desc":"","link":""}],"certs":""}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 2200))
+        d = _ai_json(await _ai_text(prompt, 3600))
     except Exception as e:
         print(f"Resume parse failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI could not structure that resume. Try again.")

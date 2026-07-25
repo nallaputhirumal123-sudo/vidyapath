@@ -14,6 +14,16 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.28.0 — DOCX import now captures your name, contact and all jobs
+
+- **Fixed the big DOCX gap:** a name and contact details placed in the Word
+  document's *header* (very common in resume templates) were being skipped
+  entirely — the import came back with no name and no contact. We now read the
+  header and footer parts too, so the name/email/phone come through.
+- **Long resumes no longer truncated on import.** The parser reads far more of
+  the document (up to ~16k characters) and returns more, so every job in your
+  employment history is captured instead of stopping partway.
+
 ## 1.27.0 — Always-visible version badge + robust resume preview
 
 - **Version badge on every page.** A small "VidyaPath v1.27.0" pill is now fixed
