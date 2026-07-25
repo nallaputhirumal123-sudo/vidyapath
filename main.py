@@ -2530,18 +2530,19 @@ class MatchIn(BaseModel):
 
 
 def _resume_text(r):
-    # If the resume is in "original layout" mode, its content lives in the
-    # positioned layout lines — use those for matching / advice.
-    lay = r.get("layout")
-    if isinstance(lay, dict) and lay.get("pages"):
+    # If the resume is in "sections" mode (an imported resume), its content
+    # lives in the section bodies — use those for matching / advice.
+    secs = r.get("sections")
+    if isinstance(secs, list) and secs:
         out = []
-        for pg in lay.get("pages", []):
-            for ln in pg.get("lines", []):
-                t = str(ln.get("t", "")).strip()
-                if t:
-                    out.append(t)
+        for s in secs:
+            if isinstance(s, dict):
+                if s.get("h"):
+                    out.append(str(s.get("h", "")))
+                if s.get("body"):
+                    out.append(str(s.get("body", "")))
         if out:
-            return " \n ".join(out).lower()
+            return "\n".join(out).lower()
     parts = [r.get("name", ""), r.get("title", ""), r.get("summary", ""), r.get("certs", "")]
     for s in r.get("skills", []):
         parts += [s.get("label", ""), s.get("items", "")]
@@ -2841,6 +2842,67 @@ def _emit(lines, seg):
     })
 
 
+# ---- split extracted resume text into editable sections ------------------
+_SECTION_KEYWORDS = {
+    "summary", "professional summary", "career summary", "summary of qualifications",
+    "objective", "career objective", "profile", "professional profile",
+    "skills", "technical skills", "technical expertise", "core competencies",
+    "key skills", "areas of expertise",
+    "experience", "work experience", "professional experience", "employment",
+    "employment history", "work history", "professional background",
+    "projects", "key projects", "academic projects",
+    "education", "academic qualifications", "qualifications",
+    "certification", "certifications", "certificates", "licenses",
+    "achievements", "awards", "honors", "accomplishments",
+    "languages", "interests", "hobbies", "publications", "references",
+    "volunteer experience", "activities",
+}
+
+
+def _clean_field_codes(s):
+    """Strip Word field codes like HYPERLINK "mailto:..." that survive text
+    extraction, leaving the human-readable text."""
+    s = _re.sub(r'HYPERLINK\s+"[^"]*"\s*', "", s)
+    s = _re.sub(r"\s{2,}", " ", s)
+    return s.strip()
+
+
+def _is_section_heading(line):
+    s = line.strip().rstrip(":").strip()
+    if not s or len(s) > 48:
+        return False
+    if s.lower() in _SECTION_KEYWORDS:
+        return True
+    # ALL-CAPS short line with no digits is almost always a section header.
+    letters = [c for c in s if c.isalpha()]
+    if letters and s.upper() == s and len(letters) >= 3 and not any(c.isdigit() for c in s):
+        return True
+    return False
+
+
+def _split_sections(text):
+    """Group the resume text into {heading, body} sections the user can edit as
+    whole blocks. The block before the first heading (name/contact) has h=""."""
+    secs = []
+    cur = {"h": "", "body": []}
+    for raw_line in (text or "").split("\n"):
+        line = raw_line.rstrip()
+        if _is_section_heading(line):
+            if cur["h"] or cur["body"]:
+                secs.append(cur)
+            cur = {"h": line.strip().rstrip(":").strip(), "body": []}
+        else:
+            t = _clean_field_codes(line)
+            if t:
+                cur["body"].append(t)
+    if cur["h"] or cur["body"]:
+        secs.append(cur)
+    out = []
+    for s in secs[:24]:
+        out.append({"h": s["h"][:60], "body": "\n".join(s["body"])[:20000]})
+    return out
+
+
 # ---- parse an uploaded resume (PDF / DOCX / TXT) into the builder ----
 def _extract_resume_text(filename, raw):
     name = (filename or "").lower()
@@ -2905,21 +2967,6 @@ async def resume_parse(file: UploadFile = File(...),
     raw = await file.read()
     if len(raw) > 4_000_000:
         raise HTTPException(400, "File too large (max 4 MB)")
-    # Capture the original visual layout so the user can edit the text in place
-    # and download a near-identical copy. PDFs are used directly; Word files are
-    # rendered to PDF first (via LibreOffice) so they keep their exact look too.
-    fname = (file.filename or "").lower()
-    layout = None
-    layout_pdf = None
-    if fname.endswith(".pdf"):
-        layout_pdf = raw
-    elif fname.endswith(".docx"):
-        layout_pdf = _docx_to_pdf(raw)
-    if layout_pdf:
-        try:
-            layout = _extract_pdf_layout(layout_pdf)
-        except Exception:
-            layout = None
     try:
         text = _extract_resume_text(file.filename, raw)
     except HTTPException:
@@ -2929,6 +2976,9 @@ async def resume_parse(file: UploadFile = File(...),
     text = (text or "").strip()
     if len(text) < 30:
         raise HTTPException(400, "No readable text found in that file")
+    # Group the resume into editable sections (heading + whole-section body),
+    # keeping the original wording and the order of the document.
+    sections = _split_sections(text)
     prompt = (
         "Parse this resume text into structured JSON. Use ONLY information "
         "present; leave fields empty if absent. The candidate's NAME and CONTACT "
@@ -2970,8 +3020,8 @@ async def resume_parse(file: UploadFile = File(...),
                  for x in (d.get("proj") or []) if isinstance(x, dict)][:8] or [{"name": "", "tech": "", "desc": "", "link": ""}],
         "certs": s(d.get("certs"), 1000),
     }
-    if layout:
-        out["layout"] = layout
+    if sections:
+        out["sections"] = sections
     return out
 
 

@@ -3050,7 +3050,7 @@ function rzBlank(){
     exp:[{role:"",company:"",place:"",dates:"",bullets:"",ctx:""}],
     edu:[{degree:"",school:"",place:"",year:""}],
     proj:[{name:"",tech:"",desc:"",link:""}],
-    certs:"", style:0, layout:null, lmode:"build"};
+    certs:"", style:0, sections:null, lmode:"build"};
 }
 let RESUME=rzBlank(), rzLoaded=false;
 let RZ_SUG={bullets:{}, skills:[]};   // AI suggestions (not saved)
@@ -3122,7 +3122,7 @@ function rzTip(t){ return `<div style="font-size:12.5px;color:var(--dim);margin:
 function renderResume(){
   rzLoad();
   const pct=rzProgress();
-  const orig=RESUME.lmode==="original"&&rzHasLayout();
+  const orig=RESUME.lmode==="sections"&&rzHasSections();
   $("#main").innerHTML=`
   <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· write with AI, format for ATS</span></div>
   <div class="card" style="margin-bottom:14px">
@@ -3136,15 +3136,15 @@ function renderResume(){
     ${(function(){const L=rzSaveList();return L.length?`<div style="margin-top:10px"><div style="font-size:12px;color:var(--dim);margin-bottom:5px">Saved resumes:</div>
       ${L.map(r=>`<span class="pill" style="margin:2px 6px 2px 0"><button data-loadres="${r.id}" style="background:none;border:none;color:var(--accent);cursor:pointer;font:inherit">${esc(r.name)}</button> <button data-delres="${r.id}" style="background:none;border:none;color:var(--dim);cursor:pointer">×</button></span>`).join("")}</div>`:"";})()}
   </div>
-  ${rzHasLayout()?`<div class="card" style="margin-bottom:14px;border-color:var(--accent)">
+  ${rzHasSections()?`<div class="card" style="margin-bottom:14px;border-color:var(--accent)">
     <b>How you're editing this resume</b>
     <div class="ask-chips" style="margin-top:8px">
-      <button class="ask-chip ${orig?"on":""}" data-lmode="original">📄 Keep my original layout</button>
-      <button class="ask-chip ${orig?"":"on"}" data-lmode="build">🧱 Rebuild in ATS template</button>
+      <button class="ask-chip ${orig?"on":""}" data-lmode="sections">📄 My uploaded resume (by section)</button>
+      <button class="ask-chip ${orig?"":"on"}" data-lmode="build">🧱 Structured builder</button>
     </div>
     <div style="font-size:12px;color:var(--dim);margin-top:6px">${orig
-      ?"Editing the text in place — the downloaded PDF matches your uploaded file's exact positions, columns and headings."
-      :"Using the structured builder and a clean ATS template. Your original layout is kept safe — switch back anytime."}</div>
+      ?"Your resume, kept in its own sections and order. Open a heading and edit the whole section in one box."
+      :"The step-by-step structured builder with a clean ATS template. Your imported sections are kept safe — switch back anytime."}</div>
   </div>`:""}
   ${orig?"":`<div class="card" style="margin-bottom:14px">
     <div class="row" style="justify-content:space-between"><b>Completeness</b><span style="color:var(--accent);font-weight:700">${pct}%</span></div>
@@ -3196,17 +3196,16 @@ function renderResume(){
     ${RZ_STYLES.map((s,i)=>`<button class="ask-chip ${RESUME.style===i?"on":""}" data-rzstyle="${i}">${s.name}</button>`).join("")}
   </div>`}
   <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <button class="btn sm" data-rz-act="${orig?"lpdf":"pdf"}">⬇ Download ${orig?"exact PDF":"A4 PDF"}</button>
+    <button class="btn sm" data-rz-act="${orig?"spdf":"pdf"}">⬇ Download A4 PDF</button>
     <span style="font-size:12.5px;color:#4bbf82;align-self:center">saved automatically</span>
   </div>
 
   <div class="std-wrap">
-    <div class="std-col" id="rzEditor">${orig?rzLayoutEditorHTML():rzEditorHTML()}</div>
+    <div class="std-col" id="rzEditor">${orig?rzSectionsEditorHTML():rzEditorHTML()}</div>
     <div class="std-col">
-      <div class="eyebrow" style="margin:0 0 6px">${orig?"Exact preview — matches your download":"Live A4 preview"}</div>
+      <div class="eyebrow" style="margin:0 0 6px">Live A4 preview</div>
       <div style="background:#5b6472;padding:14px;border-radius:10px;overflow:auto;max-height:82vh">
-        ${orig?`<div id="rzPreview">${rzLayoutPreviewHTML()}</div>`
-              :`<div id="rzPreview" style="background:#fff;width:100%;max-width:720px;margin:0 auto;box-shadow:0 6px 24px rgba(0,0,0,.35)">${rzPreviewHTML()}</div>`}
+        <div id="rzPreview" style="background:#fff;width:100%;max-width:720px;margin:0 auto;box-shadow:0 6px 24px rgba(0,0,0,.35)">${orig?rzSectionsPreviewHTML():rzPreviewHTML()}</div>
       </div>
     </div>
   </div>`;
@@ -3226,55 +3225,80 @@ async function rzUpload(file){
     if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Import failed"); }
     const d=await rr.json();
     Object.assign(RESUME,d);   // keep style/photo/tone
-    if(d.layout&&d.layout.pages&&d.layout.pages.length){ RESUME.layout=d.layout; RESUME.lmode="original"; }
+    if(d.sections&&d.sections.length){ RESUME.sections=d.sections; RESUME.lmode="sections"; RZ_OPENSEC={0:true,1:true}; }
     rzSave(); renderResume();
-    const m2=$("#rzUpMsg"); if(m2)m2.textContent=RESUME.lmode==="original"
-      ?"Imported with your original layout — edit the text below and download an exact copy."
+    const m2=$("#rzUpMsg"); if(m2)m2.textContent=RESUME.lmode==="sections"
+      ?"Imported by section — open a heading below to edit that whole section."
       :"Imported — review and refine below.";
   }catch(e){ const m2=$("#rzUpMsg"); if(m2)m2.textContent=e.message; }
 }
-function rzHasLayout(){ return !!(RESUME.layout&&RESUME.layout.pages&&RESUME.layout.pages.length); }
-/* ---- original-layout editor: edit text in place, keep the exact look ---- */
-function rzLayoutEditorHTML(){
-  const L=RESUME.layout; if(!L) return "";
-  return L.pages.map((pg,pi)=>`<div class="card" style="margin-bottom:12px">
-    <b>Page ${pi+1}</b><div style="font-size:12px;color:var(--dim);margin:3px 0 8px">Edit any line. Position, size and column stay exactly as your original. Use × to delete a line.</div>
-    ${pg.lines.map((ln,li)=>`<div class="row" style="gap:6px;align-items:center;margin:3px 0">
-      <input data-lp="${pi}" data-ll="${li}" value="${esc(ln.t)}" class="ask-input" style="flex:1;font-size:13px;${ln.bold?"font-weight:700;":""}"/>
-      <button class="btn ghost sm" data-ldel="${pi}.${li}" style="padding:2px 8px">×</button></div>`).join("")}
-  </div>`).join("");
+function rzHasSections(){ return !!(RESUME.sections&&RESUME.sections.length); }
+let RZ_OPENSEC={0:true};   // which imported sections are expanded for editing
+/* ---- section editor: one text box per section heading ---- */
+function rzSectionsEditorHTML(){
+  const S=RESUME.sections; if(!S||!S.length) return "";
+  return `<div class="card" style="margin-bottom:12px">
+    <b>Your resume — by section</b>
+    <div style="font-size:12px;color:var(--dim);margin:3px 0 10px">Click a heading to open it, then edit the whole section in one box. Add or remove sections as you like.</div>
+    ${S.map((s,i)=>{const open=!!RZ_OPENSEC[i]; const title=s.h||"Name &amp; contact details";
+      return `<div style="border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden">
+        <div class="row" style="justify-content:space-between;align-items:center;padding:9px 11px;background:var(--panel2);cursor:pointer" data-secopen="${i}">
+          <b style="font-size:13.5px">${open?"▾":"▸"} ${esc(title)}</b>
+          <button class="btn ghost sm" data-secdel="${i}" style="padding:2px 8px" title="Remove section">×</button>
+        </div>
+        ${open?`<div style="padding:10px 11px">
+          ${i===0?"":`<div class="field"><label>Section heading</label><input data-sech="${i}" value="${esc(s.h)}" class="ask-input" placeholder="e.g. Work Experience"/></div>`}
+          <div class="field"><label>${i===0?"Name and contact (one per line)":"Section content (one point per line)"}</label>
+            <textarea data-secb="${i}" class="pj-note" style="min-height:${i===0?110:180}px;width:100%;font-size:13px">${esc(s.body)}</textarea></div>
+        </div>`:""}
+      </div>`;}).join("")}
+    <button class="btn ghost sm" data-secadd="1" style="margin-top:4px">+ Add a section</button>
+  </div>`;
 }
-function rzLayoutPreviewHTML(){
-  const L=RESUME.layout; if(!L||!L.pages||!L.pages.length) return `<div style="color:#eee;padding:20px;text-align:center">No preview available for this file.</div>`;
-  // SVG scales to the panel width via viewBox — it can never be clipped.
-  return L.pages.map(pg=>{
-    const rects=(pg.rects||[]).map(r=>`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${r.c}"/>`).join("");
-    const els=pg.lines.map(ln=>{
-      const fam=ln.font==="times"?"Georgia, 'Times New Roman', serif":ln.font==="courier"?"'Courier New', monospace":"Arial, Helvetica, sans-serif";
-      const yb=(ln.y+ln.size*0.82).toFixed(1);   // baseline (same math as the PDF)
-      return `<text x="${ln.x.toFixed(1)}" y="${yb}" font-size="${ln.size}" font-family="${fam}" ${ln.bold?'font-weight="700"':''} ${ln.italic?'font-style="italic"':''} fill="${ln.color||"#111"}">${esc2(ln.t)}</text>`;
-    }).join("");
-    return `<svg viewBox="0 0 ${pg.w} ${pg.h}" width="100%" preserveAspectRatio="xMidYMin meet" style="display:block;background:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:760px">${rects}${els}</svg>`;
-  }).join("");
-}
-async function rzLayoutPDF(){
-  try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool."); return; }
-  const {jsPDF}=window.jspdf; const L=RESUME.layout;
-  const p0=L.pages[0]; const doc=new jsPDF({unit:"pt",format:[p0.w,p0.h]});
-  L.pages.forEach((pg,pi)=>{
-    if(pi>0) doc.addPage([pg.w,pg.h]);
-    (pg.rects||[]).forEach(r=>{ try{ const m=/^#([0-9a-f]{6})$/i.exec(r.c);
-      if(m){ doc.setFillColor("#"+m[1]); doc.rect(r.x,r.y,r.w,r.h,"F"); } }catch(e){} });
-    pg.lines.forEach(ln=>{
-      let style="normal";
-      if(ln.bold&&ln.italic) style="bolditalic"; else if(ln.bold) style="bold"; else if(ln.italic) style="italic";
-      try{ doc.setFont(ln.font||"helvetica",style); }catch(e){ doc.setFont("helvetica",ln.bold?"bold":"normal"); }
-      doc.setFontSize(ln.size); doc.setTextColor(ln.color||"#111111");
-      // extract 'y' is the top of the text box; jsPDF draws from the baseline
-      doc.text(pdfSafe(ln.t), ln.x, ln.y + ln.size*0.82);
-    });
+/* wrap a long line for the on-screen preview */
+function rzSecIsSummary(h){ return /summary|objective|profile|about/i.test(h||""); }
+function rzSecPreviewBlock(s){
+  const accent="#2b3a5b";
+  if(!s.h){ // header: name + contact
+    const lines=(s.body||"").split("\n").filter(x=>x.trim());
+    if(!lines.length) return "";
+    let h=`<div style="font-size:21px;font-weight:800;color:${accent}">${esc2(lines[0])}</div>`;
+    if(lines.length>1) h+=`<div style="font-size:11px;color:#444;margin-top:3px">${lines.slice(1).map(esc2).join("  •  ")}</div>`;
+    return h+`<div style="height:8px"></div>`;
+  }
+  let h=`<div style="color:${accent};font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;border-bottom:1.5px solid ${accent};padding-bottom:3px;margin:13px 0 5px">${esc2(s.h)}</div>`;
+  const lines=(s.body||"").split("\n").filter(x=>x.trim());
+  lines.forEach(ln=>{
+    const t=ln.trim();
+    // sub-headers (a company/date line, or a line ending in a colon) stay bold, unbulleted
+    if(/:$/.test(t)||(/\b(19|20)\d\d\b/.test(t)&&t.length<80)){ h+=`<div style="font-weight:600;margin-top:6px">${esc2(t)}</div>`; }
+    else { h+=`<div style="margin:1px 0 1px 14px;text-indent:-11px">• ${esc2(t)}</div>`; }
   });
-  doc.save((RESUME.name||"resume").replace(/[^a-z0-9]+/gi,"-").toLowerCase()+"-resume.pdf");
+  return h;
+}
+function rzSectionsPreviewHTML(){
+  const S=RESUME.sections; if(!S||!S.length) return "";
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:44px 50px;font-size:12px;line-height:1.5;min-height:900px;box-sizing:border-box">${S.map(rzSecPreviewBlock).join("")}</div>`;
+}
+async function rzSectionsPDF(){
+  try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool."); return; }
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"pt",format:"a4"});
+  const M=48, W=doc.internal.pageSize.getWidth()-M*2, H=doc.internal.pageSize.getHeight();
+  const accent=[43,58,91]; let y=52;
+  const ny=h=>{ if(y+ (h||0) > H-46){ doc.addPage(); y=52; } };
+  const write=(t,size,opt)=>{ opt=opt||{}; doc.setFont("helvetica",opt.bold?"bold":"normal"); doc.setFontSize(size);
+    doc.setTextColor(opt.color||"#1a1a1a");
+    doc.splitTextToSize(pdfSafe(t),opt.w||W).forEach(p=>{ ny(size*1.15); doc.text(p,opt.x||M,y); y+=size*1.4; }); };
+  (RESUME.sections||[]).forEach(s=>{
+    const lines=(s.body||"").split("\n").filter(x=>x.trim());
+    if(!s.h){ if(lines.length){ write(lines[0],19,{bold:true,color:"#2b3a5b"}); if(lines.length>1) write(lines.slice(1).join("   |   "),9.5,{color:"#555"}); y+=6; } return; }
+    y+=7; ny(20); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor("#2b3a5b");
+    doc.text(pdfSafe(s.h.toUpperCase()),M,y); doc.setDrawColor(accent[0],accent[1],accent[2]); doc.setLineWidth(1.1); doc.line(M,y+3,M+W,y+3); y+=13;
+    lines.forEach(t=>{ t=t.trim();
+      if(/:$/.test(t)||(/\b(19|20)\d\d\b/.test(t)&&t.length<80)) write(t,10,{bold:true});
+      else write("• "+t,10,{x:M+11,w:W-11}); });
+  });
+  doc.save(((RESUME.sections&&RESUME.sections[0]&&(RESUME.sections[0].body||"").split("\n")[0])||"resume").replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,40)+"-resume.pdf");
 }
 function rzSwitchMode(m){ RESUME.lmode=m; rzSave(); renderResume(); }
 function rzPhoto(file){
@@ -3340,18 +3364,17 @@ function rzEditorHTML(){
 }
 function onResumeInput(e){
   const el=e.target;
-  if(el.dataset.lp!==undefined && el.dataset.ll!==undefined){
-    const pg=RESUME.layout&&RESUME.layout.pages[+el.dataset.lp];
-    if(pg&&pg.lines[+el.dataset.ll]){ pg.lines[+el.dataset.ll].t=el.value; rzSave(); rzPaintPreview(); }
-    return;
-  }
+  if(el.dataset.secb!==undefined){ const s=RESUME.sections&&RESUME.sections[+el.dataset.secb];
+    if(s){ s.body=el.value; rzSave(); rzPaintPreview(); } return; }
+  if(el.dataset.sech!==undefined){ const s=RESUME.sections&&RESUME.sections[+el.dataset.sech];
+    if(s){ s.h=el.value; rzSave(); rzPaintPreview(); } return; }
   if(el.dataset.rz!==undefined && el.dataset.rz!==""){ RESUME[el.dataset.rz]=el.value; }
   else if(el.dataset.list){ RESUME[el.dataset.list][+el.dataset.i][el.dataset.k]=el.value; }
   else return;
   rzSave(); rzPaintPreview();
   if(el.dataset.rz==="name"||el.dataset.rz==="title") rzPaintProgress();
 }
-function rzPaintPreview(){ const p=$("#rzPreview"); if(p)p.innerHTML=(RESUME.lmode==="original"&&rzHasLayout())?rzLayoutPreviewHTML():rzPreviewHTML(); }
+function rzPaintPreview(){ const p=$("#rzPreview"); if(p)p.innerHTML=(RESUME.lmode==="sections"&&rzHasSections())?rzSectionsPreviewHTML():rzPreviewHTML(); }
 function rzPaintProgress(){ /* progress updates on next full render; cheap enough */ }
 function esc2(s){ return esc(String(s==null?"":s)); }
 function rzPreviewHTML(){
@@ -3497,10 +3520,11 @@ async function rzChatSend(){
   catch(e){ RZ_CHAT.pop(); RZ_CHAT.push({role:"assistant",content:e.message}); paintChat(); }
 }
 document.addEventListener("click",e=>{
-  const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-loadres],[data-delres],[data-lmode],[data-ldel]"); if(!b)return;
+  const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-loadres],[data-delres],[data-lmode],[data-secopen],[data-secdel],[data-secadd]"); if(!b)return;
   if(b.dataset.lmode!==undefined){ rzSwitchMode(b.dataset.lmode); return; }
-  if(b.dataset.ldel!==undefined){ const [p,l]=b.dataset.ldel.split(".").map(Number);
-    const pg=RESUME.layout&&RESUME.layout.pages[p]; if(pg){ pg.lines.splice(l,1); rzSave(); renderResume(); } return; }
+  if(b.dataset.secopen!==undefined){ const i=+b.dataset.secopen; RZ_OPENSEC[i]=!RZ_OPENSEC[i]; renderResume(); return; }
+  if(b.dataset.secdel!==undefined){ const i=+b.dataset.secdel; if(confirm("Remove this section?")){ RESUME.sections.splice(i,1); rzSave(); renderResume(); } return; }
+  if(b.dataset.secadd!==undefined){ RESUME.sections.push({h:"New Section",body:""}); RZ_OPENSEC[RESUME.sections.length-1]=true; rzSave(); renderResume(); return; }
   if(b.dataset.loadres!==undefined){ rzLoadSaved(b.dataset.loadres); return; }
   if(b.dataset.delres!==undefined){ if(confirm("Delete this saved resume?")) rzDelSaved(b.dataset.delres); return; }
   if(b.dataset.addmiss!==undefined && RZ_MATCH){
@@ -3522,7 +3546,7 @@ document.addEventListener("click",e=>{
       const items=g.items.split(",").map(s=>s.trim()).filter(Boolean);
       if(!items.some(s=>s.toLowerCase()===sk.toLowerCase())){ items.push(sk); g.items=items.join(", "); rzSave(); renderResume(); } } }
   else if(b.dataset.rzAct==="pdf") rzPDF();
-  else if(b.dataset.rzAct==="lpdf") rzLayoutPDF();
+  else if(b.dataset.rzAct==="spdf") rzSectionsPDF();
   else if(b.dataset.rzAct==="ai") rzAI();
   else if(b.dataset.rzAct==="bull") rzBulletsAI(+b.dataset.i);
   else if(b.dataset.rzAct==="sklsug") rzSkillsAI();

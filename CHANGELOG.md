@@ -14,6 +14,24 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.30.0 — Section-based resume editing (clean, not messy)
+
+- **Uploaded resumes now open by SECTION, not by line.** We detect the real
+  headings (Professional Summary, Skills, Experience, Education…) and give you
+  one text box for each whole section — click a heading to open it. No more one
+  box per wrapped line.
+- **Bullet points and flow are preserved.** Content comes from clean text
+  extraction (works for both PDF and DOCX), so no more broken □ symbols; each
+  point stays on its own line and renders as a real bullet.
+- **Preview and download are clean and identical** — name, navy section
+  headings with underline, proper bullets, comfortable spacing (no touching
+  lines). What you see is what you download.
+- **Add / remove sections**, edit any heading, and edit the whole section body
+  in place. Field-code junk (Word HYPERLINK tags) is stripped automatically.
+- Dropped the pixel-exact layout approach (and the LibreOffice dependency, so
+  builds are fast again) — it produced messy, fragmented results on real
+  resumes. Section editing is cleaner and fully ATS-friendly.
+
 ## 1.29.0 — Word resumes keep their exact look; multi-page; spell-check
 
 - **Word (.docx) uploads now keep their original design.** The server renders
