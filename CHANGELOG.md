@@ -14,6 +14,12 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.37.0 — Lighter resume AI calls
+
+- Cut the token footprint of the resume checks (match, grammar, co-pilot) by
+  roughly half — smaller resume/JD inputs and tighter output limits — so they
+  use far less free quota per click.
+
 ## 1.36.0 — Automatic AI provider fallback
 
 - If the primary AI provider is rate-limited or errors, the app now

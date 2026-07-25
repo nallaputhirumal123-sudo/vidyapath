@@ -2545,11 +2545,11 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
     jd = (body.jd or "").strip()
     if len(jd) < 40:
         raise HTTPException(400, "Paste the full job description first")
-    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:9000]
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
     prompt = (
         "You are an ATS resume analyst. Compare the RESUME to the JOB "
         "DESCRIPTION and score the fit honestly.\n\n"
-        f"RESUME:\n{rtext}\n\nJOB DESCRIPTION:\n{jd[:6000]}\n\n"
+        f"RESUME:\n{rtext}\n\nJOB DESCRIPTION:\n{jd[:3500]}\n\n"
         "Rules for the lists:\n"
         "- 'critical' / 'weak' / 'strong' items must be SHORT keyword phrases "
         "(1-4 words) taken from the job description — e.g. 'Kubernetes', "
@@ -3044,7 +3044,7 @@ async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)
     them. Returns a list of {wrong, right, why} — it does not auto-edit."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The proofreader is not switched on")
-    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:8000]
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
     if len(rtext.strip()) < 20:
         raise HTTPException(400, "Add some resume content first")
     prompt = (
@@ -3058,7 +3058,7 @@ async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)
         '"right":"<correction>","why":"<short reason>"}]}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 1200))
+        d = _ai_json(await _ai_text(prompt, 900))
     except Exception as e:
         print(f"Resume proofread failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
@@ -3086,7 +3086,7 @@ async def resume_chat(body: ChatIn, user: User = Depends(current_user)):
     user reads and applies themselves — it never edits the resume directly."""
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI co-pilot is not switched on")
-    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:6000]
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:4000]
     hist = ""
     for m in (body.history or [])[-6:]:
         who = "User" if str(m.get("role")) == "user" else "Coach"
