@@ -551,12 +551,21 @@ class PasswordReset(Base):
 RESET_TTL = dt.timedelta(hours=1)
 
 # ---- email ---------------------------------------------------------------
+# Resend is the preferred sender: it is an HTTPS call on port 443, which no
+# host blocks. SMTP stays as a fallback but is a trap on most PaaS providers —
+# outbound 587 is blocked, and a blocked port hangs rather than refusing,
+# which took this site down once already.
+RESEND_API_KEY = env("RESEND_API_KEY")
 SMTP_HOST = env("SMTP_HOST")
 SMTP_PORT = int(env("SMTP_PORT", "587") or 587)
 SMTP_USER = env("SMTP_USER")
 SMTP_PASS = env("SMTP_PASS")
-MAIL_FROM = env("MAIL_FROM") or SMTP_USER
-MAIL_ENABLED = bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
+# resend.dev only delivers to the address that owns the Resend account. Once
+# craxle.com is verified in Resend, set MAIL_FROM to something like
+# "Craxle <noreply@craxle.com>" to reach real users.
+MAIL_FROM = env("MAIL_FROM") or SMTP_USER or "Craxle <onboarding@resend.dev>"
+MAIL_PROVIDER = "resend" if RESEND_API_KEY else ("smtp" if (SMTP_HOST and SMTP_USER and SMTP_PASS) else "")
+MAIL_ENABLED = bool(MAIL_PROVIDER)
 
 
 # Background email failures are invisible by design — we must not reveal
@@ -572,11 +581,31 @@ def send_email(to: str, subject: str, body: str):
     the user wait, and must not reveal — through a timeout — whether an
     account exists.
     """
-    LAST_MAIL.update({"to": to, "at": now().isoformat(), "ok": None, "error": ""})
+    LAST_MAIL.update({"to": to, "at": now().isoformat(), "ok": None,
+                      "error": "", "via": MAIL_PROVIDER})
     if not MAIL_ENABLED:
-        LAST_MAIL.update({"ok": False, "error": "MAIL_ENABLED is false — SMTP not configured"})
+        LAST_MAIL.update({"ok": False, "error": "No mail provider configured"})
         print(f"MAIL DISABLED — would have sent to {to}: {subject}")
         return
+
+    if MAIL_PROVIDER == "resend":
+        try:
+            r = httpx.post("https://api.resend.com/emails", timeout=15,
+                           headers={"Authorization": f"Bearer {RESEND_API_KEY}",
+                                    "Content-Type": "application/json"},
+                           json={"from": MAIL_FROM, "to": [to],
+                                 "subject": subject, "text": body})
+            if r.status_code < 300:
+                LAST_MAIL.update({"ok": True, "id": r.json().get("id", "")})
+            else:
+                LAST_MAIL.update({"ok": False,
+                                  "error": f"HTTP {r.status_code}: {r.text[:300]}"})
+                print(f"Resend to {to} failed: {r.status_code} {r.text[:200]}")
+        except Exception as e:
+            LAST_MAIL.update({"ok": False, "error": f"{type(e).__name__}: {e}"[:300]})
+            print(f"Resend to {to} failed: {type(e).__name__}: {e}")
+        return
+
     import smtplib
     from email.message import EmailMessage
     msg = EmailMessage()
@@ -1019,6 +1048,7 @@ def status(request: Request, db: Session = Depends(get_db)):
         # Whether password reset can actually deliver. Shows configuration
         # only — never the credentials themselves.
         "mail_enabled": MAIL_ENABLED,
+        "mail_provider": MAIL_PROVIDER or "(none)",
         "mail_host": SMTP_HOST or "(unset)",
         "mail_from": MAIL_FROM or "(unset)",
         # The exact string Google must have registered. A redirect_uri_mismatch
@@ -3553,10 +3583,37 @@ def mail_selftest(user: User = Depends(admin_user)):
     point is to see why it failed. Gmail rejects a normal account password
     here — it needs an App Password — and that is the usual cause.
     """
-    info = {"enabled": MAIL_ENABLED, "host": SMTP_HOST or "(unset)",
-            "port": SMTP_PORT, "user": SMTP_USER or "(unset)",
+    info = {"enabled": MAIL_ENABLED, "provider": MAIL_PROVIDER or "(none)",
+            "host": SMTP_HOST or "(unset)", "port": SMTP_PORT,
+            "user": SMTP_USER or "(unset)",
             "from": MAIL_FROM or "(unset)", "to": user.email,
             "last_background_email": LAST_MAIL}
+
+    if MAIL_PROVIDER == "resend":
+        try:
+            r = httpx.post("https://api.resend.com/emails", timeout=20,
+                           headers={"Authorization": f"Bearer {RESEND_API_KEY}",
+                                    "Content-Type": "application/json"},
+                           json={"from": MAIL_FROM, "to": [user.email],
+                                 "subject": "Craxle mail test",
+                                 "text": "If you are reading this, password "
+                                         "reset emails will reach your users."})
+            ok = r.status_code < 300
+            hint = ""
+            if not ok and "domain is not verified" in r.text.lower():
+                hint = ("Verify craxle.com in Resend, then set MAIL_FROM to an "
+                        "address on it. Until then MAIL_FROM must stay "
+                        "onboarding@resend.dev, which only delivers to the "
+                        "address that owns the Resend account.")
+            elif not ok and r.status_code in (401, 403):
+                hint = "RESEND_API_KEY looks wrong or was revoked."
+            return {**info, "ok": ok,
+                    "response": r.json() if r.content else {},
+                    "http": r.status_code, "hint": hint,
+                    "note": f"Check {user.email}, including spam." if ok else ""}
+        except Exception as e:
+            return {**info, "ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+
     if not MAIL_ENABLED:
         missing = [k for k, v in (("SMTP_HOST", SMTP_HOST), ("SMTP_USER", SMTP_USER),
                                   ("SMTP_PASS", SMTP_PASS)) if not v]
