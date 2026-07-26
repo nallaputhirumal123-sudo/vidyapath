@@ -126,7 +126,11 @@ body{background:var(--bg);color:var(--text);
   font-feature-settings:"cv11","ss01";font-variant-ligatures:contextual}
 /* A very slight warm glow behind the page, so a full-bleed dark screen is not
    one uniform flat colour. Fixed, so it does not travel while scrolling. */
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+/* z-index:-1 puts the glow above body's background but below all content, so
+   nothing else needs a stacking context. An earlier version raised the real
+   elements instead, which set position:relative on #themeFab and #msgFab and
+   dropped both out of fixed positioning into the document flow. */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
   background:
     radial-gradient(900px 500px at 12% -8%, rgba(255,153,51,.055), transparent 70%),
     radial-gradient(760px 460px at 92% 4%, rgba(90,169,255,.045), transparent 72%)}
@@ -134,7 +138,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
     radial-gradient(900px 500px at 12% -8%, rgba(255,153,51,.10), transparent 70%),
     radial-gradient(760px 460px at 92% 4%, rgba(90,169,255,.07), transparent 72%)}
-.app,.gate,.topbar,#themeFab,#msgFab{position:relative;z-index:1}
 code,pre,textarea.code,.out{font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 a{color:var(--accent2);text-decoration:none}
