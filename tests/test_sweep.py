@@ -165,15 +165,17 @@ priv = A.get("/privacy.html").text
 check("terms: no placeholders left", "[YOUR" not in terms and "[GSTIN]" not in terms)
 # The operator identity must be stated and must agree across both documents,
 # or a payment processor reviewing them sees two different businesses.
-check("terms: operator named", "Thirumal Reddy" in terms)
-check("terms: operator address stated", "Anna, Texas 75409" in terms)
-check("terms: governing law stated", "State of Texas" in terms)
+check("terms: GSTIN present", "36ANDPN8437E4ZT" in terms)
+check("terms: operator named", "N. Ravinder Reddy" in terms and "Velisse Labs" in terms)
+check("terms: Indian governing law", "laws of India" in terms)
+# The two documents must describe the same operator in the same country. A
+# processor reads both during verification, and a mismatch reads as fraud.
 check("terms and privacy name the same operator",
-      ("Thirumal Reddy" in terms) == ("Thirumal Reddy" in priv))
-check("no stale Indian entity left in terms",
-      not any(w in terms for w in ("Velisse", "Ravinder", "36ANDPN8437E4ZT", "Hyderabad")))
-check("no stale Indian entity left in privacy",
-      not any(w in priv for w in ("Velisse", "Ravinder", "36ANDPN8437E4ZT", "Hyderabad")))
+      ("N. Ravinder Reddy" in terms) == ("N. Ravinder Reddy" in priv))
+check("no unbacked US entity claim in terms",
+      not any(w in terms for w in ("Texas", "Collin County")))
+check("no unbacked US entity claim in privacy",
+      "Anna, Texas" not in priv)
 check("terms: 3-day refund", "3 days" in terms)
 check("terms: EU 14-day right kept", "14 days" in terms)
 check("terms: no bank details", "30704210518" not in terms)
