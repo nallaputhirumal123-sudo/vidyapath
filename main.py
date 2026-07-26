@@ -6359,15 +6359,36 @@ async def billing_checkout(body: CheckoutIn, request: Request,
         raise HTTPException(400, "Unknown billing period")
     if not STRIPE_ENABLED:
         raise HTTPException(503, "Payments are not switched on yet.")
-    price = STRIPE_PRICES.get((plan, period))
-    if not price:
-        raise HTTPException(400, "That plan is not sold for that period")
     base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+
+    # Two ways to price this. A Price ID created in the Stripe dashboard wins
+    # if one is configured; otherwise the amount is sent inline from PLANS.
+    # Inline is the default on purpose: it needs nothing set up in Stripe
+    # beyond an API key, and it cannot drift from the price the site quotes —
+    # a stale dashboard Price ID would charge a number nobody advertised.
+    price = STRIPE_PRICES.get((plan, period))
+    if price:
+        line = {"line_items[0][price]": price}
+    else:
+        amount = PLANS[plan].get(f"usd_{period}")
+        if not amount:
+            raise HTTPException(400, "That plan is not sold for that period")
+        line = {
+            "line_items[0][price_data][currency]": "usd",
+            "line_items[0][price_data][unit_amount]": str(int(amount)),
+            "line_items[0][price_data][recurring][interval]": period,
+            "line_items[0][price_data][product_data][name]":
+                f"Craxle {PLANS[plan]['name']}",
+            "line_items[0][price_data][product_data][description]":
+                "Resume matching, application tracking, apply kits and the "
+                "autofill extension.",
+        }
+
     async with httpx.AsyncClient(timeout=20) as c:
         r = await c.post(
             "https://api.stripe.com/v1/checkout/sessions",
             headers={"Authorization": f"Bearer {STRIPE_SECRET_KEY}"},
-            data={"mode": "subscription", "line_items[0][price]": price,
+            data={"mode": "subscription", **line,
                   "line_items[0][quantity]": "1",
                   "customer_email": user.email,
                   "client_reference_id": str(user.id),
@@ -6447,7 +6468,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         u = db.query(User).filter(User.plan_ref == str(sub)).first()
         if u:
             # Do not cut access mid-period; let it lapse at expiry.
-            u.plan_expires = min(u.plan_expires or now(), now())
+            # _aware() matters here: SQLite hands back naive datetimes, and
+            # comparing one against an aware now() raises, which would 500 the
+            # webhook — and Stripe retries a failing webhook for days.
+            u.plan_expires = min(_aware(u.plan_expires) if u.plan_expires
+                                 else now(), now())
             db.commit()
     return {"ok": True}
 
