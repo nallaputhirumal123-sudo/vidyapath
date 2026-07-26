@@ -2769,6 +2769,16 @@ async function jbUpload(file){
   const fd=new FormData(); fd.append("file",file);
   try{
     const rr=await fetch("/api/resume/extract",{method:"POST",credentials:"same-origin",body:fd});
+    // This is a raw fetch, so it misses api.call's 402 handling — do it here,
+    // or the paywall reads as "could not read that file".
+    if(rr.status===402){
+      let d={}; try{d=await rr.json()}catch(e){}
+      const msg=d.detail||"You've used your one free resume upload.";
+      JB.msg=msg; jbPaint();
+      if(typeof toast==="function") toast(msg);
+      S.view={page:"plans"}; render();
+      return;
+    }
     if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Could not read that file"); }
     const d=await rr.json();
     RZ_UPTEXT=d.text||""; RZ_UPNAME=d.name||file.name; RZ_MATCH=null;

@@ -2825,8 +2825,20 @@ def ai_quota(db, user):
 
     used = _ai_used_total(db, user)
     lim = PLANS["free"]["ai_total"]
+    applied = db.query(Note).filter(Note.user_id == user.id,
+                                    Note.k == "trial_apply_job").first()
     return {"plan": "free", "limit": lim, "used": used,
-            "left": max(0, lim - used), "period": "total"}
+            "left": max(0, lim - used), "period": "total",
+            # so the page can say "1 free upload left" up front, instead of
+            # only finding out at the paywall
+            "trial": {
+                "resume_upload_left": max(
+                    0, FREE_TRIAL["resume_upload"]
+                    - _trial_used(db, user, "resume_upload")),
+                "apply_left": 0 if applied else 1,
+                "apply_job_id": int(applied.v) if applied
+                and str(applied.v or "").isdigit() else None,
+            }}
 
 
 def require_paid(user, feature="This"):
@@ -2841,6 +2853,86 @@ def require_paid(user, feature="This"):
     if plan_of(user) == "free":
         raise HTTPException(402, f"{feature} is part of a paid plan. "
                                  "Browsing every live job stays free.")
+
+
+# A free account gets one go at this, once, ever — not per month. The point is
+# to let someone see their own resume scored and go through one real
+# application before deciding, without giving away the product. The free
+# application is handled separately by apply_gate, which tracks a job rather
+# than a count.
+FREE_TRIAL = {"resume_upload": 1}
+
+
+def _trial_used(db, user, key):
+    row = db.query(Note).filter(Note.user_id == user.id,
+                                Note.k == f"trial_{key}").first()
+    try:
+        return int(row.v) if row else 0
+    except Exception:
+        return 0
+
+
+def require_paid_or_trial(db, user, key, feature, spent="free go"):
+    """Like require_paid, but lets a free account through a fixed number of
+    times. Does NOT consume the allowance — call _trial_consume after the
+    work actually succeeded, so a failed upload doesn't burn someone's turn."""
+    if getattr(user, "is_admin", False):
+        return
+    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
+        raise HTTPException(403, "Confirm your email address first — check your "
+                                 "inbox for the link we sent.")
+    if plan_of(user) != "free":
+        return
+    limit = FREE_TRIAL.get(key, 0)
+    if _trial_used(db, user, key) >= limit:
+        raise HTTPException(402, f"You've used your {spent}. {feature} is part "
+                                 "of Pro — browsing every live job stays free.")
+
+
+def _trial_consume(db, user, key):
+    """Count one use against the free allowance. Paid accounts are untouched,
+    so nothing has to be reset when someone subscribes."""
+    if getattr(user, "is_admin", False) or plan_of(user) != "free":
+        return
+    k = f"trial_{key}"
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == k).first()
+    if row is None:
+        row = Note(user_id=user.id, k=k, v="0")
+        db.add(row)
+    try:
+        row.v = str(int(row.v or 0) + 1)
+    except Exception:
+        row.v = "1"
+    db.commit()
+
+
+def apply_gate(db, user, job_id):
+    """The free application, tied to one job.
+
+    Counting actions instead would strand people mid-application: generating
+    the apply kit and then marking it applied are two calls for the *same*
+    application, and charging twice means hitting the paywall halfway through
+    the one thing we said was free. So the allowance is a job, not a click —
+    every action on that job stays open.
+    """
+    if getattr(user, "is_admin", False):
+        return
+    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
+        raise HTTPException(403, "Confirm your email address first — check your "
+                                 "inbox for the link we sent.")
+    if plan_of(user) != "free":
+        return
+    row = db.query(Note).filter(Note.user_id == user.id,
+                                Note.k == "trial_apply_job").first()
+    if row is None:
+        db.add(Note(user_id=user.id, k="trial_apply_job", v=str(job_id)))
+        db.commit()
+        return
+    if str(row.v or "") == str(job_id):
+        return
+    raise HTTPException(402, "You've used your one free application. Applying "
+                             "to more jobs is part of Pro — browsing every "
+                             "live job stays free.")
 
 
 def _ai_enforce_limit(db, user):
@@ -3612,9 +3704,12 @@ def _extract_resume_text(filename, raw):
 
 @app.post("/api/resume/parse")
 async def resume_parse(file: UploadFile = File(...),
-                       user: User = Depends(current_user)):
+                       user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
     """Read an existing resume file and let the AI structure it into the
     builder's sections — so the student starts from what they already have."""
+    require_paid_or_trial(db, user, "resume_upload", "Uploading a resume",
+                          spent="one free resume upload")
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI parser is not switched on")
     raw = await file.read()
@@ -3681,15 +3776,19 @@ async def resume_parse(file: UploadFile = File(...),
                  for x in (d.get("proj") or []) if isinstance(x, dict)][:8] or [{"name": "", "tech": "", "desc": "", "link": ""}],
         "certs": s(d.get("certs"), 2000),
     }
+    _trial_consume(db, user, "resume_upload")
     return out
 
 
 @app.post("/api/resume/extract")
 async def resume_extract(file: UploadFile = File(...),
-                         user: User = Depends(current_user)):
+                         user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
     """Read an uploaded resume and return its plain text — used only to score it
     against a job description and to suggest changes. It does not build or edit
     anything."""
+    require_paid_or_trial(db, user, "resume_upload", "Uploading a resume",
+                          spent="one free resume upload")
     raw = await file.read()
     if len(raw) > 4_000_000:
         raise HTTPException(400, "File too large (max 4 MB)")
@@ -3702,7 +3801,11 @@ async def resume_extract(file: UploadFile = File(...),
     text = (text or "").strip()
     if len(text) < 30:
         raise HTTPException(400, "No readable text found in that file")
-    return {"text": text[:40000], "name": (file.filename or "resume")[:120]}
+    _trial_consume(db, user, "resume_upload")
+    return {"text": text[:40000], "name": (file.filename or "resume")[:120],
+            "trial_left": max(0, FREE_TRIAL["resume_upload"]
+                              - _trial_used(db, user, "resume_upload"))
+            if plan_of(user) == "free" else None}
 
 
 @app.get("/api/ask/config")
@@ -5698,10 +5801,15 @@ def _track_json(t):
 def job_track(body: TrackIn2, user: User = Depends(current_user),
               db: Session = Depends(get_db)):
     """Save a job, or move it along the pipeline. One row per user per job."""
-    require_paid(user, "The application tracker")
     status = (body.status or "saved").strip().lower()
     if status not in TRACK_STATUSES:
         raise HTTPException(400, f"Unknown status. Use one of: {', '.join(TRACK_STATUSES)}")
+    # Recording an application is the one tracker action a free account gets,
+    # so someone can go through a real application end to end before paying.
+    if status == "applied":
+        apply_gate(db, user, body.job_id)
+    else:
+        require_paid(user, "The application tracker")
     row = db.query(JobTrack).filter(JobTrack.user_id == user.id,
                                     JobTrack.job_id == body.job_id).first()
     if not row:
@@ -6030,6 +6138,7 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
     someone's personal data into an employer's system without them seeing it,
     breaks every ATS's terms, and gets real applicants blacklisted.
     """
+    apply_gate(db, user, body.job_id)
     job = db.get(Job, body.job_id)
     if not job:
         raise HTTPException(404, "That job is no longer listed")
