@@ -14,6 +14,33 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.42.0 — Matching made honest, paging, bell moved
+
+- **Fixed the matching. It was badly wrong.** A senior network engineer's
+  resume scored **100% on "Legal & Compliance Tech IT Product Manager"**. Two
+  causes, both now fixed:
+  - The skill vocabulary contained generic words — `support`, `design`,
+    `product`, `content`, `automation`, `security`. They appear in almost
+    every job ad, so any resume matched almost any job. The vocabulary is now
+    named tools, languages and platforms only.
+  - Skills were all weighted equally, so matching `git` counted as much as
+    matching `bgp`. Skills are now weighted by how rare they are across the
+    live postings, measured per search.
+- **Jobs now have to be the same kind of work.** A new role-family check
+  (network, security, data, ML, backend, devops, QA, product, sales, finance,
+  legal…) compares the posting against your resume. Same family scores higher,
+  an adjacent one is damped, an unrelated career is heavily damped. Result for
+  that same network engineer: the top matches are now Network Operations
+  Engineer, Network Engineer II and Manager Networking — and **zero** product,
+  legal or sales roles in the top 50.
+- **Scores mean something again.** They spread across the range instead of
+  everything sitting at 100. A new filter shows only *50%+*, *70%+* or *85%+*
+  matches — on the test resume, 4,086 results narrowed to 6 genuine ones.
+- **Paging.** Both the matched list and search now page through every result
+  with Previous / Next, 20 per page, showing which page you're on.
+- **Messages moved out of the sidebar** to a bell beside the dark-mode toggle,
+  top-right, with the unread count on it.
+
 ## 1.41.0 — Sidebar reorganised and aligned
 
 - **Grouped by how often you use it.** Everyday items stay at the top (Home,

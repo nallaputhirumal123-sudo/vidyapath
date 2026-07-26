@@ -3545,18 +3545,33 @@ async def _jobs_loop():
 
 
 # ---- matching: pure keyword work, no AI call and no token cost -------------
+# Named tools, languages and platforms ONLY. Words like "support", "design",
+# "product", "content" and "automation" were in here and wrecked the scoring:
+# they appear in nearly every job ad, so a network engineer's resume matched a
+# compliance product manager on six of them and scored 100.
 _SKILLS = set("""python java javascript typescript react angular vue node django
-flask fastapi spring rails golang go rust kotlin swift php ruby scala c c++ c#
+flask fastapi spring rails golang rust kotlin swift php ruby scala c++ c#
 sql postgres postgresql mysql mongodb redis elasticsearch kafka spark hadoop
 airflow snowflake dbt tableau powerbi excel pandas numpy pytorch tensorflow
-sklearn keras nlp llm genai rag opencv aws azure gcp docker kubernetes
-terraform ansible jenkins ci cd git linux bash devops sre microservices rest
-graphql grpc html css tailwind bootstrap figma android ios flutter reactnative
-unity unreal blender selenium cypress jest pytest junit qa automation security
-pentesting soc siem iam cissp networking tcp dns firewall salesforce sap
-seo sem marketing analytics product agile scrum jira finance accounting hr
-recruiting sales crm support content design ux ui research statistics
-machinelearning deeplearning datascience blockchain solidity""".split())
+sklearn keras nlp llm rag opencv aws azure gcp docker kubernetes openshift
+terraform ansible puppet chef jenkins gitlab github git linux unix bash
+powershell microservices graphql grpc html css sass tailwind bootstrap figma
+android ios flutter swiftui xamarin unity unreal godot blender selenium
+cypress playwright jest pytest junit testng appium jmeter
+cisco juniper aristra fortinet paloalto f5 bgp ospf mpls vlan vpn ipsec
+sdwan wireshark netflow snmp tcp udp dns dhcp ldap radius nginx apache
+pentesting metasploit burpsuite nessus splunk qradar siem soc iam okta
+crowdstrike sentinelone cissp ceh comptia oscp
+salesforce sap oracle workday netsuite hubspot marketo zendesk servicenow
+jira confluence figma sketch adobe photoshop illustrator
+machinelearning deeplearning datascience blockchain solidity ethereum
+kubernetes helm istio prometheus grafana datadog splunk elk kibana
+sre devops cicd ansible vagrant packer consul vault""".split())
+
+# Rare, specific skills say far more about fit than common ones. Anything on
+# this list is treated as near-worthless evidence on its own.
+_WEAK_SKILLS = set("""git linux bash sql html css excel jira confluence
+agile scrum rest json xml api""".split())
 
 _STOP = set("""a an the and or of to in for with on at by from as is are be we
 you your our their this that will can has have who what job role team work
@@ -3568,17 +3583,89 @@ def _words(text: str):
     return _re.findall(r"[a-z][a-z0-9+#.]{1,}", (text or "").lower())
 
 
+# What kind of job this is. Skill overlap alone can't tell a network engineer
+# from a compliance product manager — both mention "security" and "automation".
+# The role family can, and it is the difference between a useful list and noise.
+_ROLE_FAMILIES = {
+    "network": ("network engineer", "network administrator", "noc ", "cisco",
+                "routing", "switching", "bgp", "ospf", "sd-wan", "f5 ",
+                "load balancer", "juniper", "palo alto", "network security"),
+    "security": ("security engineer", "security analyst", "soc analyst",
+                 "penetration test", "pentest", "infosec", "appsec",
+                 "vulnerability", "threat", "cybersecurity"),
+    "sysadmin": ("system administrator", "sysadmin", "it engineer",
+                 "it support", "help desk", "helpdesk", "desktop support",
+                 "it administrator", "windows administrator"),
+    "devops": ("devops", "sre", "site reliability", "platform engineer",
+               "infrastructure engineer", "cloud engineer", "release engineer"),
+    "backend": ("backend", "back-end", "software engineer", "full stack",
+                "fullstack", "api engineer", "server engineer", "golang engineer"),
+    "frontend": ("frontend", "front-end", "ui engineer", "web developer",
+                 "javascript engineer", "react engineer"),
+    "mobile": ("android engineer", "ios engineer", "mobile engineer",
+               "android developer", "ios developer"),
+    "data": ("data engineer", "data analyst", "analytics engineer",
+             "business intelligence", "etl developer", "data warehouse"),
+    "ml": ("machine learning", "ml engineer", "data scientist", "ai engineer",
+           "research scientist", "nlp engineer", "computer vision",
+           "applied scientist"),
+    "qa": ("qa engineer", "quality assurance", "test engineer", "sdet",
+           "automation engineer", "test automation"),
+    "product": ("product manager", "product owner", "program manager",
+                "technical program", "product lead"),
+    "design": ("designer", "ux ", "ui/ux", "product design", "graphic design"),
+    "sales": ("account executive", "account manager", "sales ", "business development",
+              "sales development", "solutions consultant", "revenue"),
+    "marketing": ("marketing", "growth manager", "seo ", "content strategist",
+                  "brand ", "demand generation"),
+    "support": ("support engineer", "customer support", "technical support",
+                "customer success", "solutions architect"),
+    "finance": ("financial analyst", "accountant", "accounting", "controller",
+                "fp&a", "auditor", "treasury"),
+    "hr": ("recruiter", "recruiting", "talent acquisition", "people operations",
+           "human resources"),
+    "legal": ("legal counsel", "compliance ", "paralegal", "attorney", "privacy counsel"),
+}
+# Families close enough that crossing between them is a normal career move.
+_ADJACENT = {
+    "network": {"sysadmin", "devops", "security"},
+    "sysadmin": {"network", "devops", "support", "security"},
+    "security": {"network", "sysadmin", "devops"},
+    "devops": {"backend", "sysadmin", "network", "security"},
+    "backend": {"devops", "frontend", "data", "ml"},
+    "frontend": {"backend", "mobile", "design"},
+    "mobile": {"frontend", "backend"},
+    "data": {"ml", "backend", "product"},
+    "ml": {"data", "backend"},
+    "qa": {"backend", "devops"},
+    "product": {"design", "data", "marketing"},
+    "design": {"frontend", "product"},
+    "sales": {"marketing", "support"},
+    "marketing": {"sales", "product"},
+    "support": {"sysadmin", "sales"},
+}
+
+
+def _families(text: str):
+    """Which role families this text reads as. Empty when nothing is clear."""
+    low = " " + (text or "").lower() + " "
+    return {fam for fam, keys in _ROLE_FAMILIES.items()
+            if any(k in low for k in keys)}
+
+
 def _profile(resume_text: str):
     """Turn a resume into the keyword set we score jobs against."""
     ws = _words(resume_text)
     skills = {w for w in ws if w in _SKILLS}
-    # Two-word skills the token split would lose ("machine learning").
     low = (resume_text or "").lower()
+    # Multi-word skills the token split would lose.
     for phrase, tag in (("machine learning", "machinelearning"),
                         ("deep learning", "deeplearning"),
                         ("data science", "datascience"),
                         ("react native", "reactnative"),
-                        ("power bi", "powerbi")):
+                        ("power bi", "powerbi"),
+                        ("palo alto", "paloalto"),
+                        ("sd-wan", "sdwan")):
         if phrase in low:
             skills.add(tag)
     keywords = {w for w in ws if len(w) > 3 and w not in _STOP}
@@ -3591,30 +3678,49 @@ _JUNIOR = ("intern", "internship", "graduate", "trainee", "junior", "entry",
            "fresher", "apprentice", "associate")
 
 
-def _score_job(job, skills, keywords, level):
-    """0-100 fit score, plus the skills that matched and the ones missing."""
+def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
+    """0-100 fit score, plus the skills that matched and the ones missing.
+
+    Two things keep this honest. Skills are weighted by how rare they are
+    across the live postings, so matching 'kubernetes' counts for far more
+    than matching 'git'. And the job's role family must line up with the
+    resume's — without that gate, shared buzzwords alone rated a network
+    engineer a perfect fit for a compliance product manager.
+    """
     jwords = set(_words(job.text or ""))
     jskills = {w for w in jwords if w in _SKILLS}
+    idf = idf or {}
 
     hit = skills & jskills
     miss = jskills - skills
 
-    # Two halves, deliberately. `coverage` is the share of what the job asks
-    # for that you have; `depth` is how many of your skills it wants at all.
-    # Coverage alone rates a job that names one tool you happen to know as a
-    # perfect match, which is how a sales role ends up above a backend role.
-    coverage = (len(hit) / len(jskills)) if jskills else 0.0
-    depth = min(len(hit) / 6.0, 1.0)
+    def w(s):
+        base = idf.get(s, 1.0)
+        return base * (0.25 if s in _WEAK_SKILLS else 1.0)
+
+    want = sum(w(s) for s in jskills)
+    have = sum(w(s) for s in hit)
+    coverage = (have / want) if want else 0.0
+    depth = min(have / 4.0, 1.0)          # absolute weight of what you matched
     kw_pct = len(keywords & jwords) / max(len(jwords), 1)
 
     score = 100 * (0.45 * coverage + 0.35 * depth + 0.20 * min(kw_pct * 4, 1.0))
 
-    # A posting too thin to name two skills cannot support a confident score.
+    # A posting too thin to name a few skills can't support a confident score.
     if len(jskills) < 3:
-        score *= 0.55
+        score *= 0.5
 
     title = (job.title or "").lower()
-    if any(s in title for s in skills):
+    job_fams = _families(title) or _families(job.text or "")
+    if my_fams and job_fams:
+        if job_fams & my_fams:
+            score += 10                                   # same line of work
+        elif job_fams & {f for m in my_fams for f in _ADJACENT.get(m, set())}:
+            score *= 0.80                                 # a sideways step
+        else:
+            score *= 0.35                                 # a different career
+
+    if any(s in title for s in skills if s not in _WEAK_SKILLS):
         score += 6
     if level == "junior" and any(t in title for t in _SENIOR):
         score -= 22
@@ -3681,7 +3787,8 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open"):
 
 @app.get("/api/jobs")
 def jobs_search(q: str = "", country: str = "", location: str = "",
-                remote: bool = False, status: str = "open", limit: int = 60,
+                remote: bool = False, status: str = "open", limit: int = 20,
+                offset: int = 0,
                 user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Search the stored postings. Newest first."""
     query = _jobs_query(db, q, country, location, remote, status)
@@ -3693,9 +3800,11 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
             Job.first_seen.desc())
     else:
         query = query.order_by(Job.first_seen.desc())
-    rows = query.limit(min(max(limit, 1), 200)).all()
-    return {"jobs": [_job_json(j) for j in rows],
-            "total": _jobs_query(db, q, country, location, remote, status).count()}
+    off, lim = max(offset, 0), min(max(limit, 1), 50)
+    total = _jobs_query(db, q, country, location, remote, status).count()
+    rows = query.offset(off).limit(lim).all()
+    return {"jobs": [_job_json(j) for j in rows], "total": total,
+            "offset": off, "limit": lim, "has_more": off + lim < total}
 
 
 @app.get("/api/jobs/filters")
@@ -3722,7 +3831,9 @@ class JobMatchIn(BaseModel):
     location: str = Field(default="", max_length=120)
     q: str = Field(default="", max_length=120)
     remote: bool = False
-    limit: int = 40
+    limit: int = 20
+    offset: int = 0
+    min_score: int = 0
 
 
 @app.post("/api/jobs/match")
@@ -3732,6 +3843,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
 
     Deliberately AI-free: scoring runs in Python over the stored postings, so
     it is instant, costs nothing, and never touches the daily AI limit."""
+    import math
     rtext = (body.resume_text or "").strip() or _resume_text(body.resume or {})
     if len(rtext.strip()) < 40:
         raise HTTPException(400, "Add some resume details first, or upload a resume.")
@@ -3741,13 +3853,23 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
             400, "We couldn't find recognisable skills in your resume. Add a "
                  "skills section (languages, tools, frameworks) and try again.")
     level = _level_of(rtext)
+    my_fams = _families(rtext)
     rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
                        "open").order_by(Job.first_seen.desc()).limit(5000).all()
+
+    # Rarity weights, measured on this very result set: a skill three quarters
+    # of postings mention tells us almost nothing about fit.
+    df, n = {}, max(len(rows), 1)
+    for j in rows:
+        for s in {w for w in _words(j.text or "") if w in _SKILLS}:
+            df[s] = df.get(s, 0) + 1
+    idf = {s: math.log(n / (1 + c)) + 0.25 for s, c in df.items()}
+
     # One role open in three cities is three postings. Show it once, keeping
     # the best-scoring copy and listing the other places it is open.
     best = {}
     for j in rows:
-        score, hit, miss = _score_job(j, skills, keywords, level)
+        score, hit, miss = _score_job(j, skills, keywords, level, idf, my_fams)
         key = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
         item = _job_json(j, {"score": score, "matched": hit, "missing": miss})
         prev = best.get(key)
@@ -3759,9 +3881,16 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     scored = sorted(best.values(), key=lambda d: -d["score"])
     for it in scored:
         it["also_in"] = [x for x in it["also_in"] if x and x != it["location"]][:4]
-    return {"jobs": scored[:min(max(body.limit, 1), 100)],
-            "scanned": len(rows), "shown": len(scored), "level": level,
-            "your_skills": sorted(skills)[:30]}
+    if body.min_score > 0:
+        scored = [d for d in scored if d["score"] >= body.min_score]
+
+    off = max(body.offset, 0)
+    lim = min(max(body.limit, 1), 50)
+    page = scored[off:off + lim]
+    return {"jobs": page, "scanned": len(rows), "total": len(scored),
+            "offset": off, "limit": lim, "has_more": off + lim < len(scored),
+            "level": level, "families": sorted(my_fams),
+            "your_skills": sorted(s for s in skills if s not in _WEAK_SKILLS)[:30]}
 
 
 @app.post("/api/admin/jobs/refresh")

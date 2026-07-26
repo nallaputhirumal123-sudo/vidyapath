@@ -28,12 +28,18 @@ body,.card,.tile,.sidebar,.topbar,.lesson,.res,.lrow,.authcard,.lstep,
   transition:background-color .25s ease,border-color .25s ease,color .25s ease}
 
 /* theme toggle — visible on every screen */
-#themeFab{position:fixed;top:14px;right:14px;z-index:60;width:42px;height:42px;
+#themeFab,#msgFab{position:fixed;top:14px;z-index:60;width:42px;height:42px;
   border-radius:50%;background:var(--panel);border:1px solid var(--line);
   font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 4px 16px rgba(0,0,0,.18)}
-#themeFab:hover{border-color:var(--accent)}
-@media print{#themeFab{display:none}}
+#themeFab{right:14px}
+#msgFab{right:64px;display:none}          /* shown once signed in */
+#themeFab:hover,#msgFab:hover{border-color:var(--accent)}
+#msgFab .dot{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;
+  border-radius:99px;background:#e05a5a;color:#fff;font-size:10.5px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;padding:0 5px;
+  border:2px solid var(--bg)}
+@media print{#themeFab,#msgFab{display:none}}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
@@ -388,6 +394,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 <!-- ================= LOADING ================= -->
 <div class="loading" id="loading" style="display:none" aria-hidden="true"></div>
 
+<button id="msgFab" title="Messages">🔔</button>
 <button id="themeFab" title="Switch light / dark">🌙</button>
 
 <!-- ================= LANDING + AUTH ================= -->
@@ -724,8 +731,8 @@ function closeDrawer(){
 }
 
 /* ===================== AUTH FLOW ===================== */
-function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#topbar").style.display="none"; $("#gate").style.display="block"; }
-function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); }
+function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#topbar").style.display="none"; $("#gate").style.display="block"; const b=$("#msgFab"); if(b)b.style.display="none"; }
+function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); if(typeof paintMsgFab==="function") paintMsgFab(); }
 function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
 
 const _fl=$("#forgotLink"); if(_fl) _fl.onclick=e=>{ e.preventDefault();
@@ -864,8 +871,8 @@ function renderNav(){
   const nav=(page,icon,name,extra="")=>
     `<button class="navitem ${S.view.page===page?"active":""}" data-nav="${page}"><span class="ic">${icon}</span><span class="nm">${name}</span>${extra}</button>`;
 
+  /* Messages lives in the top-right bell, next to the theme toggle — not here. */
   h+=nav("home","🏠","Home")
-   + nav("messages","🔔","Messages",NOTIF.unread?`<span class="ct" style="background:#e05a5a;color:#fff;border-radius:99px;padding:1px 7px">${NOTIF.unread}</span>`:"")
    + nav("paths","🧭","Choose a path")
    + nav("projects","🛠️","Projects")
    + nav("ask","💬","Ask Vidya anything");
@@ -2519,7 +2526,7 @@ const REAL_PRACTICE=[
 ];
 /* ---- live jobs: real postings pulled daily from company career sites ---- */
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
-        q:"",country:"",location:"",remote:false};
+        q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0};
 
 function jbAgo(iso){
   if(!iso) return "";
@@ -2570,31 +2577,47 @@ function jbResumeSource(){
   return {kind:"none", label:""};
 }
 function jbReadInputs(){
-  const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote");
+  const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote"), s=$("#jbMin");
   if(q) JB.q=q.value.trim();
   if(c) JB.country=c.value;
   if(l) JB.location=l.value.trim();
   if(r) JB.remote=r.checked;
+  if(s) JB.minScore=+s.value||0;
 }
-async function jbRun(mode){
+/* keepPage: paging through results must not reset you to the first page. */
+async function jbRun(mode,keepPage){
   jbReadInputs();
   if(mode) JB.mode=mode;
+  if(!keepPage) JB.offset=0;
   JB.loading=true; JB.msg=""; JB.ran=true; jbPaint();
   try{
     if(JB.mode==="match"){
       rzLoad(); jbRestoreUpload();
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
-        q:JB.q,country:JB.country,location:JB.location,remote:JB.remote,limit:40});
+        q:JB.q,country:JB.country,location:JB.location,remote:JB.remote,
+        limit:JB.perPage,offset:JB.offset,min_score:JB.minScore});
       JB.jobs=res.jobs; JB.meta=res;
     }else{
       const p=new URLSearchParams({q:JB.q,country:JB.country,location:JB.location,
-        remote:JB.remote?"true":"false",status:"open",limit:"60"});
+        remote:JB.remote?"true":"false",status:"open",
+        limit:String(JB.perPage),offset:String(JB.offset)});
       const res=await api.get("/api/jobs?"+p);
       JB.jobs=res.jobs; JB.meta=res;
     }
-    if(!JB.jobs.length) JB.msg="No jobs matched those filters. Try clearing the location or search box.";
+    if(!JB.jobs.length) JB.msg=JB.minScore
+      ? `No jobs scored ${JB.minScore}% or higher. Lower the match filter, or widen the location.`
+      : "No jobs matched those filters. Try clearing the location or search box.";
   }catch(e){ JB.jobs=[]; JB.msg=e.message; }
   JB.loading=false; jbPaint();
+}
+function jbPage(dir){
+  const meta=JB.meta||{};
+  const next=JB.offset+dir*JB.perPage;
+  if(next<0) return;
+  if(dir>0 && !meta.has_more) return;
+  JB.offset=next;
+  jbRun(null,true);
+  const card=$("#jbOut"); if(card) card.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function jbCardHTML(j){
   const closed=!j.is_open;
@@ -2632,10 +2655,21 @@ function jbResultsHTML(){
     ${JB.mode==="match"?"Press <b>Match my resume</b> — we score every live posting against your resume. No AI credits used.":"Press <b>Search</b> to browse every live posting."}</div>`;
   }
   if(!JB.jobs.length) return "";
-  const head=JB.mode==="match"&&JB.meta
-    ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">Scored ${JB.meta.scanned} live postings against your resume · showing your best ${JB.jobs.length}${JB.meta.level?` · pitched at <b>${esc(JB.meta.level)}</b> level`:""}</div>`
-    : `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">${JB.meta&&JB.meta.total?JB.meta.total:JB.jobs.length} matching jobs · showing ${JB.jobs.length}</div>`;
-  return head+JB.jobs.map(jbCardHTML).join("");
+  const m=JB.meta||{}, from=JB.offset+1, to=JB.offset+JB.jobs.length;
+  const head=JB.mode==="match"
+    ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">Scored ${m.scanned} live postings · <b>${m.total}</b> worth showing${JB.minScore?` at ${JB.minScore}%+`:""} · viewing ${from}–${to}${m.level?` · pitched at <b>${esc(m.level)}</b> level`:""}${m.families&&m.families.length?` · read as <b>${m.families.map(esc).join(", ")}</b>`:""}</div>`
+    : `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px"><b>${m.total||JB.jobs.length}</b> matching jobs · viewing ${from}–${to}</div>`;
+  return head+JB.jobs.map(jbCardHTML).join("")+jbPagerHTML();
+}
+function jbPagerHTML(){
+  const m=JB.meta||{}, total=m.total||0;
+  const page=Math.floor(JB.offset/JB.perPage)+1, pages=Math.max(1,Math.ceil(total/JB.perPage));
+  if(pages<=1) return "";
+  return `<div class="row" style="gap:10px;align-items:center;justify-content:center;margin-top:16px;flex-wrap:wrap">
+    <button class="btn ghost sm" data-jbpage="-1" ${JB.offset<=0?"disabled style=opacity:.4":""}>← Previous</button>
+    <span style="font-size:12.5px;color:var(--dim)">Page <b>${page}</b> of ${pages}</span>
+    <button class="btn sm" data-jbpage="1" ${m.has_more?"":"disabled style=opacity:.4"}>Next →</button>
+  </div>`;
 }
 function jbPaint(){ const el=$("#jbOut"); if(el) el.innerHTML=jbResultsHTML(); }
 /* Resume checks live here, next to the jobs they're for — the builder page is
@@ -2706,6 +2740,10 @@ function jbSectionHTML(){
       <input id="jbLoc" class="ask-input" style="flex:1;min-width:140px" placeholder="City or state — e.g. Bengaluru" value="${esc(JB.location)}"/>
       <label style="font-size:13px;color:var(--body);display:flex;align-items:center;gap:5px;white-space:nowrap">
         <input type="checkbox" id="jbRemote" ${JB.remote?"checked":""}/> Remote only</label>
+      ${JB.mode==="match"?`<select id="jbMin" class="ask-input" style="min-width:150px">
+        ${[[0,"Any match"],[50,"50%+ — worth a look"],[70,"70%+ — strong fit"],[85,"85%+ — near perfect"]]
+          .map(([v,t])=>`<option value="${v}" ${JB.minScore===v?"selected":""}>${t}</option>`).join("")}
+      </select>`:""}
       <button class="btn sm" data-jbgo="1">${JB.mode==="match"?"Match my resume":"Search"}</button>
     </div>
     <div id="jbOut" style="margin-top:14px">${jbResultsHTML()}</div>
@@ -2718,6 +2756,8 @@ document.addEventListener("click",e=>{
   if(g){ jbRun(); return; }
   const c=e.target.closest("[data-jbclear]");
   if(c){ jbClearUpload(); return; }
+  const pg=e.target.closest("[data-jbpage]");
+  if(pg){ jbPage(+pg.dataset.jbpage); return; }
   const n=e.target.closest("[data-jbnav]");
   if(n){ e.preventDefault(); document.querySelector('[data-nav="'+n.dataset.jbnav+'"]').click(); return; }
 });
@@ -3196,15 +3236,23 @@ function timeAgo(iso){
   if(s<86400) return Math.floor(s/3600)+"h ago";
   return Math.floor(s/86400)+"d ago";
 }
+/* The bell sits beside the theme toggle, so it has to be painted directly —
+   it is outside #nav and a sidebar re-render will never touch it. */
+function paintMsgFab(){
+  const b=$("#msgFab"); if(!b) return;
+  b.style.display=AUTHED?"flex":"none";
+  b.innerHTML="🔔"+(NOTIF.unread?`<span class="dot">${NOTIF.unread>99?"99+":NOTIF.unread}</span>`:"");
+  b.title=NOTIF.unread?`${NOTIF.unread} unread message${NOTIF.unread>1?"s":""}`:"Messages";
+}
 async function refreshNotif(){
-  if(!AUTHED) return;
-  try{ const r=await api.get("/api/notifications"); NOTIF.items=r.items||[]; NOTIF.unread=r.unread||0; renderNav(); }catch(e){}
+  if(!AUTHED){ paintMsgFab(); return; }
+  try{ const r=await api.get("/api/notifications"); NOTIF.items=r.items||[]; NOTIF.unread=r.unread||0; renderNav(); paintMsgFab(); }catch(e){}
 }
 async function renderMessages(){
   $("#main").innerHTML=`<div class="h1">🔔 Messages &amp; notifications</div><p class="sub">Loading…</p>`;
   let r; try{ r=await api.get("/api/notifications"); }
   catch(e){ $("#main").innerHTML=`<div class="h1">🔔 Messages</div><p class="sub">${esc(e.message)}</p>`; return; }
-  NOTIF.items=r.items||[]; NOTIF.unread=0;
+  NOTIF.items=r.items||[]; NOTIF.unread=0; paintMsgFab();
   api.post("/api/notifications/seen",{}).catch(()=>{});   // mark read
   const items=r.items||[];
   $("#main").innerHTML=`<div class="h1">🔔 Messages &amp; notifications</div>
@@ -4028,6 +4076,10 @@ document.addEventListener("click",e=>{
   }
   if(e.target.closest("#themeFab")){
     applyTheme(document.documentElement.dataset.theme==="light" ? "dark" : "light");
+    return;
+  }
+  if(e.target.closest("#msgFab")){
+    closeDrawer(); S.view={page:"messages"}; render();
     return;
   }
   if(e.target.closest("#hamb")){
