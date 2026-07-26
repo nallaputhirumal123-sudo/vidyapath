@@ -33,7 +33,8 @@ from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, DateTime, Date,
     ForeignKey, UniqueConstraint, func, cast, case,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
+from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
+                            relationship, defer)
 
 # --------------------------------------------------------------------------
 # Config
@@ -201,6 +202,8 @@ class User(Base):
     totp_secret = Column(String(64), default="")
     totp_enabled = Column(Boolean, default=False, nullable=False)
     totp_backup = Column(Text, default="")     # hashed single-use codes
+    email_verified = Column(Boolean, default=False, nullable=False)
+    verified_at = Column(DateTime(timezone=True))
 
 
 class Track(Base):
@@ -557,10 +560,16 @@ class PasswordReset(Base):
     token_hash = Column(String(64), unique=True, index=True)
     expires_at = Column(DateTime(timezone=True))
     used_at = Column(DateTime(timezone=True))
+    purpose = Column(String(20), default="reset", index=True)   # reset | verify
     created_at = Column(DateTime(timezone=True), default=now)
 
 
 RESET_TTL = dt.timedelta(hours=1)
+VERIFY_TTL = dt.timedelta(days=3)
+# Off until email delivery is proven working. Turning this on before
+# then locks out every genuine signup, which is worse than the problem
+# it solves.
+REQUIRE_EMAIL_VERIFICATION = env("REQUIRE_EMAIL_VERIFICATION", "0") == "1"
 
 # ---- email ---------------------------------------------------------------
 # Resend is the preferred sender: it is an HTTPS call on port 443, which no
@@ -1151,7 +1160,8 @@ def set_session(resp: Response, user: User, db: Session = None):
 
 
 @app.post("/api/auth/signup")
-def signup(body: SignupIn, response: Response, db: Session = Depends(get_db)):
+def signup(body: SignupIn, response: Response, request: Request,
+           db: Session = Depends(get_db)):
     email = body.email.lower().strip()
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "An account with that email already exists")
@@ -1169,8 +1179,14 @@ def signup(body: SignupIn, response: Response, db: Session = Depends(get_db)):
     # slot (subject teacher), or grant generic teacher access.
     role = apply_school_code(db, user, (body.school_code or "").strip())
 
+    if MAIL_ENABLED:
+        try:
+            _send_verification(db, user, request)
+        except Exception as e:
+            print(f"verification email failed: {type(e).__name__}: {e}")
     set_session(response, user, db)
     return {"id": user.id, "name": user.name, "email": user.email,
+            "email_verified": bool(user.email_verified),
             "is_admin": user.is_admin, "is_teacher": role in ("head", "teacher"),
             "role": role}
 
@@ -1243,6 +1259,76 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
             "is_head": is_head(user, db)}
 
 
+def _send_verification(db, user, request, background=None):
+    """Issue a fresh verification link and email it."""
+    db.query(PasswordReset).filter(PasswordReset.user_id == user.id,
+                                   PasswordReset.purpose == "verify",
+                                   PasswordReset.used_at.is_(None))       .update({"used_at": now()}, synchronize_session=False)
+    raw = secrets.token_urlsafe(32)
+    db.add(PasswordReset(user_id=user.id, purpose="verify",
+                         token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+                         expires_at=now() + VERIFY_TTL))
+    db.commit()
+    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    link = f"{base}/verify?token={raw}"
+    body = "\n".join([
+        f"Hello {user.name},",
+        "",
+        "Confirm this is your email address:",
+        "",
+        link,
+        "",
+        "The link works once and expires in 3 days. If you did not create a "
+        "Craxle account, ignore this email.",
+        "",
+        "Craxle",
+    ])
+    if background is not None:
+        background.add_task(send_email, user.email, "Confirm your Craxle email", body)
+    else:
+        send_email(user.email, "Confirm your Craxle email", body)
+
+
+@app.post("/api/auth/verify/resend")
+def auth_verify_resend(background: BackgroundTasks, request: Request,
+                       user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    if user.email_verified:
+        return {"ok": True, "already": True, "message": "Your email is already confirmed."}
+    if not MAIL_ENABLED:
+        raise HTTPException(503, "We can't send email right now. Contact support.")
+    _send_verification(db, user, request, background)
+    return {"ok": True, "message": f"Sent. Check {user.email}, including spam."}
+
+
+class VerifyIn(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+
+
+@app.post("/api/auth/verify")
+def auth_verify(body: VerifyIn, db: Session = Depends(get_db)):
+    """Confirm an address from the emailed link. Single use."""
+    h = hashlib.sha256(body.token.strip().encode()).hexdigest()
+    row = db.query(PasswordReset).filter(PasswordReset.token_hash == h,
+                                         PasswordReset.purpose == "verify").first()
+    if not row or row.used_at is not None:
+        raise HTTPException(400, "That link has already been used. "
+                                 "Sign in and request a new one.")
+    exp = row.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=dt.timezone.utc)
+    if exp is None or exp < now():
+        raise HTTPException(400, "That link has expired. Sign in and request a new one.")
+    u = db.get(User, row.user_id)
+    if not u:
+        raise HTTPException(400, "That account no longer exists")
+    u.email_verified, u.verified_at = True, now()
+    row.used_at = now()
+    db.commit()
+    return {"ok": True, "email": u.email,
+            "message": "Email confirmed. You have full access now."}
+
+
 class ForgotIn(BaseModel):
     email: EmailStr
 
@@ -1300,7 +1386,8 @@ def auth_forgot(body: ForgotIn, background: BackgroundTasks,
 def auth_reset(body: ResetIn, response: Response, db: Session = Depends(get_db)):
     """Finish a password reset and sign the user in on this device only."""
     h = hashlib.sha256(body.token.strip().encode()).hexdigest()
-    row = db.query(PasswordReset).filter(PasswordReset.token_hash == h).first()
+    row = db.query(PasswordReset).filter(PasswordReset.token_hash == h,
+                                        PasswordReset.purpose == "reset").first()
     if not row or row.used_at is not None:
         raise HTTPException(400, "That reset link has already been used. "
                                  "Request a new one.")
@@ -1458,6 +1545,8 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     role = "admin" if user.is_admin else (t.role if t else "student")
     return {
         "id": user.id, "name": user.name, "email": user.email,
+        "email_verified": bool(user.email_verified),
+        "verification_required": REQUIRE_EMAIL_VERIFICATION,
         "is_admin": user.is_admin, "path": user.path,
         "is_teacher": bool(t) or user.is_admin,
         "is_head": is_head(user, db),
@@ -2718,9 +2807,27 @@ def ai_quota(db, user):
             "left": max(0, lim - used), "period": "total"}
 
 
+def require_paid(user, feature="This"):
+    """Paid features. Browsing job listings stays free — that is what brings
+    people here and what search engines index. Everything that acts on a
+    resume is part of the paid product."""
+    if getattr(user, "is_admin", False):
+        return
+    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
+        raise HTTPException(403, "Confirm your email address first — check your "
+                                 "inbox for the link we sent.")
+    if plan_of(user) == "free":
+        raise HTTPException(402, f"{feature} is part of a paid plan. "
+                                 "Browsing every live job stays free.")
+
+
 def _ai_enforce_limit(db, user):
     if getattr(user, "is_admin", False):
         return
+    # An unconfirmed address can't be reached, so it can't be supported,
+    # billed or recovered. Gate the costly features, not sign-in itself.
+    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
+        raise HTTPException(403, "Confirm your email address first — check your inbox for the link we sent, or request a new one from your account.")
     q = ai_quota(db, user)
     if q["limit"] is None:
         return
@@ -4714,11 +4821,15 @@ def _job_skills(job):
 
 
 def _job_req_skills(job):
-    """Skills the posting lists as requirements, not merely mentions."""
+    """Skills the posting lists as requirements, not merely mentions.
+
+    Read from the column filled at ingest, and deliberately NOT re-derived
+    here when it is empty: parsing 5,000 descriptions per request took ten
+    seconds. Rows stored before this column existed simply score without the
+    requirement weighting until the next crawl fills them.
+    """
     got = getattr(job, "req_skills", "") or ""
-    if got:
-        return set(got.split(","))
-    return {w for w in _words(_requirement_text(job.text or "")) if w in _SKILLS}
+    return set(got.split(",")) if got else set()
 
 
 # Words in a job title that say what the role IS, so a resume aimed at one
@@ -5034,6 +5145,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     Deliberately AI-free: scoring runs in Python over the stored postings, so
     it is instant, costs nothing, and never touches the daily AI limit."""
     import math
+    require_paid(user, "Resume matching")
     rtext = (body.resume_text or "").strip() or _resume_text(body.resume or {})
     if len(rtext.strip()) < 40:
         raise HTTPException(400, "Add some resume details first, or upload a resume.")
@@ -5055,9 +5167,13 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
         # Uploaded resumes have no structure, so take the strongest role words
         # from the first few lines, where a title almost always sits.
         my_titles = _title_words(" ".join(rtext.splitlines()[:6]))
+    # Deliberately NOT deferring Job.text: something downstream still reads it,
+    # so deferring turned one query into 5,000 lazy loads and made this slower,
+    # not faster (2.7s -> 6.5s measured).
     rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
                        "open", body.category, body.job_type, body.engagement,
-                       body.visa, body.posted).order_by(Job.first_seen.desc()).limit(6000).all()
+                       body.visa, body.posted).order_by(
+                           Job.first_seen.desc()).limit(6000).all()
 
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.
@@ -5125,6 +5241,7 @@ def _track_json(t):
 def job_track(body: TrackIn2, user: User = Depends(current_user),
               db: Session = Depends(get_db)):
     """Save a job, or move it along the pipeline. One row per user per job."""
+    require_paid(user, "The application tracker")
     status = (body.status or "saved").strip().lower()
     if status not in TRACK_STATUSES:
         raise HTTPException(400, f"Unknown status. Use one of: {', '.join(TRACK_STATUSES)}")
@@ -5211,6 +5328,7 @@ def _prune_pair_codes():
 @app.post("/api/apply/pair-code")
 def apply_pair_code(user: User = Depends(current_user)):
     """Mint a pairing code to type into the extension. Expires in 10 minutes."""
+    require_paid(user, "The browser extension")
     _prune_pair_codes()
     code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
     _PAIR_CODES[code] = (user.id, now() + PAIR_TTL)
@@ -5554,7 +5672,15 @@ STRIPE_PRICES = {
 
 
 def _is_india(request: Request) -> bool:
-    """Cloudflare tells us the country; fall back to India-off when it can't."""
+    """Which gateway and currency to show.
+
+    Razorpay is the only live gateway, and it settles in INR, so everyone is
+    billed in rupees for now — including customers abroad, whose cards handle
+    the conversion. Stripe can take over the non-India path later by making
+    this return the real country again.
+    """
+    if not STRIPE_ENABLED:
+        return True
     return (request.headers.get("cf-ipcountry") or "").upper() == "IN"
 
 
