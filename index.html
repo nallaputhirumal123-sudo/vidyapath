@@ -460,13 +460,13 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
   <div class="land">
 
     <section class="lhero">
-      <span class="lbadge">100% FREE · NO ADS · OPEN TO EVERYONE, WORLDWIDE</span>
+      <span class="lbadge">FREE TO BROWSE · NO ADS · OPEN TO EVERYONE, WORLDWIDE</span>
       <h1>Learn to code.<br>Then build with <span>AI</span>.</h1>
       <p>One continuous path from "what is a computer?" to building real AI systems.
          Every lesson taught in full; Python and SQL exercises run and auto-grade
          right in your browser. Nothing assumed, at any point.</p>
       <div class="row" style="justify-content:center">
-        <a class="btn big" href="#join">Start learning free →</a>
+        <a class="btn big" href="#join">Start free →</a>
         <button class="btn ghost big" id="tourBtn">▶ Let Axle explain it</button>
       </div>
       <div class="lstats">
@@ -526,8 +526,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
     <section class="lsec faq">
       <h2>Common questions</h2>
-      <details><summary>Is it really free?</summary>
-        <p>Yes. Every lesson, exercise, worksheet and certificate. No trial, no locked content, no ads.</p></details>
+      <details><summary>What costs money?</summary>
+        <p>Every lesson, exercise, worksheet and certificate is free, and so is browsing every live job. The paid plan covers the tools that work on your CV — resume matching, the application tracker, the browser extension and the AI apply kits. No ads either way.</p></details>
       <details><summary>I have never written code. Can I do this?</summary>
         <p>You are exactly who Stage 1 was written for. It assumes nothing — not even knowing what a file is. Thousands of words of it exist purely to explain things other courses skip.</p></details>
       <details><summary>What do I need?</summary>
@@ -594,7 +594,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     </section>
 
     <footer class="lfoot">
-      Craxle · Free, open learning worldwide · Python &amp; SQL exercises auto-grade in your browser<br>
+      Craxle · Open learning worldwide · Python &amp; SQL exercises auto-grade in your browser<br>
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
       <br><span data-version style="opacity:.7"></span>
@@ -622,8 +622,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.68.3"></script>
-<script src="presenter.js?v=1.68.3"></script>
+<script src="tutor.js?v=1.68.4"></script>
+<script src="presenter.js?v=1.68.4"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
@@ -3751,7 +3751,7 @@ async function startCheckout(plan,period,btn){
 function planCardHTML(p,cur){
   const isNow = cur===p.id;
   const cta = p.id==="free"
-    ? `<div style="font-size:12.5px;color:var(--dim);text-align:center;padding:9px">Always free</div>`
+    ? `<div style="font-size:12.5px;color:var(--dim);text-align:center;padding:9px">Browse jobs free</div>`
     : `<button class="btn ${p.id==="pro"?"":"ghost"} sm" style="width:100%" data-buy="${p.id}" data-period="month">
          ${isNow?"Current plan":`Choose ${p.name} — ${esc(p.month||"")}/mo`}</button>
        ${p.year?`<button class="btn ghost sm" style="width:100%;margin-top:6px" data-buy="${p.id}" data-period="year">
