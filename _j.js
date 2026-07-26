@@ -1,146 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Craxle — Admin</title>
-<style>
-:root{
-  --bg:#0b0f16;--panel:#131923;--panel2:#1a2230;--line:#252e3d;
-  --text:#e8eef6;--muted:#8896a8;--dim:#5d6b7d;
-  --accent:#ff9933;--accent2:#4d9fff;--green:#3fb950;--red:#f85149;--r:13px;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14.5px;line-height:1.6}
-button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
-input,select,textarea{font-family:inherit}
-a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
-code,pre,textarea.mono{font-family:"SF Mono",Menlo,Consolas,monospace}
 
-.wrap{display:flex;min-height:100vh}
-.side{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow-y:auto}
-.main{flex:1;padding:30px 36px 70px;min-width:0;max-width:1400px}
-.brand{padding:20px;border-bottom:1px solid var(--line)}
-.brand h1{font-size:18px;font-weight:800;letter-spacing:-.4px}
-.brand h1 span{color:var(--accent)}
-.brand p{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:2px}
-.nav{padding:12px 0}
-.nv{display:flex;align-items:center;gap:10px;padding:10px 20px;width:100%;text-align:left;font-size:13.5px;color:var(--muted);border-left:2px solid transparent}
-.nv:hover{background:var(--panel2);color:var(--text)}
-.nv.on{background:var(--panel2);color:var(--text);border-left-color:var(--accent)}
-
-.h1{font-size:26px;font-weight:800;letter-spacing:-.7px;margin-bottom:5px}
-.sub{color:var(--muted);margin-bottom:24px;font-size:14px}
-.eyebrow{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);font-weight:700;margin:28px 0 11px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
-.grid{display:grid;gap:14px}
-.g5{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
-.g2{grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.spacer{flex:1}
-.stat{font-size:28px;font-weight:800;letter-spacing:-1px;line-height:1.1}
-.statlbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.9px;font-weight:700;margin-bottom:4px}
-.statsub{font-size:11.5px;color:var(--dim);margin-top:3px}
-
-.btn{background:var(--accent);color:#10151c;padding:8px 16px;border-radius:8px;font-weight:650;font-size:13.5px}
-.btn:hover{filter:brightness(1.09)}
-.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
-.btn.ghost:hover{border-color:var(--accent);color:var(--accent);filter:none}
-.btn.danger{background:transparent;border:1px solid rgba(248,81,73,.4);color:#ff8b84}
-.btn.danger:hover{background:rgba(248,81,73,.12);filter:none}
-.btn.sm{padding:5px 11px;font-size:12.5px}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-
-.inp{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13.5px;outline:none;width:100%}
-.inp:focus{border-color:var(--accent)}
-textarea.inp{min-height:90px;resize:vertical;line-height:1.55}
-textarea.mono{font-size:12.5px;line-height:1.6;background:#070b11;color:#9ecbff}
-label.fl{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);font-weight:700;margin:12px 0 4px}
-
-table{width:100%;border-collapse:collapse;font-size:13.5px}
-th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
-tr:last-child td{border-bottom:none}
-tr.click:hover{background:var(--panel2);cursor:pointer}
-.tbl{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow-x:auto}
-
-.pill{display:inline-block;font-size:10.5px;padding:2px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
-.pill.ok{background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)}
-.pill.hot{background:rgba(255,153,51,.12);color:var(--accent);border-color:rgba(255,153,51,.3)}
-.pill.off{background:rgba(248,81,73,.12);color:#ff8b84;border-color:rgba(248,81,73,.3)}
-
-.mini{height:5px;background:var(--panel2);border-radius:99px;overflow:hidden;min-width:70px}
-.mini i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#ffc078)}
-
-.spark{display:flex;align-items:flex-end;gap:2px;height:56px}
-.spark div{flex:1;background:var(--accent2);border-radius:2px 2px 0 0;min-height:2px;opacity:.75}
-.spark div:hover{opacity:1}
-
-.fbar{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
-.fbar:last-child{border-bottom:none}
-.fbar .lbl{width:250px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ccd6e2}
-.fbar .track{width:26px;flex-shrink:0}
-.fbar .g{flex:1;height:16px;background:var(--panel2);border-radius:4px;overflow:hidden;min-width:60px}
-.fbar .g i{display:block;height:100%;background:var(--accent2);opacity:.7}
-.fbar .v{width:82px;text-align:right;flex-shrink:0;color:var(--dim);font-size:12px}
-
-.modal{position:fixed;inset:0;background:rgba(3,6,11,.82);display:none;place-items:center;padding:22px;z-index:50;overflow-y:auto}
-.modal.on{display:grid}
-.mbox{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:820px;max-height:90vh;overflow-y:auto}
-.mhead{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:var(--panel);z-index:2}
-.mhead h3{font-size:17px;font-weight:700;flex:1}
-.mbody{padding:22px}
-
-.gate{min-height:100vh;display:grid;place-items:center;padding:24px}
-.gbox{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:34px;width:100%;max-width:400px}
-.msg{font-size:13px;padding:9px 12px;border-radius:8px;margin-bottom:12px;display:none}
-.msg.err{display:block;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:#ff9b95}
-.msg.ok{display:block;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:#7ee08f}
-.empty{padding:36px;text-align:center;color:var(--dim);font-size:13.5px}
-.hidden{display:none!important}
-@media(max-width:900px){.wrap{flex-direction:column}.side{width:100%;height:auto;position:static}.main{padding:20px 16px 60px}.fbar .lbl{width:140px}}
-</style>
-</head>
-<body>
-
-<div class="gate" id="gate" style="display:none">
-  <div class="gbox">
-    <h1 style="font-size:19px;font-weight:800;margin-bottom:4px">Axle<span style="color:var(--accent)">Path</span> Admin</h1>
-    <p style="color:var(--dim);font-size:12.5px;margin-bottom:20px">Administrator sign-in required.</p>
-    <div class="msg" id="gmsg"></div>
-    <form id="gform">
-      <label class="fl">Email</label><input class="inp" type="email" id="g_email" required/>
-      <label class="fl">Password</label><input class="inp" type="password" id="g_pw" required/>
-      <button class="btn" style="width:100%;margin-top:16px" type="submit" id="g_btn">Sign in</button>
-    </form>
-    <p style="font-size:12px;color:var(--dim);margin-top:16px;text-align:center"><a href="/">← Back to the learning platform</a></p>
-  </div>
-</div>
-
-<div class="wrap hidden" id="wrap">
-  <nav class="side">
-    <div class="brand"><h1>Crax<span>le</span></h1><p>Admin</p><div id="advVer" style="font-size:10.5px;color:var(--dim);margin-top:6px;letter-spacing:.3px">loading…</div></div>
-    <div class="nav">
-      <button class="nv on" data-p="dash"><span>📊</span> Dashboard</button>
-      <button class="nv" data-p="money"><span>💰</span> Revenue &amp; profit</button>
-      <button class="nv" data-p="students"><span>👥</span> Students</button>
-      <button class="nv" data-p="funnel"><span>📉</span> Drop-off</button>
-      <button class="nv" data-p="content"><span>📝</span> Content</button>
-      <button class="nv" data-p="schools"><span>🏫</span> Schools &amp; teachers</button>
-      <a class="nv" href="/api/admin/export.csv"><span>⬇️</span> Export CSV</a>
-      <a class="nv" href="/"><span>🎓</span> Student view</a>
-      <button class="nv" id="signout"><span>↪</span> Sign out</button>
-    </div>
-  </nav>
-  <main class="main" id="main"></main>
-</div>
-
-<div class="modal" id="modal"><div class="mbox">
-  <div class="mhead"><h3 id="mtitle"></h3><button class="btn ghost sm" id="mclose">Close</button></div>
-  <div class="mbody" id="mbody"></div>
-</div></div>
-
-<script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtDate=s=>{ if(!s) return "—"; const d=new Date(s);
@@ -290,11 +148,13 @@ async function renderMoney(){
       // Show what each source returned: a dead board token is obvious here.
       const src = Object.entries(r.sources || {})
         .sort((a,b) => (typeof b[1]==="number"?b[1]:-1) - (typeof a[1]==="number"?a[1]:-1))
-        .map(([k,v]) => k + ": " + v).join(String.fromCharCode(10));
-      const NL = String.fromCharCode(10);
+        .map(([k,v]) => `${k}: ${v}`).join("
+");
       $("#crawlOut").textContent =
         `${r.added||0} added, ${r.updated||0} updated, ${r.closed||0} closed `
-        + `from ${r.fetched||0} rows.` + NL + NL + src;
+        + `from ${r.fetched||0} rows.
+
+${src}`;
     }catch(e){ $("#crawlOut").textContent = e.message; }
     cb.disabled = false; cb.textContent = "Refresh jobs now";
   };
@@ -837,6 +697,3 @@ fetch("/api/version").then(r=>r.json()).then(v=>{
     showApp(); go("dash");
   }catch(e){ showGate(); }
 })();
-</script>
-</body>
-</html>
