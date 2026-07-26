@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>VidyaPath — Learn to Code, Data & AI</title>
+<title>Craxle — Learn to Code, Data & AI</title>
 <meta name="description" content="Hands-on learning platform for students worldwide. Python, JavaScript, SQL, Java, C, Data Science and AI — with runnable labs, videos and references."/>
 <style>
 :root{
@@ -249,7 +249,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   .opt{padding:13px 15px}
 }
 
-/* ---------------- Ask Vidya ---------------- */
+/* ---------------- Ask Axle ---------------- */
 @import url('https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&display=swap');
 .ask-note{background:rgba(255,180,90,.12);border:1px solid rgba(255,180,90,.4);color:#e8a33d;
   padding:11px 14px;border-radius:10px;font-size:13.5px;margin:0 0 16px}
@@ -409,7 +409,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
          right in your browser. Nothing assumed, at any point.</p>
       <div class="row" style="justify-content:center">
         <a class="btn big" href="#join">Start learning free →</a>
-        <button class="btn ghost big" id="tourBtn">▶ Let Vidya explain it</button>
+        <button class="btn ghost big" id="tourBtn">▶ Let Axle explain it</button>
       </div>
       <div class="lstats">
         <div><b>15</b><span>Tracks</span></div>
@@ -427,7 +427,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
           <p>Written for class 8 upwards and for adults who never coded. The first lesson explains what a program even is — with a tea recipe.</p></div>
         <div class="card"><div class="ic">▶️</div><h3>Real code, in your browser</h3>
           <p>Python and SQL genuinely execute and auto-grade as you type. No installing anything to begin.</p></div>
-        <div class="card"><div class="ic">🗣️</div><h3>Vidya, your voice guide</h3>
+        <div class="card"><div class="ic">🗣️</div><h3>Axle, your voice guide</h3>
           <p>An on-screen tutor who explains each lesson, reads notes aloud, and helps when an exercise fails.</p></div>
         <div class="card"><div class="ic">⚡</div><h3>XP, levels and streaks</h3>
           <p>Every exercise earns XP. Daily practice builds a streak. Progress you can see keeps you going.</p></div>
@@ -441,7 +441,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
     <section class="lsec">
       <h2>Everything inside</h2>
       <div class="lfeat">
-        <div class="card"><div class="ic">💬</div><h3>Ask Vidya anything</h3>
+        <div class="card"><div class="ic">💬</div><h3>Ask Axle anything</h3>
           <p>An AI teacher at a blackboard. Ask any question in any subject, at any level — it writes the answer out and reads it aloud, then saves it.</p></div>
         <div class="card"><div class="ic">🏫</div><h3>Real classrooms for schools</h3>
           <p>Head teachers run a school, subject teachers set their own assignments (typed or photographed book pages), students hand in work and chat for help.</p></div>
@@ -536,7 +536,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
     </section>
 
     <footer class="lfoot">
-      VidyaPath · Free, open learning worldwide · Python &amp; SQL exercises auto-grade in your browser<br>
+      Craxle · Free, open learning worldwide · Python &amp; SQL exercises auto-grade in your browser<br>
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
       <br><span data-version style="opacity:.7"></span>
@@ -547,14 +547,14 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 <!-- ================= APP ================= -->
 <div class="topbar" id="topbar" style="display:none">
   <button class="hamb" id="hamb" title="Menu">☰</button>
-  <div class="tb-brand">Vidya<span>Path</span></div>
+  <div class="tb-brand">Crax<span>le</span></div>
   <div class="spacer"></div>
   <span class="pill hot" id="topxp"></span>
 </div>
 <div class="scrim" id="scrim"></div>
 <div class="app" id="app">
   <nav class="sidebar">
-    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Code · Data · AI — learn anywhere</p></div>
+    <div class="brand"><h1>Crax<span>le</span></h1><p>Code · Data · AI — learn anywhere</p></div>
     <div class="who" id="who"></div>
     <div class="searchwrap"><input class="search" id="search" placeholder="Search lessons…" autocomplete="off"/></div>
     <div id="nav"></div>
@@ -562,8 +562,10 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   <main class="main" id="main"></main>
 </div>
 
-<script src="tutor.js"></script>
-<script src="presenter.js"></script>
+<!-- ?v= busts the browser cache on deploy. Without it a returning visitor
+     keeps running the previous build's tutor.js against the new page. -->
+<script src="tutor.js?v=1.49.0"></script>
+<script src="presenter.js?v=1.49.0"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
@@ -787,7 +789,7 @@ async function boot(){
   setTimeout(()=>{
     TUTOR.say(totalDone()
       ? `Welcome back ${first}. You have finished ${totalDone()} lessons. Pick up where you left off.`
-      : `Hello ${first}. I am Vidya, your guide. Start with Stage 1 and go in order. Tap me any time you get stuck.`);
+      : `Hello ${first}. I am Axle, your guide. Start with Stage 1 and go in order. Tap me any time you get stuck.`);
   }, 800);
 }
 
@@ -812,7 +814,7 @@ fetch("/api/version").then(r=>r.json()).then(v=>{
   VERSION_INFO = v;
   const label = "v" + v.version + " · " + v.commit;
   document.querySelectorAll("[data-version]").forEach(el=>{ el.textContent = label; });
-  rzVersionBadge("VidyaPath v" + v.version);
+  rzVersionBadge("Craxle v" + v.version);
 }).catch(()=>{ rzVersionBadge("version unavailable"); });
 
 // Show the Google button + school list when the server provides them.
@@ -878,7 +880,7 @@ function renderNav(){
   h+=nav("home","🏠","Home")
    + nav("paths","🧭","Choose a path")
    + nav("projects","🛠️","Projects")
-   + nav("ask","💬","Ask Vidya anything");
+   + nav("ask","💬","Ask Axle anything");
 
   h+=`<div class="navsec">Get hired</div>`
    + nav("careers","💼","Careers &amp; jobs")
@@ -1057,7 +1059,7 @@ function renderHome(){
     <li><b>Start portfolio project #1 the day you finish the Data track.</b> Employers want evidence, not completion.</li>
   </ul></div>
 
-  <footer>VidyaPath · All videos and reference links point to free public resources — official docs, MDN, freeCodeCamp, Kaggle, Harvard CS50 and similar.<br>
+  <footer>Craxle · All videos and reference links point to free public resources — official docs, MDN, freeCodeCamp, Kaggle, Harvard CS50 and similar.<br>
   Salary and job-market figures change constantly; always check current live sources before making decisions.<br><span data-version style="opacity:.7"></span></footer>`;
 }
 
@@ -1560,7 +1562,7 @@ async function askSubmit(raw){
     askTeach(res.lesson);                          // renders + narrates
   }catch(e){
     ASK.loading=false;
-    ASK.error=(e&&e.message)||"Vidya could not reach the board just now. Try again.";
+    ASK.error=(e&&e.message)||"Axle could not reach the board just now. Try again.";
     renderAsk();
   }
 }
@@ -1640,12 +1642,12 @@ async function askPDF(rec){
     parts.forEach(p=>{ if(y>H-60){ doc.addPage(); y=64; } doc.text(p,M,y); y+=size*1.35; });
     y+=gap||0;
   };
-  line(rec.title||"Vidya's answer",20,true); y+=2;
+  line(rec.title||"Axle's answer",20,true); y+=2;
   line(`${rec.subject||""}  -  ${rec.level||""}`,10,false,"#777",8);
   if(rec.q) line("Question: "+rec.q,11,false,"#555",10);
   (rec.steps||[]).forEach(s=>line("-  "+s.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4));
   if(rec.takeaway){ y+=6; line("Remember: "+rec.takeaway,12,true,"#8a5a00",0); }
-  y+=16; line("Made with VidyaPath - Ask Vidya",9,false,"#aaa",0);
+  y+=16; line("Made with Craxle - Ask Axle",9,false,"#aaa",0);
   const name=(rec.title||"vidya-answer").replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,40);
   doc.save(name+".pdf");
 }
@@ -1747,8 +1749,8 @@ function askTeacherSVG(speaking){
 }
 
 function askBoardHTML(){
-  if(ASK.loading) return `<div class="ask-empty">Vidya is thinking…</div>`;
-  if(!ASK.lesson) return `<div class="ask-empty">Namaste! I am Vidya.<br>Pick a subject, then ask anything —<br>I'll explain it on the board.</div>`;
+  if(ASK.loading) return `<div class="ask-empty">Axle is thinking…</div>`;
+  if(!ASK.lesson) return `<div class="ask-empty">Namaste! I am Axle.<br>Pick a subject, then ask anything —<br>I'll explain it on the board.</div>`;
   const l=ASK.lesson, pg=Math.min(ASK.page||0,ASK.slides.length-1), slide=ASK.slides[pg]||[];
   let h=`<div class="ask-title">${esc(l.title)}</div>`;
   slide.forEach(step=>{
@@ -1786,8 +1788,8 @@ function renderAsk(){
   const saved=askSavedList();
   const hasLesson=!!a.lesson;
   $("#main").innerHTML=`
-  <div class="h1">💬 Ask Vidya anything</div>
-  <p class="sub">Choose a subject and level, then ask any question — by voice or by typing. The whole answer appears on the board and Vidya reads it aloud, line by line. Long answers become slides. Save any answer or download it as a PDF.</p>
+  <div class="h1">💬 Ask Axle anything</div>
+  <p class="sub">Choose a subject and level, then ask any question — by voice or by typing. The whole answer appears on the board and Axle reads it aloud, line by line. Long answers become slides. Save any answer or download it as a PDF.</p>
   ${disabledNote}
 
   <div class="ask-picker">
@@ -1813,7 +1815,7 @@ function renderAsk(){
     </div>
     <div class="ask-teacher ${a.speaking?"talk":""}" id="askTeacher">
       <div class="ask-svg">${askTeacherSVG(a.speaking)}</div>
-      <div class="ask-name">Vidya</div>
+      <div class="ask-name">Axle</div>
       <div class="ask-tstatus" id="askStatus">${a.speaking?"explaining…":(a.fromCache?"from memory":"")}</div>
     </div>
   </div>
@@ -1832,7 +1834,7 @@ function renderAsk(){
       <input class="ask-input" id="askInput" placeholder="Type your question about ${esc(a.subject)}…" value="${esc(a.question)}" ${a.loading?"disabled":""}>
       ${a.speaking
         ? `<button class="ask-btn ask-stop" data-ask="stop">Stop</button>`
-        : `<button class="ask-btn ask-go" data-ask="send" ${a.loading?"disabled":""}>Ask Vidya →</button>`}
+        : `<button class="ask-btn ask-go" data-ask="send" ${a.loading?"disabled":""}>Ask Axle →</button>`}
     </div>
     <div class="ask-tools">
       ${samples.map(q=>`<button class="ask-samp" data-ask="sample" data-val="${esc(q)}" ${a.loading||a.speaking?"disabled":""}>${esc(q)}</button>`).join("")}
@@ -2755,7 +2757,7 @@ function jbKitHTML(){
   const p=s=>`<div style="font-size:13px;color:var(--body);white-space:pre-wrap">${esc(s)}</div>`;
   return `<div style="margin-top:12px;padding:14px;background:var(--panel2);border-radius:10px">
     <div style="font-size:12px;color:var(--dim);margin-bottom:8px">
-      Prepared for you to send — VidyaPath never submits an application on your behalf.
+      Prepared for you to send — Craxle never submits an application on your behalf.
     </div>
     ${k.summary?box("Resume summary for this job",p(k.summary),k.summary):""}
     ${(k.bullets||[]).length?box("Bullets to lead with",
@@ -3002,7 +3004,7 @@ function renderCareers(){
   <div class="card" style="margin-bottom:14px">
     <b>🧩 Browser extension</b>
     <div style="font-size:12.5px;color:var(--dim);margin:4px 0 9px">
-      Install the VidyaPath extension and it fills your name, email, phone, links and
+      Install the Craxle extension and it fills your name, email, phone, links and
       education into an employer's application form in one click. It <b>never submits</b> —
       you check every field and press the employer's own submit button. Your details are
       stored in your browser, not sent anywhere on each fill.

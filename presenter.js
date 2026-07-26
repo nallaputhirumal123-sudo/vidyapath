@@ -1,5 +1,5 @@
 /* ==========================================================================
-   VidyaPath PRESENTER — Vidya, full-body, gesturing, speaking.
+   Craxle PRESENTER — Axle, full-body, gesturing, speaking.
 
    Extends tutor.js. Load AFTER it. Adds:
      Presenter.open()        full presenter panel with a talking figure
@@ -308,7 +308,7 @@ function buildTour() {
   });
 
   var lines = [
-    "Hello, and welcome to VidyaPath. I am Vidya, and I will walk you through what this course is and how to use it.",
+    "Hello, and welcome to Craxle. I am Axle, and I will walk you through what this course is and how to use it.",
     "This course takes you from never having written a single line of code, all the way to building real artificial intelligence systems. Nothing is assumed at any point.",
   ];
 
@@ -354,7 +354,7 @@ var API = {
       '<div id="vpPanel">' +
         '<div id="vpStage"><div id="vpLive">○ READY</div>' + figureSVG() + '</div>' +
         '<div id="vpSide">' +
-          '<div class="who">Vidya &middot; your guide</div>' +
+          '<div class="who">Axle &middot; your guide</div>' +
           '<h3 id="vpTitle">Course introduction</h3>' +
           '<div id="vpProg"><i style="width:0%"></i></div>' +
           '<div id="vpText"></div>' +
@@ -399,7 +399,7 @@ var API = {
     queue = Array.isArray(text) ? text : [text];
     queueIndex = -1;
     stopped = false;
-    el.title.textContent = title || "Vidya explains";
+    el.title.textContent = title || "Axle explains";
     el.root.classList.add("on");
     step(1);
   },

@@ -1,4 +1,4 @@
-/* Builds VidyaPath-Syllabus.html — a one-page shareable course outline.
+/* Builds Craxle-Syllabus.html — a one-page shareable course outline.
    Generated from the real curriculum files so it can never drift.
    Run:  node build-syllabus.js                                        */
 const fs = require("fs");
@@ -96,7 +96,7 @@ STAGES.forEach(stage => {
 const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>VidyaPath — Course Syllabus</title>
+<title>Craxle — Course Syllabus</title>
 <style>
 :root{--bg:#fff;--paper:#faf9f7;--line:#e2e0dc;--text:#1a1a19;--muted:#6b6b66;
       --accent:#c2410c;--blue:#1e5fa8;--green:#15803d;--r:9px}
@@ -271,13 +271,13 @@ ${stagesHtml}
 </section>
 
 <footer>
-  VidyaPath &middot; Free to copy, print and photocopy for teaching.<br>
+  Craxle &middot; Free to copy, print and photocopy for teaching.<br>
   Salary figures, tool prices and job-market conditions change constantly &mdash;
   always check current sources before making decisions based on them.
 </footer>
 </body></html>`;
 
-fs.writeFileSync("VidyaPath-Syllabus.html", html);
-console.log("wrote VidyaPath-Syllabus.html");
+fs.writeFileSync("Craxle-Syllabus.html", html);
+console.log("wrote Craxle-Syllabus.html");
 console.log(`  ${totals.tracks} tracks, ${totals.lessons} lessons, ${totals.exercises} exercises, ${totals.worksheet} written questions`);
 console.log(`  ${Math.round(html.length / 1024)} KB`);

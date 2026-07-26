@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Builds VidyaPath-Complete-Guide.html
+   Builds Craxle-Complete-Guide.html
    One self-contained file: every stage, every lesson, every exercise,
    every worksheet. No server, no internet, no dependencies.
    Run:  node build-guide.js
@@ -147,7 +147,7 @@ const html = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>VidyaPath — Complete Study Guide</title>
+<title>Craxle — Complete Study Guide</title>
 <style>
 :root{
   --bg:#ffffff;--paper:#fbfbfa;--line:#e3e3e0;--text:#1a1a19;--muted:#6b6b68;
@@ -293,7 +293,7 @@ a{color:var(--accent2)}
 <body>
 <div class="wrap">
   <nav class="side">
-    <div class="brand"><h1>Vidya<span>Path</span></h1><p>Complete Study Guide</p></div>
+    <div class="brand"><h1>Crax<span>le</span></h1><p>Complete Study Guide</p></div>
     <div class="searchbox"><input id="q" placeholder="Search lessons..." autocomplete="off"/></div>
     <div class="toc" id="toc">${toc}</div>
   </nav>
@@ -307,7 +307,7 @@ a{color:var(--accent2)}
         <button id="guideTour" style="font-family:inherit;font-size:15px;padding:12px 24px;
           border:none;border-radius:10px;cursor:pointer;font-weight:650;
           background:linear-gradient(135deg,#e8892a,#c2410c);color:#fff">
-          ▶ Let Vidya explain this course</button>
+          ▶ Let Axle explain this course</button>
       </p>
       <div class="nums">
         <div><b>${counts.lessons}</b><span>Lessons</span></div>
@@ -356,7 +356,7 @@ if (tourBtn) tourBtn.onclick = function () {
 if (window.Tutor) {
   Tutor.init();
   setTimeout(function () {
-    Tutor.say("Hello. I am Vidya, your guide. Open any lesson and I can read the notes aloud for you. Tap me any time.", [
+    Tutor.say("Hello. I am Axle, your guide. Open any lesson and I can read the notes aloud for you. Tap me any time.", [
       { label: "Read this page aloud", primary: true, onClick: function () {
           var vis = Array.prototype.filter.call(
             document.querySelectorAll(".lesson"),
@@ -428,8 +428,8 @@ q.addEventListener("input", function () {
 </body>
 </html>`;
 
-fs.writeFileSync("VidyaPath-Complete-Guide.html", html);
-console.log("wrote VidyaPath-Complete-Guide.html");
+fs.writeFileSync("Craxle-Complete-Guide.html", html);
+console.log("wrote Craxle-Complete-Guide.html");
 console.log("  " + counts.tracks + " tracks, " + counts.lessons + " lessons, "
   + counts.exercises + " exercises, " + counts.worksheet + " worksheet questions");
 console.log("  " + Math.round(html.length / 1024) + " KB, fully self-contained");

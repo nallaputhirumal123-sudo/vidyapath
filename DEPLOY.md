@@ -1,4 +1,4 @@
-# VidyaPath — launch on Railway
+# Craxle — launch on Railway
 
 Complete deployment guide. Total time: about 20 minutes, most of it waiting for builds.
 
@@ -57,7 +57,7 @@ A file called `vidyapath.db` will appear — that's local SQLite. It's in `.giti
 ```bash
 git init
 git add .
-git commit -m "VidyaPath initial"
+git commit -m "Craxle initial"
 git branch -M main
 git remote add origin https://github.com/YOUR-USERNAME/vidyapath.git
 git push -u origin main

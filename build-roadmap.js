@@ -1,4 +1,4 @@
-/* Builds VidyaPath-Roadmap.html — an honest map of every topic:
+/* Builds Craxle-Roadmap.html — an honest map of every topic:
    what is taught now, what is planned, and what needs tools this
    platform cannot honestly provide (with the best free alternative named).
    Run:  node build-roadmap.js                                          */
@@ -59,7 +59,7 @@ const DOMAINS = [
 { name:"Computer Vision · NLP · Speech", items:[
   { t:"Image Classification / Object Detection / Segmentation / OCR", s:"external", why:"Real CV needs GPUs and large datasets — cannot run honestly in a browser", ref:"fast.ai course — free and genuinely excellent" },
   { t:"Text Classification / NER / Translation / Summarization", s:"partial", where:"All are LLM applications now; the AI track teaches the approach", ref:"Hugging Face NLP course" },
-  { t:"Speech-to-Text / TTS / Voice Assistants", s:"external", why:"API-driven work; the tutor Vidya uses browser TTS as a working demo", ref:"OpenAI Whisper docs (open source)" },
+  { t:"Speech-to-Text / TTS / Voice Assistants", s:"external", why:"API-driven work; the tutor Axle uses browser TTS as a working demo", ref:"OpenAI Whisper docs (open source)" },
 ]},
 { name:"MLOps & Cloud", items:[
   { t:"Docker", s:"done", where:"AI track L5 — Dockerfile explained line by line" },
@@ -87,7 +87,7 @@ const DOMAINS = [
 
 const FEATURES = [
   { t:"Interactive coding playground", s:"done", note:"Python, JavaScript and real SQL run in the browser and self-grade" },
-  { t:"AI tutor that answers questions", s:"done", note:"Vidya — context-aware guidance with voice. Rule-based by design: free, offline, no API key to leak" },
+  { t:"AI tutor that answers questions", s:"done", note:"Axle — context-aware guidance with voice. Rule-based by design: free, offline, no API key to leak" },
   { t:"Real-world projects", s:"done", note:"Four portfolio projects with step checklists and interviewer criteria" },
   { t:"Daily coding challenges", s:"done", note:"One shared challenge per day on the dashboard — same for everyone, so classmates can compare" },
   { t:"Certificates", s:"done", note:"Per stage, earned by passing every auto-graded exercise — not by watching" },
@@ -139,7 +139,7 @@ FEATURES.forEach(f => {
 
 const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>VidyaPath — Honest Roadmap</title>
+<title>Craxle — Honest Roadmap</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -165,7 +165,7 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid #e3e3e0;
 @media print{@page{margin:14mm}}
 </style></head><body>
 <h1>The Honest Roadmap</h1>
-<p class="sub">Every topic from "zero to AI engineer", mapped to what VidyaPath teaches
+<p class="sub">Every topic from "zero to AI engineer", mapped to what Craxle teaches
 today, what is planned, and where a topic is genuinely better learned elsewhere —
 with the best free resource named. No topic is hidden and none is oversold.</p>
 
@@ -187,10 +187,10 @@ ${body}
 <h2>Platform features</h2>
 <div class="items">${feat}</div>
 
-<footer>VidyaPath · Generated ${new Date().toISOString().slice(0,10)} ·
+<footer>Craxle · Generated ${new Date().toISOString().slice(0,10)} ·
 45 lessons, 289 verified exercises, 360 written questions currently live.</footer>
 </body></html>`;
 
-fs.writeFileSync("VidyaPath-Roadmap.html", html);
+fs.writeFileSync("Craxle-Roadmap.html", html);
 const total = Object.values(counts).reduce((a,b)=>a+b,0);
-console.log(`wrote VidyaPath-Roadmap.html — ${total} items:`, counts);
+console.log(`wrote Craxle-Roadmap.html — ${total} items:`, counts);

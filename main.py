@@ -1,5 +1,5 @@
 """
-VidyaPath — backend
+Craxle — backend
 FastAPI + SQLAlchemy. Postgres on Railway, SQLite locally.
 
 Run locally:   uvicorn main:app --reload
@@ -99,7 +99,7 @@ GOOGLE_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 # Optional explicit public URL for the OAuth redirect; else derived per-request.
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL").rstrip("/")
 
-# ---- Ask Vidya (the "ask anything" AI teacher) ---------------------------
+# ---- Ask Axle (the "ask anything" AI teacher) ---------------------------
 # The API key lives ONLY on the server. The browser never sees it. Every
 # answer is cached in the database, so a repeated question costs nothing and
 # returns instantly. Without a key, the feature degrades gracefully: the
@@ -144,7 +144,7 @@ _PROVIDER_KEY = {"gemini": GEMINI_API_KEY, "groq": GROQ_API_KEY,
 _PROVIDER_MODEL = {"gemini": GEMINI_MODEL, "groq": GROQ_MODEL,
                    "claude": ANTHROPIC_MODEL}.get(AI_PROVIDER, "")
 ASK_ENABLED = bool(_PROVIDER_KEY)
-print(f"Ask Vidya: provider={AI_PROVIDER} enabled={ASK_ENABLED}"
+print(f"Ask Axle: provider={AI_PROVIDER} enabled={ASK_ENABLED}"
       + (f" model={_PROVIDER_MODEL}" if ASK_ENABLED else ""))
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -623,7 +623,7 @@ class LessonIn(BaseModel):
 # --------------------------------------------------------------------------
 # App
 # --------------------------------------------------------------------------
-app = FastAPI(title="VidyaPath", docs_url="/api/docs", redoc_url=None)
+app = FastAPI(title="Craxle", docs_url="/api/docs", redoc_url=None)
 
 
 # Tracks replaced by a rewritten version — skipped so nothing appears twice
@@ -821,7 +821,7 @@ def _startup():
     """
     global STARTUP_ERROR
     print("=" * 56)
-    print(f"  VidyaPath  v{VERSION}  (commit {GIT_SHA})")
+    print(f"  Craxle  v{VERSION}  (commit {GIT_SHA})")
     print(f"  started {BUILT_AT}")
     print("=" * 56)
 
@@ -2288,7 +2288,7 @@ def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = De
     return {"ok": True}
 
 
-# ---------------------------- Ask Vidya -----------------------------------
+# ---------------------------- Ask Axle -----------------------------------
 import re as _re
 
 
@@ -2308,18 +2308,18 @@ def _fallback_lesson(subject: str, level: str) -> dict:
     return {
         "title": "AI teacher not set up yet",
         "steps": [
-            "Vidya's ask-anything teacher needs an API key to think.",
+            "Axle's ask-anything teacher needs an API key to think.",
             "The site owner adds a free GEMINI_API_KEY in the server settings.",
             "Once it is set, ask any question on any subject.",
             "Answers you get are saved, so asking again is instant and free.",
         ],
-        "takeaway": "Everything else on VidyaPath works without this.",
+        "takeaway": "Everything else on Craxle works without this.",
     }
 
 
 def _ask_prompt(question: str, subject: str, level: str) -> str:
     return (
-        f"You are Vidya, a warm, patient teacher in India explaining on a "
+        f"You are Axle, a warm, patient teacher in India explaining on a "
         f"blackboard. The subject is: {subject}. The learner's level is: "
         f"{level}. A learner asked: \"{question}\"\n\n"
         f"Explain it the way a good teacher writes on the board: short lines, "
@@ -2513,7 +2513,7 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False)
 
 
 async def _call_model(question: str, subject: str, level: str) -> dict:
-    """Build an Ask-Vidya lesson, with automatic provider fallback."""
+    """Build an Ask-Axle lesson, with automatic provider fallback."""
     prompt = _ask_prompt(question, subject, level)
     text = await _ai_text(prompt, 1500, json_mode=True)
     if not text:
@@ -3245,7 +3245,7 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
     try:
         lesson = await _call_model(question, subject, level)
     except Exception as e:
-        print(f"Ask Vidya call failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        print(f"Ask Axle call failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(status_code=503, detail=_ai_error_message(e))
 
     db.add(AskCache(qkey=qkey, subject=subject, level=level,
@@ -3688,7 +3688,7 @@ async def _collect_jobs():
     rows, report, reached = [], {}, set()
     async with httpx.AsyncClient(
             timeout=25, follow_redirects=True,
-            headers={"User-Agent": "VidyaPath/1.0 (job board reader)"}) as client:
+            headers={"User-Agent": "Craxle/1.0 (job board reader)"}) as client:
         for source, fetch in _FETCHERS.items():
             for token in _job_tokens(source):
                 try:
@@ -4756,7 +4756,7 @@ def admin_export(user: User = Depends(admin_user), db: Session = Depends(get_db)
         w.writerow([u.id, u.name, u.email, u.college, u.city, u.degree, u.path, d,
                     round(d / total_lessons * 100), u.created_at, u.last_seen, u.is_active])
     return Response(content=buf.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=vidyapath-students.csv"})
+                    headers={"Content-Disposition": "attachment; filename=craxle-students.csv"})
 
 
 # ---------------------------- admin: content ------------------------------
@@ -4919,16 +4919,16 @@ def _worksheet_html(lesson: Lesson, track: Track, with_answers: bool, lines: int
 <div class="bar">
   <a href="javascript:window.print()">Print / Save as PDF</a>
   <a href="/worksheet/{lesson.slug}?{other}=1">{other_label}</a>
-  <a href="/">Back to VidyaPath</a>
+  <a href="/">Back to Craxle</a>
 </div>
 <div class="head">
   <h1>{esc(title)}</h1>
   <div class="sub">{esc(track.icon)} {esc(track.name)} &middot; {len(qs)} questions
-    &middot; VidyaPath</div>
+    &middot; Craxle</div>
 </div>
 {meta}
 {"".join(body)}
-<div class="foot">VidyaPath &middot; Free to print and photocopy for classroom use</div>
+<div class="foot">Craxle &middot; Free to print and photocopy for classroom use</div>
 </body></html>"""
 
 
@@ -5038,7 +5038,7 @@ Finish the remaining {len(remaining)} and this page becomes your certificate.</p
 &middot; all auto-graded work passed</div>
 <div class="meta">
   <div><b>{date_str}</b>Date of completion</div>
-  <div><b>VidyaPath</b>Learn to code, then build with AI</div>
+  <div><b>Craxle</b>Learn to code, then build with AI</div>
 </div>
 </div></div></body></html>""", media_type="text/html")
 

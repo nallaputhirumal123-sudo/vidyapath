@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "VidyaPath Autofill",
+  "name": "Craxle Autofill",
   "version": "1.0.0",
   "description": "Fills your details into a job application form you already opened. It never submits anything for you.",
   "permissions": ["storage", "activeTab", "scripting"],
@@ -10,7 +10,7 @@
     "https://vidyapath-athlyx-a9c9.up.railway.app/*"
   ],
   "action": {
-    "default_title": "VidyaPath Autofill",
+    "default_title": "Craxle Autofill",
     "default_popup": "popup.html",
     "default_icon": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" }
   },

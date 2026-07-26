@@ -1,4 +1,4 @@
-# VidyaPath Autofill — browser extension
+# Craxle Autofill — browser extension
 
 Fills your details into a job application form you have already opened.
 **It never submits anything.**
@@ -15,7 +15,7 @@ You need an `icon128.png` in this folder before Chrome will accept it — any
 
 ## Connect it to your account
 
-1. Sign in to VidyaPath and go to **Careers & jobs**.
+1. Sign in to Craxle and go to **Careers & jobs**.
 2. Press **🔗 Connect extension**. A code appears, valid for 10 minutes.
 3. Click the extension icon, type the code, press **Connect**.
 

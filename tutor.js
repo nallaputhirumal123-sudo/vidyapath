@@ -1,5 +1,5 @@
 /* ==========================================================================
-   VidyaPath TUTOR — an on-screen guide who explains what to do.
+   Craxle TUTOR — an on-screen guide who explains what to do.
 
    Self-contained. No API key, no internet, no cost. Uses the browser's
    built-in speech synthesis, so it works offline and responds instantly.
@@ -112,49 +112,77 @@ var pick = function (arr) { return arr[Math.floor(Math.random() * arr.length)]; 
 
 /* ------------------------------------------------------------------ svg */
 /* A friendly, simple guide. Deliberately stylised rather than realistic. */
+/* Axle. Stays SVG rather than a PNG on purpose: the mouth and eyelids are
+ * animated by id while speaking, which a flat image cannot do, and vector
+ * stays sharp from the 40px bubble up to a retina display. */
 function avatarSVG() {
   return '' +
   '<svg viewBox="0 0 120 120" width="100%" height="100%" aria-hidden="true">' +
     '<defs>' +
       '<linearGradient id="vpSkin" x1="0" y1="0" x2="0" y2="1">' +
-        '<stop offset="0%" stop-color="#f0c9a0"/><stop offset="100%" stop-color="#e0b088"/>' +
+        '<stop offset="0%" stop-color="#f3d0ab"/><stop offset="100%" stop-color="#dfae83"/>' +
       '</linearGradient>' +
       '<linearGradient id="vpShirt" x1="0" y1="0" x2="1" y2="1">' +
-        '<stop offset="0%" stop-color="#ff9933"/><stop offset="100%" stop-color="#e07b20"/>' +
+        '<stop offset="0%" stop-color="#ffa947"/><stop offset="100%" stop-color="#dd6f18"/>' +
       '</linearGradient>' +
+      '<linearGradient id="vpRing" x1="0" y1="0" x2="1" y2="1">' +
+        '<stop offset="0%" stop-color="#2a3446"/><stop offset="100%" stop-color="#151d29"/>' +
+      '</linearGradient>' +
+      '<clipPath id="vpClip"><circle cx="60" cy="60" r="56"/></clipPath>' +
     '</defs>' +
-    /* shoulders */
-    '<path d="M22 120 Q22 88 60 88 Q98 88 98 120 Z" fill="url(#vpShirt)"/>' +
-    '<path d="M52 88 L60 100 L68 88 Z" fill="#fff" opacity=".85"/>' +
-    /* neck */
-    '<rect x="52" y="72" width="16" height="18" rx="7" fill="#e0b088"/>' +
-    /* head */
-    '<ellipse cx="60" cy="52" rx="30" ry="33" fill="url(#vpSkin)"/>' +
-    /* hair */
-    '<path d="M30 46 Q30 18 60 18 Q90 18 90 46 Q90 34 78 30 Q68 38 52 34 Q38 34 34 44 Z" fill="#2b1c14"/>' +
-    /* ears */
-    '<ellipse cx="30" cy="55" rx="5" ry="8" fill="#e0b088"/>' +
-    '<ellipse cx="90" cy="55" rx="5" ry="8" fill="#e0b088"/>' +
-    /* eyes */
-    '<g id="vpEyes">' +
-      '<ellipse cx="48" cy="52" rx="5.5" ry="6" fill="#fff"/>' +
-      '<ellipse cx="72" cy="52" rx="5.5" ry="6" fill="#fff"/>' +
-      '<circle cx="48.5" cy="53" r="3.2" fill="#2b1c14"/>' +
-      '<circle cx="72.5" cy="53" r="3.2" fill="#2b1c14"/>' +
-      '<circle cx="49.6" cy="51.6" r="1.1" fill="#fff"/>' +
-      '<circle cx="73.6" cy="51.6" r="1.1" fill="#fff"/>' +
+    /* badge backdrop, so the head reads as an avatar at any size */
+    '<circle cx="60" cy="60" r="56" fill="url(#vpRing)"/>' +
+    '<g clip-path="url(#vpClip)">' +
+      /* shoulders */
+      '<path d="M14 120 Q14 90 60 90 Q106 90 106 120 Z" fill="url(#vpShirt)"/>' +
+      '<path d="M50 91 L60 104 L70 91 Q60 96 50 91 Z" fill="#fff" opacity=".9"/>' +
+      /* neck */
+      '<path d="M52 74 h16 v14 q-8 5 -16 0 Z" fill="#d5a179"/>' +
+      /* head */
+      '<ellipse cx="60" cy="54" rx="28" ry="31" fill="url(#vpSkin)"/>' +
+      /* ears */
+      '<ellipse cx="32" cy="57" rx="4.5" ry="7.5" fill="#dfae83"/>' +
+      '<ellipse cx="88" cy="57" rx="4.5" ry="7.5" fill="#dfae83"/>' +
+      /* hair — a cleaner silhouette than the old zig-zag fringe */
+      '<path d="M31 52 Q29 22 60 21 Q91 22 89 52 Q86 38 76 33 '
+        + 'Q66 41 50 36 Q37 37 34 52 Z" fill="#241a13"/>' +
+      /* headset: reads instantly as "guide", and gives Axle a silhouette */
+      '<path d="M31 56 Q31 27 60 27 Q89 27 89 56" stroke="#2f3b4f" '
+        + 'stroke-width="4.5" fill="none" stroke-linecap="round"/>' +
+      '<rect x="25.5" y="50" width="9" height="15" rx="4.5" fill="#3b4a63"/>' +
+      '<rect x="85.5" y="50" width="9" height="15" rx="4.5" fill="#3b4a63"/>' +
+      '<path d="M30 65 Q30 78 45 79" stroke="#3b4a63" stroke-width="3" '
+        + 'fill="none" stroke-linecap="round"/>' +
+      '<circle cx="47" cy="79" r="3.4" fill="#ffa947"/>' +
+      /* eyes — ids kept: the blink animation targets them */
+      '<g id="vpEyes">' +
+        '<ellipse cx="49" cy="54" rx="5.6" ry="6.2" fill="#fff"/>' +
+        '<ellipse cx="71" cy="54" rx="5.6" ry="6.2" fill="#fff"/>' +
+        '<circle cx="49.5" cy="55" r="3.1" fill="#22303f"/>' +
+        '<circle cx="71.5" cy="55" r="3.1" fill="#22303f"/>' +
+        '<circle cx="50.7" cy="53.5" r="1.15" fill="#fff"/>' +
+        '<circle cx="72.7" cy="53.5" r="1.15" fill="#fff"/>' +
+      '</g>' +
+      '<g id="vpLids" style="opacity:0">' +
+        '<ellipse cx="49" cy="54" rx="6.1" ry="6.6" fill="#ecc49c"/>' +
+        '<ellipse cx="71" cy="54" rx="6.1" ry="6.6" fill="#ecc49c"/>' +
+      '</g>' +
+      /* brows */
+      '<path d="M43 45 Q49 41.5 55 45" stroke="#241a13" stroke-width="2.4" '
+        + 'fill="none" stroke-linecap="round"/>' +
+      '<path d="M65 45 Q71 41.5 77 45" stroke="#241a13" stroke-width="2.4" '
+        + 'fill="none" stroke-linecap="round"/>' +
+      /* nose */
+      '<path d="M60 58 L57.8 65 Q60 66.4 62.2 65" stroke="#c79067" '
+        + 'stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
+      /* cheeks */
+      '<ellipse cx="42" cy="64" rx="4.5" ry="2.8" fill="#e8956b" opacity=".28"/>' +
+      '<ellipse cx="78" cy="64" rx="4.5" ry="2.8" fill="#e8956b" opacity=".28"/>' +
+      /* mouth — id kept: resized on every syllable while speaking */
+      '<ellipse id="vpMouth" cx="60" cy="73" rx="7.5" ry="2.4" fill="#8f3f3f"/>' +
     '</g>' +
-    '<g id="vpLids" style="opacity:0">' +
-      '<ellipse cx="48" cy="52" rx="6" ry="6.5" fill="#e8bd93"/>' +
-      '<ellipse cx="72" cy="52" rx="6" ry="6.5" fill="#e8bd93"/>' +
-    '</g>' +
-    /* brows */
-    '<path d="M42 43 Q48 40 54 43" stroke="#2b1c14" stroke-width="2.2" fill="none" stroke-linecap="round"/>' +
-    '<path d="M66 43 Q72 40 78 43" stroke="#2b1c14" stroke-width="2.2" fill="none" stroke-linecap="round"/>' +
-    /* nose */
-    '<path d="M60 56 L57.5 63 Q60 64.5 62.5 63" stroke="#cf9d76" stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
-    /* mouth - animated while speaking */
-    '<ellipse id="vpMouth" cx="60" cy="71" rx="8" ry="2.4" fill="#8c3b3b"/>' +
+    '<circle cx="60" cy="60" r="55" fill="none" stroke="#ffa947" '
+      + 'stroke-width="2" opacity=".55"/>' +
   '</svg>';
 }
 
@@ -243,7 +271,7 @@ function startBlinking() {
 /* --------------------------------------------------------------- bubble */
 function showBubble(text, actions) {
   if (!el.bubble) return;
-  var html = '<div class="vpName">Vidya &middot; your guide</div>' +
+  var html = '<div class="vpName">Axle &middot; your guide</div>' +
              '<div class="vpText"></div>';
   el.bubble.innerHTML = html;
   el.bubble.querySelector(".vpText").textContent = text;
@@ -294,7 +322,7 @@ var API = {
     root.id = "vpTutor";
     root.innerHTML =
       '<div id="vpBubble"></div>' +
-      '<div id="vpAvatarWrap" title="Ask Vidya">' +
+      '<div id="vpAvatarWrap" title="Ask Axle">' +
         '<div id="vpAvatar">' + avatarSVG() + '</div>' +
         '<div id="vpBadge">?</div>' +
       '</div>';
@@ -303,7 +331,7 @@ var API = {
     var mini = document.createElement("button");
     mini.id = "vpMini";
     mini.textContent = "?";
-    mini.title = "Show Vidya";
+    mini.title = "Show Axle";
     mini.onclick = function () { API.restore(); };
     document.body.appendChild(mini);
 
