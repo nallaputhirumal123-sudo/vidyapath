@@ -3448,6 +3448,51 @@ def ask_config(user: User = Depends(current_user)):
             "model": _PROVIDER_MODEL if ASK_ENABLED else ""}
 
 
+@app.get("/api/ai/models")
+async def ai_models(user: User = Depends(admin_user)):
+    """Admin-only: ask Google which models this key can actually use.
+
+    Model names change faster than anyone's memory, so this reads the live
+    list rather than relying on a hardcoded one. Newest-looking names are
+    listed first; set GEMINI_MODEL in Railway to switch.
+    """
+    if not GEMINI_API_KEY:
+        return {"ok": False, "error": "No GEMINI_API_KEY set"}
+    try:
+        async with httpx.AsyncClient(timeout=25) as c:
+            r = await c.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": GEMINI_API_KEY, "pageSize": 200})
+        r.raise_for_status()
+        rows = r.json().get("models") or []
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:400]}
+
+    usable = []
+    for m in rows:
+        name = (m.get("name") or "").replace("models/", "")
+        methods = m.get("supportedGenerationMethods") or []
+        if "generateContent" not in methods:
+            continue          # embedding-only models can't answer prompts
+        usable.append({
+            "id": name,
+            "display": m.get("displayName", ""),
+            "input_tokens": m.get("inputTokenLimit"),
+            "output_tokens": m.get("outputTokenLimit"),
+            "in_use": name == GEMINI_MODEL,
+        })
+    # Sort by version descending so the newest is at the top, with "lite"
+    # variants after their full siblings.
+    def keyf(d):
+        v = _re.search(r"(\d+)\.(\d+)", d["id"])
+        major, minor = (int(v.group(1)), int(v.group(2))) if v else (0, 0)
+        return (-major, -minor, "lite" not in d["id"], d["id"])
+    usable.sort(key=keyf)
+    return {"ok": True, "current": GEMINI_MODEL,
+            "current_is_available": any(d["in_use"] for d in usable),
+            "count": len(usable), "models": usable}
+
+
 @app.get("/api/ai/selftest")
 async def ai_selftest(user: User = Depends(admin_user)):
     """Admin-only: make one tiny AI call and return the RAW result or the RAW
