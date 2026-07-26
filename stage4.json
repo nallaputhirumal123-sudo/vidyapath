@@ -1959,6 +1959,131 @@
      ]
     }
    ]
+  },
+  {
+   "id": "s4-symbolic",
+   "icon": "♟️",
+   "name": "Classical AI — Search & Reasoning",
+   "level": "Advanced",
+   "color": "#7c6cf0",
+   "weeks": 3,
+   "lang": "py",
+   "desc": "The half of AI that isn't neural networks: search, planning and logic. Every AI degree teaches this, most bootcamps skip it, and interviewers still ask about it.",
+   "outcomes": [
+    "Explain what a state space is and turn a real problem into one",
+    "Implement BFS, DFS, Dijkstra and A* and say when each is right",
+    "Write a game-playing agent with minimax and alpha-beta pruning",
+    "Model a timetabling problem as constraint satisfaction and solve it"
+   ],
+   "position": 3,
+   "audience": "graduate",
+   "quiz": [],
+   "lessons": [
+    {
+     "id": "sy1",
+     "title": "Search: turning a problem into a state space",
+     "mins": 45,
+     "lang": "py",
+     "position": 0,
+     "content": "\n<h3>AI was solving problems before it could learn</h3>\n<p>Ask most people what AI is and they say neural networks. But a route planner,\na chess engine, a timetable generator and a robot deciding where to move all use\nsomething older and, for these jobs, better: <b>search</b>.</p>\n<p>The trick is not the algorithm. The trick is describing your problem so that\nan algorithm can walk through it.</p>\n\n<h3>Four things define a search problem</h3>\n<pre><code>1. States      every situation the world can be in\n2. Start       the state you begin in\n3. Actions     what you can do from a state, and where each lands you\n4. Goal test   given a state, are we done?</code></pre>\n<p>That is it. Get those four right and the algorithm is almost mechanical.</p>\n\n<h3>A worked example: the jug problem</h3>\n<p>You have a 4-litre jug and a 3-litre jug, no markings, and a tap. Measure\nexactly 2 litres.</p>\n<pre><code>state   = (litres_in_4, litres_in_3)      e.g. (0, 0) to start\nactions = fill either jug\n          empty either jug\n          pour one into the other until the source empties or the target fills\ngoal    = any state where litres_in_4 == 2</code></pre>\n<p>Nobody \"solves\" this by being clever. You describe it, then let search walk it.</p>\n\n<h3>Writing it in Python</h3>\n<pre><code>def successors(state):\n    a, b = state                       # a = 4L jug, b = 3L jug\n    out = []\n    out.append((4, b))                 # fill A\n    out.append((a, 3))                 # fill B\n    out.append((0, b))                 # empty A\n    out.append((a, 0))                 # empty B\n    pour = min(a, 3 - b)               # A into B\n    out.append((a - pour, b + pour))\n    pour = min(b, 4 - a)               # B into A\n    out.append((a + pour, b - pour))\n    return [s for s in out if s != state]</code></pre>\n\n<h3>Breadth-first search finds the shortest path</h3>\n<pre><code>from collections import deque\n\ndef bfs(start, goal_test, successors):\n    frontier = deque([start])\n    came_from = {start: None}          # also acts as our \"visited\" set\n    while frontier:\n        state = frontier.popleft()\n        if goal_test(state):\n            path = []\n            while state is not None:\n                path.append(state)\n                state = came_from[state]\n            return path[::-1]\n        for nxt in successors(state):\n            if nxt not in came_from:   # not seen before\n                came_from[nxt] = state\n                frontier.append(nxt)\n    return None\n\nprint(bfs((0, 0), lambda s: s[0] == 2, successors))</code></pre>\n\n<h3>Why the visited set matters more than the algorithm</h3>\n<p>Remove <code>if nxt not in came_from</code> and the program runs forever,\npouring water between the same two jugs. Almost every search bug in real code is\na missing or wrong visited set — not a wrong algorithm.</p>\n\n<h3>BFS or DFS?</h3>\n<pre><code>BFS   deque + popleft()   finds the FEWEST-STEP answer, uses more memory\nDFS   list  + pop()       goes deep first, uses less memory, may find a long path</code></pre>\n<p>One line differs between them. That is genuinely the whole difference.</p>\n\n<h3>What an interviewer is checking</h3>\n<p>Not whether you memorised BFS. They want to see you turn a vague problem into\nstates and actions out loud, then notice the visited set yourself. Practise the\nmodelling, not the code.</p>\n",
+     "videos": [],
+     "refs": [
+      {
+       "t": "Russell & Norvig — Artificial Intelligence: A Modern Approach (search chapters)",
+       "u": "https://aima.cs.berkeley.edu/"
+      },
+      {
+       "t": "Red Blob Games — Introduction to A* (the clearest visual explanation online)",
+       "u": "https://www.redblobgames.com/pathfinding/a-star/introduction.html"
+      }
+     ],
+     "lab": "Model the 8-puzzle as a state space and solve it with BFS. Print how many states it explored. Then try it without the visited set and watch what happens.",
+     "exercises": [
+      "Write successors() for the jug problem and check it never returns the state it was given.",
+      "Swap popleft() for pop() and explain, in one sentence, why the answer changes.",
+      "Count the states BFS explores for the jug problem. Would DFS explore more or fewer?"
+     ],
+     "worksheet": ""
+    },
+    {
+     "id": "sy2",
+     "title": "A* — search that knows which way is promising",
+     "mins": 45,
+     "lang": "py",
+     "position": 1,
+     "content": "\n<h3>BFS is fair, and that makes it slow</h3>\n<p>BFS treats every direction as equally worth exploring. Routing from Hyderabad\nto Chennai, it will happily search towards Mumbai first. It finds the shortest\nroute, eventually, having looked at almost everything.</p>\n<p>A* adds one idea: <b>guess how far is left</b>, and explore the most promising\noption first.</p>\n\n<h3>The two numbers</h3>\n<pre><code>g(n)  the real cost from the start to n           (known, measured)\nh(n)  an ESTIMATE of the cost from n to the goal  (a guess, the heuristic)\nf(n)  = g(n) + h(n)      explore the smallest f first</code></pre>\n<p>Dijkstra is A* where <code>h(n) = 0</code> — no guess, so no sense of\ndirection. That is the entire relationship between the two.</p>\n\n<h3>The rule that makes A* trustworthy</h3>\n<p>The heuristic must <b>never overestimate</b> the true remaining cost. Such a\nheuristic is called <i>admissible</i>. Overestimate and A* will confidently\nreturn a route that is not the shortest.</p>\n<pre><code>Good on a map:  straight-line distance      never longer than the road distance\nBad  on a map:  straight-line distance x 2  can overestimate, so A* may be wrong</code></pre>\n<p>Straight-line distance works precisely because roads can only be longer than\nflying, never shorter.</p>\n\n<h3>A* in Python</h3>\n<pre><code>import heapq\n\ndef astar(start, goal, neighbours, cost, heuristic):\n    frontier = [(heuristic(start, goal), 0, start)]   # (f, g, state)\n    best_g = {start: 0}\n    came_from = {start: None}\n    while frontier:\n        f, g, state = heapq.heappop(frontier)\n        if state == goal:\n            path = []\n            while state is not None:\n                path.append(state)\n                state = came_from[state]\n            return path[::-1], g\n        for nxt in neighbours(state):\n            new_g = g + cost(state, nxt)\n            if new_g &lt; best_g.get(nxt, float(\"inf\")):   # a better route here\n                best_g[nxt] = new_g\n                came_from[nxt] = state\n                heapq.heappush(frontier, (new_g + heuristic(nxt, goal), new_g, nxt))\n    return None, float(\"inf\")</code></pre>\n<p><code>heapq</code> is a priority queue: it always hands back the smallest\n<code>f</code>. That one data structure is what makes A* fast.</p>\n\n<h3>Where you have already used this</h3>\n<pre><code>Google Maps          roads, with straight-line distance as h\nGame pathfinding     grid tiles, with Manhattan distance as h\nRobot motion         waypoints, with clearance built into the cost\nPuzzle solvers       8-puzzle, with \"how many tiles are misplaced\" as h</code></pre>\n\n<h3>The mistake to avoid</h3>\n<p>People reach for A* on graphs with no meaningful distance — a social network,\nsay. If you cannot write an honest <code>h</code>, you do not have a heuristic,\nand A* degrades into Dijkstra with extra code. Use the simpler algorithm.</p>\n",
+     "videos": [],
+     "refs": [
+      {
+       "t": "Red Blob Games — A* interactive, adjust the heuristic and watch it change",
+       "u": "https://www.redblobgames.com/pathfinding/a-star/introduction.html"
+      },
+      {
+       "t": "Python heapq documentation",
+       "u": "https://docs.python.org/3/library/heapq.html"
+      }
+     ],
+     "lab": "Build a 20x20 grid with wall tiles. Solve it with BFS and with A* using Manhattan distance. Print how many tiles each one examined — the gap is the point.",
+     "exercises": [
+      "Set h(n) = 0 in your A* and confirm it still finds the shortest path.",
+      "Multiply your heuristic by 3 and find a case where the returned path is not shortest.",
+      "Explain why straight-line distance is admissible for roads but not for flight prices."
+     ],
+     "worksheet": ""
+    },
+    {
+     "id": "sy3",
+     "title": "Minimax — deciding when someone is working against you",
+     "mins": 40,
+     "lang": "py",
+     "position": 2,
+     "content": "\n<h3>Search assumes the world stands still. Games do not.</h3>\n<p>In pathfinding, the map does not fight back. In chess, tic-tac-toe or a\nnegotiation, every move you make is answered by someone who wants you to lose.\n<b>Minimax</b> is search that assumes the opponent plays well.</p>\n\n<h3>The one idea</h3>\n<pre><code>On your turn      pick the move with the HIGHEST score you can force\nOn their turn     assume they pick the move with the LOWEST score for you</code></pre>\n<p>You maximise, they minimise. Hence the name.</p>\n\n<h3>Minimax in Python</h3>\n<pre><code>def minimax(state, depth, maximising):\n    if depth == 0 or is_over(state):\n        return evaluate(state)                # a number: + good for us\n    if maximising:\n        best = float(\"-inf\")\n        for move in moves(state):\n            best = max(best, minimax(apply(state, move), depth - 1, False))\n        return best\n    else:\n        best = float(\"inf\")\n        for move in moves(state):\n            best = min(best, minimax(apply(state, move), depth - 1, True))\n        return best</code></pre>\n\n<h3>Why depth exists</h3>\n<p>Chess has more legal positions than atoms in the observable universe. You\ncannot search to the end. So you stop at a depth and call\n<code>evaluate()</code> — a rough judgement of who is winning. Nearly all the\nstrength of a classical engine lives in that function, not in the search.</p>\n\n<h3>Alpha-beta pruning: the same answer, far less work</h3>\n<p>If one reply already refutes a move, you do not need to check the others —\nyou are not playing that move anyway.</p>\n<pre><code>def minimax_ab(state, depth, alpha, beta, maximising):\n    if depth == 0 or is_over(state):\n        return evaluate(state)\n    if maximising:\n        best = float(\"-inf\")\n        for move in moves(state):\n            best = max(best, minimax_ab(apply(state, move), depth-1, alpha, beta, False))\n            alpha = max(alpha, best)\n            if beta &lt;= alpha:\n                break                    # the opponent would never allow this\n        return best\n    best = float(\"inf\")\n    for move in moves(state):\n        best = min(best, minimax_ab(apply(state, move), depth-1, alpha, beta, True))\n        beta = min(beta, best)\n        if beta &lt;= alpha:\n            break\n    return best</code></pre>\n<p>Pruning returns exactly the same move as plain minimax. It just skips\nbranches that cannot change the outcome — often reaching twice the depth for the\nsame time budget.</p>\n\n<h3>Is this obsolete now that models play chess?</h3>\n<p>No, and this is worth being precise about. Modern engines still search — they\nreplaced the hand-written <code>evaluate()</code> with a learned one. The search\nskeleton above is still in there. Classical and learned methods are combined in\npractice, not opposed.</p>\n",
+     "videos": [],
+     "refs": [
+      {
+       "t": "Sebastian Lague — Algorithms Explained: minimax and alpha-beta (video)",
+       "u": "https://www.youtube.com/watch?v=l-hh51ncgDI"
+      },
+      {
+       "t": "Chess Programming Wiki — Alpha-Beta",
+       "u": "https://www.chessprogramming.org/Alpha-Beta"
+      }
+     ],
+     "lab": "Write a tic-tac-toe agent with minimax. It must be unbeatable — the best a human can manage is a draw. Then add alpha-beta and count the positions each version examines.",
+     "exercises": [
+      "Explain why evaluate() is unnecessary for tic-tac-toe but essential for chess.",
+      "Show a small game tree where alpha-beta skips a branch, and say why skipping is safe.",
+      "Your agent takes 8 seconds a move. Name two ways to speed it up without weakening it."
+     ],
+     "worksheet": ""
+    },
+    {
+     "id": "sy4",
+     "title": "Constraint satisfaction — problems with rules, not paths",
+     "mins": 40,
+     "lang": "py",
+     "position": 3,
+     "content": "\n<h3>Some problems have no journey, only rules</h3>\n<p>Timetabling a college. Seating a wedding. Assigning nurses to shifts. There is\nno \"path\" to walk — there is a set of variables, and rules about which\ncombinations are allowed. This is a <b>constraint satisfaction problem</b>.</p>\n\n<h3>Three parts</h3>\n<pre><code>Variables    the things to decide      e.g. each exam\nDomains      the allowed values        e.g. Mon, Tue, Wed\nConstraints  the rules                 e.g. two exams sharing students differ</code></pre>\n\n<h3>Sudoku, described properly</h3>\n<pre><code>Variables    81 cells\nDomains      1..9 for each empty cell\nConstraints  all different within each row\n             all different within each column\n             all different within each 3x3 box</code></pre>\n<p>Notice you have not said how to solve it. That is the point — you describe\nthe rules and a solver does the work.</p>\n\n<h3>Backtracking, and the two ideas that make it usable</h3>\n<pre><code>def solve(assignment, variables, domains, ok):\n    if len(assignment) == len(variables):\n        return assignment\n    var = pick_unassigned(assignment, variables, domains)\n    for value in domains[var]:\n        if ok(assignment, var, value):\n            assignment[var] = value\n            result = solve(assignment, variables, domains, ok)\n            if result:\n                return result\n            del assignment[var]          # undo and try the next value\n    return None</code></pre>\n<p>Plain backtracking on a hard Sudoku can take minutes. Two changes make it\ninstant:</p>\n<pre><code>1. Most-constrained variable    fill the cell with the FEWEST options left\n2. Forward checking             after assigning, remove that value from\n                                neighbours; if any cell has no options,\n                                give up on this branch immediately</code></pre>\n<p>Both are about failing sooner. Search is fast when it abandons dead ends\nearly, not when it explores quickly.</p>\n\n<h3>When to reach for this</h3>\n<pre><code>Good fit    timetables, rotas, seating, resource allocation, puzzles,\n            configuration (\"which parts fit together\")\nPoor fit    anything where \"close enough\" beats \"correct\", or where the rules\n            are soft preferences — use optimisation or ML instead</code></pre>\n\n<h3>Use a real solver</h3>\n<p>Write backtracking once to understand it, then use a library. Google's\nOR-Tools solves problems in seconds that hand-written code labours over, and\nhandles soft constraints — \"prefer no Friday exams\" — which naive backtracking\ncannot express at all.</p>\n",
+     "videos": [],
+     "refs": [
+      {
+       "t": "Google OR-Tools — CP-SAT solver guide",
+       "u": "https://developers.google.com/optimization/cp"
+      },
+      {
+       "t": "Norvig — Solving Every Sudoku Puzzle (constraint propagation, in Python)",
+       "u": "https://norvig.com/sudoku.html"
+      }
+     ],
+     "lab": "Solve a Sudoku with plain backtracking and time it. Add most-constrained-variable ordering and time it again. Report both numbers.",
+     "exercises": [
+      "Model exam timetabling as variables, domains and constraints. Do not write code.",
+      "Explain why most-constrained-variable ordering helps, in terms of failing early.",
+      "Name one problem in this lesson that would be a poor fit for constraint solving, and why."
+     ],
+     "worksheet": ""
+    }
+   ]
   }
  ]
 }

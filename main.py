@@ -195,6 +195,7 @@ class User(Base):
     plan_ref = Column(String(120), default="")              # subscription id
     plan_expires = Column(DateTime(timezone=True))
     plan_started = Column(DateTime(timezone=True))
+    plan_cancelled_at = Column(DateTime(timezone=True))
     # Two-factor. Off by default: making it compulsory at signup costs more
     # accounts than it protects, at this size.
     totp_secret = Column(String(64), default="")
@@ -5587,6 +5588,8 @@ def billing_plans(request: Request, user: User = Depends(current_user),
         "gateway": "razorpay" if india else "stripe",
         "available": {"razorpay": RAZORPAY_ENABLED, "stripe": STRIPE_ENABLED},
         "current": plan_of(user),
+        "cancelled": bool(user.plan_cancelled_at),
+        "access_until": user.plan_expires.isoformat() if user.plan_expires else None,
         "quota": ai_quota(db, user),
         # Always say plainly that this renews. Silent auto-renewal is the
         # single biggest source of chargebacks and complaints.
@@ -5599,8 +5602,47 @@ def billing_me(user: User = Depends(current_user), db: Session = Depends(get_db)
     exp = user.plan_expires
     return {"plan": plan_of(user), "stored_plan": user.plan or "free",
             "provider": user.plan_provider or "",
+            "cancelled": bool(user.plan_cancelled_at),
             "expires": exp.isoformat() if exp else None,
             "quota": ai_quota(db, user)}
+
+
+@app.post("/api/billing/cancel")
+async def billing_cancel(user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """Stop the subscription renewing, keeping access until the paid period ends.
+
+    Cutting access immediately would take away something already paid for, so
+    the plan simply stops renewing. The Terms promise this can be done from the
+    account, so it must not require emailing us.
+    """
+    if plan_of(user) == "free":
+        raise HTTPException(400, "You are not on a paid plan.")
+    note = ""
+    if user.plan_provider == "stripe" and STRIPE_ENABLED and user.plan_ref:
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.post(
+                    f"https://api.stripe.com/v1/subscriptions/{user.plan_ref}",
+                    headers={"Authorization": f"Bearer {STRIPE_SECRET_KEY}"},
+                    data={"cancel_at_period_end": "true"})
+            if r.status_code >= 300:
+                print("Stripe cancel failed:", r.status_code, r.text[:200])
+                note = ("We recorded your cancellation, but could not reach the "
+                        "payment provider. Email us if you are charged again.")
+        except Exception as e:
+            print(f"Stripe cancel error: {type(e).__name__}: {e}")
+            note = ("We recorded your cancellation, but could not reach the "
+                    "payment provider. Email us if you are charged again.")
+    user.plan_cancelled_at = now()
+    db.commit()
+    exp = user.plan_expires
+    return {"ok": True, "cancelled": True,
+            "access_until": exp.isoformat() if exp else None,
+            "note": note,
+            "message": "Cancelled. You keep full access until "
+                       + (exp.strftime("%d %B %Y") if exp else "the end of the period")
+                       + ", and you will not be charged again."}
 
 
 class CheckoutIn(BaseModel):

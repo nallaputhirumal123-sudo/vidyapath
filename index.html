@@ -3732,6 +3732,16 @@ async function renderPlans(){
       ${q.limit==null?"Unlimited AI requests."
         :`${q.used||0} of ${q.limit} AI requests used${q.period==="month"?" this month":""} · ${q.left} left`}
     </div>
+    ${b.current!=="free"?(b.cancelled
+      ? `<div style="font-size:13px;color:#e0b050;margin-top:8px">
+           Cancelled — you keep full access until
+           <b>${b.access_until?new Date(b.access_until).toLocaleDateString():"the end of the period"}</b>,
+           and will not be charged again.</div>`
+      : `<div style="margin-top:10px">
+           <button class="btn ghost sm" data-cancelplan="1">Cancel subscription</button>
+           <span style="font-size:12px;color:var(--dim);margin-left:8px">
+             You keep access until the period you have paid for ends.</span>
+         </div>`):""}
   </div>
 
   ${live?"":`<div class="card" style="border-color:#e0b050;margin-bottom:16px">
@@ -3753,6 +3763,18 @@ async function renderPlans(){
       <a href="/privacy.html" target="_blank">Privacy Policy</a>.
     </div>
   </div>`;
+  const cx=$("[data-cancelplan]");
+  if(cx) cx.onclick=async()=>{
+    if(!confirm("Cancel your subscription? You keep access until the period "
+                +"you have already paid for ends.")) return;
+    cx.disabled=true; cx.textContent="Cancelling…";
+    try{
+      const r=await api.post("/api/billing/cancel",{});
+      toast(r.message||"Cancelled.");
+      if(r.note) alert(r.note);
+      await loadBilling(); renderPlans();
+    }catch(e){ toast(e.message); cx.disabled=false; cx.textContent="Cancel subscription"; }
+  };
   document.querySelectorAll("[data-buy]").forEach(btn=>{
     btn.onclick=()=>startCheckout(btn.dataset.buy,btn.dataset.period,btn);
   });
