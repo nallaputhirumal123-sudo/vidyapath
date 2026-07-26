@@ -97,8 +97,13 @@ window.__vpFill = function (profile) {
       no: [/confirm/, /referr/, /manager/, /emergency/, /alternate/] },
     { key: "phone", yes: [/\bphone\b/, /\bmobile\b/, /\btelephone\b/, /\bcontact number\b/],
       no: [/emergency/, /referr/, /work phone/, /home phone/] },
-    { key: "location", yes: [/\blocation\b/, /\bcity\b/, /\bcurrent (city|location)\b/, /\baddress\b/],
-      no: [/email/, /ip\b/, /website/, /url/] },
+    /* Deliberately narrow, and listed before the split address fields below
+     * would otherwise lose to it. A bare "address" or "city" belongs to the
+     * specific field, not to the one-line location — otherwise "Street
+     * Address" and "City" both received "Dallas, TX". */
+    { key: "location", yes: [/^location$/, /current location/, /city, ?state/,
+        /city\/state/, /where are you (based|located)/, /^city and state$/],
+      no: [/email/, /ip\b/, /website/, /url/, /street/, /^city$/, /^state$/] },
     { key: "linkedin", yes: [/linked ?in/], no: [] },
     { key: "github", yes: [/git ?hub/], no: [] },
     { key: "portfolio", yes: [/portfolio/, /personal (site|website)/, /\bwebsite\b/],
@@ -108,11 +113,51 @@ window.__vpFill = function (profile) {
     { key: "current_company", yes: [/current (employer|company)/, /\bemployer\b/, /\bcompany\b/],
       no: [/why/, /about/, /desired/, /school/] },
     { key: "school", yes: [/\bschool\b/, /\buniversity\b/, /\bcollege\b/, /\binstitution\b/], no: [] },
-    { key: "degree", yes: [/\bdegree\b/, /\bqualification\b/, /field of study/], no: [] },
+    { key: "field_of_study", yes: [/field of study/, /\bmajor\b/, /discipline/,
+        /course of study/], no: [] },
+    { key: "degree", yes: [/\bdegree\b/, /\bqualification\b/, /level of education/], no: [] },
     { key: "grad_year", yes: [/grad(uation)? year/, /year of (graduation|passing)/, /end year/], no: [] },
     { key: "summary", yes: [/\bsummary\b/, /about (you|yourself)/, /tell us about/, /\bbio\b/],
       no: [/why (this|our|do you)/, /cover letter/] },
+    /* Fields a resume does not carry but forms keep asking for. */
+    { key: "address", yes: [/street address/, /address line ?1/, /^address$/],
+      no: [/email/, /city/, /website/, /ip\b/] },
+    { key: "city", yes: [/^city$/, /^town$/, /city\/town/], no: [/state|country|code/] },
+    { key: "state", yes: [/^state$/, /^province$/, /state\/province/, /^region$/], no: [] },
+    { key: "postcode", yes: [/post(al)? ?code/, /zip ?code/, /^zip$/, /pin ?code/], no: [] },
+    { key: "country", yes: [/^country$/, /country of residence/], no: [/code/, /citizen/] },
+    { key: "years_experience", yes: [/years of (relevant )?experience/, /how many years/,
+        /^experience \(years\)$/, /total experience/], no: [] },
+    { key: "notice_period", yes: [/notice period/, /when can you (start|join)/,
+        /availability to start/, /earliest start date/], no: [] },
+    { key: "desired_salary", yes: [/salary expectation/, /expected (ctc|salary|compensation)/,
+        /desired salary/, /compensation expectation/], no: [/current/] },
+    { key: "work_authorized", yes: [/authoriz(ed|ation) to work/, /legally authoriz/,
+        /right to work/, /eligible to work/], no: [/sponsor/] },
+    { key: "needs_sponsorship", yes: [/require .*sponsorship/, /need .*sponsorship/,
+        /visa sponsorship/, /will you .*sponsor/], no: [] },
+    { key: "willing_to_relocate", yes: [/willing to relocate/, /open to relocat/], no: [] },
+    { key: "how_heard", yes: [/how did you hear/, /where did you (hear|find)/,
+        /referral source/], no: [] },
   ];
+
+  /* Yes/no questions are usually a <select> or radios, not a text box. */
+  function fillChoice(el, value) {
+    const want = value.trim().toLowerCase();
+    if (el.tagName === "SELECT") {
+      for (const o of el.options) {
+        const t = (o.textContent || "").trim().toLowerCase();
+        if (!t || /select|choose|^--/.test(t)) continue;
+        if (t === want || t.startsWith(want) || want.startsWith(t)) {
+          el.value = o.value;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 
   function valueFor(found) {
     const { label, blob } = found;
@@ -151,17 +196,21 @@ window.__vpFill = function (profile) {
 
   const fields = document.querySelectorAll(
     "input[type='text'], input[type='email'], input[type='tel'], input[type='url'], " +
-    "input:not([type]), textarea");
+    "input[type='number'], input:not([type]), textarea, select");
 
   for (const el of fields) {
     if (el.disabled || el.readOnly || el.offsetParent === null) continue;
-    if (el.value && el.value.trim()) { skipped.push("already filled"); continue; }
+    // A select sitting on its placeholder counts as empty; a text box with
+    // anything in it is left alone.
+    const isSelect = el.tagName === "SELECT";
+    if (!isSelect && el.value && el.value.trim()) { skipped.push("already filled"); continue; }
+    if (isSelect && el.selectedIndex > 0) { skipped.push("already chosen"); continue; }
     const hit = valueFor(labelFor(el));
     if (!hit) continue;
     try {
-      setValue(el, hit.value);
-      flash(el, true);
-      filled.push(hit.key);
+      const ok = isSelect ? fillChoice(el, hit.value)
+                          : (setValue(el, hit.value), true);
+      if (ok) { flash(el, true); filled.push(hit.key); }
     } catch (e) {
       skipped.push(hit.key);
     }

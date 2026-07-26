@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <style>
   :root{color-scheme:dark}
-  body{width:310px;margin:0;padding:16px;background:#0b0f16;color:#ccd6e2;
+  body{width:330px;margin:0;padding:16px;background:#0b0f16;color:#ccd6e2;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:13.5px;line-height:1.55}
   h1{font-size:15px;color:#fff;margin:0 0 3px}
   .sub{color:#8896a8;font-size:12px;margin-bottom:13px}
@@ -10,8 +10,9 @@
     font-weight:700;font-size:13.5px;cursor:pointer;margin-top:8px}
   button.ghost{background:transparent;border:1px solid #24303f;color:#ccd6e2;font-weight:600}
   button:disabled{opacity:.5;cursor:default}
-  input{width:100%;padding:9px 10px;border-radius:8px;border:1px solid #24303f;
-    background:#131b26;color:#fff;font-size:13.5px;letter-spacing:1px;text-align:center}
+  input,select{width:100%;padding:8px 9px;border-radius:8px;border:1px solid #24303f;
+    background:#131b26;color:#fff;font-size:13px}
+  #code{letter-spacing:1px;text-align:center}
   .msg{margin-top:11px;font-size:12.5px;padding:9px 11px;border-radius:8px;display:none}
   .ok{background:rgba(75,191,130,.13);color:#7fd6a6}
   .err{background:rgba(224,90,90,.13);color:#eaa0a0}
@@ -19,34 +20,127 @@
   .who{font-size:12px;color:#8896a8;margin-bottom:11px;padding:9px 11px;background:#131b26;border-radius:8px}
   .who b{color:#fff}
   .note{margin-top:13px;font-size:11.5px;color:#8896a8;border-top:1px solid #1c2532;padding-top:11px}
-  a{color:#ff9933}
+  a{color:#ff9933;cursor:pointer}
+  /* edit view */
+  .grp{margin-top:12px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;
+    color:#ff9933;font-weight:800}
+  label{display:block;font-size:11.5px;color:#8896a8;margin:8px 0 3px}
+  .row2{display:flex;gap:7px}
+  .row2>div{flex:1}
+  .bar{position:sticky;bottom:0;background:#0b0f16;padding-top:10px;margin-top:4px}
+  .miss{font-size:11.5px;color:#e8b981;margin-top:7px}
 </style>
 
-<h1>Craxle Autofill</h1>
-<div class="sub">Fills your details into a form you already opened.</div>
+<!-- ===== main view ===== -->
+<div id="main">
+  <h1>Craxle Autofill</h1>
+  <div class="sub">Fills your details into a form you already opened.</div>
 
-<div id="setup" style="display:none">
-  <div style="font-size:12.5px;margin-bottom:8px">
-    Open <a href="#" id="siteLink">Craxle &rarr; Careers</a>, press
-    <b>Connect extension</b>, and type the code here.
+  <div id="setup" style="display:none">
+    <div style="font-size:12.5px;margin-bottom:8px">
+      Open <a id="siteLink">Craxle &rarr; Careers</a>, press <b>Connect extension</b>,
+      and type the code here.
+    </div>
+    <input id="code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+    <button id="pair">Connect</button>
   </div>
-  <input id="code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
-  <button id="pair">Connect</button>
+
+  <div id="ready" style="display:none">
+    <div class="who">Signed in as <b id="who"></b><br><span id="when"></span>
+      <div class="miss" id="missing"></div>
+    </div>
+    <button id="fill">Fill this form</button>
+    <button id="edit" class="ghost">✎ Edit my details</button>
+    <button id="resync" class="ghost">Re-sync from Craxle</button>
+    <button id="forget" class="ghost">Disconnect</button>
+  </div>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="note">
+    This never submits an application. It fills the boxes; you check them and
+    press the employer's own submit button. Your details are stored in this
+    browser only.
+  </div>
 </div>
 
-<div id="ready" style="display:none">
-  <div class="who">Signed in as <b id="who"></b><br><span id="when"></span></div>
-  <button id="fill">Fill this form</button>
-  <button id="resync" class="ghost">Re-sync my details</button>
-  <button id="forget" class="ghost">Disconnect</button>
-</div>
+<!-- ===== edit view ===== -->
+<div id="editor" style="display:none">
+  <h1>Your details</h1>
+  <div class="sub">Used to fill application forms. Stored in this browser only.</div>
 
-<div id="msg" class="msg"></div>
+  <div class="grp">Personal</div>
+  <div class="row2">
+    <div><label>First name</label><input data-f="first_name"></div>
+    <div><label>Last name</label><input data-f="last_name"></div>
+  </div>
+  <label>Full name</label><input data-f="full_name">
+  <label>Email</label><input data-f="email" type="email">
+  <label>Phone</label><input data-f="phone" type="tel">
 
-<div class="note">
-  This never submits an application. It fills the boxes; you check them and
-  press the employer's own submit button. Your details are stored in this
-  browser only.
+  <div class="grp">Address</div>
+  <label>Street address</label><input data-f="address">
+  <div class="row2">
+    <div><label>City</label><input data-f="city"></div>
+    <div><label>State / province</label><input data-f="state"></div>
+  </div>
+  <div class="row2">
+    <div><label>Post / ZIP code</label><input data-f="postcode"></div>
+    <div><label>Country</label><input data-f="country"></div>
+  </div>
+  <label>Location (one line, e.g. "Dallas, TX")</label><input data-f="location">
+
+  <div class="grp">Links</div>
+  <label>LinkedIn</label><input data-f="linkedin" placeholder="https://linkedin.com/in/…">
+  <label>GitHub</label><input data-f="github" placeholder="https://github.com/…">
+  <label>Portfolio / website</label><input data-f="portfolio">
+
+  <div class="grp">Work</div>
+  <label>Current job title</label><input data-f="current_title">
+  <label>Current company</label><input data-f="current_company">
+  <div class="row2">
+    <div><label>Years of experience</label><input data-f="years_experience" placeholder="7"></div>
+    <div><label>Notice period</label><input data-f="notice_period" placeholder="30 days"></div>
+  </div>
+  <label>Salary expectation</label><input data-f="desired_salary">
+
+  <div class="grp">Education</div>
+  <label>School / university</label><input data-f="school">
+  <label>Degree</label><input data-f="degree">
+  <div class="row2">
+    <div><label>Field of study</label><input data-f="field_of_study"></div>
+    <div><label>Graduation year</label><input data-f="grad_year"></div>
+  </div>
+
+  <div class="grp">Eligibility</div>
+  <label>Authorised to work in the country you apply to?</label>
+  <select data-f="work_authorized">
+    <option value="">— not set —</option><option>Yes</option><option>No</option>
+  </select>
+  <label>Do you need visa sponsorship?</label>
+  <select data-f="needs_sponsorship">
+    <option value="">— not set —</option><option>Yes</option><option>No</option>
+  </select>
+  <label>Willing to relocate?</label>
+  <select data-f="willing_to_relocate">
+    <option value="">— not set —</option><option>Yes</option><option>No</option>
+  </select>
+  <label>How did you hear about us?</label><input data-f="how_heard" placeholder="Craxle job board">
+
+  <div class="grp">Summary</div>
+  <label>Short profile summary</label><input data-f="summary">
+
+  <div class="bar">
+    <button id="save">Save details</button>
+    <button id="back" class="ghost">Back</button>
+  </div>
+  <div id="msg2" class="msg"></div>
+
+  <div class="note">
+    Left out on purpose: gender, race, veteran and disability questions. Those
+    are optional on most forms and are yours to answer deliberately, not
+    something an extension should pre-fill.
+  </div>
 </div>
 
 <script src="popup.js"></script>

@@ -4594,8 +4594,17 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
         "current_company": str(exp.get("company") or ""),
         "school": str(edu.get("school") or user.college or ""),
         "degree": str(edu.get("degree") or user.degree or ""),
+        "field_of_study": str(edu.get("degree") or ""),
         "grad_year": str(edu.get("year") or ""),
         "summary": str(r.get("summary") or "")[:1200],
+        # Fields a resume rarely carries but application forms almost always
+        # ask for. Blank here on purpose — the person fills them in the
+        # extension once and they are reused on every form after that.
+        "address": "", "city": str(user.city or ""), "state": "",
+        "postcode": "", "country": "",
+        "years_experience": "", "notice_period": "", "desired_salary": "",
+        "work_authorized": "", "needs_sponsorship": "",
+        "willing_to_relocate": "", "how_heard": "",
         "synced_at": now().isoformat(),
     }
 

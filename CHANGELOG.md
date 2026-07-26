@@ -14,6 +14,31 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.51.0 — Editable autofill details, 28 fields, dropdown support
+
+- **You can now edit your details in the extension.** "✎ Edit my details"
+  opens a full form: name, email, phone, street/city/state/postcode/country,
+  LinkedIn, GitHub, portfolio, current title and company, years of experience,
+  notice period, salary expectation, school, degree, field of study,
+  graduation year, work authorisation, sponsorship, relocation and how you
+  heard about the role.
+- **Re-syncing no longer wipes what you typed.** The site only knows what your
+  resume held, so a sync fills blanks and leaves your manual entries alone.
+- **Dropdowns are filled too.** "Are you legally authorised to work…" and
+  "Will you require sponsorship?" are usually `<select>` menus, not text
+  boxes; the filler now matches an option by its text.
+- **The popup tells you what's missing** — a blank phone or LinkedIn is the
+  difference between filling 4 boxes and filling 17.
+- Tested on a full application form: **17 fields filled**, all three dropdowns
+  correct, "Emergency Contact Phone" and "Current Salary" correctly left empty,
+  and the form never submitted.
+- **Fixed the one-line location rule swallowing the split address fields** —
+  "Street Address" and "City" were both receiving "Dallas, TX". Specific
+  fields now win over the general one.
+- Deliberately excluded: gender, race, veteran and disability questions. They
+  are optional on most forms and should be answered deliberately, not
+  pre-filled by an extension.
+
 ## 1.50.0 — Dropped The Muse, fixed autofill on Ashby-style forms
 
 - **Removed The Muse.** Half its links were dead: 15 of 30 sampled URLs
