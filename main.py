@@ -282,8 +282,16 @@ class Job(Base):
     country = Column(String(80), default="", index=True)
     location = Column(String(200), default="")
     remote = Column(Boolean, default=False)
+    category = Column(String(30), default="", index=True)   # role family
+    job_type = Column(String(20), default="", index=True)   # fulltime/contract/…
+    engagement = Column(String(10), default="", index=True)  # w2 / c2c / 1099
+    visa = Column(String(20), default="", index=True)        # sponsors/no/clearance
     url = Column(Text, default="")
-    text = Column(Text, default="")          # lowercased title+desc, for matching
+    text = Column(Text, default="")          # lowercased title+desc, for search
+    # Skills extracted once at ingest. Re-deriving these from `text` at match
+    # time meant tokenising 5,000 full descriptions per request, which took
+    # over 30 seconds; reading a short CSV column is instant.
+    skills = Column(Text, default="")        # comma-joined skill tokens
     posted_at = Column(DateTime(timezone=True))
     first_seen = Column(DateTime(timezone=True), default=now, index=True)
     last_seen = Column(DateTime(timezone=True), default=now, index=True)
@@ -3155,55 +3163,6 @@ async def resume_extract(file: UploadFile = File(...),
     return {"text": text[:40000], "name": (file.filename or "resume")[:120]}
 
 
-class ProofreadIn(BaseModel):
-    resume: dict = {}
-    resume_text: str = Field(default="", max_length=40000)
-
-
-@app.post("/api/resume/proofread")
-async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user),
-                           db: Session = Depends(get_db)):
-    """Flag spelling and grammar issues in the resume text so the user can fix
-    them. Returns a list of {wrong, right, why} — it does not auto-edit."""
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The proofreader is not switched on")
-    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
-    if len(rtext.strip()) < 20:
-        raise HTTPException(400, "Add some resume content first")
-    ckey = _ai_cache_key("rproof", rtext)
-    cached = _ai_cache_get(db, ckey)
-    if cached is not None:
-        return cached
-    _ai_enforce_limit(db, user)
-    prompt = (
-        "You are a meticulous proofreader for resumes. Find SPELLING and GRAMMAR "
-        "mistakes in the text below. For each mistake, give the exact wrong text, "
-        "the correction, and a 2-4 word reason. Ignore names, companies, "
-        "technologies and acronyms (e.g. Kubernetes, OWASP, VMware) — those are "
-        "not misspellings. If there are no real mistakes, return an empty list.\n\n"
-        f"RESUME TEXT:\n{rtext}\n\n"
-        'Respond with ONLY valid JSON: {"issues":[{"wrong":"<text>",'
-        '"right":"<correction>","why":"<short reason>"}]}'
-    )
-    try:
-        d = _ai_json(await _ai_text(prompt, 900))
-    except Exception as e:
-        print(f"Resume proofread failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, _ai_error_message(e))
-    issues = []
-    for it in (d.get("issues") or [])[:40]:
-        if not isinstance(it, dict):
-            continue
-        w = str(it.get("wrong", "")).strip()[:80]
-        r = str(it.get("right", "")).strip()[:80]
-        if w and r and w.lower() != r.lower():
-            issues.append({"wrong": w, "right": r, "why": str(it.get("why", "")).strip()[:60]})
-    result = {"issues": issues}
-    _ai_bump(db, user)
-    _ai_cache_put(db, ckey, result)
-    return result
-
-
 @app.get("/api/ask/config")
 def ask_config(user: User = Depends(current_user)):
     """Lets the page know whether the AI teacher is switched on."""
@@ -3369,6 +3328,55 @@ def _strip_html(s: str) -> str:
              .replace("&nbsp;", " ").replace("&#39;", "'")
 
 
+def _job_type_of(blob: str) -> str:
+    """Full-time / contract / part-time / internship, read from the posting."""
+    if _re.search(r"\b(intern|internship|co-op|apprentice)\b", blob):
+        return "internship"
+    if _re.search(r"\b(contract|contractor|contract-to-hire|c2h|freelance|"
+                  r"temporary|temp\b|fixed[- ]term|consultant role)\b", blob):
+        return "contract"
+    if _re.search(r"\bpart[- ]time\b", blob):
+        return "parttime"
+    if _re.search(r"\b(full[- ]time|permanent|fte)\b", blob):
+        return "fulltime"
+    return ""
+
+
+def _engagement_of(blob: str) -> str:
+    """US staffing engagement model: W2, corp-to-corp, or 1099.
+
+    Staffing posts say this explicitly ('W2 only', 'C2C welcome') and it
+    decides whether a candidate can even take the role, so it is worth
+    filtering on separately from the contract/full-time split."""
+    c2c = _re.search(r"\b(c2c|corp[- ]to[- ]corp|corp2corp)\b", blob)
+    w2 = _re.search(r"\bw-?2\b", blob)
+    if c2c and w2:
+        return "w2_c2c"
+    if c2c:
+        return "c2c"
+    if w2:
+        return "w2"
+    if _re.search(r"\b1099\b", blob):
+        return "1099"
+    return ""
+
+
+def _visa_of(blob: str) -> str:
+    """Sponsorship stance. 'no' is as useful to a candidate as 'sponsors' —
+    it saves them an application that was never going to work."""
+    if _re.search(r"\b(security clearance|ts/sci|secret clearance|polygraph)\b", blob):
+        return "clearance"
+    if _re.search(r"(no (visa )?sponsorship|not able to sponsor|unable to sponsor|"
+                  r"without sponsorship|cannot sponsor|no c2c|us citizens? only|"
+                  r"green card holders? only|citizens? or green card)", blob):
+        return "no_sponsorship"
+    if _re.search(r"\b(h-?1b|h1-b|opt\b|cpt\b|ead\b|tn visa|e-?3 visa|"
+                  r"visa sponsorship( is)? available|will sponsor|"
+                  r"sponsorship (is )?(available|provided|offered))\b", blob):
+        return "sponsors"
+    return ""
+
+
 def _job_row(source, ext_id, title, company, location, url, desc="", posted=None):
     """Normalise one posting into the shape the refresh loop stores."""
     title, company = (title or "").strip()[:300], (company or "").strip()[:200]
@@ -3376,11 +3384,16 @@ def _job_row(source, ext_id, title, company, location, url, desc="", posted=None
     if not title or not url:
         return None
     blob = f"{title} {company} {location} {_strip_html(desc)}".lower()
+    blob = _re.sub(r"\s+", " ", blob)[:4000]
     return {
         "source": source, "external_id": str(ext_id)[:200], "title": title,
         "company": company, "location": location,
         "country": _country_of(location), "remote": _is_remote(location),
-        "url": url[:1000], "text": _re.sub(r"\s+", " ", blob)[:4000],
+        "category": _primary_family(title, blob),
+        "job_type": _job_type_of(blob), "engagement": _engagement_of(blob),
+        "visa": _visa_of(blob),
+        "skills": ",".join(sorted({w for w in _words(blob) if w in _SKILLS})),
+        "url": url[:1000], "text": blob,
         "posted_at": posted,
     }
 
@@ -3463,6 +3476,177 @@ _FETCHERS = {"greenhouse": _fetch_greenhouse, "lever": _fetch_lever,
              "ashby": _fetch_ashby, "workable": _fetch_workable,
              "recruitee": _fetch_recruitee}
 
+# ---- aggregators: every sector, every country, but they need a free key ----
+# Company ATS boards only ever cover the companies we list, and those skew
+# heavily to tech. Adzuna and Jooble are what make this a general job board:
+# nursing, teaching, driving, retail, accounting, in dozens of countries.
+ADZUNA_APP_ID = env("ADZUNA_APP_ID")
+ADZUNA_APP_KEY = env("ADZUNA_APP_KEY")
+JOOBLE_KEY = env("JOOBLE_KEY")
+
+# Adzuna country codes. Override with ADZUNA_COUNTRIES="in,gb,us".
+ADZUNA_COUNTRIES = env("ADZUNA_COUNTRIES",
+                       "in,us,gb,ca,au,de,fr,nl,sg,za,nz,pl,it,es,br,mx").split(",")
+ADZUNA_PAGES = int(env("ADZUNA_PAGES", "3") or 3)     # 50 results per page
+
+_ADZUNA_CC = {"in": "India", "us": "United States", "gb": "United Kingdom",
+              "ca": "Canada", "au": "Australia", "de": "Germany", "fr": "France",
+              "nl": "Netherlands", "sg": "Singapore", "za": "South Africa",
+              "nz": "New Zealand", "pl": "Poland", "it": "Italy", "es": "Spain",
+              "br": "Brazil", "mx": "Mexico", "at": "Austria", "ch": "Switzerland",
+              "be": "Belgium", "ru": "Russia"}
+
+
+async def _fetch_adzuna(client, cc):
+    """One country of Adzuna, newest first, across every category."""
+    out = []
+    for page in range(1, ADZUNA_PAGES + 1):
+        r = await client.get(
+            f"https://api.adzuna.com/v1/api/jobs/{cc}/search/{page}",
+            params={"app_id": ADZUNA_APP_ID, "app_key": ADZUNA_APP_KEY,
+                    "results_per_page": 50, "sort_by": "date",
+                    "content-type": "application/json"})
+        r.raise_for_status()
+        results = r.json().get("results") or []
+        if not results:
+            break
+        for j in results:
+            loc = (j.get("location") or {}).get("display_name") or _ADZUNA_CC.get(cc, "")
+            row = _job_row("adzuna", j.get("id"), j.get("title"),
+                           (j.get("company") or {}).get("display_name", ""),
+                           loc, j.get("redirect_url", ""),
+                           j.get("description", ""), _ts(j.get("created")))
+            if row:
+                # Adzuna's own location strings are often just a region; fall
+                # back to the country we asked for rather than losing it.
+                row["country"] = row["country"] or _ADZUNA_CC.get(cc, "")
+                out.append(row)
+    return out
+
+
+# ---- free aggregators: no key, no signup, run for everyone ----------------
+# These widen the board well beyond the companies we list by name, and beyond
+# tech — The Muse and Himalayas carry nursing, teaching, retail and admin.
+# These run once a day, so depth is worth the extra minute of crawling.
+MUSE_PAGES = int(env("MUSE_PAGES", "120") or 120)      # 20 jobs a page
+HIMALAYAS_PAGES = int(env("HIMALAYAS_PAGES", "10") or 10)
+ARBEITNOW_PAGES = int(env("ARBEITNOW_PAGES", "30") or 30)
+
+
+async def _fetch_remotive(client, _=None):
+    r = await client.get("https://remotive.com/api/remote-jobs?limit=500")
+    r.raise_for_status()
+    return [_job_row("remotive", j.get("id"), j.get("title"),
+                     j.get("company_name", ""), j.get("candidate_required_location", "Remote"),
+                     j.get("url", ""), j.get("description", ""),
+                     _ts(j.get("publication_date")))
+            for j in (r.json().get("jobs") or [])]
+
+
+async def _fetch_arbeitnow(client, _=None):
+    out = []
+    for page in range(1, ARBEITNOW_PAGES + 1):
+        r = await client.get(f"https://www.arbeitnow.com/api/job-board-api?page={page}")
+        r.raise_for_status()
+        data = r.json().get("data") or []
+        if not data:
+            break
+        for j in data:
+            out.append(_job_row("arbeitnow", j.get("slug"), j.get("title"),
+                                j.get("company_name", ""), j.get("location", ""),
+                                j.get("url", ""), j.get("description", ""),
+                                _ts(j.get("created_at"))))
+    return out
+
+
+async def _fetch_remoteok(client, _=None):
+    r = await client.get("https://remoteok.com/api")
+    r.raise_for_status()
+    out = []
+    for j in r.json():
+        # The first element is RemoteOK's legal notice, not a job.
+        if not isinstance(j, dict) or not j.get("position"):
+            continue
+        out.append(_job_row("remoteok", j.get("id"), j.get("position"),
+                            j.get("company", ""), j.get("location") or "Remote",
+                            j.get("url", ""), j.get("description", ""),
+                            _ts(j.get("date"))))
+    return out
+
+
+async def _fetch_jobicy(client, _=None):
+    r = await client.get("https://jobicy.com/api/v2/remote-jobs?count=100")
+    r.raise_for_status()
+    return [_job_row("jobicy", j.get("id"), j.get("jobTitle"),
+                     j.get("companyName", ""), j.get("jobGeo", "Remote"),
+                     j.get("url", ""), j.get("jobExcerpt", ""), _ts(j.get("pubDate")))
+            for j in (r.json().get("jobs") or [])]
+
+
+async def _fetch_himalayas(client, _=None):
+    out = []
+    for page in range(HIMALAYAS_PAGES):
+        r = await client.get(
+            f"https://himalayas.app/jobs/api?limit=100&offset={page*100}")
+        r.raise_for_status()
+        jobs = r.json().get("jobs") or []
+        if not jobs:
+            break
+        for j in jobs:
+            locs = j.get("locationRestrictions") or []
+            out.append(_job_row("himalayas", j.get("guid") or j.get("title"),
+                                j.get("title"), j.get("companyName", ""),
+                                ", ".join(locs[:2]) if locs else "Remote",
+                                j.get("applicationLink") or j.get("url", ""),
+                                j.get("excerpt", ""), _ts(j.get("pubDate"))))
+    return out
+
+
+async def _fetch_themuse(client, _=None):
+    """The widest free source we have, and the least tech-only."""
+    out = []
+    for page in range(1, MUSE_PAGES + 1):
+        r = await client.get(
+            f"https://www.themuse.com/api/public/jobs?page={page}")
+        if r.status_code == 400:            # ran past the last page
+            break
+        r.raise_for_status()
+        results = r.json().get("results") or []
+        if not results:
+            break
+        for j in results:
+            locs = [x.get("name", "") for x in (j.get("locations") or [])]
+            refs = j.get("refs") or {}
+            out.append(_job_row("themuse", j.get("id"), j.get("name"),
+                                (j.get("company") or {}).get("name", ""),
+                                ", ".join(locs[:2]),
+                                refs.get("landing_page", ""),
+                                j.get("contents", ""),
+                                _ts(j.get("publication_date"))))
+    return out
+
+
+_FREE_AGGREGATORS = {
+    "themuse": _fetch_themuse, "arbeitnow": _fetch_arbeitnow,
+    "remotive": _fetch_remotive, "remoteok": _fetch_remoteok,
+    "jobicy": _fetch_jobicy, "himalayas": _fetch_himalayas,
+}
+
+
+async def _fetch_jooble(client, country):
+    r = await client.post(f"https://jooble.org/api/{JOOBLE_KEY}",
+                          json={"keywords": "", "location": country, "page": "1"})
+    r.raise_for_status()
+    out = []
+    for j in (r.json().get("jobs") or []):
+        row = _job_row("jooble", j.get("id") or j.get("link"), j.get("title"),
+                       j.get("company", ""), j.get("location", "") or country,
+                       j.get("link", ""), j.get("snippet", ""), _ts(j.get("updated")))
+        if row:
+            row["country"] = row["country"] or country
+            out.append(row)
+    return out
+
 
 async def _collect_jobs():
     """Hit every configured board once.
@@ -3485,6 +3669,44 @@ async def _collect_jobs():
                     report[f"{source}:{token}"] = len(got)
                 except Exception as e:
                     report[f"{source}:{token}"] = f"{type(e).__name__}"
+
+        # Free aggregators. Each carries its own employers, so `reached` is
+        # keyed on the feed itself — if one is down we simply keep what we had
+        # rather than closing every job it ever gave us.
+        for name, fetch in _FREE_AGGREGATORS.items():
+            try:
+                got = [r for r in await fetch(client) if r]
+                rows += got
+                for r in got:
+                    reached.add((name, r["company"]))
+                report[name] = len(got)
+            except Exception as e:
+                report[name] = f"{type(e).__name__}"
+
+        # Keyed aggregators, only when the key is configured.
+        if ADZUNA_APP_ID and ADZUNA_APP_KEY:
+            for cc in [c.strip() for c in ADZUNA_COUNTRIES if c.strip()]:
+                try:
+                    got = [r for r in await _fetch_adzuna(client, cc) if r]
+                    rows += got
+                    report[f"adzuna:{cc}"] = len(got)
+                except Exception as e:
+                    report[f"adzuna:{cc}"] = f"{type(e).__name__}"
+        else:
+            report["adzuna"] = "skipped (no ADZUNA_APP_ID / ADZUNA_APP_KEY)"
+
+        if JOOBLE_KEY:
+            for cname in [_ADZUNA_CC.get(c.strip(), "") for c in ADZUNA_COUNTRIES]:
+                if not cname:
+                    continue
+                try:
+                    got = [r for r in await _fetch_jooble(client, cname) if r]
+                    rows += got
+                    report[f"jooble:{cname}"] = len(got)
+                except Exception as e:
+                    report[f"jooble:{cname}"] = f"{type(e).__name__}"
+        else:
+            report["jooble"] = "skipped (no JOOBLE_KEY)"
     return rows, report, reached
 
 
@@ -3499,6 +3721,9 @@ def _store_jobs(db, rows, reached):
             row.title, row.company = r["title"], r["company"]
             row.location, row.country = r["location"], r["country"]
             row.remote, row.url, row.text = r["remote"], r["url"], r["text"]
+            row.category, row.skills = r["category"], r["skills"]
+            row.job_type, row.engagement = r["job_type"], r["engagement"]
+            row.visa = r["visa"]
             row.last_seen, row.is_open, row.closed_at = now(), True, None
             updated += 1
         else:
@@ -3625,6 +3850,74 @@ _ROLE_FAMILIES = {
     "hr": ("recruiter", "recruiting", "talent acquisition", "people operations",
            "human resources"),
     "legal": ("legal counsel", "compliance ", "paralegal", "attorney", "privacy counsel"),
+    # Beyond tech — a graduate job board can't only serve engineers.
+    "operations": ("operations manager", "operations associate", "business operations",
+                   "supply chain", "logistics", "procurement", "warehouse",
+                   "inventory", "fulfilment", "fulfillment", "dispatch"),
+    "admin": ("administrative assistant", "office manager", "executive assistant",
+              "receptionist", "data entry", "office administrator", "coordinator"),
+    "consulting": ("consultant", "business analyst", "strategy ", "management associate"),
+    "healthcare": ("nurse", "physician", "clinical", "pharmacist", "medical ",
+                   "healthcare", "therapist", "radiolog", "dental"),
+    "education": ("teacher", "lecturer", "professor", "tutor", "instructor",
+                  "trainer", "curriculum", "faculty", "教師"),
+    "manufacturing": ("manufacturing", "production engineer", "mechanical engineer",
+                      "electrical engineer", "civil engineer", "quality engineer",
+                      "maintenance technician", "plant ", "assembly", "machinist"),
+    # "architect " deliberately excluded — it files every Solutions Architect
+    # and Data Architect under Construction.
+    "construction": ("construction", "site engineer", "surveyor",
+                     "foreman", "estimator", "civil engineer"),
+    "hospitality": ("chef", "barista", "waiter", "server ", "hotel", "restaurant",
+                    "housekeep", "front desk", "concierge", "bartender"),
+    "retail": ("store manager", "sales associate", "cashier", "retail ",
+               "merchandis", "shop assistant"),
+    # Not a bare "delivery" — that matches Service Delivery Manager and every
+    # "delivery team" in tech.
+    "driver": ("driver", "delivery driver", "truck driver", "courier",
+               "chauffeur", "delivery rider", "fleet manager"),
+    "science": ("research associate", "laboratory", "lab technician", "chemist",
+                "biologist", "scientist ", "r&d "),
+    "writing": ("writer", "editor", "copywriter", "journalist", "technical writer",
+                "content writer", "translator"),
+}
+# One label per job, so the category filter is unambiguous. The title decides
+# where it can — a description mentions many kinds of work in passing.
+_FAMILY_ORDER = list(_ROLE_FAMILIES)
+
+
+def _primary_family(title: str, text: str = "") -> str:
+    """The job's category, from the title only.
+
+    Reading the description instead was tried and is not safe: engineering ads
+    mention 'routing' and 'delivery' in passing, which filed Administrative
+    Business Partner under Networking and Android BSP Engineer under Driving.
+    An uncategorised job is fine — it still appears everywhere except the
+    category filter. A wrongly categorised one quietly poisons that filter.
+    """
+    fams = _families(title)
+    if not fams:
+        return ""
+    if len(fams) == 1:
+        return next(iter(fams))
+    return sorted(fams, key=lambda f: _FAMILY_ORDER.index(f))[0]
+
+
+# Human labels for the category dropdown.
+CATEGORY_LABELS = {
+    "network": "Networking", "security": "Cybersecurity", "sysadmin": "IT support & sysadmin",
+    "devops": "DevOps & cloud", "backend": "Software engineering", "frontend": "Frontend & web",
+    "mobile": "Mobile apps", "data": "Data & analytics", "ml": "AI & machine learning",
+    "qa": "QA & testing", "product": "Product & programme", "design": "Design & UX",
+    "sales": "Sales & business development", "marketing": "Marketing & growth",
+    "support": "Customer support & success", "finance": "Finance & accounting",
+    "hr": "HR & recruiting", "legal": "Legal & compliance",
+    "operations": "Operations & supply chain", "admin": "Admin & office",
+    "consulting": "Consulting & business analysis", "healthcare": "Healthcare & medical",
+    "education": "Teaching & training", "manufacturing": "Engineering & manufacturing",
+    "construction": "Construction & civil", "hospitality": "Hospitality & food",
+    "retail": "Retail & stores", "driver": "Driving & delivery",
+    "science": "Science & research", "writing": "Writing & content",
 }
 # Families close enough that crossing between them is a normal career move.
 _ADJACENT = {
@@ -3646,11 +3939,19 @@ _ADJACENT = {
 }
 
 
+# Word-boundary matched, not substring. Plain `in` reads "cisco" out of "San
+# Francisco" and "writer" out of "Underwriter", which filed account executives
+# under Networking and credit analysts under Writing.
+_FAMILY_RE = {fam: [_re.compile(rf"(?<![a-z]){_re.escape(k.strip())}(?![a-z])")
+                    for k in keys]
+              for fam, keys in _ROLE_FAMILIES.items()}
+
+
 def _families(text: str):
     """Which role families this text reads as. Empty when nothing is clear."""
     low = " " + (text or "").lower() + " "
-    return {fam for fam, keys in _ROLE_FAMILIES.items()
-            if any(k in low for k in keys)}
+    return {fam for fam, rxs in _FAMILY_RE.items()
+            if any(rx.search(low) for rx in rxs)}
 
 
 def _profile(resume_text: str):
@@ -3678,6 +3979,16 @@ _JUNIOR = ("intern", "internship", "graduate", "trainee", "junior", "entry",
            "fresher", "apprentice", "associate")
 
 
+def _job_skills(job):
+    """The job's skills, from the column filled at ingest.
+
+    Falls back to parsing the text for rows stored before that column
+    existed, so an older database still matches until the next crawl."""
+    if job.skills:
+        return set(job.skills.split(","))
+    return {w for w in _words(job.text or "") if w in _SKILLS}
+
+
 def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
     """0-100 fit score, plus the skills that matched and the ones missing.
 
@@ -3687,8 +3998,10 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
     resume's — without that gate, shared buzzwords alone rated a network
     engineer a perfect fit for a compliance product manager.
     """
-    jwords = set(_words(job.text or ""))
-    jskills = {w for w in jwords if w in _SKILLS}
+    jskills = _job_skills(job)
+    # Title words only. Scanning whole descriptions here cost 30s a request,
+    # and the title is where the signal actually is.
+    jwords = set(_words(job.title or ""))
     idf = idf or {}
 
     hit = skills & jskills
@@ -3704,14 +4017,16 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
     depth = min(have / 4.0, 1.0)          # absolute weight of what you matched
     kw_pct = len(keywords & jwords) / max(len(jwords), 1)
 
-    score = 100 * (0.45 * coverage + 0.35 * depth + 0.20 * min(kw_pct * 4, 1.0))
+    score = 100 * (0.45 * coverage + 0.35 * depth + 0.20 * min(kw_pct * 1.6, 1.0))
 
     # A posting too thin to name a few skills can't support a confident score.
     if len(jskills) < 3:
         score *= 0.5
 
     title = (job.title or "").lower()
-    job_fams = _families(title) or _families(job.text or "")
+    # Read the family off the stored column. Re-deriving it here ran ~240
+    # regexes per job, which was 26 of the 30 seconds a match took.
+    job_fams = {job.category} if job.category else set()
     if my_fams and job_fams:
         if job_fams & my_fams:
             score += 10                                   # same line of work
@@ -3755,7 +4070,9 @@ def _job_json(j, extra=None):
         "id": j.id, "title": j.title, "company": j.company,
         "location": j.location or ("Remote" if j.remote else ""),
         "country": j.country, "remote": bool(j.remote), "url": j.url,
-        "source": j.source, "is_open": bool(j.is_open),
+        "category": j.category or "", "is_open": bool(j.is_open),
+        "job_type": j.job_type or "", "engagement": j.engagement or "",
+        "visa": j.visa or "",
         "posted_at": j.posted_at.isoformat() if j.posted_at else None,
         "first_seen": j.first_seen.isoformat() if j.first_seen else None,
         "closed_at": j.closed_at.isoformat() if j.closed_at else None,
@@ -3765,12 +4082,24 @@ def _job_json(j, extra=None):
     return d
 
 
-def _jobs_query(db, q="", country="", location="", remote=False, status="open"):
+def _jobs_query(db, q="", country="", location="", remote=False, status="open",
+                category="", job_type="", engagement="", visa=""):
     query = db.query(Job)
+    if job_type:
+        query = query.filter(Job.job_type == job_type.strip().lower())
+    if engagement:
+        # "w2_c2c" postings accept either, so they belong in both filters.
+        e = engagement.strip().lower()
+        query = query.filter(Job.engagement.in_([e, "w2_c2c"])
+                             if e in ("w2", "c2c") else Job.engagement == e)
+    if visa:
+        query = query.filter(Job.visa == visa.strip().lower())
     if status == "open":
         query = query.filter(Job.is_open == True)      # noqa: E712
     elif status == "closed":
         query = query.filter(Job.is_open == False)     # noqa: E712
+    if category:
+        query = query.filter(Job.category == category.strip().lower())
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     if location:
@@ -3788,10 +4117,11 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open"):
 @app.get("/api/jobs")
 def jobs_search(q: str = "", country: str = "", location: str = "",
                 remote: bool = False, status: str = "open", limit: int = 20,
-                offset: int = 0,
+                offset: int = 0, category: str = "", job_type: str = "",
+                engagement: str = "", visa: str = "",
                 user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Search the stored postings. Newest first."""
-    query = _jobs_query(db, q, country, location, remote, status)
+    query = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa)
     if q:
         # Searching "engineer" must not put a sales role that merely mentions
         # engineers above an actual engineering job. Title hits rank first.
@@ -3801,10 +4131,47 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     else:
         query = query.order_by(Job.first_seen.desc())
     off, lim = max(offset, 0), min(max(limit, 1), 50)
-    total = _jobs_query(db, q, country, location, remote, status).count()
+    total = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa).count()
     rows = query.offset(off).limit(lim).all()
     return {"jobs": [_job_json(j) for j in rows], "total": total,
             "offset": off, "limit": lim, "has_more": off + lim < total}
+
+
+@app.get("/api/jobs/categories")
+def jobs_categories(country: str = "", user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Categories we actually hold open jobs for, largest first."""
+    query = db.query(Job.category, func.count(Job.id)).filter(
+        Job.is_open == True, Job.category != "")            # noqa: E712
+    if country:
+        query = query.filter(func.lower(Job.country) == country.strip().lower())
+    rows = query.group_by(Job.category).all()
+    return {"categories": [
+        {"id": c, "label": CATEGORY_LABELS.get(c, c.title()), "count": n}
+        for c, n in sorted(rows, key=lambda x: -x[1])]}
+
+
+@app.get("/api/jobs/suggest")
+def jobs_suggest(q: str = "", country: str = "", limit: int = 10,
+                 user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Type-ahead for the search box: real job titles we actually hold.
+
+    Suggesting titles that return nothing is worse than no suggestions, so
+    these come from live rows with their result counts attached."""
+    term = (q or "").strip().lower()
+    if len(term) < 2:
+        return {"suggestions": []}
+    query = db.query(Job.title, func.count(Job.id)).filter(
+        Job.is_open == True, func.lower(Job.title).like(f"%{term}%"))  # noqa: E712
+    if country:
+        query = query.filter(func.lower(Job.country) == country.strip().lower())
+    rows = query.group_by(Job.title).order_by(func.count(Job.id).desc()) \
+                .limit(min(max(limit, 1), 25)).all()
+    # Titles that start with what was typed feel more responsive than ones
+    # that merely contain it, so lift those to the top.
+    out = [{"title": t, "count": n} for t, n in rows if t]
+    out.sort(key=lambda d: (0 if d["title"].lower().startswith(term) else 1, -d["count"]))
+    return {"suggestions": out}
 
 
 @app.get("/api/jobs/filters")
@@ -3821,7 +4188,29 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
         "closed": db.query(func.count(Job.id)).filter(Job.is_open == False).scalar(),  # noqa: E712
         "updated": newest.isoformat() if newest else None,
         "retention_days": JOB_RETENTION_DAYS,
+        "job_types": _facet(db, Job.job_type, JOB_TYPE_LABELS),
+        "engagements": _facet(db, Job.engagement, ENGAGEMENT_LABELS),
+        "visas": _facet(db, Job.visa, VISA_LABELS),
+        "new_today": db.query(func.count(Job.id)).filter(
+            Job.first_seen >= now() - dt.timedelta(days=1)).scalar(),
     }
+
+
+JOB_TYPE_LABELS = {"fulltime": "Full-time", "contract": "Contract",
+                   "parttime": "Part-time", "internship": "Internship"}
+ENGAGEMENT_LABELS = {"w2": "W2", "c2c": "C2C / corp-to-corp",
+                     "w2_c2c": "W2 or C2C", "1099": "1099"}
+VISA_LABELS = {"sponsors": "Sponsors a visa (H1B / OPT / CPT)",
+               "no_sponsorship": "No sponsorship — citizens / green card",
+               "clearance": "Security clearance required"}
+
+
+def _facet(db, col, labels):
+    """Counts for one filter, so we only ever offer options that return rows."""
+    rows = db.query(col, func.count(Job.id)).filter(
+        Job.is_open == True, col != "", col.isnot(None)).group_by(col).all()  # noqa: E712
+    return [{"id": v, "label": labels.get(v, str(v).title()), "count": n}
+            for v, n in sorted(rows, key=lambda x: -x[1])]
 
 
 class JobMatchIn(BaseModel):
@@ -3834,6 +4223,10 @@ class JobMatchIn(BaseModel):
     limit: int = 20
     offset: int = 0
     min_score: int = 0
+    category: str = Field(default="", max_length=30)
+    job_type: str = Field(default="", max_length=20)
+    engagement: str = Field(default="", max_length=10)
+    visa: str = Field(default="", max_length=20)
 
 
 @app.post("/api/jobs/match")
@@ -3855,13 +4248,14 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     level = _level_of(rtext)
     my_fams = _families(rtext)
     rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
-                       "open").order_by(Job.first_seen.desc()).limit(5000).all()
+                       "open", body.category, body.job_type, body.engagement,
+                       body.visa).order_by(Job.first_seen.desc()).limit(6000).all()
 
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.
     df, n = {}, max(len(rows), 1)
     for j in rows:
-        for s in {w for w in _words(j.text or "") if w in _SKILLS}:
+        for s in _job_skills(j):
             df[s] = df.get(s, 0) + 1
     idf = {s: math.log(n / (1 + c)) + 0.25 for s, c in df.items()}
 
@@ -3891,6 +4285,98 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
             "offset": off, "limit": lim, "has_more": off + lim < len(scored),
             "level": level, "families": sorted(my_fams),
             "your_skills": sorted(s for s in skills if s not in _WEAK_SKILLS)[:30]}
+
+
+class ApplyKitIn(BaseModel):
+    job_id: int
+    resume: dict = {}
+    resume_text: str = Field(default="", max_length=40000)
+
+
+@app.post("/api/jobs/apply-kit")
+async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Everything needed to apply for one job, in one place.
+
+    It prepares the material and the user submits it themselves on the
+    employer's own site. It deliberately does NOT auto-submit: that would put
+    someone's personal data into an employer's system without them seeing it,
+    breaks every ATS's terms, and gets real applicants blacklisted.
+    """
+    job = db.get(Job, body.job_id)
+    if not job:
+        raise HTTPException(404, "That job is no longer listed")
+    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:4000]
+    if len(rtext.strip()) < 40:
+        raise HTTPException(400, "Add your resume first, or upload one.")
+
+    skills, keywords = _profile(rtext)
+    jskills = _job_skills(job)
+    have, gaps = sorted(skills & jskills), sorted(jskills - skills)
+
+    # The free half: no AI, always available, useful on its own.
+    kit = {
+        "job": _job_json(job),
+        "matched": have[:14],
+        "gaps": gaps[:10],
+        "checklist": [
+            "Open the posting and apply on the employer's own site — direct "
+            "applications are read before aggregator ones.",
+            f"Put these words in your resume where they are true: {', '.join(have[:6]) or 'the tools named in the ad'}.",
+            "Name the company and the role in your first line — generic notes read as spam.",
+            "Attach a PDF, not a DOCX, unless the form asks otherwise.",
+            "If there is a 'why this company' box, write two specific sentences. Leave nothing blank.",
+        ],
+    }
+    if not ASK_ENABLED:
+        kit["note"] = ("AI tailoring is switched off on this server, so the "
+                       "checklist and keyword lists above are all we can give you.")
+        return kit
+
+    ckey = _ai_cache_key("akit", rtext[:2500], str(job.id))
+    cached = _ai_cache_get(db, ckey)
+    if cached is not None:
+        return {**kit, **cached, "cached": True}
+    _ai_enforce_limit(db, user)
+
+    prompt = (
+        "You are helping someone apply for one specific job. Use ONLY facts "
+        "present in their resume — never invent an employer, a date, a degree "
+        "or a number.\n\n"
+        f"JOB TITLE: {job.title}\nCOMPANY: {job.company}\n"
+        f"LOCATION: {job.location}\n"
+        f"JOB POSTING:\n{(job.text or '')[:2200]}\n\n"
+        f"THEIR RESUME:\n{rtext[:2200]}\n\n"
+        "Return ONLY valid JSON in exactly this shape:\n"
+        '{"summary": "<a 2-3 sentence resume summary rewritten for THIS job, '
+        'first person implied, no fluff>", '
+        '"bullets": ["<3-5 resume bullets from their real experience, reworded '
+        'to lead with what this posting asks for>"], '
+        '"cover_note": "<a short cover note, 90-130 words, addressed to the '
+        'hiring team, naming the company and role, concrete not gushing>", '
+        '"questions": [{"q": "<a screening question this employer is likely to '
+        'ask>", "a": "<a strong answer built from their real experience>"}], '
+        '"flags": ["<anything in the posting they may not meet, stated plainly>"]}'
+    )
+    try:
+        d = _ai_json(await _ai_text(prompt, 1200))
+    except Exception as e:
+        print(f"Apply kit failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+
+    def s(v, n):
+        return str(v or "").strip()[:n]
+    out = {
+        "summary": s(d.get("summary"), 700),
+        "bullets": [s(x, 300) for x in (d.get("bullets") or []) if str(x).strip()][:6],
+        "cover_note": s(d.get("cover_note"), 1400),
+        "questions": [{"q": s(x.get("q"), 200), "a": s(x.get("a"), 700)}
+                      for x in (d.get("questions") or []) if isinstance(x, dict)][:4],
+        "flags": [s(x, 200) for x in (d.get("flags") or []) if str(x).strip()][:4],
+    }
+    _ai_bump(db, user)
+    _ai_cache_put(db, ckey, out)
+    return {**kit, **out, "cached": False}
 
 
 @app.post("/api/admin/jobs/refresh")

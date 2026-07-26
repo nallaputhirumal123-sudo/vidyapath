@@ -14,6 +14,64 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.44.0 — Job type, W2/C2C and visa filters
+
+- **Job type filter:** full-time, contract, part-time, internship — read from
+  the posting text rather than assumed.
+- **Engagement filter:** W2, C2C / corp-to-corp, 1099. A posting that says it
+  takes either shows under both.
+- **Work authorisation filter:** sponsors a visa (H1B / OPT / CPT), no
+  sponsorship (citizens / green card only), or security clearance required.
+  Knowing a job will *not* sponsor saves an application that was never going
+  to land.
+- Every one of these dropdowns only offers values we actually hold jobs for,
+  with counts, so no option leads to an empty page.
+- **Fixed:** the version badge overlapped the tutor button in the bottom-right
+  corner. It now sits above it.
+
+**Known limit, stated plainly:** the free sources carry almost no W2/C2C
+postings (single digits) and few explicit visa statements. That vocabulary
+lives on staffing boards like Dice, which have no free public API. The filters
+are correct and will fill up the moment a source that carries those postings
+is connected — see `ADZUNA_APP_ID` / `JOOBLE_KEY`.
+
+## 1.43.0 — Apply kit, job categories, type-ahead, wider search
+
+- **Apply kit.** On any open job, one click prepares the whole application: a
+  resume summary rewritten for that posting, bullets to lead with, a cover
+  note, likely screening questions with answers built from your real
+  experience, and anything in the ad you may not meet. Everything is
+  copy-ready and the posting opens for you to submit.
+  **It never submits on your behalf** — that would put your details into an
+  employer's system without you seeing them, breaks every ATS's terms, and
+  gets real applicants blacklisted. The keyword lists and checklist work even
+  when AI is switched off.
+- **Job categories.** 30 of them, well past IT: healthcare, teaching,
+  operations, admin, finance, legal, retail, hospitality, driving,
+  construction, science, writing. Pick one from the dropdown to browse it.
+- **Type-ahead search.** Suggestions appear as you type, drawn from job titles
+  actually in the database with their result counts, so nothing you can pick
+  leads to an empty page. Scrollable, click or press Enter.
+- **Wider net.** Six more free sources added — The Muse, Arbeitnow, Remotive,
+  RemoteOK, Jobicy and Himalayas — taking the board past **13,000 jobs**, with
+  much better coverage outside tech and outside the US. No key needed.
+  Adzuna and Jooble connectors are built in too and switch on by themselves if
+  you set `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` or `JOOBLE_KEY`.
+- **Match is ~30× faster.** It had slowed to over 30 seconds a search: it was
+  re-deriving each job's skills and role family at query time — about 240
+  regexes per job across 5,000 jobs. Both are now computed once when the job
+  is stored. A search takes ~1 second.
+- **Fixed miscategorised jobs.** Keyword matching was on substrings, so
+  `cisco` matched "San Fran**cisco**" and `writer` matched "Under**writer**" —
+  filing account executives under Networking and credit analysts under
+  Writing. Now matched on word boundaries, and a job's category comes from its
+  title only; guessing from the description filed Administrative Business
+  Partner under Networking.
+- The source each job came from is no longer shown.
+- **Removed the spelling & grammar check**, front end and endpoint. The job
+  match is what actually changes an outcome; the proofreader was a second
+  AI call for far less.
+
 ## 1.42.0 — Matching made honest, paging, bell moved
 
 - **Fixed the matching. It was badly wrong.** A senior network engineer's

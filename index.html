@@ -796,7 +796,9 @@ function rzVersionBadge(txt){
   let el=document.getElementById("verBadge");
   if(!el){
     el=document.createElement("div"); el.id="verBadge";
-    el.style.cssText="position:fixed;right:8px;bottom:8px;z-index:99999;font-size:11px;"
+    // Sits ABOVE the tutor button, which is fixed at right:20px/bottom:20px
+    // and is 56px tall — at bottom:8px the two overlapped.
+    el.style.cssText="position:fixed;right:20px;bottom:88px;z-index:9998;font-size:11px;"
       +"padding:3px 9px;border-radius:20px;background:rgba(20,22,28,.82);color:#cbd3e1;"
       +"border:1px solid rgba(255,255,255,.14);font-family:system-ui,sans-serif;"
       +"pointer-events:none;letter-spacing:.2px;box-shadow:0 2px 8px rgba(0,0,0,.3)";
@@ -2526,7 +2528,9 @@ const REAL_PRACTICE=[
 ];
 /* ---- live jobs: real postings pulled daily from company career sites ---- */
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
-        q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0};
+        q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
+        category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
+        jobType:"",engagement:"",visa:""};
 
 function jbAgo(iso){
   if(!iso) return "";
@@ -2537,7 +2541,37 @@ function jbAgo(iso){
 }
 async function jbFilters(){
   try{ JB.filters=await api.get("/api/jobs/filters"); }catch(e){ JB.filters=null; }
+  try{ JB.cats=(await api.get("/api/jobs/categories")).categories||[]; }catch(e){ JB.cats=[]; }
 }
+/* ---- type-ahead: suggestions come from titles we actually hold, with their
+   result counts, so nothing offered leads to an empty list ---- */
+let _jbSuggT;
+function jbSuggest(term){
+  clearTimeout(_jbSuggT);
+  if((term||"").trim().length<2){ JB.sugg=[]; JB.suggOpen=false; jbPaintSugg(); return; }
+  _jbSuggT=setTimeout(async()=>{
+    try{
+      const p=new URLSearchParams({q:term,country:JB.country,limit:"12"});
+      JB.sugg=(await api.get("/api/jobs/suggest?"+p)).suggestions||[];
+      JB.suggOpen=JB.sugg.length>0;
+    }catch(e){ JB.sugg=[]; JB.suggOpen=false; }
+    jbPaintSugg();
+  },220);
+}
+function jbSuggHTML(){
+  if(!JB.suggOpen||!JB.sugg.length) return "";
+  return `<div style="position:absolute;top:100%;left:0;right:0;z-index:50;margin-top:4px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    max-height:260px;overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,.35)">
+    ${JB.sugg.map(s=>`<button class="jbsugg" data-jbsugg="${esc(s.title)}"
+      style="display:flex;width:100%;gap:10px;align-items:center;justify-content:space-between;
+      padding:9px 13px;background:none;border:none;color:var(--text);cursor:pointer;
+      font:inherit;font-size:13.5px;text-align:left">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.title)}</span>
+      <span style="color:var(--dim);font-size:11.5px;flex-shrink:0">${s.count}</span></button>`).join("")}
+  </div>`;
+}
+function jbPaintSugg(){ const el=$("#jbSuggBox"); if(el) el.innerHTML=jbSuggHTML(); }
 /* The uploaded resume's text is kept server-side as a note, so matching still
    works after a refresh — a plain JS variable would be lost on reload. */
 function jbRestoreUpload(){
@@ -2577,12 +2611,17 @@ function jbResumeSource(){
   return {kind:"none", label:""};
 }
 function jbReadInputs(){
-  const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote"), s=$("#jbMin");
+  const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote"), s=$("#jbMin"), k=$("#jbCat");
   if(q) JB.q=q.value.trim();
   if(c) JB.country=c.value;
   if(l) JB.location=l.value.trim();
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
+  if(k) JB.category=k.value;
+  const jt=$("#jbType"), en=$("#jbEng"), vs=$("#jbVisa");
+  if(jt) JB.jobType=jt.value;
+  if(en) JB.engagement=en.value;
+  if(vs) JB.visa=vs.value;
 }
 /* keepPage: paging through results must not reset you to the first page. */
 async function jbRun(mode,keepPage){
@@ -2595,11 +2634,13 @@ async function jbRun(mode,keepPage){
       rzLoad(); jbRestoreUpload();
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
         q:JB.q,country:JB.country,location:JB.location,remote:JB.remote,
-        limit:JB.perPage,offset:JB.offset,min_score:JB.minScore});
+        limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,category:JB.category,
+        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa});
       JB.jobs=res.jobs; JB.meta=res;
     }else{
       const p=new URLSearchParams({q:JB.q,country:JB.country,location:JB.location,
-        remote:JB.remote?"true":"false",status:"open",
+        remote:JB.remote?"true":"false",status:"open",category:JB.category,
+        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,
         limit:String(JB.perPage),offset:String(JB.offset)});
       const res=await api.get("/api/jobs?"+p);
       JB.jobs=res.jobs; JB.meta=res;
@@ -2638,13 +2679,61 @@ function jbCardHTML(j){
         <div style="font-size:11.5px;color:var(--dim);margin-top:4px">
           ${closed?`<span style="color:#e05a5a">● Closed ${jbAgo(j.closed_at)}</span>`
                   :`<span style="color:#4bbf82">● Open</span>`}
-          · seen ${jbAgo(j.first_seen)} · via ${esc(j.source)}
+          · seen ${jbAgo(j.first_seen)}
         </div>
         ${chips?`<div class="ask-chips" style="margin-top:8px;gap:5px">${chips}</div>`:""}
         ${gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:""}
       </div>
-      <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener">${closed?"View ↗":"Apply ↗"}</a>
-    </div></div>`;
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+        <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener">${closed?"View ↗":"Apply ↗"}</a>
+        ${closed?"":`<button class="btn ghost sm" data-jbkit="${j.id}">✨ Apply kit</button>`}
+      </div>
+    </div>
+    ${JB.kitFor===j.id?jbKitHTML():""}</div>`;
+}
+/* The kit prepares the application; the person still submits it themselves on
+   the employer's site. Nothing is ever sent on their behalf. */
+async function jbApplyKit(id){
+  if(JB.kitFor===id && JB.kit){ JB.kitFor=null; JB.kit=null; jbPaint(); return; }
+  JB.kitFor=id; JB.kit=null; JB.kitBusy=true; jbPaint();
+  try{
+    rzLoad(); jbRestoreUpload();
+    JB.kit=await api.post("/api/jobs/apply-kit",{job_id:id,resume:RESUME,resume_text:RZ_UPTEXT});
+  }catch(e){ JB.kit={error:e.message}; }
+  JB.kitBusy=false; jbPaint();
+}
+function jbCopy(text,btn){
+  navigator.clipboard.writeText(text).then(()=>{
+    const o=btn.textContent; btn.textContent="✓ Copied"; setTimeout(()=>btn.textContent=o,1400);
+  }).catch(()=>{});
+}
+function jbKitHTML(){
+  if(JB.kitBusy) return `<div style="margin-top:12px;padding:12px;background:var(--panel2);border-radius:9px;font-size:13px;color:var(--dim)">Preparing your application kit…</div>`;
+  const k=JB.kit; if(!k) return "";
+  if(k.error) return `<div style="margin-top:12px;padding:12px;background:var(--panel2);border-radius:9px;font-size:13px;color:var(--dim)">${esc(k.error)}</div>`;
+  const box=(title,body,copy)=>`<div style="margin-top:10px">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
+      <b style="font-size:13px">${title}</b>
+      ${copy?`<button class="btn ghost sm" data-jbcopy="${esc(copy)}">Copy</button>`:""}
+    </div>${body}</div>`;
+  const p=s=>`<div style="font-size:13px;color:var(--body);white-space:pre-wrap">${esc(s)}</div>`;
+  return `<div style="margin-top:12px;padding:14px;background:var(--panel2);border-radius:10px">
+    <div style="font-size:12px;color:var(--dim);margin-bottom:8px">
+      Prepared for you to send — VidyaPath never submits an application on your behalf.
+    </div>
+    ${k.summary?box("Resume summary for this job",p(k.summary),k.summary):""}
+    ${(k.bullets||[]).length?box("Bullets to lead with",
+        `<ul style="margin:0 0 0 18px;font-size:13px;color:var(--body)">${k.bullets.map(b=>`<li>${esc(b)}</li>`).join("")}</ul>`,
+        (k.bullets||[]).join("\n")):""}
+    ${k.cover_note?box("Cover note",p(k.cover_note),k.cover_note):""}
+    ${(k.questions||[]).length?box("Likely screening questions",
+        (k.questions||[]).map(q=>`<div style="margin-bottom:7px"><div style="font-size:13px;font-weight:600">${esc(q.q)}</div><div style="font-size:12.5px;color:var(--body)">${esc(q.a)}</div></div>`).join(""),""):""}
+    ${(k.flags||[]).length?`<div style="margin-top:10px"><b style="font-size:13px;color:#e0b050">Worth knowing before you apply</b>
+        <ul style="margin:4px 0 0 18px;font-size:12.5px;color:var(--body)">${k.flags.map(f=>`<li>${esc(f)}</li>`).join("")}</ul></div>`:""}
+    ${(k.checklist||[]).length?`<div style="margin-top:10px"><b style="font-size:13px">Before you hit send</b>
+        <ul style="margin:4px 0 0 18px;font-size:12.5px;color:var(--body)">${k.checklist.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></div>`:""}
+    <div style="margin-top:12px"><a class="btn sm" href="${esc((k.job||{}).url||"")}" target="_blank" rel="noopener">Open the application form ↗</a></div>
+  </div>`;
 }
 function jbResultsHTML(){
   if(JB.loading) return `<div style="color:var(--dim);font-size:13.5px;padding:10px 0">Searching live postings…</div>`;
@@ -2652,7 +2741,7 @@ function jbResultsHTML(){
   if(!JB.ran){
     if(JB.mode==="match"&&jbResumeSource().kind==="none") return "";
     return `<div style="color:var(--dim);font-size:13.5px;padding:10px 0">
-    ${JB.mode==="match"?"Press <b>Match my resume</b> — we score every live posting against your resume. No AI credits used.":"Press <b>Search</b> to browse every live posting."}</div>`;
+    ${JB.mode==="match"?"Press <b>Match my resume</b> — we score every live posting against your resume.":"Press <b>Search</b> to browse every live posting."}</div>`;
   }
   if(!JB.jobs.length) return "";
   const m=JB.meta||{}, from=JB.offset+1, to=JB.offset+JB.jobs.length;
@@ -2692,16 +2781,17 @@ function jbChecksHTML(){
       <span id="rzMatchMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span></div>
     <div id="rzMatchOut" style="margin-top:12px">${RZ_MATCH?rzMatchHTML():""}</div>
   </div>
-  <div class="card" style="margin-bottom:14px">
-    <b>🔤 Spelling &amp; grammar check</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Scan <b>${which}</b> for spelling and grammar mistakes — it lists exactly what to fix.</div>
-    <button class="btn sm" data-rz-act="proof">Check spelling &amp; grammar</button>
-    <span id="rzProofMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span>
-    <div id="rzProofOut" style="margin-top:10px"></div>
   </div>`;
 }
 function jbSectionHTML(){
   const f=JB.filters;
+  /* Only render a filter when we hold jobs for it — an empty dropdown, or one
+     whose options return nothing, reads as a broken page. */
+  const sel=(id,anyLabel,opts,cur)=>!opts.length?"":
+    `<select id="${id}" class="ask-input" style="flex:1;min-width:165px">
+      <option value="">${anyLabel}</option>
+      ${opts.map(o=>`<option value="${esc(o.id)}" ${cur===o.id?"selected":""}>${esc(o.label)} (${o.count})</option>`).join("")}
+    </select>`;
   const fresh=f&&f.updated
     ? `Updated ${jbAgo(f.updated)} · <b>${f.open}</b> open roles${f.closed?` · ${f.closed} recently closed`:""} · ${f.retention_days} days of history`
     : "Loading live postings…";
@@ -2718,7 +2808,6 @@ function jbSectionHTML(){
     </div>
     <div style="font-size:12.5px;color:var(--dim);margin:8px 0 10px">
       Real postings taken straight from companies' own career sites, refreshed every day.
-      ${JB.mode==="match"?"Matching uses no AI credits and never counts against your daily limit.":""}
     </div>
     ${JB.mode==="match"?(function(){const src=jbResumeSource();
       if(src.kind==="none") return `<div style="background:var(--panel2);border-radius:8px;padding:12px 14px;margin-bottom:12px">
@@ -2732,7 +2821,15 @@ function jbSectionHTML(){
         ${src.kind==="upload"?`<button class="btn ghost sm" data-jbclear="1">✕ Remove</button>`:""}
       </div>`;})():""}
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
-      <input id="jbQ" class="ask-input" style="flex:2;min-width:170px" placeholder="Job title or keyword — e.g. backend engineer" value="${esc(JB.q)}"/>
+      <div id="jbSuggWrap" style="position:relative;flex:2;min-width:190px">
+        <input id="jbQ" class="ask-input" style="width:100%" autocomplete="off"
+          placeholder="Job title or keyword — start typing…" value="${esc(JB.q)}"/>
+        <div id="jbSuggBox">${jbSuggHTML()}</div>
+      </div>
+      <select id="jbCat" class="ask-input" style="flex:1;min-width:160px">
+        <option value="">📂 All job types</option>
+        ${(JB.cats||[]).map(c=>`<option value="${esc(c.id)}" ${JB.category===c.id?"selected":""}>${esc(c.label)} (${c.count})</option>`).join("")}
+      </select>
       <select id="jbCountry" class="ask-input" style="flex:1;min-width:140px">
         <option value="">🌍 All countries</option>
         ${countries.map(c=>`<option value="${esc(c.country)}" ${JB.country===c.country?"selected":""}>${esc(c.country)} (${c.count})</option>`).join("")}
@@ -2740,6 +2837,11 @@ function jbSectionHTML(){
       <input id="jbLoc" class="ask-input" style="flex:1;min-width:140px" placeholder="City or state — e.g. Bengaluru" value="${esc(JB.location)}"/>
       <label style="font-size:13px;color:var(--body);display:flex;align-items:center;gap:5px;white-space:nowrap">
         <input type="checkbox" id="jbRemote" ${JB.remote?"checked":""}/> Remote only</label>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+      ${sel("jbType","⏱️ Any job type",(f&&f.job_types)||[],JB.jobType)}
+      ${sel("jbEng","🤝 W2 / C2C — any",(f&&f.engagements)||[],JB.engagement)}
+      ${sel("jbVisa","🛂 Any work authorisation",(f&&f.visas)||[],JB.visa)}
       ${JB.mode==="match"?`<select id="jbMin" class="ask-input" style="min-width:150px">
         ${[[0,"Any match"],[50,"50%+ — worth a look"],[70,"70%+ — strong fit"],[85,"85%+ — near perfect"]]
           .map(([v,t])=>`<option value="${v}" ${JB.minScore===v?"selected":""}>${t}</option>`).join("")}
@@ -2758,11 +2860,23 @@ document.addEventListener("click",e=>{
   if(c){ jbClearUpload(); return; }
   const pg=e.target.closest("[data-jbpage]");
   if(pg){ jbPage(+pg.dataset.jbpage); return; }
+  const sg=e.target.closest("[data-jbsugg]");
+  if(sg){ const inp=$("#jbQ"); if(inp) inp.value=sg.dataset.jbsugg;
+          JB.q=sg.dataset.jbsugg; JB.suggOpen=false; jbPaintSugg(); jbRun(); return; }
+  const kt=e.target.closest("[data-jbkit]");
+  if(kt){ jbApplyKit(+kt.dataset.jbkit); return; }
+  const cp=e.target.closest("[data-jbcopy]");
+  if(cp){ jbCopy(cp.dataset.jbcopy,cp); return; }
+  // click anywhere else closes the suggestion list
+  if(JB.suggOpen && !e.target.closest("#jbSuggWrap")){ JB.suggOpen=false; jbPaintSugg(); }
   const n=e.target.closest("[data-jbnav]");
   if(n){ e.preventDefault(); document.querySelector('[data-nav="'+n.dataset.jbnav+'"]').click(); return; }
 });
 document.addEventListener("keydown",e=>{
-  if(e.key==="Enter"&&(e.target.id==="jbQ"||e.target.id==="jbLoc")) jbRun();
+  if(e.key==="Escape"&&JB.suggOpen){ JB.suggOpen=false; jbPaintSugg(); return; }
+  if(e.key==="Enter"&&(e.target.id==="jbQ"||e.target.id==="jbLoc")){
+    JB.suggOpen=false; jbPaintSugg(); jbRun();
+  }
 });
 
 function renderCareers(){
@@ -2844,6 +2958,10 @@ function renderCareers(){
   </div>`;
   const up=$("#jbUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) jbUpload(e.target.files[0]); };
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
+  const qi=$("#jbQ"); if(qi) qi.oninput=e=>jbSuggest(e.target.value);
+  ["jbCat","jbType","jbEng","jbVisa"].forEach(id=>{
+    const el=$("#"+id); if(el) el.onchange=()=>jbRun();
+  });
   if(!JB.filters) jbFilters().then(()=>{ if(S.view.page==="careers") renderCareers(); });
 }
 
@@ -3978,19 +4096,6 @@ async function rzMatch(){
     const out=$("#rzMatchOut"); if(out)out.innerHTML=rzMatchHTML(); if(msg)msg.textContent=""; }
   catch(e){ if(msg)msg.textContent=e.message; }
 }
-async function rzProofread(){
-  const msg=$("#rzProofMsg"), out=$("#rzProofOut");
-  if(msg)msg.textContent="Checking…"; if(out)out.innerHTML="";
-  try{
-    const res=await api.post("/api/resume/proofread",{resume:RESUME,resume_text:RZ_UPTEXT});
-    const list=res.issues||[];
-    if(msg)msg.textContent=list.length?(list.length+" to review"):"";
-    if(out) out.innerHTML = list.length
-      ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:6px">Fix these in your resume:</div>`+list.map(it=>
-          `<div class="pj-step" style="align-items:flex-start"><div style="flex:1;font-size:13px"><span style="text-decoration:line-through;color:#e05a5a">${esc(it.wrong)}</span> → <b style="color:#4bbf82">${esc(it.right)}</b>${it.why?` <span style="color:var(--dim)">(${esc(it.why)})</span>`:""}</div></div>`).join("")
-      : `<div style="font-size:13px;color:#4bbf82">✓ No spelling or grammar issues found.</div>`;
-  }catch(e){ if(msg)msg.textContent=e.message; }
-}
 document.addEventListener("click",e=>{
   const b=e.target.closest("[data-rzstyle],[data-rzadd],[data-rzdel],[data-rz-act],[data-addbull],[data-addskl],[data-addmiss],[data-loadres],[data-delres],[data-lmode],[data-secopen],[data-secdel],[data-secadd]"); if(!b)return;
   if(b.dataset.lmode!==undefined){ rzSwitchMode(b.dataset.lmode); return; }
@@ -4027,7 +4132,6 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="bull") rzBulletsAI(+b.dataset.i);
   else if(b.dataset.rzAct==="sklsug") rzSkillsAI();
   else if(b.dataset.rzAct==="match") rzMatch();
-  else if(b.dataset.rzAct==="proof") rzProofread();
   else if(b.dataset.rzAct==="clrup") rzClearUpload();
   else if(b.dataset.rzAct==="delphoto"){ RESUME.photo=""; rzSave(); renderResume(); }
   else if(b.dataset.rzAct==="saveas") rzSaveAs();
