@@ -4959,6 +4959,155 @@ def _parsing_score(rtext: str) -> float:
     return round(min(found / 4.0, 1.0) * 0.5 + length_ok * 0.35 + layout_ok * 0.15, 3)
 
 
+def resume_advice(rtext, impact, parsing, skills):
+    """Specific, checkable fixes — not "improve your resume".
+
+    Each item names what is wrong, why it is penalised, and what to write
+    instead. Ordered so the fix worth the most points comes first.
+    """
+    low = (rtext or "").lower()
+    lines = [l.strip() for l in (rtext or "").splitlines() if len(l.strip()) > 25]
+    tips = []
+
+    with_metric = sum(1 for l in lines if _METRIC_RE.search(l))
+    if lines and with_metric / len(lines) < 0.3:
+        tips.append({
+            "area": "Quantified impact", "weight": 17, "severity": "high",
+            "problem": "Only %d of your %d bullet points contain a number."
+                       % (with_metric, len(lines)),
+            "why": "Scoring rewards outcomes over duties. Responsible for "
+                   "reporting and cut reporting time from 6h to 20min describe "
+                   "the same work; only one is evidence.",
+            "fix": "Add a number to at least a third of your bullets — a "
+                   "percentage, an amount, a team size, time saved, volume "
+                   "handled. Honest estimates are fine.",
+            "example": "Before: Improved database performance"
+                       + chr(10) +
+                       "After:  Cut checkout query time from 3s to 200ms, "
+                       "removing timeouts on sale days",
+        })
+
+    weak = [v for v in _ACTION_JUNIOR if v in low]
+    if weak:
+        tips.append({
+            "area": "Action verbs", "weight": 27, "severity": "medium",
+            "problem": "You use passive verbs: %s." % ", ".join(weak[:4]),
+            "why": "Verbs signal seniority. Assisted with reads as support; "
+                   "led and owned read as responsibility, and seniority is part "
+                   "of role fit.",
+            "fix": "Replace them with what you decided or delivered.",
+            "example": "Before: Assisted with the migration"
+                       + chr(10) +
+                       "After:  Migrated 40 sites to BGP with no unplanned downtime",
+        })
+
+    missing = [h for h in ("experience", "education", "skills") if h not in low]
+    if missing:
+        tips.append({
+            "area": "Section headings", "weight": 8, "severity": "high",
+            "problem": "No clear %s heading found." % ", ".join(missing),
+            "why": "Parsers assign content by heading. Without them your jobs "
+                   "and qualifications may not be filed as either, and can be "
+                   "dropped entirely.",
+            "fix": "Use plain headings on their own line: Experience, "
+                   "Education, Skills. Avoid names like My Journey.",
+            "example": "Experience" + chr(10) +
+                       "Senior Network Engineer — Acme (2018-2025)",
+        })
+
+    words = len(low.split())
+    if words < 200:
+        tips.append({
+            "area": "Length and parsing", "weight": 8, "severity": "high",
+            "problem": "Only about %d words could be extracted." % words,
+            "why": "Either the resume is very short, or it is an image or a "
+                   "layout the parser could not read — an employer system will "
+                   "hit the same wall.",
+            "fix": "Export a text-based PDF, single column, no text boxes or "
+                   "graphics. Paste it into a plain text editor: what you see "
+                   "there is all an ATS sees.",
+        })
+    elif words > 1200:
+        tips.append({
+            "area": "Length", "weight": 8, "severity": "low",
+            "problem": "About %d words — long for a resume." % words,
+            "why": "Detail on old roles dilutes the recent work being assessed.",
+            "fix": "Keep the last 10 years detailed; compress older roles to a line.",
+        })
+
+    longest = max((len(l) for l in (rtext or "").splitlines()), default=0)
+    if longest > 600:
+        tips.append({
+            "area": "Layout", "weight": 8, "severity": "high",
+            "problem": "Text extracted as very long unbroken runs.",
+            "why": "That is the signature of a multi-column or table layout "
+                   "collapsing, which interleaves columns and destroys meaning.",
+            "fix": "Rebuild in a single column. Two-column resumes parse badly "
+                   "almost everywhere.",
+        })
+
+    if len(skills) < 6:
+        tips.append({
+            "area": "Skills section", "weight": 33, "severity": "high",
+            "problem": "Only %d recognisable tools or technologies found." % len(skills),
+            "why": "Hard skills carry the most weight. Skills implied by prose "
+                   "but never named are invisible to keyword matching.",
+            "fix": "Add a Skills line naming tools explicitly — languages, "
+                   "frameworks, cloud, databases — even where your experience "
+                   "section already implies them.",
+            "example": "Skills: Python, SQL, AWS, Docker, Kubernetes, "
+                       "Terraform, PostgreSQL",
+        })
+
+    if "summary" not in low and "objective" not in low:
+        tips.append({
+            "area": "Summary", "weight": 27, "severity": "low",
+            "problem": "No summary line at the top.",
+            "why": "The first lines are where a target title is looked for, and "
+                   "title match is part of role fit.",
+            "fix": "Two lines naming the role you want and your strongest "
+                   "relevant skills.",
+            "example": "Senior Network Engineer — 7 years in enterprise WAN/LAN. "
+                       "BGP, OSPF, F5, Palo Alto, Python automation.",
+        })
+
+    rank = {"high": 0, "medium": 1, "low": 2}
+    tips.sort(key=lambda t: (rank[t["severity"]], -t["weight"]))
+    return tips
+
+
+class AtsCheckIn(BaseModel):
+    resume: dict = {}
+    resume_text: str = Field(default="", max_length=40000)
+
+
+@app.post("/api/resume/ats-check")
+def resume_ats_check(body: AtsCheckIn, user: User = Depends(current_user)):
+    """Score a resume for ATS readiness and say exactly what to change.
+
+    Free and AI-free on purpose: it runs the same checks the matcher runs, so
+    the advice always agrees with the score. Nobody should have to pay to be
+    told their resume is unreadable.
+    """
+    rtext = (body.resume_text or "").strip() or _resume_text(body.resume or {})
+    if len(rtext.strip()) < 40:
+        raise HTTPException(400, "Add some resume details first, or upload a resume.")
+    skills, _kw = _profile(rtext)
+    impact, parsing = _impact_score(rtext), _parsing_score(rtext)
+    overall = round(100 * (0.55 * impact + 0.30 * parsing
+                           + 0.15 * min(len(skills) / 12, 1.0)))
+    return {
+        "ats_score": overall, **match_tier(overall),
+        "impact_score": round(impact * 100),
+        "readability_score": round(parsing * 100),
+        "skills_found": sorted(x for x in skills if x not in _WEAK_SKILLS)[:30],
+        "skills_count": len(skills),
+        "advice": resume_advice(rtext, impact, parsing, skills),
+        "note": "These checks mirror what the job matcher scores, so fixing "
+                "them raises your match on every job at once.",
+    }
+
+
 def match_tier(score: int) -> dict:
     """The band a score falls in, in the language recruiters actually use."""
     if score >= 85:
