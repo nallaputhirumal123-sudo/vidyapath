@@ -1042,7 +1042,7 @@ async function boot(){
   }, 800);
 }
 
-/* Stripe sends the customer back here after paying. The webhook is what
+/* The gateway sends the customer back here after paying. The webhook is what
    actually grants the plan, so wait for it to land rather than assuming — and
    strip the query string either way, so a refresh doesn't replay this. */
 async function handleCheckoutReturn(){
@@ -3927,8 +3927,7 @@ function loadCashfree(){
     document.head.appendChild(s);
   });
 }
-/* Stripe Checkout is a hosted page, so that path is a redirect with no script
-   to load and no card details ever touching our page. */
+/* Cashfree opens its own hosted page, so no card details ever touch ours. */
 async function startCheckout(plan,period,btn){
   const old=btn?btn.textContent:"";
   if(btn){ btn.disabled=true; btn.textContent="Opening…"; }
@@ -3943,8 +3942,7 @@ async function startCheckout(plan,period,btn){
         .checkout({paymentSessionId:r.payment_session_id, redirectTarget:"_self"});
       return;
     }
-    if(!r.url) throw new Error("Could not start the payment.");
-    location.href=r.url;
+    throw new Error("Could not start the payment.");
   }catch(e){
     alert(e.message||"Could not start the payment.");
     if(btn){ btn.disabled=false; btn.textContent=old; }
@@ -3997,7 +3995,7 @@ async function renderPlans(){
   if(!BILLING){ $("#main").innerHTML=`<div class="h1">⚡ Plans</div>
     <div class="card">Could not load plans. Try again shortly.</div>`; return; }
   const b=BILLING, q=b.quota||{};
-  const live=(b.available||{}).stripe;
+  const live=(b.available||{}).cashfree;
   $("#main").innerHTML=`
   <div class="h1">⚡ Plans <span style="font-size:13px;color:var(--dim)">· prices in ${esc(b.currency)}</span></div>
   <p class="sub">Browsing jobs, resume matching, the application tracker and the
