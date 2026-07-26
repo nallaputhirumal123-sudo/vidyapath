@@ -3937,6 +3937,16 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
 # scrape LinkedIn/Indeed/Naukri: that breaks their terms and gets blocked.
 
 JOBS_PER_COMPANY = int(env("JOBS_PER_COMPANY", "3") or 3)
+
+# What running this actually costs, in rupees per month. These are your real
+# bills — change them here and the admin profit figure follows. Kept as
+# settings rather than guesses so the number on screen is yours, not mine.
+COST_HOSTING_INR = float(env("COST_HOSTING_INR", "1700") or 1700)   # Railway
+COST_DOMAIN_INR = float(env("COST_DOMAIN_INR", "100") or 100)       # amortised
+COST_OTHER_INR = float(env("COST_OTHER_INR", "0") or 0)
+GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "2.36") or 2.36)     # Razorpay + GST
+GST_RATE_PCT = float(env("GST_RATE_PCT", "18") or 18)
+USD_INR = float(env("USD_INR", "88") or 88)
 JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
 JOB_REFRESH_HOURS = 24          # daily refresh
 
@@ -4589,6 +4599,76 @@ async def _refresh_jobs():
             "sources": report}
 
 
+def _renewal_sweep():
+    """Warn people before their plan lapses, and expire the ones that have.
+
+    Runs daily. A subscription ending without warning is the single most common
+    cause of an angry support email, and one message two days out costs nothing.
+    """
+    db = SessionLocal()
+    warned = expired = 0
+    try:
+        soon = now() + dt.timedelta(days=2)
+        for u in db.query(User).filter(User.plan.in_(PAID_PLANS)).all():
+            exp = u.plan_expires
+            if exp is None:
+                continue
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=dt.timezone.utc)
+
+            if exp < now():
+                # Lapsed. Downgrade rather than delete, so history survives.
+                u.plan = "free"
+                expired += 1
+                continue
+
+            # Two days out, once only.
+            key = f"renew_warned_{exp.strftime('%Y%m%d')}"
+            if exp <= soon and MAIL_ENABLED:
+                seen = db.query(Note).filter(Note.user_id == u.id,
+                                             Note.k == key).first()
+                if not seen:
+                    when = exp.strftime("%d %B %Y")
+                    cancelled = bool(u.plan_cancelled_at)
+                    body = chr(10).join([
+                        f"Hello {u.name},",
+                        "",
+                        (f"Your Craxle {u.plan.title()} plan ends on {when}."
+                         if cancelled else
+                         f"Your Craxle {u.plan.title()} plan renews on {when}."),
+                        "",
+                        ("You cancelled, so it will not renew and you will not be "
+                         "charged. After that date you keep free access to the job "
+                         "board." if cancelled else
+                         "Nothing to do — it renews automatically. If you would "
+                         "rather it did not, cancel any time from Plans & billing "
+                         "and you keep access until that date."),
+                        "",
+                        (PUBLIC_BASE_URL or "https://craxle.com") + "/#plans",
+                        "",
+                        "Craxle",
+                    ])
+                    subject = ("Your Craxle plan ends in 2 days" if cancelled
+                               else "Your Craxle plan renews in 2 days")
+                    send_email(u.email, subject, body)
+                    db.add(Note(user_id=u.id, k=key, v="1"))
+                    warned += 1
+        db.commit()
+    except Exception as e:
+        print(f"renewal sweep failed: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+    if warned or expired:
+        print(f"renewals: {warned} warned, {expired} expired to free")
+    return {"warned": warned, "expired": expired}
+
+
+@app.post("/api/admin/renewals/run")
+def admin_renewals_run(user: User = Depends(admin_user)):
+    """Force the renewal sweep now, for testing."""
+    return _renewal_sweep()
+
+
 async def _jobs_loop():
     """Refresh on boot, then once a day. One instance, no extra dependency."""
     import asyncio
@@ -4597,6 +4677,12 @@ async def _jobs_loop():
             await _refresh_jobs()
         except Exception as e:
             print(f"jobs refresh failed: {type(e).__name__}: {e}")
+        # Piggy-backs on the daily loop rather than adding a scheduler. It is
+        # cheap, and a plan lapsing without warning is worse than a day's delay.
+        try:
+            await asyncio.to_thread(_renewal_sweep)
+        except Exception as e:
+            print(f"renewal sweep failed: {type(e).__name__}: {e}")
         await asyncio.sleep(JOB_REFRESH_HOURS * 3600)
 
 
@@ -5973,6 +6059,102 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
         "funnel": funnel,
         "biggest_drop": drop,
         "quiz": [{"track": t, "attempts": a, "passed": int(p or 0)} for t, a, p in quiz_rows],
+    }
+
+
+@app.get("/api/admin/revenue")
+def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """What the paid side is actually doing.
+
+    Revenue is derived from the plan each user is on, not from a payments
+    ledger — we do not store one. Treat these as indicative and reconcile
+    against Razorpay before relying on a number for tax or accounting.
+    """
+    users = db.query(User).all()
+    total = len(users)
+    now_ = now()
+
+    def live(u):
+        exp = u.plan_expires
+        if exp is not None and exp.tzinfo is None:
+            exp = exp.replace(tzinfo=dt.timezone.utc)
+        return (u.plan or "free") in PAID_PLANS and (exp is None or exp >= now_)
+
+    paying = [u for u in users if live(u)]
+    by_plan, mrr_inr = {}, 0
+    for u in paying:
+        by_plan[u.plan] = by_plan.get(u.plan, 0) + 1
+        p = PLANS.get(u.plan, {})
+        # Annual subscribers are counted at a twelfth of the yearly price, so
+        # monthly and yearly customers are comparable.
+        exp = u.plan_expires
+        yearly = bool(exp and u.plan_started and (exp - u.plan_started).days > 200)
+        if yearly and p.get("inr_year"):
+            mrr_inr += p["inr_year"] / 12
+        elif p.get("inr_month"):
+            mrr_inr += p["inr_month"]
+
+    cancelled = sum(1 for u in users if u.plan_cancelled_at)
+    week = now_ - dt.timedelta(days=7)
+    new_paid = sum(1 for u in paying if u.plan_started and
+                   (u.plan_started.replace(tzinfo=dt.timezone.utc)
+                    if u.plan_started.tzinfo is None else u.plan_started) >= week)
+    verified = sum(1 for u in users if u.email_verified)
+
+    ai_calls = 0
+    for row in db.query(Note).filter(Note.k == "aiq_total").all():
+        try:
+            ai_calls += int(row.v)
+        except Exception:
+            pass
+    # Gemini Flash-Lite pricing, order-of-magnitude only.
+    ai_cost_usd = round(ai_calls * 0.0005, 2)
+
+    gross_inr = mrr_inr / 100
+    gst_inr = gross_inr - (gross_inr / (1 + GST_RATE_PCT / 100)) if GST_RATE_PCT else 0
+    net_of_gst = gross_inr - gst_inr
+    gateway_inr = net_of_gst * GATEWAY_FEE_PCT / 100
+    ai_inr = ai_cost_usd * USD_INR
+    fixed_inr = COST_HOSTING_INR + COST_DOMAIN_INR + COST_OTHER_INR
+    costs_inr = round(gateway_inr + ai_inr + fixed_inr, 2)
+    profit_inr = round(net_of_gst - costs_inr, 2)
+    break_even = None
+    if paying:
+        per_user = net_of_gst / len(paying)
+        if per_user > 0:
+            break_even = max(1, round(fixed_inr / (per_user * (1 - GATEWAY_FEE_PCT / 100))))
+
+    return {
+        "users_total": total,
+        "users_verified": verified,
+        "money": {
+            "gross_inr": round(gross_inr, 2),
+            "gst_owed_inr": round(gst_inr, 2),
+            "net_of_gst_inr": round(net_of_gst, 2),
+            "costs": {
+                "hosting_inr": COST_HOSTING_INR,
+                "domain_inr": COST_DOMAIN_INR,
+                "other_inr": COST_OTHER_INR,
+                "gateway_fees_inr": round(gateway_inr, 2),
+                "ai_inr": round(ai_inr, 2),
+                "total_inr": costs_inr,
+            },
+            "profit_inr": profit_inr,
+            "margin_pct": round(profit_inr / net_of_gst * 100, 1) if net_of_gst else 0,
+            "break_even_subscribers": break_even,
+        },
+        "paying_now": len(paying),
+        "by_plan": by_plan,
+        "conversion_pct": round(len(paying) / total * 100, 1) if total else 0,
+        "mrr_inr": round(mrr_inr / 100, 2),
+        "arr_inr": round(mrr_inr * 12 / 100, 2),
+        "arpu_inr": round(mrr_inr / 100 / len(paying), 2) if paying else 0,
+        "new_paid_7d": new_paid,
+        "cancellations_total": cancelled,
+        "ai_requests_total": ai_calls,
+        "ai_cost_usd_estimate": ai_cost_usd,
+        "note": "Derived from plan state, not a payments ledger. "
+                "Reconcile against Razorpay before using for accounting.",
     }
 
 

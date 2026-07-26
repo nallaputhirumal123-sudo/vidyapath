@@ -122,6 +122,7 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
     <div class="brand"><h1>Crax<span>le</span></h1><p>Admin</p><div id="advVer" style="font-size:10.5px;color:var(--dim);margin-top:6px;letter-spacing:.3px">loading…</div></div>
     <div class="nav">
       <button class="nv on" data-p="dash"><span>📊</span> Dashboard</button>
+      <button class="nv" data-p="money"><span>💰</span> Revenue &amp; profit</button>
       <button class="nv" data-p="students"><span>👥</span> Students</button>
       <button class="nv" data-p="funnel"><span>📉</span> Drop-off</button>
       <button class="nv" data-p="content"><span>📝</span> Content</button>
@@ -187,8 +188,95 @@ function go(p){
   PAGE=p;
   document.querySelectorAll(".nv[data-p]").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
   $("#main").innerHTML='<div class="empty">Loading…</div>';
-  ({dash:renderDash,students:renderStudents,funnel:renderFunnel,content:renderContent,schools:renderSchools}[p])();
+  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,schools:renderSchools}[p])();
   window.scrollTo(0,0);
+}
+
+/* ===================== REVENUE & PROFIT ===================== */
+async function renderMoney(){
+  let d;
+  try{ d = await api("/api/admin/revenue"); }
+  catch(e){ $("#main").innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+  const m = d.money || {}, c = m.costs || {};
+  const inr = v => "₹" + Number(v||0).toLocaleString("en-IN",{maximumFractionDigits:0});
+  const positive = (m.profit_inr||0) >= 0;
+  const card = (label, value, sub, colour) => `
+    <div class="card" style="flex:1;min-width:180px">
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:700">${label}</div>
+      <div style="font-size:28px;font-weight:800;margin-top:6px;font-variant-numeric:tabular-nums;${colour?`color:${colour}`:""}">${value}</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:2px">${sub||""}</div>
+    </div>`;
+  const line = (k, v, strong) => `
+    <tr><td style="padding:7px 0;color:${strong?"var(--text)":"var(--dim)"};font-weight:${strong?700:400}">${k}</td>
+        <td style="padding:7px 0;text-align:right;font-variant-numeric:tabular-nums;font-weight:${strong?700:400}">${v}</td></tr>`;
+
+  $("#main").innerHTML = `
+  <h2 style="margin:0 0 4px">Revenue &amp; profit</h2>
+  <p style="color:var(--dim);margin:0 0 20px;font-size:13.5px">
+    Derived from the plan each account is on — there is no payments ledger here.
+    Reconcile against Razorpay before using any figure for accounting or tax.</p>
+
+  <div class="row" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+    ${card("Monthly recurring", inr(m.gross_inr), "gross, GST included")}
+    ${card("Profit / month", inr(m.profit_inr), `${m.margin_pct||0}% margin`,
+           positive ? "#4bbf82" : "#e05a5a")}
+    ${card("Paying now", d.paying_now, `${d.conversion_pct||0}% of ${d.users_total} accounts`)}
+    ${card("Break even at", (m.break_even_subscribers||"—") + " subs", "to cover fixed costs")}
+  </div>
+
+  <div class="row" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+    <div class="card" style="flex:1;min-width:300px">
+      <b>Where the money goes</b>
+      <table style="width:100%;font-size:13.5px;margin-top:8px;border-collapse:collapse">
+        ${line("Gross revenue", inr(m.gross_inr), true)}
+        ${line("Less GST owed", "-" + inr(m.gst_owed_inr))}
+        ${line("Net of GST", inr(m.net_of_gst_inr), true)}
+        ${line("Hosting", "-" + inr(c.hosting_inr))}
+        ${line("Domain", "-" + inr(c.domain_inr))}
+        ${line("Gateway fees", "-" + inr(c.gateway_fees_inr))}
+        ${line("AI usage", "-" + inr(c.ai_inr))}
+        ${c.other_inr ? line("Other", "-" + inr(c.other_inr)) : ""}
+        ${line("Total costs", "-" + inr(c.total_inr), true)}
+        <tr><td colspan="2"><div style="height:1px;background:var(--line);margin:6px 0"></div></td></tr>
+        ${line("Profit", inr(m.profit_inr), true)}
+      </table>
+      <div style="font-size:12px;color:var(--dim);margin-top:10px">
+        Costs come from the COST_* and GATEWAY_FEE_PCT variables. Change them in
+        Railway and this updates.</div>
+    </div>
+
+    <div class="card" style="flex:1;min-width:260px">
+      <b>Subscribers</b>
+      <table style="width:100%;font-size:13.5px;margin-top:8px;border-collapse:collapse">
+        ${Object.entries(d.by_plan||{}).map(([k,v])=>line(k.toUpperCase(), v)).join("") ||
+          line("No paying subscribers yet", "—")}
+        ${line("New in last 7 days", d.new_paid_7d)}
+        ${line("Cancellations", d.cancellations_total)}
+        ${line("Average per subscriber", inr(d.arpu_inr), true)}
+      </table>
+      <div style="height:1px;background:var(--line);margin:12px 0"></div>
+      <b>Usage</b>
+      <table style="width:100%;font-size:13.5px;margin-top:8px;border-collapse:collapse">
+        ${line("Verified emails", d.users_verified + " of " + d.users_total)}
+        ${line("AI requests, all time", d.ai_requests_total)}
+        ${line("Estimated AI spend", "$" + (d.ai_cost_usd_estimate||0))}
+      </table>
+      <div style="margin-top:12px">
+        <button class="btn ghost sm" id="runRenewals">Run renewal reminders now</button>
+        <div id="renewOut" style="font-size:12.5px;color:var(--dim);margin-top:6px"></div>
+      </div>
+    </div>
+  </div>`;
+
+  const rb = $("#runRenewals");
+  if(rb) rb.onclick = async () => {
+    rb.disabled = true; rb.textContent = "Running…";
+    try{
+      const r = await api("/api/admin/renewals/run", {method:"POST"});
+      $("#renewOut").textContent = `${r.warned} reminder(s) sent, ${r.expired} plan(s) expired to free.`;
+    }catch(e){ $("#renewOut").textContent = e.message; }
+    rb.disabled = false; rb.textContent = "Run renewal reminders now";
+  };
 }
 
 /* ===================== DASHBOARD ===================== */
