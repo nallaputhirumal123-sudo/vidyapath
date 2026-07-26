@@ -14,6 +14,27 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.45.0 — Terms and Privacy Policy rewritten for paid subscriptions
+
+- **Terms of Use** rewritten for a paid service: who operates VidyaPath,
+  subscriptions and auto-renewal through Stripe, a 7-day no-questions refund
+  window, price-change notice, cancellation, suspension, liability cap, and
+  Indian governing law.
+- **A section that says plainly what we do not promise about jobs** — listings
+  come from third parties and may be stale, match scores and W2/C2C and visa
+  labels are generated automatically and can be wrong, no guaranteed number of
+  listings or new listings per day, and no guarantee of a job or an interview.
+- **Privacy Policy** rewritten for payments and resumes: a table of exactly
+  what we hold and why, an explicit statement that card details never reach our
+  servers, and a clear warning that AI features send resume text to Google or
+  Groq — so no Aadhaar, passport or bank details belong in a resume.
+- Adds legal basis for EU/UK users, a sub-processor table, retention periods
+  (including tax records), and how to exercise data rights.
+
+Both documents carry `[PLACEHOLDER]` fields for legal name, address and city
+that must be filled in, and both state that they are templates which need a
+lawyer's review before taking money.
+
 ## 1.44.0 — Job type, W2/C2C and visa filters
 
 - **Job type filter:** full-time, contract, part-time, internship — read from
