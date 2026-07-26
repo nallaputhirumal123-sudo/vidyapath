@@ -5148,6 +5148,163 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
     }
 
 
+# ---- interview preparation ------------------------------------------------
+# Written per role family rather than generated, so it costs nothing, is the
+# same for everyone, and cannot invent a stage that does not exist. The AI
+# layer on top tailors it to one specific posting when asked.
+INTERVIEW_GUIDES = {
+    "network": {
+        "stages": ["Recruiter screen", "Technical phone screen",
+                   "Hands-on / lab or troubleshooting", "Design & scenarios",
+                   "Manager and team fit"],
+        "topics": ["OSI layers and what actually breaks at each",
+                   "TCP handshake, MTU, MSS, fragmentation",
+                   "BGP path selection and route filtering",
+                   "OSPF areas, LSA types, convergence",
+                   "VLANs, STP, trunking, port-channels",
+                   "NAT, ACLs, firewall rule order",
+                   "Load balancing: L4 vs L7, health checks, persistence",
+                   "DNS and DHCP failure modes",
+                   "Packet capture: reading a trace and proving where loss is"],
+        "questions": [
+            "Walk me through what happens when a user says 'the site is slow'.",
+            "A BGP session is flapping. How do you find out why?",
+            "How do you decide between OSPF and BGP inside a data centre?",
+            "Describe a change you made that caused an outage. What did you change afterwards?",
+            "How would you migrate a core switch pair with minimal downtime?"],
+        "do": ["Bring a real topology you designed or fixed, and be ready to draw it",
+               "Know your own incident stories cold: symptom, diagnosis, fix, prevention",
+               "Practise reading a packet capture out loud"],
+    },
+    "backend": {
+        "stages": ["Recruiter screen", "Coding screen (DSA or practical)",
+                   "System design", "Code review / take-home discussion",
+                   "Manager and values"],
+        "topics": ["Data structures and complexity you can actually justify",
+                   "SQL: joins, indexes, query plans, N+1",
+                   "Caching layers and invalidation",
+                   "Concurrency, idempotency, retries",
+                   "API design, versioning, pagination",
+                   "Queues and event-driven flow",
+                   "Observability: logs, metrics, traces",
+                   "Testing strategy and what you choose not to test"],
+        "questions": [
+            "Design a URL shortener that survives 100x growth.",
+            "How would you make this endpoint idempotent?",
+            "A query got slow overnight. Walk me through diagnosis.",
+            "When would you not use a microservice?",
+            "Tell me about a piece of code you regret writing."],
+        "do": ["Practise talking while coding — silence reads as being stuck",
+               "Have one project you can discuss to arbitrary depth",
+               "Ask what the on-call rotation is really like"],
+    },
+    "data": {
+        "stages": ["Recruiter screen", "SQL screen", "Data modelling / pipeline design",
+                   "Case study or take-home", "Stakeholder and team fit"],
+        "topics": ["Window functions, CTEs, and query tuning",
+                   "Star vs snowflake schemas, slowly changing dimensions",
+                   "Batch vs streaming, and when each is wrong",
+                   "Orchestration, retries, backfills, idempotency",
+                   "Data quality tests and freshness SLAs",
+                   "Partitioning, clustering, file formats"],
+        "questions": [
+            "Write a query for month-over-month growth per customer.",
+            "A dashboard number changed and nobody knows why. What do you do?",
+            "How do you backfill two years of data without breaking production?",
+            "How do you decide what to model in the warehouse versus in the BI tool?"],
+        "do": ["Practise SQL out loud against a real schema, not just LeetCode",
+               "Be ready to defend a modelling decision you disagreed with"],
+    },
+    "ml": {
+        "stages": ["Recruiter screen", "ML fundamentals", "Coding / applied ML",
+                   "System design for ML", "Research or product depth"],
+        "topics": ["Bias-variance, regularisation, leakage",
+                   "Evaluation metrics and why accuracy is usually wrong",
+                   "Feature engineering and train/serve skew",
+                   "Model deployment, monitoring, drift",
+                   "Transformers and attention if the role is LLM-facing",
+                   "Retrieval, chunking, and evaluation for RAG systems"],
+        "questions": [
+            "Your model does well offline and badly in production. Why?",
+            "How would you evaluate a system with no labelled data?",
+            "When is a simpler model the right answer?",
+            "How do you detect and handle drift?"],
+        "do": ["Know the metric your last project moved, and by how much",
+               "Be honest about what did not work — it reads as senior"],
+    },
+    "security": {
+        "stages": ["Recruiter screen", "Security fundamentals",
+                   "Hands-on / scenario", "Incident response walkthrough",
+                   "Team fit"],
+        "topics": ["OWASP Top 10 with real examples",
+                   "Authentication vs authorisation, session handling",
+                   "TLS, certificates, key management",
+                   "Threat modelling, blast radius, least privilege",
+                   "Detection engineering and log sources",
+                   "Incident response phases and evidence handling"],
+        "questions": [
+            "Walk me through triaging a suspected credential compromise.",
+            "How would you threat-model this application?",
+            "What would you fix first with limited budget, and why?",
+            "How do you get engineers to actually adopt a control?"],
+        "do": ["Frame everything as risk and trade-off, not absolutes",
+               "Have one story where you were overruled and what you did"],
+    },
+    "sales": {
+        "stages": ["Recruiter screen", "Hiring manager", "Mock discovery call",
+                   "Mock demo or pitch", "Leadership"],
+        "topics": ["Your numbers: quota, attainment, deal size, cycle length",
+                   "Discovery frameworks and qualification",
+                   "Handling objections without discounting",
+                   "Multi-threading and champion building",
+                   "Forecasting honestly"],
+        "questions": [
+            "Sell me this product in five minutes.",
+            "Walk me through your largest lost deal.",
+            "How do you qualify out early?",
+            "What is your process when a champion leaves mid-cycle?"],
+        "do": ["Bring exact numbers, not ranges — vague figures read as invented",
+               "Research the buyer persona before the mock call"],
+    },
+}
+INTERVIEW_GENERIC = {
+    "stages": ["Recruiter screen", "Hiring manager", "Skills or task assessment",
+               "Team fit", "Final / offer"],
+    "topics": ["The exact responsibilities in the posting",
+               "The company's product, customers and competitors",
+               "Your own three strongest, most relevant stories",
+               "Tools named in the job description"],
+    "questions": [
+        "Tell me about yourself.",
+        "Why this role and why us?",
+        "Tell me about a time you handled conflict.",
+        "Describe a failure and what changed afterwards.",
+        "Where do you want to be in three years?"],
+    "do": ["Prepare three stories in STAR form that can be reshaped to many questions",
+           "Write down two questions for them that a website could not answer"],
+}
+
+
+@app.get("/api/interview/guide")
+def interview_guide(category: str = "", job_id: int = 0,
+                    user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Interview prep for a role family, optionally anchored to one posting."""
+    cat = (category or "").strip().lower()
+    job = db.get(Job, job_id) if job_id else None
+    if job and not cat:
+        cat = job.category or ""
+    guide = INTERVIEW_GUIDES.get(cat) or INTERVIEW_GENERIC
+    return {
+        "category": cat, "label": CATEGORY_LABELS.get(cat, "This role"),
+        "tailored": bool(INTERVIEW_GUIDES.get(cat)),
+        "job": _job_json(job) if job else None,
+        **guide,
+        "categories": [{"id": k, "label": CATEGORY_LABELS.get(k, k.title())}
+                       for k in INTERVIEW_GUIDES],
+    }
+
+
 class ApplyKitIn(BaseModel):
     job_id: int
     resume: dict = {}

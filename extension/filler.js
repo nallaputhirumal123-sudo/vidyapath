@@ -168,8 +168,9 @@ window.__vpFill = function (profile) {
     { key: "summary", yes: [/\bsummary\b/, /about (you|yourself)/, /tell us about/, /\bbio\b/],
       no: [/why (this|our|do you)/, /cover letter/] },
     /* Fields a resume does not carry but forms keep asking for. */
-    { key: "address", yes: [/street address/, /address line ?1/, /^address$/],
-      no: [/email/, /city/, /website/, /ip\b/] },
+    { key: "address", yes: [/street address/, /^address line ?1?$/, /^address$/,
+        /^street$/, /mailing address/, /home address/],
+      no: [/email/, /city/, /website/, /ip\b/, /line ?2/] },
     { key: "city", yes: [/^city$/, /^town$/, /city\/town/], no: [/state|country|code/] },
     { key: "state", yes: [/^state$/, /^province$/, /state\/province/, /^region$/], no: [] },
     { key: "postcode", yes: [/post(al)? ?code/, /zip ?code/, /^zip$/, /pin ?code/], no: [] },

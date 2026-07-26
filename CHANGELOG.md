@@ -1,4 +1,4 @@
-# VidyaPath — Changelog
+# Craxle — Changelog
 
 The version number lives in the `VERSION` file. It appears in the app footer,
 the admin panel, `/api/status`, and the deployment logs — so you can always
@@ -13,6 +13,32 @@ Format: MAJOR.MINOR.PATCH
 - **MAJOR** — something that breaks or replaces existing behaviour
 
 ---
+
+## 1.61.0 — Interview prep, Resend email, autofill fixes
+
+- **New Interview prep tab** on Careers & jobs. Pick your kind of role and get
+  the stages the process usually runs through, what to revise, questions to
+  rehearse out loud, and what to do before the call. Six role-specific guides
+  — networking, software engineering, data, AI/ML, cybersecurity, sales —
+  with general guidance for everything else, and it says plainly which one you
+  are getting.
+- Written per role rather than generated: it costs nothing, reads the same for
+  everyone, and cannot invent an interview stage that does not exist.
+- **Email now sends through Resend** over HTTPS. SMTP remains only as a
+  fallback — outbound SMTP is blocked on most hosts and hangs rather than
+  failing, which had already taken this site down once.
+- **Autofill fixes**, each verified against a form built to reproduce it:
+  - "Legal First and Last Name" matched nothing, because the combined field
+    contains both words and the single-name rules excluded each other.
+  - Every "Preferred ..." field was blocked, because the exclusion for
+    "Referrer" matched the substring inside "p-referr-ed".
+  - "Email Address" and "Address Line" were missed on flat layouts where the
+    caption is a sibling of the input rather than wrapped with it.
+  - Adds middle name, all three preferred-name fields, and phone country code,
+    with preferred names falling back to the legal ones.
+- **Fixed a syntax error that would have broken the whole page**: a duplicate
+  variable in the click handler stopped the entire inline script parsing, so
+  nothing on the site ran. Caught before deploy.
 
 ## 1.57.0 — Fix AI features failing on newer Gemini models
 

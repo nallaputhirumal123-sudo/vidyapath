@@ -564,8 +564,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.54.0"></script>
-<script src="presenter.js?v=1.54.0"></script>
+<script src="tutor.js?v=1.61.0"></script>
+<script src="presenter.js?v=1.61.0"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
@@ -2891,9 +2891,83 @@ function jbTabsHTML(){
   return `<div class="ask-chips" style="margin-bottom:12px">
     ${tab("find","🔍 Find jobs",0)}
     ${tab("track","📋 My applications",(t.total||0))}
+    ${tab("prep","🎤 Interview prep",0)}
     ${JB.tab==="track"?"":""}
   </div>`;
 }
+/* ---- interview prep, driven by the role family ---- */
+let PREP=null, PREP_CAT="";
+async function jbLoadPrep(cat){
+  PREP=null; if(JB.tab==="prep") renderCareers();
+  try{
+    const p=new URLSearchParams(); if(cat) p.set("category",cat);
+    PREP=await api.get("/api/interview/guide?"+p);
+    PREP_CAT=PREP.category||"";
+  }catch(e){ PREP={error:e.message}; }
+  if(JB.tab==="prep") renderCareers();
+}
+function jbPrepHTML(){
+  if(!PREP) return `<div class="card"><div style="color:var(--dim);font-size:13.5px">Loading interview prep…</div></div>`;
+  if(PREP.error) return `<div class="card"><div style="color:#e05a5a">${esc(PREP.error)}</div></div>`;
+  const chips=(PREP.categories||[]).map(c=>
+    `<button class="ask-chip ${PREP_CAT===c.id?"on":""}" data-prepcat="${esc(c.id)}">${esc(c.label)}</button>`).join("");
+  const list=(items,cls="")=>`<ul style="margin:6px 0 0 18px;font-size:13.5px;color:var(--body);line-height:1.9" class="${cls}">
+      ${items.map(i=>`<li>${esc(i)}</li>`).join("")}</ul>`;
+  return `
+  <div style="font-size:13px;color:var(--dim);margin-bottom:10px">
+    Pick the kind of role you're interviewing for. This is written per role, not
+    generated — so it costs nothing and says the same thing every time.
+  </div>
+  <div class="ask-chips" style="margin-bottom:14px">${chips}</div>
+
+  ${PREP.tailored?"":`<div class="card" style="border-color:#e0b050;margin-bottom:14px">
+    <b style="color:#e0b050">General guidance</b>
+    <div style="font-size:13px;color:var(--dim);margin-top:4px">
+      We don't have a role-specific guide for this one yet, so this is the
+      advice that applies to any interview.</div></div>`}
+
+  <div class="card" style="margin-bottom:14px">
+    <b>🪜 What the process usually looks like — ${esc(PREP.label)}</b>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      ${(PREP.stages||[]).map((s,i)=>`<div style="flex:1;min-width:130px;background:var(--panel2);
+        border-radius:9px;padding:10px 12px">
+        <div style="font-size:10.5px;color:var(--accent);font-weight:800;letter-spacing:.5px">STAGE ${i+1}</div>
+        <div style="font-size:13px;margin-top:3px">${esc(s)}</div></div>`).join("")}
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-top:9px">
+      Stages vary by company — some merge or skip these. Ask the recruiter what
+      theirs is; they will tell you, and almost nobody asks.</div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <b>📚 What to revise</b>
+    ${list(PREP.topics||[])}
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <b>❓ Questions to rehearse out loud</b>
+    <div style="font-size:12.5px;color:var(--dim);margin-top:3px">Say the answers
+      aloud. Reading them silently hides every place you stall.</div>
+    ${list(PREP.questions||[])}
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <b>✅ Worth doing before the call</b>
+    ${list(PREP.do||[])}
+  </div>
+
+  <div class="card">
+    <b>Ask them something real</b>
+    <div style="font-size:13.5px;color:var(--body);margin-top:6px;line-height:1.9">
+      "What does the first 90 days look like for this role?"<br>
+      "What's the thing about this team you'd change if you could?"<br>
+      "How is success measured here after a year?"
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-top:8px">
+      Having no questions reads as no interest. Two specific ones is enough.</div>
+  </div>`;
+}
+
 /* The pipeline view: what you saved, applied to, and how far each one got. */
 function jbTrackerHTML(){
   const t=JB.tracks;
@@ -3019,8 +3093,12 @@ document.addEventListener("click",e=>{
   if(pc){ jbPairCode(); return; }
   const tb=e.target.closest("[data-jbtab]");
   if(tb){ JB.tab=tb.dataset.jbtab; JB.suggOpen=false;
-          if(JB.tab==="track") jbLoadTracks().then(renderCareers); else renderCareers();
+          if(JB.tab==="track") jbLoadTracks().then(renderCareers);
+          else if(JB.tab==="prep"){ renderCareers(); if(!PREP) jbLoadPrep(""); }
+          else renderCareers();
           return; }
+  const pcat=e.target.closest("[data-prepcat]");
+  if(pcat){ jbLoadPrep(pcat.dataset.prepcat); return; }
   const tt=e.target.closest("[data-jbtrtab]");
   if(tt){ JB.trackTab=tt.dataset.jbtrtab; renderCareers(); return; }
   const sv=e.target.closest("[data-jbsave]");
@@ -3058,11 +3136,11 @@ function renderCareers(){
   <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply — worldwide — and practice that mirrors what you'd do on day one.</p>
 
   ${jbTabsHTML()}
-  ${JB.tab==="track"?jbTrackerHTML():jbSectionHTML()}
+  ${JB.tab==="track"?jbTrackerHTML():JB.tab==="prep"?jbPrepHTML():jbSectionHTML()}
 
-  ${JB.tab==="track"?"":jbChecksHTML()}
+  ${JB.tab==="find"?jbChecksHTML():""}
 
-  ${JB.tab==="track"?"":`
+  ${JB.tab!=="find"?"":`
   <div class="eyebrow" style="margin-top:24px">Fill applications faster</div>
   <div class="card" style="margin-bottom:14px">
     <b>🧩 Browser extension</b>
@@ -3076,7 +3154,7 @@ function renderCareers(){
     <div id="jbPairOut" style="font-size:13px"></div>
   </div>`}
 
-  ${JB.tab==="track"?"":`
+  ${JB.tab!=="find"?"":`
   <div class="eyebrow" style="margin-top:24px">Roles you can aim for — and what the job is really like</div>
   ${CAREER_ROLES.map(r=>`<div class="card" style="margin-bottom:14px">
     <div style="font-size:17px;font-weight:650">${r.icon} ${esc(r.role)}</div>
