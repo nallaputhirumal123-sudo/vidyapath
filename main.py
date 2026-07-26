@@ -878,7 +878,7 @@ def version():
 
 
 @app.get("/api/status")
-def status(db: Session = Depends(get_db)):
+def status(request: Request, db: Session = Depends(get_db)):
     """Public diagnostic — what is actually configured and loaded right now.
 
     Deliberately shows no passwords and no full email addresses.
@@ -895,6 +895,12 @@ def status(db: Session = Depends(get_db)):
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
         "google_signin_enabled": GOOGLE_ENABLED,
+        # The exact string Google must have registered. A redirect_uri_mismatch
+        # is almost always this value not being in the Console, so show it
+        # rather than making someone reconstruct it by hand. Not a secret —
+        # it is sent in the clear on every sign-in.
+        "google_redirect_uri": _redirect_uri(request),
+        "public_base_url": PUBLIC_BASE_URL or "(unset — derived from the request host)",
         "curriculum_files_present": sorted(
             p.name for p in BASE_DIR.glob("*.json") if p.name != "railway.json"),
     }
