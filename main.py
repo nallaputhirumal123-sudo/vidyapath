@@ -297,6 +297,24 @@ class AskCache(Base):
     created_at = Column(DateTime(timezone=True), default=now)
 
 
+class JobAlert(Base):
+    """A background alert about someone's job search.
+
+    Stored rather than computed, because the interesting events are things
+    that happened while the user was away — a saved job closing, or a strong
+    new match appearing overnight.
+    """
+    __tablename__ = "job_alerts"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    kind = Column(String(24), default="", index=True)   # closing | newmatch
+    icon = Column(String(8), default="")
+    text = Column(Text, default="")
+    url = Column(Text, default="")
+    seen = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
 class JobTrack(Base):
     """A job a user saved or applied to, and where it got to.
 
@@ -2304,6 +2322,14 @@ def _aware(d):
 @app.get("/api/notifications")
 def notifications(user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = []
+    # Background job alerts come first: they are time-sensitive in a way that
+    # a teacher reply is not.
+    for a in db.query(JobAlert).filter(JobAlert.user_id == user.id).order_by(
+            JobAlert.created_at.desc()).limit(15).all():
+        items.append({"type": a.kind, "icon": a.icon or "\U0001f4bc",
+                      "text": a.text, "url": a.url or "",
+                      "when": _aware(a.created_at).isoformat(),
+                      "unread": not a.seen})
     t = teacher_row(user, db)
     if not t and not user.is_admin:
         # STUDENT: teacher replies to me, and assignments set in my classes
@@ -4603,6 +4629,94 @@ async def _refresh_jobs():
             "sources": report}
 
 
+def _job_alert_sweep():
+    """Tell people what changed while they were not looking.
+
+    Two things worth interrupting someone for: a job they saved has closed, and
+    a strong new match has appeared. Everything else is noise, and a job board
+    that pings constantly gets muted.
+    """
+    db = SessionLocal()
+    made = 0
+    try:
+        cutoff = now() - dt.timedelta(days=1)
+        fresh = db.query(Job).filter(Job.is_open == True,          # noqa: E712
+                                     Job.first_seen >= cutoff).limit(1500).all()
+
+        users = db.query(User).filter(User.is_active == True).all()  # noqa: E712
+        for u in users:
+            tracked = db.query(JobTrack).filter(
+                JobTrack.user_id == u.id,
+                JobTrack.status.in_(("saved", "viewed"))).all()
+
+            # --- a saved job closed: they have missed it, and should know ---
+            closed = []
+            for t in tracked:
+                j = db.get(Job, t.job_id)
+                if j is not None and not j.is_open:
+                    key = f"closed_{t.job_id}"
+                    seen = db.query(Note).filter(Note.user_id == u.id,
+                                                 Note.k == key).first()
+                    if not seen:
+                        closed.append(t)
+                        db.add(Note(user_id=u.id, k=key, v="1"))
+            if closed:
+                first = closed[0]
+                extra = f" and {len(closed) - 1} other" + ("s" if len(closed) > 2 else "") \
+                        if len(closed) > 1 else ""
+                db.add(JobAlert(
+                    user_id=u.id, kind="closing", icon="\u23f0",
+                    text=f"{first.title} at {first.company} has closed{extra}. "
+                         f"Apply sooner next time — saved jobs do not stay open.",
+                    url=first.url or ""))
+                made += 1
+
+            # --- strong new matches, for people who have a resume on file ---
+            if plan_of(u) == "free":
+                continue          # matching is a paid feature; do not tease it
+            note = db.query(Note).filter(Note.user_id == u.id,
+                                         Note.k == "resume_uptext").first()
+            rtext = (note.v if note else "") or ""
+            if len(rtext.strip()) < 120 or not fresh:
+                continue
+            skills, keywords = _profile(rtext)
+            if not skills:
+                continue
+            my_fams = _families(rtext)
+            level = _level_of(rtext)
+            impact, parsing = _impact_score(rtext), _parsing_score(rtext)
+            titles = _title_words(" ".join(rtext.splitlines()[:6]))
+            best = []
+            for j in fresh:
+                sc, _hit, _miss = _score_job(j, skills, keywords, level, {},
+                                             my_fams, titles, impact, parsing)
+                if sc >= 80:
+                    best.append((sc, j))
+            if best:
+                best.sort(key=lambda x: -x[0])
+                top = best[0][1]
+                more = f" and {len(best) - 1} more" if len(best) > 1 else ""
+                db.add(JobAlert(
+                    user_id=u.id, kind="newmatch", icon="\u2728",
+                    text=f"New {best[0][0]}% match: {top.title} at {top.company}{more}.",
+                    url=top.url or ""))
+                made += 1
+        db.commit()
+    except Exception as e:
+        print(f"job alert sweep failed: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+    if made:
+        print(f"job alerts: {made} created")
+    return {"created": made}
+
+
+@app.post("/api/admin/alerts/run")
+def admin_alerts_run(user: User = Depends(admin_user)):
+    """Force the alert sweep now, for testing."""
+    return _job_alert_sweep()
+
+
 def _renewal_sweep():
     """Warn people before their plan lapses, and expire the ones that have.
 
@@ -4687,6 +4801,10 @@ async def _jobs_loop():
             await asyncio.to_thread(_renewal_sweep)
         except Exception as e:
             print(f"renewal sweep failed: {type(e).__name__}: {e}")
+        try:
+            await asyncio.to_thread(_job_alert_sweep)
+        except Exception as e:
+            print(f"job alert sweep failed: {type(e).__name__}: {e}")
         await asyncio.sleep(JOB_REFRESH_HOURS * 3600)
 
 
@@ -5342,9 +5460,12 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
         # engineers above an actual engineering job. Title hits rank first.
         query = query.order_by(
             case((func.lower(Job.title).like(f"%{q.strip().lower()}%"), 0), else_=1),
-            Job.first_seen.desc())
+            case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc())
     else:
-        query = query.order_by(Job.first_seen.desc())
+        # Order by when the employer posted it, not when we happened to crawl
+        # it. Every row is crawled at once, so first_seen is near-identical
+        # across the whole table and sorts into meaningless order.
+        query = query.order_by(case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc())
     off, lim = max(offset, 0), min(max(limit, 1), 50)
     total = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted).count()
     rows = query.offset(off).limit(lim).all()
@@ -5499,7 +5620,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
                        "open", body.category, body.job_type, body.engagement,
                        body.visa, body.posted).order_by(
-                           Job.first_seen.desc()).limit(6000).all()
+                           case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc()).limit(12000).all()
 
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.

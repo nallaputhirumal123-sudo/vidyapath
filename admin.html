@@ -105,7 +105,7 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
 
 <div class="gate" id="gate" style="display:none">
   <div class="gbox">
-    <h1 style="font-size:19px;font-weight:800;margin-bottom:4px">Axle<span style="color:var(--accent)">Path</span> Admin</h1>
+    <h1 style="font-size:19px;font-weight:800;margin-bottom:4px">Crax<span style="color:var(--accent)">le</span> Admin</h1>
     <p style="color:var(--dim);font-size:12.5px;margin-bottom:20px">Administrator sign-in required.</p>
     <div class="msg" id="gmsg"></div>
     <form id="gform">
@@ -195,7 +195,7 @@ function go(p){
 /* ===================== REVENUE & PROFIT ===================== */
 async function renderMoney(){
   let d;
-  try{ d = await api("/api/admin/revenue"); }
+  try{ d = await api.get("/api/admin/revenue"); }
   catch(e){ $("#main").innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
   const m = d.money || {}, c = m.costs || {};
   const inr = v => "₹" + Number(v||0).toLocaleString("en-IN",{maximumFractionDigits:0});
@@ -275,7 +275,7 @@ async function renderMoney(){
   if(rb) rb.onclick = async () => {
     rb.disabled = true; rb.textContent = "Running…";
     try{
-      const r = await api("/api/admin/renewals/run", {method:"POST"});
+      const r = await api.post("/api/admin/renewals/run",{});
       $("#renewOut").textContent = `${r.warned} reminder(s) sent, ${r.expired} plan(s) expired to free.`;
     }catch(e){ $("#renewOut").textContent = e.message; }
     rb.disabled = false; rb.textContent = "Run renewal reminders";
@@ -286,7 +286,7 @@ async function renderMoney(){
     cb.disabled = true; cb.textContent = "Crawling… (up to 3 min)";
     $("#crawlOut").textContent = "Fetching every source — this takes a couple of minutes.";
     try{
-      const r = await api("/api/admin/jobs/refresh", {method:"POST"});
+      const r = await api.post("/api/admin/jobs/refresh",{});
       // Show what each source returned: a dead board token is obvious here.
       const src = Object.entries(r.sources || {})
         .sort((a,b) => (typeof b[1]==="number"?b[1]:-1) - (typeof a[1]==="number"?a[1]:-1))
