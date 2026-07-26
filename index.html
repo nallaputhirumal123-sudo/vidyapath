@@ -114,7 +114,10 @@ input,select{font-family:inherit}
 .navitem{display:flex;align-items:center;gap:10px;padding:9px 20px;font-size:13.5px;color:var(--muted);width:100%;text-align:left;border-left:2px solid transparent;transition:.12s}
 .navitem:hover{background:var(--panel2);color:var(--text)}
 .navitem.active{background:var(--panel2);color:var(--text);border-left-color:var(--accent)}
-.navitem .ic{width:18px;text-align:center;flex-shrink:0}
+/* Fixed icon column. Emoji vary a lot in advance width (🛠️ and 🧑‍🏫 are far
+   wider than 🏠), so without a fixed box the labels never line up. */
+.navitem .ic{width:22px;flex-shrink:0;display:inline-flex;align-items:center;
+  justify-content:center;font-size:15px;line-height:1;font-style:normal}
 .navitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .navitem .ct{font-size:11px;color:var(--dim);flex-shrink:0}
 .navitem.done .ct{color:var(--green)}
@@ -855,19 +858,21 @@ function renderNav(){
     });
     $("#nav").innerHTML=h; return;
   }
-  h+=`<button class="navitem ${S.view.page==="home"?"active":""}" data-nav="home"><span class="ic">🏠</span><span class="nm">Home</span></button>
-      <button class="navitem ${S.view.page==="messages"?"active":""}" data-nav="messages"><span class="ic">🔔</span><span class="nm">Messages</span>${NOTIF.unread?`<span class="ct" style="background:#e05a5a;color:#fff;border-radius:99px;padding:1px 7px">${NOTIF.unread}</span>`:""}</button>
-      <button class="navitem ${S.view.page==="paths"?"active":""}" data-nav="paths"><span class="ic">🧭</span><span class="nm">Choose a path</span></button>
-      <button class="navitem ${S.view.page==="projects"?"active":""}" data-nav="projects"><span class="ic">🛠️</span><span class="nm">Projects</span></button>
-      <button class="navitem ${S.view.page==="ask"?"active":""}" data-nav="ask"><span class="ic">💬</span><span class="nm">Ask Vidya anything</span></button>
-      <button class="navitem ${S.view.page==="class"?"active":""}" data-nav="class"><span class="ic">🎓</span><span class="nm">My class</span></button>
-      <button class="navitem ${S.view.page==="careers"?"active":""}" data-nav="careers"><span class="ic">💼</span><span class="nm">Careers &amp; jobs</span></button>
-      <button class="navitem ${S.view.page==="resume"?"active":""}" data-nav="resume"><span class="ic">📄</span><span class="nm">Resume builder</span></button>
-      <button class="navitem ${S.view.page==="color"?"active":""}" data-nav="color"><span class="ic">🎨</span><span class="nm">Coloring fun</span></button>
-      <button class="navitem ${S.view.page==="studio"?"active":""}" data-nav="studio"><span class="ic">🎮</span><span class="nm">Game Studio — build one</span></button>
-      <button class="navitem ${S.view.page==="resources"?"active":""}" data-nav="resources"><span class="ic">🔗</span><span class="nm">All resources</span></button>`;
-  if(USER.is_teacher) h+=`<button class="navitem ${S.view.page==="teacher"?"active":""}" data-nav="teacher"><span class="ic">🧑‍🏫</span><span class="nm">Teacher dashboard</span></button>`;
-  if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
+  /* Sidebar order is by how often it's used, not by when it was built:
+     everyday learning first, then getting-a-job, then the tracks and
+     progress, with the occasional and role-only items last. */
+  const nav=(page,icon,name,extra="")=>
+    `<button class="navitem ${S.view.page===page?"active":""}" data-nav="${page}"><span class="ic">${icon}</span><span class="nm">${name}</span>${extra}</button>`;
+
+  h+=nav("home","🏠","Home")
+   + nav("messages","🔔","Messages",NOTIF.unread?`<span class="ct" style="background:#e05a5a;color:#fff;border-radius:99px;padding:1px 7px">${NOTIF.unread}</span>`:"")
+   + nav("paths","🧭","Choose a path")
+   + nav("projects","🛠️","Projects")
+   + nav("ask","💬","Ask Vidya anything");
+
+  h+=`<div class="navsec">Get hired</div>`
+   + nav("careers","💼","Careers &amp; jobs")
+   + nav("resume","📄","Resume builder");
 
   const list=activeTracks();
   h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
@@ -882,6 +887,19 @@ function renderNav(){
   h+=`<div class="navsec">Your progress</div>
     <div style="padding:0 20px 18px"><div class="bar"><i style="width:${pct}%"></i></div>
     <div style="font-size:11.5px;color:var(--dim);margin-top:7px">${totalDone()} of ${totalLessons()} lessons · ${pct}%</div></div>`;
+
+  h+=`<div class="navsec">More</div>`
+   + nav("class","🎓","My class")
+   + nav("color","🎨","Coloring fun")
+   + nav("studio","🎮","Game Studio")
+   + nav("resources","🔗","All resources");
+
+  if(USER.is_teacher||USER.is_admin){
+    h+=`<div class="navsec">Manage</div>`;
+    if(USER.is_teacher) h+=nav("teacher","🧑‍🏫","Teacher dashboard");
+    if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
+  }
+  h+=`<div style="height:14px"></div>`;
   $("#nav").innerHTML=h;
 }
 

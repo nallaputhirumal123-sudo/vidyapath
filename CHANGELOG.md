@@ -14,6 +14,19 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.41.0 — Sidebar reorganised and aligned
+
+- **Grouped by how often you use it.** Everyday items stay at the top (Home,
+  Messages, Choose a path, Projects, Ask Vidya), followed by a new **Get
+  hired** group (Careers & jobs, Resume builder), then your tracks and
+  progress. The occasional ones — My class, Coloring fun, Game Studio, All
+  resources — now sit under **More** at the bottom, with Teacher dashboard and
+  Admin panel under **Manage**.
+- **Labels line up.** The icon column was 18px, but emoji advance widths vary
+  a lot (🛠️ and 🧑‍🏫 are much wider than 🏠), so labels sat at ragged
+  positions. The column is now a fixed 22px flex box — all 28 items start at
+  exactly the same x, compound emoji included.
+
 ## 1.40.1 — Correct the default Gemini model
 
 - The default `GEMINI_MODEL` was `gemini-3.5-flash-lite`, which is not a real
