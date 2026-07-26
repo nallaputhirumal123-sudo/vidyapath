@@ -2729,29 +2729,16 @@ AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
 # Prices in the smallest unit (paise / cents), which is what both gateways
 # expect and avoids float rounding on money.
 PLANS = {
-    "free": {"name": "Free", "ai_total": 10, "kits_total": 3,
-             "inr": None, "usd": None},
-    # Two rupee prices per plan. Everyone pays through Razorpay in INR, but a
-    # visitor outside India pays the international rate — 449 rupees is about
-    # $5, which is well under what this market pays, while raising the Indian
-    # price would price out the students it is built for.
-    "basic": {"name": "Basic", "ai_month": 100, "kits_month": 30,
-              "inr_month": 44900, "intl_month": 109900,   # ~$12.49
-              "inr_year": None, "intl_year": None,
-              "usd_month": 1099, "usd_year": None},
-    # Pro must cost more than Basic in both currencies, or nobody has a reason
-    # to choose it. The annual price is deliberately below 12x monthly: a
-    # job-seeker subscription usually churns at 2-3 months, and annual is the
-    # only thing that changes that.
-    "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # None = unlimited
-            "inr_month": 74900, "intl_month": 158300,   # ~$17.99
-            "inr_year": 349900, "intl_year": 879900,    # ~$100
-
-            "usd_month": 1599, "usd_year": 10000},
+    "free": {"name": "Free", "ai_total": 0, "kits_total": 0,
+             "inr": None, "intl": None},
+    # One price worldwide, charged in rupees through Razorpay. Foreign cards
+    # convert it themselves. Kept as a single tier on purpose: two tiers make
+    # people stop and compare instead of deciding.
+    "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # unlimited
+            "inr_month": 140700, "intl_month": 140700,   # ~$15.99
+            "inr_year": 879900, "intl_year": 879900},    # ~$99.99
 }
-# Free-tier allowances are lifetime totals, not daily: someone must be able to
-# try the product properly once, not a little every day forever.
-PAID_PLANS = ("basic", "pro")
+PAID_PLANS = ("pro",)
 
 
 def plan_of(user) -> str:
@@ -2803,11 +2790,7 @@ def ai_quota(db, user):
     plan = plan_of(user)
     if plan == "pro":
         return {"plan": plan, "limit": None, "used": 0, "left": None}
-    if plan == "basic":
-        used = _ai_used_month(db, user)
-        lim = PLANS["basic"]["ai_month"]
-        return {"plan": plan, "limit": lim, "used": used,
-                "left": max(0, lim - used), "period": "month"}
+
     used = _ai_used_total(db, user)
     lim = PLANS["free"]["ai_total"]
     return {"plan": "free", "limit": lim, "used": used,
@@ -5758,7 +5741,6 @@ STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)
 
 # Stripe Price IDs, created in the Stripe dashboard.
 STRIPE_PRICES = {
-    ("basic", "month"): env("STRIPE_PRICE_BASIC_MONTH"),
     ("pro", "month"): env("STRIPE_PRICE_PRO_MONTH"),
     ("pro", "year"): env("STRIPE_PRICE_PRO_YEAR"),
 }
@@ -5791,7 +5773,7 @@ def billing_plans(request: Request, user: User = Depends(current_user),
         return None if v is None else f"{sym}{v/100:,.0f}"
 
     out = []
-    for pid in ("free", "basic", "pro"):
+    for pid in ("free", "pro"):
         p = PLANS[pid]
         out.append({
             "id": pid, "name": p["name"],
@@ -5959,9 +5941,9 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
         or (ev.get("payload") or {}).get("order", {}).get("entity") or {}
     notes = ent.get("notes") or {}
     if kind in ("payment.captured", "order.paid"):
-        uid, plan = notes.get("user_id"), (notes.get("plan") or "basic")
+        uid, plan = notes.get("user_id"), "pro"
         if uid:
-            _activate(db, uid, plan, "razorpay", ent.get("id"),
+            _activate(db, uid, plan if plan in PAID_PLANS else "pro", "razorpay", ent.get("id"),
                       notes.get("period", "month"))
     return {"ok": True}
 
@@ -5994,7 +5976,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     if kind in ("checkout.session.completed", "invoice.payment_succeeded"):
         uid = md.get("user_id") or obj.get("client_reference_id")
         if uid:
-            _activate(db, uid, md.get("plan") or "basic", "stripe",
+            _activate(db, uid, "pro", "stripe",
                       obj.get("subscription") or obj.get("id"))
     elif kind in ("customer.subscription.deleted", "invoice.payment_failed"):
         sub = obj.get("subscription") or obj.get("id")
