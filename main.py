@@ -19,6 +19,9 @@ import jwt
 import base64
 import io
 import hashlib
+import hmac
+import time
+import httpx
 from urllib.parse import urlencode
 from fastapi import (FastAPI, Depends, HTTPException, Request, Response, status,
                      UploadFile, File, BackgroundTasks)
@@ -180,6 +183,13 @@ class User(Base):
     # previous person out instead of granting two seats for one subscription.
     session_token = Column(String(64), default="")
     session_seen_at = Column(DateTime(timezone=True))
+    # Billing. `plan` is the source of truth for what someone may use; it is
+    # only ever changed by a verified webhook, never by the browser.
+    plan = Column(String(20), default="free", index=True)   # free | basic | pro
+    plan_provider = Column(String(20), default="")          # razorpay | stripe
+    plan_ref = Column(String(120), default="")              # subscription id
+    plan_expires = Column(DateTime(timezone=True))
+    plan_started = Column(DateTime(timezone=True))
 
 
 class Track(Base):
@@ -2518,6 +2528,38 @@ def _upstream_ok(r, provider):
 
 AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
 
+# ---- plans ---------------------------------------------------------------
+# Prices in the smallest unit (paise / cents), which is what both gateways
+# expect and avoids float rounding on money.
+PLANS = {
+    "free": {"name": "Free", "ai_total": 10, "kits_total": 3,
+             "inr": None, "usd": None},
+    "basic": {"name": "Basic", "ai_month": 100, "kits_month": 30,
+              "inr_month": 44900, "usd_month": 1099,
+              "inr_year": None, "usd_year": None},
+    "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # None = unlimited
+            "inr_month": 44900, "usd_month": 1599,
+            "inr_year": 349900, "usd_year": 10000},
+}
+# Free-tier allowances are lifetime totals, not daily: someone must be able to
+# try the product properly once, not a little every day forever.
+PAID_PLANS = ("basic", "pro")
+
+
+def plan_of(user) -> str:
+    """The plan actually in force, expiry included."""
+    if getattr(user, "is_admin", False):
+        return "pro"
+    p = (user.plan or "free").lower()
+    if p not in PAID_PLANS:
+        return "free"
+    exp = user.plan_expires
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=dt.timezone.utc)
+    if exp is not None and exp < now():
+        return "free"
+    return p
+
 
 def _ai_used_today(db, user):
     """How many billable AI checks this user has run today (cache hits free)."""
@@ -2529,28 +2571,79 @@ def _ai_used_today(db, user):
         return 0
 
 
+def _ai_used_total(db, user):
+    """Lifetime billable AI checks — the free tier is a total, not a daily rate."""
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == "aiq_total").first()
+    try:
+        return int(row.v) if row else 0
+    except Exception:
+        return 0
+
+
+def _ai_used_month(db, user):
+    row = db.query(Note).filter(
+        Note.user_id == user.id, Note.k == f"aiq_m{now().strftime('%Y%m')}").first()
+    try:
+        return int(row.v) if row else 0
+    except Exception:
+        return 0
+
+
+def ai_quota(db, user):
+    """What this user may still use, and on what plan. Cache hits are free and
+    never counted, so re-running the same check costs nobody anything."""
+    plan = plan_of(user)
+    if plan == "pro":
+        return {"plan": plan, "limit": None, "used": 0, "left": None}
+    if plan == "basic":
+        used = _ai_used_month(db, user)
+        lim = PLANS["basic"]["ai_month"]
+        return {"plan": plan, "limit": lim, "used": used,
+                "left": max(0, lim - used), "period": "month"}
+    used = _ai_used_total(db, user)
+    lim = PLANS["free"]["ai_total"]
+    return {"plan": "free", "limit": lim, "used": used,
+            "left": max(0, lim - used), "period": "total"}
+
+
 def _ai_enforce_limit(db, user):
     if getattr(user, "is_admin", False):
         return
-    if _ai_used_today(db, user) >= AI_DAILY_LIMIT:
+    q = ai_quota(db, user)
+    if q["limit"] is None:
+        return
+    if q["used"] >= q["limit"]:
+        if q["plan"] == "free":
+            raise HTTPException(
+                402, f"You've used your {q['limit']} free AI requests. "
+                     "Upgrade to keep generating apply kits and job matches — "
+                     "browsing jobs and resume matching stay free.")
         raise HTTPException(
-            429, f"You've used today's {AI_DAILY_LIMIT} AI checks. The limit "
-                 "resets tomorrow. (Re-running the same check is free.)")
+            402, f"You've used this month's {q['limit']} AI requests on Basic. "
+                 "Upgrade to Pro for unlimited, or wait for next month.")
+    # Also keep a per-day ceiling as an abuse brake, even on Pro.
+    if _ai_used_today(db, user) >= AI_DAILY_LIMIT * 4:
+        raise HTTPException(429, "That's a lot of requests in one day. "
+                                 "Try again tomorrow.")
 
 
 def _ai_bump(db, user):
+    """Count one billable AI call against the day, the month and the lifetime
+    total. Three counters because the free tier is a lifetime allowance, Basic
+    is monthly, and the daily one is only an abuse brake."""
     if getattr(user, "is_admin", False):
         return
-    day = now().strftime("%Y%m%d")
-    key = f"aiq_{day}"
-    row = db.query(Note).filter(Note.user_id == user.id, Note.k == key).first()
-    if row:
-        try:
-            row.v = str(int(row.v) + 1)
-        except Exception:
-            row.v = "1"
-    else:
-        db.add(Note(user_id=user.id, k=key, v="1"))
+    for key in (f"aiq_{now().strftime('%Y%m%d')}",
+                f"aiq_m{now().strftime('%Y%m')}",
+                "aiq_total"):
+        row = db.query(Note).filter(Note.user_id == user.id, Note.k == key).first()
+        if row:
+            try:
+                row.v = str(int(row.v) + 1)
+            except Exception:
+                row.v = "1"
+        else:
+            db.add(Note(user_id=user.id, k=key, v="1"))
     db.commit()
 
 
@@ -4844,6 +4937,219 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
     _ai_bump(db, user)
     _ai_cache_put(db, ckey, out)
     return {**kit, **out, "cached": False}
+
+
+# ============================ billing =====================================
+# Two gateways, one subscription state. Razorpay covers India, where UPI costs
+# almost nothing to accept; Stripe covers everywhere else. The user's `plan` is
+# only ever written by a signature-verified webhook — never by the browser,
+# which could otherwise simply ask to be upgraded.
+RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET")
+RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET")
+RAZORPAY_ENABLED = bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
+
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET")
+STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)
+
+# Stripe Price IDs, created in the Stripe dashboard.
+STRIPE_PRICES = {
+    ("basic", "month"): env("STRIPE_PRICE_BASIC_MONTH"),
+    ("pro", "month"): env("STRIPE_PRICE_PRO_MONTH"),
+    ("pro", "year"): env("STRIPE_PRICE_PRO_YEAR"),
+}
+
+
+def _is_india(request: Request) -> bool:
+    """Cloudflare tells us the country; fall back to India-off when it can't."""
+    return (request.headers.get("cf-ipcountry") or "").upper() == "IN"
+
+
+@app.get("/api/billing/plans")
+def billing_plans(request: Request, user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """What this user can buy, priced for where they are."""
+    india = _is_india(request)
+    cur = "inr" if india else "usd"
+    sym = "₹" if india else "$"
+
+    def money(v):
+        return None if v is None else f"{sym}{v/100:,.0f}" if india else f"{sym}{v/100:,.2f}"
+
+    out = []
+    for pid in ("free", "basic", "pro"):
+        p = PLANS[pid]
+        out.append({
+            "id": pid, "name": p["name"],
+            "month": money(p.get(f"{cur}_month")),
+            "year": money(p.get(f"{cur}_year")),
+            "ai": ("Unlimited" if pid == "pro"
+                   else f"{p.get('ai_total') or p.get('ai_month')} AI requests"
+                        + (" to start" if pid == "free" else " a month")),
+            "kits": ("Unlimited" if pid == "pro"
+                     else f"{p.get('kits_total') or p.get('kits_month')} apply kits"
+                          + (" to start" if pid == "free" else " a month")),
+        })
+    return {
+        "plans": out, "currency": cur.upper(), "region": "IN" if india else "INTL",
+        "gateway": "razorpay" if india else "stripe",
+        "available": {"razorpay": RAZORPAY_ENABLED, "stripe": STRIPE_ENABLED},
+        "current": plan_of(user),
+        "quota": ai_quota(db, user),
+        # Always say plainly that this renews. Silent auto-renewal is the
+        # single biggest source of chargebacks and complaints.
+        "renews": True,
+    }
+
+
+@app.get("/api/billing/me")
+def billing_me(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    exp = user.plan_expires
+    return {"plan": plan_of(user), "stored_plan": user.plan or "free",
+            "provider": user.plan_provider or "",
+            "expires": exp.isoformat() if exp else None,
+            "quota": ai_quota(db, user)}
+
+
+class CheckoutIn(BaseModel):
+    plan: str = Field(max_length=10)
+    period: str = Field(default="month", max_length=10)
+
+
+@app.post("/api/billing/checkout")
+async def billing_checkout(body: CheckoutIn, request: Request,
+                           user: User = Depends(current_user)):
+    """Start a subscription. Returns whatever the gateway needs the page to do."""
+    plan, period = body.plan.lower(), body.period.lower()
+    if plan not in PAID_PLANS:
+        raise HTTPException(400, "Unknown plan")
+    if period not in ("month", "year"):
+        raise HTTPException(400, "Unknown billing period")
+    india = _is_india(request)
+
+    if india:
+        if not RAZORPAY_ENABLED:
+            raise HTTPException(503, "Payments are not switched on yet.")
+        amount = PLANS[plan].get(f"inr_{period}")
+        if not amount:
+            raise HTTPException(400, "That plan is not sold for that period")
+        auth = base64.b64encode(
+            f"{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}".encode()).decode()
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post("https://api.razorpay.com/v1/orders",
+                             headers={"Authorization": f"Basic {auth}"},
+                             json={"amount": amount, "currency": "INR",
+                                   "notes": {"user_id": str(user.id),
+                                             "plan": plan, "period": period}})
+        if r.status_code >= 300:
+            print("Razorpay order failed:", r.status_code, r.text[:300])
+            raise HTTPException(502, "Could not start the payment. Try again.")
+        o = r.json()
+        return {"gateway": "razorpay", "key_id": RAZORPAY_KEY_ID,
+                "order_id": o["id"], "amount": o["amount"], "currency": "INR",
+                "name": "Craxle", "plan": plan, "period": period,
+                "prefill": {"name": user.name, "email": user.email}}
+
+    if not STRIPE_ENABLED:
+        raise HTTPException(503, "Payments are not switched on yet.")
+    price = STRIPE_PRICES.get((plan, period))
+    if not price:
+        raise HTTPException(400, "That plan is not sold for that period")
+    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(
+            "https://api.stripe.com/v1/checkout/sessions",
+            headers={"Authorization": f"Bearer {STRIPE_SECRET_KEY}"},
+            data={"mode": "subscription", "line_items[0][price]": price,
+                  "line_items[0][quantity]": "1",
+                  "customer_email": user.email,
+                  "client_reference_id": str(user.id),
+                  "metadata[user_id]": str(user.id),
+                  "metadata[plan]": plan,
+                  "success_url": f"{base}/?upgraded=1",
+                  "cancel_url": f"{base}/?upgrade_cancelled=1"})
+    if r.status_code >= 300:
+        print("Stripe session failed:", r.status_code, r.text[:300])
+        raise HTTPException(502, "Could not start the payment. Try again.")
+    return {"gateway": "stripe", "url": r.json()["url"]}
+
+
+def _activate(db, user_id, plan, provider, ref, period="month"):
+    u = db.get(User, int(user_id))
+    if not u:
+        print(f"webhook: unknown user {user_id}")
+        return
+    days = 372 if period == "year" else 32     # a few days' grace over the term
+    u.plan, u.plan_provider, u.plan_ref = plan, provider, str(ref or "")[:120]
+    u.plan_started = now()
+    u.plan_expires = now() + dt.timedelta(days=days)
+    db.commit()
+    print(f"billing: user {u.id} -> {plan} via {provider} until {u.plan_expires}")
+
+
+@app.post("/api/billing/webhook/razorpay")
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
+    """Razorpay calls this. The signature is what makes it trustworthy."""
+    raw = await request.body()
+    sig = request.headers.get("x-razorpay-signature", "")
+    if not RAZORPAY_WEBHOOK_SECRET:
+        raise HTTPException(503, "Webhook secret not configured")
+    expected = hmac.new(RAZORPAY_WEBHOOK_SECRET.encode(), raw,
+                        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(400, "Bad signature")
+    ev = json.loads(raw or b"{}")
+    kind = ev.get("event", "")
+    ent = (ev.get("payload") or {}).get("payment", {}).get("entity") \
+        or (ev.get("payload") or {}).get("order", {}).get("entity") or {}
+    notes = ent.get("notes") or {}
+    if kind in ("payment.captured", "order.paid"):
+        uid, plan = notes.get("user_id"), (notes.get("plan") or "basic")
+        if uid:
+            _activate(db, uid, plan, "razorpay", ent.get("id"),
+                      notes.get("period", "month"))
+    return {"ok": True}
+
+
+@app.post("/api/billing/webhook/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Stripe calls this. Verifies the timestamped signature header."""
+    raw = await request.body()
+    header = request.headers.get("stripe-signature", "")
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(503, "Webhook secret not configured")
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    t, v1 = parts.get("t", ""), parts.get("v1", "")
+    expected = hmac.new(STRIPE_WEBHOOK_SECRET.encode(),
+                        f"{t}.".encode() + raw, hashlib.sha256).hexdigest()
+    if not (v1 and hmac.compare_digest(expected, v1)):
+        raise HTTPException(400, "Bad signature")
+    # Reject anything older than five minutes, so a captured request cannot be
+    # replayed later to extend a subscription.
+    try:
+        if abs(time.time() - int(t)) > 300:
+            raise HTTPException(400, "Stale webhook")
+    except ValueError:
+        raise HTTPException(400, "Bad timestamp")
+
+    ev = json.loads(raw or b"{}")
+    obj = (ev.get("data") or {}).get("object") or {}
+    kind = ev.get("type", "")
+    md = obj.get("metadata") or {}
+    if kind in ("checkout.session.completed", "invoice.payment_succeeded"):
+        uid = md.get("user_id") or obj.get("client_reference_id")
+        if uid:
+            _activate(db, uid, md.get("plan") or "basic", "stripe",
+                      obj.get("subscription") or obj.get("id"))
+    elif kind in ("customer.subscription.deleted", "invoice.payment_failed"):
+        sub = obj.get("subscription") or obj.get("id")
+        u = db.query(User).filter(User.plan_ref == str(sub)).first()
+        if u:
+            # Do not cut access mid-period; let it lapse at expiry.
+            u.plan_expires = min(u.plan_expires or now(), now())
+            db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/admin/jobs/refresh")

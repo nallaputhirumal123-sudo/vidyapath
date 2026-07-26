@@ -209,19 +209,58 @@ var CSS = '' +
 '@media print{#vpTutor,#vpMini{display:none!important}}';
 
 /* -------------------------------------------------------------- speaking */
+/* Voice choice. Browsers do not tag voices by gender, so we match on the
+ * names the major platforms actually ship — and fall back to pitch, which
+ * still reads clearly as one or the other when no named voice exists. */
+var VOICE_NAMES = {
+  female: /(female|woman|zira|susan|samantha|karen|moira|tessa|fiona|veena|heera|aria|jenny|neerja|kalpana|swara|sonia|hazel|catherine|linda|eva|joanna)/i,
+  male: /(male|man|david|mark|guy|alex|daniel|fred|thomas|rishi|prabhat|ravi|george|james|brian|matthew|oliver|william|hemant)/i
+};
+var voicePref = "female";
+try {
+  voicePref = global.localStorage.getItem("vp_voice") || "female";
+} catch (e) {}
+
+function pickVoice() {
+  var voices = (global.speechSynthesis && global.speechSynthesis.getVoices()) || [];
+  if (!voices.length) return null;
+  var want = VOICE_NAMES[voicePref] || VOICE_NAMES.female;
+  var other = voicePref === "female" ? VOICE_NAMES.male : VOICE_NAMES.female;
+  // Indian English first, then any English, and never a voice whose name
+  // clearly belongs to the other choice.
+  var tiers = [
+    function (v) { return want.test(v.name) && /en[-_]IN/i.test(v.lang); },
+    function (v) { return want.test(v.name) && /^en/i.test(v.lang); },
+    function (v) { return want.test(v.name); },
+    function (v) { return /en[-_]IN/i.test(v.lang) && !other.test(v.name); },
+    function (v) { return /^en/i.test(v.lang) && !other.test(v.name); },
+    function (v) { return /^en/i.test(v.lang); }
+  ];
+  for (var i = 0; i < tiers.length; i++) {
+    var hit = voices.filter(tiers[i])[0];
+    if (hit) return hit;
+  }
+  return voices[0];
+}
+
+function setVoice(pref) {
+  voicePref = (pref === "male") ? "male" : "female";
+  try { global.localStorage.setItem("vp_voice", voicePref); } catch (e) {}
+  var b = document.getElementById("vpVoice");
+  if (b) b.textContent = voicePref === "male" ? "🗣 Male voice" : "🗣 Female voice";
+}
+
 function speak(text) {
   if (muted || !global.speechSynthesis) return;
   try {
     global.speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text);
     u.rate = 0.95;
-    u.pitch = 1.0;
+    // Nudge pitch as well: on devices with only one English voice this is
+    // the only thing that distinguishes the two choices.
+    u.pitch = voicePref === "male" ? 0.85 : 1.15;
 
-    /* Prefer an Indian English voice when the device has one */
-    var voices = global.speechSynthesis.getVoices() || [];
-    var preferred = voices.filter(function (v) {
-      return /en[-_]IN/i.test(v.lang) || /India/i.test(v.name);
-    })[0] || voices.filter(function (v) { return /^en/i.test(v.lang); })[0];
+    var preferred = pickVoice();
     if (preferred) u.voice = preferred;
 
     u.onstart = function () { setSpeaking(true); };
@@ -296,6 +335,18 @@ function showBubble(text, actions) {
     mute.textContent = muted ? "Turn voice on" : "Turn voice off";
   };
   acts.appendChild(mute);
+
+  /* Male / female voice, next to the mute control. Speaks a sample on
+     change so the choice is audible immediately rather than next time. */
+  var voice = document.createElement("button");
+  voice.id = "vpVoice";
+  voice.textContent = voicePref === "male" ? "🗣 Male voice" : "🗣 Female voice";
+  voice.onclick = function () {
+    setVoice(voicePref === "male" ? "female" : "male");
+    if (!muted) speak(voicePref === "male"
+      ? "Male voice selected." : "Female voice selected.");
+  };
+  acts.appendChild(voice);
 
   var hide = document.createElement("button");
   hide.textContent = "Hide";

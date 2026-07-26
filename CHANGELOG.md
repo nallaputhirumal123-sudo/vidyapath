@@ -14,6 +14,27 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.53.0 — Billing (Razorpay + Stripe), plan limits, Axle voice choice
+
+- **Razorpay and Stripe, one subscription state.** Razorpay for India (UPI
+  costs almost nothing to accept), Stripe elsewhere. Which one a visitor sees
+  is chosen from their country.
+- **A plan is only ever set by a signature-verified webhook.** The browser can
+  ask to start a checkout but can never grant itself a plan. Stripe webhooks
+  are also rejected if older than five minutes, so a captured request cannot
+  be replayed to extend a subscription.
+- **Plan limits enforced server-side:** Free gets 10 AI requests and 3 apply
+  kits as a lifetime allowance — enough to try the product properly once, not
+  a trickle forever. Basic gets 100 a month, Pro unlimited. Browsing jobs,
+  resume matching, the tracker and the extension stay free on every plan.
+- A daily ceiling still applies on every plan as an abuse brake, and cache
+  hits remain free and uncounted.
+- **Axle now has a male and a female voice**, chosen from a button beside the
+  mute control and remembered between visits. Browsers do not label voices by
+  gender, so it matches the names the major platforms ship (Zira, David, Mark,
+  Neerja, Samantha and so on) and falls back to pitch where a device has only
+  one English voice.
+
 ## 1.52.0 — One login per account, password reset, international legal docs
 
 - **One account, one login.** Signing in retires the previous session, so a
