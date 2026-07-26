@@ -564,8 +564,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.53.0"></script>
-<script src="presenter.js?v=1.53.0"></script>
+<script src="tutor.js?v=1.54.0"></script>
+<script src="presenter.js?v=1.54.0"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
@@ -586,6 +586,14 @@ const api = {
     if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
     const txt = await r.text();
     let data; try{ data = txt?JSON.parse(txt):{}; }catch(e){ data={detail:txt}; }
+    // 402 means the plan limit is reached, not a bug. Send them to Plans
+    // rather than showing a dead-end error next to a disabled button.
+    if(r.status===402){
+      const msg=data.detail||"You've used your plan's AI requests.";
+      if(typeof toast==="function") toast(msg);
+      if(typeof S!=="undefined"){ S.view={page:"plans"}; if(typeof render==="function") render(); }
+      throw new Error(msg);
+    }
     if(!r.ok) throw new Error(data.detail || ("Request failed ("+r.status+")"));
     return data;
   },
@@ -936,7 +944,8 @@ function renderNav(){
 
   h+=`<div class="navsec">Get hired</div>`
    + nav("careers","💼","Careers &amp; jobs")
-   + nav("resume","📄","Resume builder");
+   + nav("resume","📄","Resume builder")
+   + nav("plans","⚡","Plans &amp; billing");
 
   const list=activeTracks();
   h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
@@ -3528,6 +3537,132 @@ document.addEventListener("click",e=>{
   else if(k==="reset"){ if(confirm("Clear all colours on this picture?")){ clrSaveFills(COLORING.pageId,{}); renderColorPage(); } }
 });
 
+/* ===================== PLANS & CHECKOUT ===================== */
+let BILLING=null;
+async function loadBilling(){
+  try{ BILLING=await api.get("/api/billing/plans"); }catch(e){ BILLING=null; }
+  return BILLING;
+}
+/* Razorpay's popup needs their script; load it once, only when needed, so
+   nobody outside India downloads it. */
+function loadRazorpay(){
+  return new Promise((ok,bad)=>{
+    if(window.Razorpay) return ok();
+    const s=document.createElement("script");
+    s.src="https://checkout.razorpay.com/v1/checkout.js";
+    s.onload=ok; s.onerror=()=>bad(new Error("Could not load the payment window."));
+    document.head.appendChild(s);
+  });
+}
+async function startCheckout(plan,period,btn){
+  const old=btn?btn.textContent:"";
+  if(btn){ btn.disabled=true; btn.textContent="Opening…"; }
+  try{
+    const r=await api.post("/api/billing/checkout",{plan,period});
+    if(r.gateway==="stripe"){ location.href=r.url; return; }
+    await loadRazorpay();
+    const rz=new Razorpay({
+      key:r.key_id, order_id:r.order_id, amount:r.amount, currency:r.currency,
+      name:r.name, description:`Craxle ${plan} — ${period==="year"?"yearly":"monthly"}`,
+      prefill:r.prefill, theme:{color:"#ff9933"},
+      handler:async()=>{
+        // The webhook is what actually grants the plan; this only waits for
+        // it to land so the page can show the new state.
+        toast("Payment received — activating your plan…");
+        for(let i=0;i<10;i++){
+          await new Promise(t=>setTimeout(t,1500));
+          const me=await api.get("/api/billing/me").catch(()=>null);
+          if(me && me.plan!=="free"){ await loadBilling(); renderPlans(); toast("You're on "+me.plan.toUpperCase()+" 🎉"); return; }
+        }
+        renderPlans();
+        toast("Payment received. If your plan doesn't show in a minute, email us.");
+      },
+      modal:{ondismiss:()=>{ if(btn){btn.disabled=false;btn.textContent=old;} }}
+    });
+    rz.open();
+  }catch(e){
+    alert(e.message||"Could not start the payment.");
+    if(btn){ btn.disabled=false; btn.textContent=old; }
+  }
+}
+function planCardHTML(p,cur){
+  const isNow = cur===p.id;
+  const cta = p.id==="free"
+    ? `<div style="font-size:12.5px;color:var(--dim);text-align:center;padding:9px">Always free</div>`
+    : `<button class="btn ${p.id==="pro"?"":"ghost"} sm" style="width:100%" data-buy="${p.id}" data-period="month">
+         ${isNow?"Current plan":`Choose ${p.name} — ${esc(p.month||"")}/mo`}</button>
+       ${p.year?`<button class="btn ghost sm" style="width:100%;margin-top:6px" data-buy="${p.id}" data-period="year">
+         Pay yearly — ${esc(p.year)} <span style="color:#4bbf82">(save ~48%)</span></button>`:""}`;
+  return `<div class="card" style="flex:1;min-width:220px;${p.id==="pro"?"border-color:var(--accent)":""}">
+    ${p.id==="pro"?`<div class="pill hot" style="margin-bottom:6px">Best value</div>`:""}
+    <div style="font-size:17px;font-weight:750">${esc(p.name)}</div>
+    <div style="font-size:26px;font-weight:800;margin:6px 0">
+      ${p.month?esc(p.month):"Free"}<span style="font-size:13px;color:var(--dim);font-weight:500">${p.month?" /month":""}</span></div>
+    <ul style="margin:10px 0 12px 17px;font-size:13.5px;color:var(--body);line-height:1.9">
+      <li>Browse every live job</li>
+      <li>Resume matching &amp; tracker</li>
+      <li>Browser autofill</li>
+      <li><b>${esc(p.kits)}</b></li>
+      <li><b>${esc(p.ai)}</b></li>
+    </ul>
+    ${cta}
+  </div>`;
+}
+async function renderPlans(){
+  $("#main").innerHTML=`<div class="h1">⚡ Plans</div><p class="sub">Loading…</p>`;
+  if(!BILLING) await loadBilling();
+  if(!BILLING){ $("#main").innerHTML=`<div class="h1">⚡ Plans</div>
+    <div class="card">Could not load plans. Try again shortly.</div>`; return; }
+  const b=BILLING, q=b.quota||{};
+  const live=(b.available||{}).razorpay||(b.available||{}).stripe;
+  $("#main").innerHTML=`
+  <div class="h1">⚡ Plans <span style="font-size:13px;color:var(--dim)">· prices in ${esc(b.currency)}</span></div>
+  <p class="sub">Browsing jobs, resume matching, the application tracker and the
+  browser extension are free on every plan. Paid plans lift the limit on AI
+  apply kits and job-description matching.</p>
+
+  <div class="card" style="margin-bottom:16px">
+    <b>Your plan: ${esc((b.current||"free").toUpperCase())}</b>
+    <div style="font-size:13px;color:var(--dim);margin-top:4px">
+      ${q.limit==null?"Unlimited AI requests."
+        :`${q.used||0} of ${q.limit} AI requests used${q.period==="month"?" this month":""} · ${q.left} left`}
+    </div>
+  </div>
+
+  ${live?"":`<div class="card" style="border-color:#e0b050;margin-bottom:16px">
+    <b style="color:#e0b050">Payments aren't switched on yet</b>
+    <div style="font-size:13px;color:var(--dim);margin-top:4px">
+      You can see the plans, but checkout is disabled until the payment account is live.</div></div>`}
+
+  <div class="row" style="gap:14px;align-items:stretch;flex-wrap:wrap">
+    ${(b.plans||[]).map(p=>planCardHTML(p,b.current)).join("")}
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div style="font-size:12.5px;color:var(--dim);line-height:1.8">
+      Paid plans <b>renew automatically</b> until you cancel, and you can cancel any
+      time from this page or by emailing us — you keep access to the end of the period
+      you've paid for. Full refund within 7 days of your first payment.
+      ${b.region==="IN"?"Prices include Indian GST where applicable.":""}
+      See the <a href="/terms.html" target="_blank">Terms</a> and
+      <a href="/privacy.html" target="_blank">Privacy Policy</a>.
+    </div>
+  </div>`;
+  document.querySelectorAll("[data-buy]").forEach(btn=>{
+    btn.onclick=()=>startCheckout(btn.dataset.buy,btn.dataset.period,btn);
+  });
+}
+function toast(msg){
+  let t=$("#vpToast");
+  if(!t){ t=document.createElement("div"); t.id="vpToast";
+    t.style.cssText="position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:99999;"
+      +"background:var(--panel);border:1px solid var(--accent);color:var(--text);padding:11px 18px;"
+      +"border-radius:11px;font-size:13.5px;box-shadow:0 8px 30px rgba(0,0,0,.45)";
+    document.body.appendChild(t); }
+  t.textContent=msg; t.style.display="block";
+  clearTimeout(t._h); t._h=setTimeout(()=>{t.style.display="none";},4500);
+}
+
 /* ===================== MESSAGES / NOTIFICATIONS ===================== */
 const NOTIF={unread:0, items:[]};
 function timeAgo(iso){
@@ -4335,6 +4470,7 @@ function render(){
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
+  else if(v.page==="plans")     renderPlans();
   else if(v.page==="color")     renderColoring();
   else if(v.page==="studio")    renderStudio();
   else if(v.page==="assignment") renderAssignment(v.aid);
@@ -4390,6 +4526,7 @@ document.addEventListener("click",e=>{
   else if(n==="class")     S.view={page:"class"};
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="resume")    S.view={page:"resume"};
+  else if(n==="plans")     S.view={page:"plans"};
   else if(n==="color")     S.view={page:"color"};
   else if(n==="studio")    S.view={page:"studio"};
   else if(n==="teacher")   S.view={page:"teacher"};

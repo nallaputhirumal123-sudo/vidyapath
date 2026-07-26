@@ -2537,8 +2537,12 @@ PLANS = {
     "basic": {"name": "Basic", "ai_month": 100, "kits_month": 30,
               "inr_month": 44900, "usd_month": 1099,
               "inr_year": None, "usd_year": None},
+    # Pro must cost more than Basic in both currencies, or nobody has a reason
+    # to choose it. The annual price is deliberately below 12x monthly: a
+    # job-seeker subscription usually churns at 2-3 months, and annual is the
+    # only thing that changes that.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # None = unlimited
-            "inr_month": 44900, "usd_month": 1599,
+            "inr_month": 74900, "usd_month": 1599,
             "inr_year": 349900, "usd_year": 10000},
 }
 # Free-tier allowances are lifetime totals, not daily: someone must be able to

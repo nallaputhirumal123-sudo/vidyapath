@@ -14,6 +14,24 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.54.0 — Pricing page and checkout
+
+- **Plans & billing page** in the sidebar: three plans, your current plan, and
+  how many AI requests you have left.
+- **Prices follow the visitor.** India sees rupees and pays through Razorpay's
+  popup; everyone else sees dollars and goes to Stripe Checkout. Razorpay's
+  script is only downloaded for visitors who need it.
+- **Hitting a limit takes you to Plans**, with the reason shown, instead of a
+  dead-end error next to a button that stopped working.
+- **The plan is granted by the webhook, not the browser.** After paying, the
+  page polls until the webhook lands rather than believing the client.
+- Auto-renewal, cancellation and the 7-day refund are stated on the page
+  itself, not buried in the terms.
+- **Fixed: Basic and Pro were both ₹449/month**, so Indian users had no reason
+  to choose Pro. Pro India is now ₹749/month, keeping ₹3,499/year — a steep
+  annual discount on purpose, since job-seeker subscriptions usually churn at
+  two to three months and annual billing is the main thing that changes that.
+
 ## 1.53.0 — Billing (Razorpay + Stripe), plan limits, Axle voice choice
 
 - **Razorpay and Stripe, one subscription state.** Razorpay for India (UPI
