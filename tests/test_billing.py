@@ -77,16 +77,25 @@ ck("period on the subscription too",
 ck("returns to the site after paying",
    d.get("success_url", "").endswith("/?upgraded=1"), str(d.get("success_url")))
 
-# ---------- yearly checkout ----------
-r = A.post("/api/billing/checkout", json={"plan": "pro", "period": "year"})
-ck("yearly checkout starts", r.status_code == 200, str(r.status_code))
-d = SENT["data"]
-ck("charges $99.99 yearly", d.get("line_items[0][price_data][unit_amount]") == "9999",
-   str(d.get("line_items[0][price_data][unit_amount]")))
-ck("recurs yearly", d.get("line_items[0][price_data][recurring][interval]") == "year",
-   str(d.get("line_items[0][price_data][recurring][interval]")))
-ck("yearly period on the subscription",
-   d.get("subscription_data[metadata][period]") == "year")
+# ---------- every term on sale ----------
+EXPECT = {"month": ("1599", "month", "1"), "quarter": ("4299", "month", "3"),
+          "half": ("7699", "month", "6"), "year": ("13499", "year", "1")}
+for per, (amt, interval, count) in EXPECT.items():
+    r = A.post("/api/billing/checkout", json={"plan": "pro", "period": per})
+    ck(f"{per} checkout starts", r.status_code == 200, str(r.status_code))
+    d = SENT["data"]
+    ck(f"{per} charges the right amount",
+       d.get("line_items[0][price_data][unit_amount]") == amt,
+       str(d.get("line_items[0][price_data][unit_amount]")))
+    # Stripe has no 3- or 6-month interval: it is a monthly interval with a
+    # count, and getting this wrong bills someone monthly at the 6-month price.
+    ck(f"{per} recurs on the right interval",
+       d.get("line_items[0][price_data][recurring][interval]") == interval
+       and d.get("line_items[0][price_data][recurring][interval_count]") == count,
+       f"{d.get('line_items[0][price_data][recurring][interval]')} x"
+       f"{d.get('line_items[0][price_data][recurring][interval_count]')}")
+    ck(f"{per} period recorded on the subscription",
+       d.get("subscription_data[metadata][period]") == per)
 
 # ---------- a dashboard Price ID, if one is ever set, takes over ----------
 m.STRIPE_PRICES = {("pro", "month"): "price_dash_123"}
@@ -122,9 +131,9 @@ def plan_row():
 
 
 ev = {"type": "checkout.session.completed",
-      "data": {"object": {"id": "cs_1", "subscription": "sub_year_1",
+      "data": {"object": {"id": "cs_1", "subscription": "sub_half_1",
                           "metadata": {"user_id": str(UID), "plan": "pro",
-                                       "period": "year"}}}}
+                                       "period": "half"}}}}
 raw, hdr = signed(ev)
 r = A.post("/api/billing/webhook/stripe", content=raw, headers=hdr)
 ck("signed webhook accepted", r.status_code == 200, f"{r.status_code} {r.text[:120]}")
@@ -132,7 +141,7 @@ plan, exp, started, prov = plan_row()
 ck("plan activated", plan == "pro", str(plan))
 ck("provider recorded as stripe", prov == "stripe", str(prov))
 days = (m._aware(exp) - m._aware(started)).days
-ck("a YEARLY subscriber gets a year, not a month", days > 200, f"{days} days")
+ck("a 6-MONTH subscriber gets 6 months, not one", 150 < days < 200, f"{days} days")
 
 # an unsigned copy of the same event must not extend anything
 r = A.post("/api/billing/webhook/stripe", json=ev)
@@ -150,18 +159,18 @@ ck("replayed old webhook refused", r.status_code >= 400, str(r.status_code))
 
 # a renewal invoice carries no metadata — the period must survive anyway
 ev2 = {"type": "invoice.payment_succeeded",
-       "data": {"object": {"id": "in_1", "subscription": "sub_year_1",
+       "data": {"object": {"id": "in_1", "subscription": "sub_half_1",
                            "metadata": {}}}}
 raw, hdr = signed(ev2)
 r = A.post("/api/billing/webhook/stripe", content=raw, headers=hdr)
 ck("renewal accepted", r.status_code == 200, str(r.status_code))
 plan, exp, started, _ = plan_row()
 days = (m._aware(exp) - m._aware(started)).days
-ck("yearly renewal stays yearly without metadata", days > 200, f"{days} days")
+ck("renewal keeps the 6-month term without metadata", 150 < days < 200, f"{days} days")
 
 # cancellation lapses access rather than cutting it instantly
 ev3 = {"type": "customer.subscription.deleted",
-       "data": {"object": {"id": "sub_year_1"}}}
+       "data": {"object": {"id": "sub_half_1"}}}
 raw, hdr = signed(ev3)
 r = A.post("/api/billing/webhook/stripe", content=raw, headers=hdr)
 ck("cancellation webhook accepted", r.status_code == 200, str(r.status_code))

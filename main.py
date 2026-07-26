@@ -2768,10 +2768,39 @@ PLANS = {
     # rupee price. Kept as a single tier on purpose: two tiers make people stop
     # and compare instead of deciding. Amounts are in cents.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # unlimited
-            "usd_month": 1599,      # $15.99
-            "usd_year": 9999},      # $99.99
+            "usd_month": 1599,        # $15.99   — $15.99/mo
+            "usd_quarter": 4299,      # $42.99   — $14.33/mo, 10% off
+            "usd_half": 7699,         # $76.99   — $12.83/mo, 20% off
+            "usd_year": 13499},       # $134.99  — $11.25/mo, 30% off
 }
 PAID_PLANS = ("pro",)
+
+# The billing periods on sale. `days` is the access granted on payment and runs
+# a little past the term on purpose — a renewal that lands a day late must not
+# lock someone out of the product they have paid for.
+BILLING_PERIODS = {
+    "month":   {"label": "Monthly",   "months": 1,  "interval": "month",
+                "count": 1, "days": 32},
+    "quarter": {"label": "3 months",  "months": 3,  "interval": "month",
+                "count": 3, "days": 96},
+    "half":    {"label": "6 months",  "months": 6,  "interval": "month",
+                "count": 6, "days": 187},
+    "year":    {"label": "12 months", "months": 12, "interval": "year",
+                "count": 1, "days": 372},
+}
+
+
+def _period_from_span(started, expires):
+    """Which period a subscriber is on, read back from the access they were
+    granted. Used where the period was not recorded — old rows, and renewal
+    invoices that carry no metadata."""
+    if not started or not expires:
+        return "month"
+    days = (_aware(expires) - _aware(started)).days
+    # Match the closest term rather than using thresholds, so adding a period
+    # later does not silently reclassify existing subscribers.
+    return min(BILLING_PERIODS,
+               key=lambda k: abs(BILLING_PERIODS[k]["days"] - days))
 
 
 def plan_of(user) -> str:
@@ -6274,6 +6303,17 @@ def billing_plans(request: Request, user: User = Depends(current_user),
             "id": pid, "name": p["name"],
             "month": money(p.get("usd_month")),
             "year": money(p.get("usd_year")),
+            # Every term on sale, cheapest-per-month last, with the saving
+            # worked out here so the page never has to do arithmetic.
+            "periods": [
+                {"id": k, "label": spec["label"], "months": spec["months"],
+                 "price": money(p.get(f"usd_{k}")),
+                 "per_month": money(p[f"usd_{k}"] / spec["months"]),
+                 "save_pct": round(100 * (1 - (p[f"usd_{k}"] / spec["months"])
+                                          / p["usd_month"]))}
+                for k, spec in BILLING_PERIODS.items()
+                if p.get(f"usd_{k}") and p.get("usd_month")
+            ] if pid != "free" else [],
             "ai": ("Unlimited" if pid == "pro"
                    else f"{p.get('ai_total') or p.get('ai_month')} AI requests"
                         + (" to start" if pid == "free" else " a month")),
@@ -6355,7 +6395,7 @@ async def billing_checkout(body: CheckoutIn, request: Request,
     plan, period = body.plan.lower(), body.period.lower()
     if plan not in PAID_PLANS:
         raise HTTPException(400, "Unknown plan")
-    if period not in ("month", "year"):
+    if period not in BILLING_PERIODS:
         raise HTTPException(400, "Unknown billing period")
     if not STRIPE_ENABLED:
         raise HTTPException(503, "Payments are not switched on yet.")
@@ -6373,10 +6413,14 @@ async def billing_checkout(body: CheckoutIn, request: Request,
         amount = PLANS[plan].get(f"usd_{period}")
         if not amount:
             raise HTTPException(400, "That plan is not sold for that period")
+        spec = BILLING_PERIODS[period]
         line = {
             "line_items[0][price_data][currency]": "usd",
             "line_items[0][price_data][unit_amount]": str(int(amount)),
-            "line_items[0][price_data][recurring][interval]": period,
+            # Stripe has no "quarter": 3- and 6-month terms are a monthly
+            # interval with a count, not an interval of their own.
+            "line_items[0][price_data][recurring][interval]": spec["interval"],
+            "line_items[0][price_data][recurring][interval_count]": str(spec["count"]),
             "line_items[0][price_data][product_data][name]":
                 f"Craxle {PLANS[plan]['name']}",
             "line_items[0][price_data][product_data][description]":
@@ -6415,7 +6459,7 @@ def _activate(db, user_id, plan, provider, ref, period="month"):
     if not u:
         print(f"webhook: unknown user {user_id}")
         return
-    days = 372 if period == "year" else 32     # a few days' grace over the term
+    days = BILLING_PERIODS.get(period, BILLING_PERIODS["month"])["days"]
     u.plan, u.plan_provider, u.plan_ref = plan, provider, str(ref or "")[:120]
     u.plan_started = now()
     u.plan_expires = now() + dt.timedelta(days=days)
@@ -6458,9 +6502,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             u = db.query(User).filter(User.plan_ref == str(sub)).first()
             if u:
                 uid = uid or u.id
-                if not period and u.plan_started and u.plan_expires:
-                    span = (_aware(u.plan_expires) - _aware(u.plan_started)).days
-                    period = "year" if span > 200 else "month"
+                if not period:
+                    period = _period_from_span(u.plan_started, u.plan_expires)
         if uid:
             _activate(db, uid, "pro", "stripe", sub, period or "month")
     elif kind in ("customer.subscription.deleted", "invoice.payment_failed"):
@@ -6567,12 +6610,12 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
     for u in paying:
         by_plan[u.plan] = by_plan.get(u.plan, 0) + 1
         p = PLANS.get(u.plan, {})
-        # Annual subscribers are counted at a twelfth of the yearly price, so
-        # monthly and yearly customers are comparable.
-        exp = u.plan_expires
-        yearly = bool(exp and u.plan_started and (exp - u.plan_started).days > 200)
-        if yearly and p.get("usd_year"):
-            mrr_usd_cents += p["usd_year"] / 12
+        # Every term is normalised to a month, so a 3-month and a 12-month
+        # subscriber are comparable in the same MRR figure.
+        per = _period_from_span(u.plan_started, u.plan_expires)
+        amt, months = p.get(f"usd_{per}"), BILLING_PERIODS[per]["months"]
+        if amt:
+            mrr_usd_cents += amt / months
         elif p.get("usd_month"):
             mrr_usd_cents += p["usd_month"]
     mrr_inr = mrr_usd_cents * USD_INR

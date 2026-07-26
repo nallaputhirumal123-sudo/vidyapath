@@ -3779,12 +3779,20 @@ async function startCheckout(plan,period,btn){
 }
 function planCardHTML(p,cur){
   const isNow = cur===p.id;
+  /* One button per term, driven by what the server says is on sale. The
+     monthly button leads because it is the lowest commitment; the longer
+     terms carry the saving so the trade-off is visible without arithmetic. */
+  const terms=(p.periods&&p.periods.length)?p.periods:[];
   const cta = p.id==="free"
     ? `<div style="font-size:12.5px;color:var(--dim);text-align:center;padding:9px">Browse jobs free</div>`
-    : `<button class="btn ${p.id==="pro"?"":"ghost"} sm" style="width:100%" data-buy="${p.id}" data-period="month">
-         ${isNow?"Current plan":`Choose ${p.name} — ${esc(p.month||"")}/mo`}</button>
-       ${p.year?`<button class="btn ghost sm" style="width:100%;margin-top:6px" data-buy="${p.id}" data-period="year">
-         Pay yearly — ${esc(p.year)} <span style="color:#4bbf82">(save ~48%)</span></button>`:""}`;
+    : terms.map((t,i)=>`
+        <button class="btn ${i===0&&p.id==="pro"?"":"ghost"} sm"
+                style="width:100%;${i?"margin-top:6px":""}"
+                data-buy="${p.id}" data-period="${esc(t.id)}">
+          ${i===0&&isNow?"Current plan":`${esc(t.label)} — ${esc(t.price||"")}`}
+          ${t.months>1?`<span style="color:var(--dim);font-weight:500">(${esc(t.per_month||"")}/mo)</span>
+             ${t.save_pct>0?`<span style="color:#4bbf82">save ${t.save_pct}%</span>`:""}`:"/mo"}
+        </button>`).join("");
   return `<div class="card" style="flex:1;min-width:220px;${p.id==="pro"?"border-color:var(--accent)":""}">
     ${p.id==="pro"?`<div class="pill hot" style="margin-bottom:6px">Best value</div>`:""}
     <div style="font-size:17px;font-weight:750">${esc(p.name)}</div>
