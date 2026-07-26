@@ -2779,6 +2779,12 @@ PLANS = {
 }
 PAID_PLANS = ("pro",)
 
+# The free view of the job board: only postings at least this old, and only
+# this many of them. Being early is what wins an interview, so freshness is
+# the thing Pro actually sells.
+FREE_JOB_DELAY_DAYS = int(env("FREE_JOB_DELAY_DAYS", "7") or 7)
+FREE_JOB_CAP = int(env("FREE_JOB_CAP", "50") or 50)
+
 # The billing periods on sale. `days` is the access granted on payment and runs
 # a little past the term on purpose — a renewal that lands a day late must not
 # lock someone out of the product they have paid for.
@@ -2873,7 +2879,10 @@ def ai_quota(db, user):
                                   - _trial_used(db, user, "match")),
                 "extension_left": max(0, FREE_TRIAL["extension"]
                                       - _trial_used(db, user, "extension")),
-                "apply_left": 0 if applied else 1,
+                # Applying is paid outright now, so there is nothing left to
+                # report. Kept in the payload so the page does not have to
+                # branch on the key being absent.
+                "apply_left": 0,
                 "apply_job_id": int(applied.v) if applied
                 and str(applied.v or "").isdigit() else None,
             }}
@@ -2898,7 +2907,12 @@ def require_paid(user, feature="This"):
 # application before deciding, without giving away the product. The free
 # application is handled separately by apply_gate, which tracks a job rather
 # than a count.
-FREE_TRIAL = {"resume_upload": 1, "match": 1, "extension": 1}
+# Set to 0: the free tier no longer includes a trial of the paid tools. Free
+# means the training courses and a limited, delayed view of the job board —
+# resume matching, the tracker, apply kits and the extension are all paid.
+# The mechanism is left in place because turning a trial back on is a matter
+# of changing a number here, and it is covered by tests.
+FREE_TRIAL = {"resume_upload": 0, "match": 0, "extension": 0}
 
 
 def _trial_used(db, user, key):
@@ -2945,13 +2959,11 @@ def _trial_consume(db, user, key):
 
 
 def apply_gate(db, user, job_id):
-    """The free application, tied to one job.
+    """Applying to a job. Paid — there is no longer a free application.
 
-    Counting actions instead would strand people mid-application: generating
-    the apply kit and then marking it applied are two calls for the *same*
-    application, and charging twice means hitting the paywall halfway through
-    the one thing we said was free. So the allowance is a job, not a click —
-    every action on that job stays open.
+    Kept as its own function rather than folded into require_paid because the
+    apply kit and marking a job applied are two calls for the same action, and
+    a future allowance has to cover both or it strands people mid-application.
     """
     if getattr(user, "is_admin", False):
         return
@@ -2960,17 +2972,8 @@ def apply_gate(db, user, job_id):
                                  "inbox for the link we sent.")
     if plan_of(user) != "free":
         return
-    row = db.query(Note).filter(Note.user_id == user.id,
-                                Note.k == "trial_apply_job").first()
-    if row is None:
-        db.add(Note(user_id=user.id, k="trial_apply_job", v=str(job_id)))
-        db.commit()
-        return
-    if str(row.v or "") == str(job_id):
-        return
-    raise HTTPException(402, "You've used your one free application. Applying "
-                             "to more jobs is part of Pro — browsing every "
-                             "live job stays free.")
+    raise HTTPException(402, "Applying to jobs is part of Pro. The training "
+                             "courses stay free.")
 
 
 def _ai_enforce_limit(db, user):
@@ -5599,8 +5602,20 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
                 offset: int = 0, category: str = "", job_type: str = "",
                 engagement: str = "", visa: str = "", posted: str = "",
                 user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Search the stored postings. Newest first."""
+    """Search the stored postings. Newest first.
+
+    Free accounts see a delayed, capped slice. Fresh postings are the whole
+    value of a job board — being early is what gets someone an interview — so
+    that is what Pro buys. The free view is real and useful, just behind.
+    """
+    free = plan_of(user) == "free" and not getattr(user, "is_admin", False)
     query = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted)
+    if free:
+        # Anything newer than this is Pro-only. Compared against the employer's
+        # posting date where we have it, falling back to when we first saw it.
+        cutoff = now() - dt.timedelta(days=FREE_JOB_DELAY_DAYS)
+        query = query.filter(
+            case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen) <= cutoff)
     if q:
         # Searching "engineer" must not put a sales role that merely mentions
         # engineers above an actual engineering job. Title hits rank first.
@@ -5613,12 +5628,23 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
         # across the whole table and sorts into meaningless order.
         query = query.order_by(case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc())
     off, lim = max(offset, 0), min(max(limit, 1), 50)
-    total = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted).count()
-    rows = query.offset(off).limit(lim).all()
+    total = query.order_by(None).count()
+    if free:
+        # Cap what can be paged to, not just the page size — otherwise the
+        # whole board is reachable a page at a time.
+        total = min(total, FREE_JOB_CAP)
+        lim = min(lim, FREE_JOB_CAP)
+        if off >= FREE_JOB_CAP:
+            off = max(0, FREE_JOB_CAP - lim)
+        lim = min(lim, max(0, FREE_JOB_CAP - off))
+    rows = query.offset(off).limit(lim).all() if lim else []
     out = [_job_json(j) for j in rows]
     _mark_tracked(db, user, out)
     return {"jobs": out, "total": total,
-            "offset": off, "limit": lim, "has_more": off + lim < total}
+            "offset": off, "limit": lim, "has_more": off + lim < total,
+            "free_limited": free,
+            "free_delay_days": FREE_JOB_DELAY_DAYS if free else 0,
+            "free_cap": FREE_JOB_CAP if free else 0}
 
 
 def _mark_tracked(db, user, items):

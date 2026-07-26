@@ -112,8 +112,9 @@ b = FREE.get("/api/billing/plans").json()
 check("plans listed", len(b.get("plans", [])) == 2, str(len(b.get("plans", []))))
 check("free plan is current", b.get("current") == "free", str(b.get("current")))
 check("quota exposed", b.get("quota", {}).get("limit") == 0, str(b.get("quota")))
-check("free trial allowances exposed",
-      b.get("quota", {}).get("trial", {}).get("resume_upload_left") == 1,
+check("free plan grants no trial allowances",
+      all(b.get("quota", {}).get("trial", {}).get(k) == 0
+          for k in ("resume_upload_left", "match_left", "extension_left", "apply_left")),
       str(b.get("quota", {}).get("trial")))
 check("cancel refused on free", FREE.post("/api/billing/cancel", json={}).status_code == 400)
 check("checkout blocked without keys",

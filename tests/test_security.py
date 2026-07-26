@@ -18,6 +18,14 @@ P = "DeepPass123!"
 A.post("/api/auth/signup", json={"name": "Deep A", "email": EA, "password": P})
 B.post("/api/auth/signup", json={"name": "Deep B", "email": EB, "password": P})
 
+# Matching, the tracker and pairing are all paid. This file tests those
+# features' security, not the paywall, so A goes on Pro immediately. Free-plan
+# assertions below use their own untouched account.
+_db = m.SessionLocal()
+_u = _db.query(m.User).filter(m.func.lower(m.User.email) == EA.lower()).first()
+_u.plan = "pro"; _u.plan_expires = m.now() + m.dt.timedelta(days=30)
+_db.commit(); _db.close()
+
 # ---- one user must not see or touch another's data ----
 job = A.get("/api/jobs?limit=2").json()["jobs"]
 A.post("/api/jobs/track", json={"job_id": job[0]["id"], "status": "applied"})
@@ -30,8 +38,9 @@ check("one user cannot clear another's tracker",
 for attempt in ({"plan": "pro"}, {"plan": "pro", "period": "year"}):
     r = A.post("/api/billing/checkout", json=attempt)
     check(f"checkout without keys refuses {attempt}", r.status_code in (400, 503), str(r.status_code))
-check("plan still free after checkout attempts",
-      A.get("/api/billing/me").json()["plan"] == "free")
+check("checkout cannot itself grant a plan",
+      A.get("/api/billing/me").json().get("provider", "") == "",
+      A.get("/api/billing/me").json().get("provider", ""))
 
 # ---- webhooks reject forged/unsigned calls ----
 # Razorpay is gone — the endpoint must not still be accepting calls.
@@ -40,8 +49,9 @@ check("razorpay webhook removed", r.status_code == 404, str(r.status_code))
 r = A.post("/api/billing/webhook/stripe", json={"type": "checkout.session.completed",
       "data": {"object": {"metadata": {"user_id": "1", "plan": "pro"}}}})
 check("stripe webhook rejects unsigned", r.status_code >= 400, str(r.status_code))
-check("plan unchanged after forged webhooks",
-      A.get("/api/billing/me").json()["plan"] == "free")
+check("forged webhooks grant nothing",
+      A.get("/api/billing/me").json().get("provider", "") == "",
+      A.get("/api/billing/me").json().get("provider", ""))
 
 # ---- reset tokens ----
 db = m.SessionLocal()
@@ -90,13 +100,18 @@ for bad in ("/../main.py", "/..%2fmain.py", "/vidyapath.db"):
     check(f"blocked: {bad}", r.status_code >= 400 or "DATABASE_URL" not in r.text, str(r.status_code))
 
 # ---- pairing code cannot be brute-forced into a session ----
-code = A.post("/api/apply/pair-code", json={}).json()["code"]
+_pc = A.post("/api/apply/pair-code", json={})
+check("pro can mint a pairing code", _pc.status_code == 200, str(_pc.status_code))
+code = _pc.json()["code"]
 prof = A.get(f"/api/apply/profile?code={code}").json()
 check("pairing profile carries no auth material",
       not any(k for k in prof if any(w in k.lower() for w in ("token", "session", "cookie", "pass"))))
 
 # ---- AI quota enforced server-side ----
-q = A.get("/api/billing/plans").json()["quota"]
+_FREE = TestClient(m.app)
+_FE = f"deepfree{int(time.time())}@example.com"
+_FREE.post("/api/auth/signup", json={"name": "Deep Free", "email": _FE, "password": P})
+q = _FREE.get("/api/billing/plans").json()["quota"]
 check("free quota is a lifetime total", q.get("period") == "total" and q.get("limit") == 0,
       str(q))
 

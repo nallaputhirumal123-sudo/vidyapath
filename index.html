@@ -13,7 +13,18 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"/>
 <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png"/>
 <link rel="manifest" href="/manifest.json"/>
-<meta name="theme-color" content="#0b0f16"/>
+<meta name="theme-color" content="#0a0c10"/>
+
+<!-- Inter, the typeface the design is actually tuned for. Loaded rather than
+     merely named: almost nobody has it installed, so the stack silently fell
+     through to Segoe UI. display=swap so text paints immediately in the
+     fallback and never blocks on the network. -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;650;700;800&display=swap"/>
+<noscript><link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"/></noscript>
 
 <!-- Link previews on LinkedIn, WhatsApp, Slack, X. -->
 <meta property="og:type" content="website"/>
@@ -30,36 +41,58 @@
 <meta name="twitter:image" content="https://craxle.com/icon-512.png"/>
 <style>
 :root{
-  --bg:#0b0f16; --panel:#131923; --panel2:#1a2230; --line:#252e3d;
-  --text:#e8eef6; --muted:#8896a8; --dim:#5d6b7d;
-  --body:#ccd6e2;
-  --glass:rgba(19,25,35,.86);
-  --accent:#ff9933; --accent2:#4d9fff; --green:#3fb950; --red:#f85149;
-  --codebg:#070b11; --codetext:#9ecbff;
-  --r:14px;
+  /* Near-neutral slate rather than navy. The old palette leaned blue, which
+     fought the saffron accent — every warm element sat on a cool ground and
+     looked slightly dirty. */
+  --bg:#0a0c10; --panel:#121620; --panel2:#1a1f2b; --line:#232936;
+  --line-soft:rgba(255,255,255,.06);
+  --text:#eef2f8; --muted:#939eb0; --dim:#6b7686;
+  --body:#c8d1de;
+  --glass:rgba(18,22,32,.72);
+  --accent:#ff9933; --accent-hi:#ffb347; --accent-lo:#e07d12;
+  --accent2:#5aa9ff; --green:#3fb950; --red:#f85149;
+  --codebg:#06080c; --codetext:#9ecbff;
+
+  /* Radii scale. A single 14px everywhere made small controls look bloated
+     and large panels look tight. */
+  --r-sm:9px; --r:16px; --r-lg:22px;
 
   /* One spacing scale, so cards and sections share a rhythm instead of each
      carrying its own hand-picked margin. */
   --s1:6px; --s2:10px; --s3:16px; --s4:24px; --s5:36px;
-  /* Depth comes from a soft shadow plus a hairline, not a heavy border —
-     borders alone make every card read as a box on a dark ground. */
-  --shadow:0 1px 2px rgba(0,0,0,.28), 0 6px 18px -8px rgba(0,0,0,.45);
-  --shadow-lift:0 2px 4px rgba(0,0,0,.3), 0 14px 34px -12px rgba(0,0,0,.55);
-  --ring:0 0 0 3px rgba(255,153,51,.32);
+
+  /* Layered shadows: a tight contact shadow plus a wide ambient one. A single
+     blurred shadow reads as fog, not elevation. */
+  --shadow:0 1px 2px rgba(0,0,0,.32), 0 8px 24px -12px rgba(0,0,0,.5);
+  --shadow-lift:0 2px 6px rgba(0,0,0,.34), 0 18px 44px -16px rgba(0,0,0,.6);
+  --ring:0 0 0 3px rgba(255,153,51,.28);
+  /* Hairline of light along the top edge of raised surfaces — the cheapest
+     way to make a flat panel read as a physical object. */
+  --edge:inset 0 1px 0 rgba(255,255,255,.055);
 }
 /* Light theme — code areas deliberately stay dark, which reads better */
 [data-theme="light"]{
-  --bg:#f6f5f1; --panel:#ffffff; --panel2:#efede8; --line:#e0ded8;
-  --text:#1c1c1a; --muted:#63635e; --dim:#8b8b85;
-  --body:#3a3a36;
-  --glass:rgba(255,255,255,.88);
-  --accent2:#1e5fa8;
+  --bg:#f7f7f5; --panel:#ffffff; --panel2:#f1f0ec; --line:#e4e2dc;
+  --line-soft:rgba(0,0,0,.05);
+  --text:#16181c; --muted:#5e636e; --dim:#8a8f99;
+  --body:#3a3d44;
+  --glass:rgba(255,255,255,.78);
+  --accent2:#1e5fa8; --accent-lo:#d0730c;
+  --shadow:0 1px 2px rgba(16,20,28,.06), 0 8px 24px -14px rgba(16,20,28,.18);
+  --shadow-lift:0 2px 6px rgba(16,20,28,.08), 0 18px 44px -18px rgba(16,20,28,.24);
+  --edge:inset 0 1px 0 rgba(255,255,255,.9);
 }
 /* body is deliberately excluded: transitioning its background-color while the
    theme tokens are swapped left it stuck on the old value, so the page stayed
    dark while every card turned light. */
 /* Paid badge. Gold rather than the site accent so it reads as a status the
    user earned, not another button competing for attention. */
+/* Apply-filters button, once a filter has been touched. A soft pulse rather
+   than a colour change, so it draws the eye without shouting. */
+@keyframes jbdirty{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 0 0 0 rgba(255,153,51,.5)}
+  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 0 0 6px rgba(255,153,51,0)}}
+.btn.jbdirty{animation:jbdirty 1.8s ease-out infinite}
+@media (prefers-reduced-motion:reduce){.btn.jbdirty{animation:none;outline:2px solid var(--accent);outline-offset:2px}}
 .propill{display:inline-flex;align-items:center;gap:4px;vertical-align:middle;
   font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   padding:2px 7px;border-radius:999px;white-space:nowrap;color:#3a2a05;
@@ -85,7 +118,23 @@ body{background-color:var(--bg)!important}
 @media print{#themeFab,#msgFab{display:none}}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased;
+  /* cv11 gives a single-storey 'a' and straighter 'l'; ss01 tightens the
+     punctuation. Both are no-ops on systems without Inter. */
+  font-feature-settings:"cv11","ss01";font-variant-ligatures:contextual}
+/* A very slight warm glow behind the page, so a full-bleed dark screen is not
+   one uniform flat colour. Fixed, so it does not travel while scrolling. */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(255,153,51,.055), transparent 70%),
+    radial-gradient(760px 460px at 92% 4%, rgba(90,169,255,.045), transparent 72%)}
+[data-theme="light"] body::before{
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(255,153,51,.10), transparent 70%),
+    radial-gradient(760px 460px at 92% 4%, rgba(90,169,255,.07), transparent 72%)}
+.app,.gate,.topbar,#themeFab,#msgFab{position:relative;z-index:1}
 code,pre,textarea.code,.out{font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 a{color:var(--accent2);text-decoration:none}
@@ -136,8 +185,15 @@ input,select{font-family:inherit}
 .tab.on{background:var(--panel);color:var(--text)}
 .field{margin-bottom:13px}
 .field label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);font-weight:700;margin-bottom:5px}
-.field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 13px;color:var(--text);font-size:14px;outline:none}
-.field input:focus,.field select:focus{border-color:var(--accent)}
+.field input,.field select{width:100%;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 13px;
+  color:var(--text);font-size:14px;outline:none;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.16);
+  transition:border-color .16s ease,box-shadow .16s ease,background-color .16s ease}
+.field input::placeholder{color:var(--dim)}
+.field input:hover,.field select:hover{border-color:var(--dim)}
+.field input:focus,.field select:focus{border-color:var(--accent);
+  box-shadow:var(--ring),inset 0 1px 2px rgba(0,0,0,.16)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .msg{font-size:13px;padding:10px 13px;border-radius:9px;margin-bottom:13px;display:none}
 .msg.err{display:block;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:#ff9b95}
@@ -146,7 +202,10 @@ input,select{font-family:inherit}
 /* ---------- layout ---------- */
 .app{display:none;min-height:100vh}
 .app.on{display:flex}
-.sidebar{width:280px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow-y:auto;padding-bottom:30px}
+.sidebar{width:280px;flex-shrink:0;background:var(--glass);
+  backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
+  border-right:1px solid var(--line);position:sticky;top:0;height:100vh;
+  overflow-y:auto;padding-bottom:30px}
 .main{flex:1;padding:34px 44px 80px;max-width:1120px;min-width:0}
 .brand{padding:22px 20px 18px;border-bottom:1px solid var(--line)}
 .brand h1{font-size:21px;font-weight:800;letter-spacing:-.5px}
@@ -160,9 +219,17 @@ input,select{font-family:inherit}
 .who .info small{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 
 .navsec{padding:16px 20px 7px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);font-weight:700}
-.navitem{display:flex;align-items:center;gap:10px;padding:9px 20px;font-size:13.5px;color:var(--muted);width:100%;text-align:left;border-left:2px solid transparent;transition:.12s}
+/* Rounded, inset nav rows rather than full-bleed bars with a left rule — the
+   active item reads as a selected object instead of a highlighted stripe. */
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 12px;margin:1px 10px;
+  border-radius:10px;font-size:13.5px;color:var(--muted);width:calc(100% - 20px);
+  text-align:left;transition:background-color .14s ease,color .14s ease;position:relative}
 .navitem:hover{background:var(--panel2);color:var(--text)}
-.navitem.active{background:var(--panel2);color:var(--text);border-left-color:var(--accent)}
+.navitem.active{background:var(--panel2);color:var(--text);font-weight:600;
+  box-shadow:var(--edge)}
+.navitem.active::before{content:"";position:absolute;left:-10px;top:50%;
+  transform:translateY(-50%);width:3px;height:18px;border-radius:0 3px 3px 0;
+  background:var(--accent)}
 /* Fixed icon column. Emoji vary a lot in advance width (🛠️ and 🧑‍🏫 are far
    wider than 🏠), so without a fixed box the labels never line up. */
 .navitem .ic{width:22px;flex-shrink:0;display:inline-flex;align-items:center;
@@ -171,38 +238,52 @@ input,select{font-family:inherit}
 .navitem .ct{font-size:11px;color:var(--dim);flex-shrink:0}
 .navitem.done .ct{color:var(--green)}
 
-.h1{font-size:clamp(26px,3.4vw,34px);font-weight:800;letter-spacing:-.032em;
-  line-height:1.14;margin-bottom:var(--s2);text-wrap:balance}
-.h2{font-size:25px;font-weight:700;letter-spacing:-.6px;margin-bottom:6px}
+.h1{font-size:clamp(27px,3.5vw,36px);font-weight:780;letter-spacing:-.035em;
+  line-height:1.12;margin-bottom:var(--s2);text-wrap:balance}
+.h2{font-size:25px;font-weight:700;letter-spacing:-.028em;margin-bottom:6px}
 .sub{color:var(--muted);margin-bottom:26px;max-width:760px}
 .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--dim);font-weight:700;margin:32px 0 12px}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-  padding:var(--s4);box-shadow:var(--shadow);transition:box-shadow .18s ease,border-color .18s ease}
-.card:hover{box-shadow:var(--shadow-lift)}
+  padding:var(--s4);box-shadow:var(--shadow),var(--edge);
+  transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease}
+.card:hover{box-shadow:var(--shadow-lift),var(--edge);border-color:var(--line)}
 .grid{display:grid;gap:15px}
 .g2{grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}
 .g4{grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}
 .row{display:flex;gap:11px;align-items:center;flex-wrap:wrap}
 .spacer{flex:1}
 
-.pill{display:inline-block;font-size:10.5px;padding:3px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.pill{display:inline-block;font-size:10.5px;font-weight:550;padding:3.5px 9px;
+  border-radius:99px;background:var(--panel2);color:var(--muted);
+  border:1px solid var(--line);white-space:nowrap;letter-spacing:.01em}
 .pill.hot{background:rgba(255,153,51,.12);color:var(--accent);border-color:rgba(255,153,51,.3)}
 .pill.ok{background:rgba(63,185,80,.12);color:var(--green);border-color:rgba(63,185,80,.3)}
 .pill.blue{background:rgba(77,159,255,.12);color:var(--accent2);border-color:rgba(77,159,255,.3)}
 
-.btn{background:linear-gradient(135deg,#ffb347,#f08a1d);color:#10151c;padding:10px 20px;
-  border-radius:10px;font-weight:700;font-size:14px;letter-spacing:-.01em;
-  transition:transform .12s ease,box-shadow .18s ease,filter .18s ease;
-  display:inline-block;text-align:center;box-shadow:0 2px 10px rgba(255,153,51,.18)}
-.btn:hover{filter:brightness(1.05);box-shadow:0 4px 16px rgba(255,153,51,.26)}
-.btn:active{transform:translateY(1px)}
-.btn:hover{filter:brightness(1.08);text-decoration:none;transform:translateY(-1px);box-shadow:0 5px 18px rgba(255,153,51,.3)}
-.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
-.btn.ghost:hover{border-color:var(--accent);color:var(--accent);filter:none}
-.btn.sm{padding:7px 14px;font-size:13px}
+.btn{background:linear-gradient(180deg,var(--accent-hi),var(--accent-lo));
+  color:#1a1205;padding:10px 20px;border-radius:var(--r-sm);
+  font-weight:650;font-size:14px;letter-spacing:-.006em;line-height:1.4;
+  transition:transform .12s ease,box-shadow .2s ease,filter .2s ease;
+  display:inline-block;text-align:center;
+  /* Inner top highlight + tight contact shadow: the button looks pressed out
+     of the surface rather than pasted onto it. */
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),
+             0 1px 2px rgba(0,0,0,.25), 0 6px 16px -6px rgba(224,125,18,.55)}
+.btn:hover{filter:brightness(1.06);text-decoration:none;transform:translateY(-1px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),
+             0 2px 4px rgba(0,0,0,.26), 0 10px 24px -8px rgba(224,125,18,.6)}
+.btn:active{transform:translateY(0);filter:brightness(.97);
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}
+.btn:focus-visible{outline:none;box-shadow:var(--ring),0 1px 2px rgba(0,0,0,.25)}
+.btn.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  font-weight:550;box-shadow:var(--edge)}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent);filter:none;
+  background:var(--panel2);box-shadow:var(--edge)}
+.btn.sm{padding:7px 14px;font-size:13px;border-radius:8px}
 .btn.wide{width:100%}
-.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.btn:disabled{opacity:.42;cursor:not-allowed;filter:none;transform:none;
+  box-shadow:none}
 
 .bar{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#ffc078);border-radius:99px;transition:width .45s}
@@ -213,8 +294,11 @@ input,select{font-family:inherit}
 .hero h1{font-size:33px;font-weight:800;letter-spacing:-1.2px;line-height:1.15;margin-bottom:11px}
 .hero p{color:var(--muted);max-width:620px;margin-bottom:20px}
 
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;text-align:left;width:100%;transition:.15s;display:block}
-.tile:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 10px 30px rgba(255,153,51,.12)}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;text-align:left;width:100%;display:block;box-shadow:var(--edge);
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.tile:hover{border-color:rgba(255,153,51,.5);transform:translateY(-3px);
+  box-shadow:var(--shadow-lift),var(--edge)}
 .tile .ic{font-size:24px;line-height:1}
 .tile h3{font-size:15.5px;margin:9px 0 4px;font-weight:650}
 .tile p{font-size:12.8px;color:var(--muted);line-height:1.55}
@@ -675,7 +759,20 @@ const api = {
     });
     if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
     const txt = await r.text();
-    let data; try{ data = txt?JSON.parse(txt):{}; }catch(e){ data={detail:txt}; }
+    /* A non-JSON body means the response did not come from us — a Cloudflare
+       or Railway error page. Never surface it: it is a full HTML document, and
+       alert()ing it dumps markup in the user's face. */
+    let data;
+    try{ data = txt?JSON.parse(txt):{}; }
+    catch(e){
+      const html=/^\s*<(?:!doctype|html)/i.test(txt);
+      if(html) console.error("Non-JSON response from "+path+":", txt.slice(0,400));
+      data={detail: html
+        ? (r.status>=500
+            ? "The server is not responding right now. Please try again in a moment."
+            : "Something went wrong. Please try again.")
+        : (txt||"").slice(0,300)};
+    }
     // 402 means the plan limit is reached, not a bug. Send them to Plans
     // rather than showing a dead-end error next to a disabled button.
     if(r.status===402){
@@ -2865,7 +2962,26 @@ function jbReadInputs(){
   if(pd) JB.posted=pd.value;
 }
 /* keepPage: paging through results must not reset you to the first page. */
+/* Flags the results as out of date and turns the search button into an apply
+   button, without re-rendering the panel — a re-render would blur whichever
+   filter the user is still interacting with. */
+function jbMarkDirty(){
+  if(JB.pending) return;
+  JB.pending=true;
+  const b=document.querySelector("[data-jbgo]");
+  if(!b) return;
+  b.textContent="↻ Apply filters";
+  b.classList.add("jbdirty");
+  if(!document.getElementById("jbDirtyNote")){
+    const s=document.createElement("span");
+    s.id="jbDirtyNote"; s.textContent="Filters changed";
+    s.style.cssText="font-size:12px;color:var(--accent)";
+    b.insertAdjacentElement("afterend", s);
+  }
+}
+
 async function jbRun(mode,keepPage){
+  JB.pending=false;
   jbReadInputs();
   if(mode) JB.mode=mode;
   if(!keepPage) JB.offset=0;
@@ -3224,7 +3340,10 @@ function jbSectionHTML(){
         ${[[0,"Any match"],[50,"50%+ — worth a look"],[70,"70%+ — strong fit"],[85,"85%+ — near perfect"]]
           .map(([v,t])=>`<option value="${v}" ${JB.minScore===v?"selected":""}>${t}</option>`).join("")}
       </select>`:""}
-      <button class="btn sm" data-jbgo="1">${JB.mode==="match"?"Match my resume":"Search"}</button>
+      <button class="btn sm${JB.pending?" jbdirty":""}" data-jbgo="1">${
+        JB.pending ? "↻ Apply filters"
+                   : (JB.mode==="match"?"Match my resume":"Search")}</button>
+      ${JB.pending?`<span style="font-size:12px;color:var(--accent)">Filters changed</span>`:""}
     </div>
     <div id="jbOut" style="margin-top:14px">${jbResultsHTML()}</div>
   </div>`;
@@ -3391,8 +3510,16 @@ function renderCareers(){
   const up=$("#jbUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) jbUpload(e.target.files[0]); };
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
   const qi=$("#jbQ"); if(qi) qi.oninput=e=>jbSuggest(e.target.value);
-  ["jbCat","jbType","jbPosted"].forEach(id=>{
-    const el=$("#"+id); if(el) el.onchange=()=>jbRun();
+  /* Changing a filter no longer searches on its own. Category, type and posted
+     used to fire immediately while country, location, remote and minimum score
+     waited for the button — so half the controls behaved one way and half the
+     other. In match mode an instant re-run also spent a match per dropdown.
+     Now every filter marks the search stale and the button does the work. */
+  ["jbCat","jbCountry","jbType","jbPosted","jbMin","jbRemote","jbLoc"].forEach(id=>{
+    const el=$("#"+id); if(!el) return;
+    const mark=()=>jbMarkDirty();
+    el.onchange=mark;
+    if(el.tagName==="INPUT" && el.type!=="checkbox") el.oninput=mark;
   });
   document.querySelectorAll("[data-jbstatus]").forEach(sel=>{
     sel.onchange=e=>jbTrack(+sel.dataset.jbstatus,e.target.value);
@@ -3821,12 +3948,22 @@ function planCardHTML(p,cur){
     <div style="font-size:17px;font-weight:750">${esc(p.name)}</div>
     <div style="font-size:26px;font-weight:800;margin:6px 0">
       ${p.month?esc(p.month):"Free"}<span style="font-size:13px;color:var(--dim);font-weight:500">${p.month?" /month":""}</span></div>
+    <!-- Listed honestly per plan. Showing the same feature list on both and
+         relying on the price to imply the difference is how people end up
+         paying for something they thought they already had. -->
     <ul style="margin:10px 0 12px 17px;font-size:13.5px;color:var(--body);line-height:1.9">
-      <li>Browse every live job</li>
-      <li>Resume matching &amp; tracker</li>
-      <li>Browser autofill</li>
-      <li><b>${esc(p.kits)}</b></li>
-      <li><b>${esc(p.ai)}</b></li>
+      ${p.id==="free" ? `
+        <li>All training courses &amp; projects</li>
+        <li>Interview preparation</li>
+        <li>Job board — older postings, limited list</li>
+        <li style="color:var(--dim)">No resume matching</li>
+        <li style="color:var(--dim)">No tracker, apply kits or autofill</li>`
+      : `
+        <li><b>Every live job, the day it is posted</b></li>
+        <li>Resume matching, scored against each role</li>
+        <li>Application tracker</li>
+        <li>Apply kits &amp; browser autofill</li>
+        <li>All training courses &amp; projects</li>`}
     </ul>
     ${cta}
   </div>`;

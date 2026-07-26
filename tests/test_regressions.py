@@ -117,18 +117,16 @@ G = TestClient(m.app)
 GE = f"gate{int(time.time())}@example.com"
 G.post("/api/auth/signup", json={"name": "Gate Test", "email": GE, "password": "GatePass123!"})
 RES = "Cisco BGP OSPF F5 Linux Python network engineer senior"
-ck("matching: one free run", G.post("/api/jobs/match",
-   json={"resume_text": RES}).status_code == 200)
-ck("matching is paid after the free run",
+ck("matching is paid",
    G.post("/api/jobs/match", json={"resume_text": RES}).status_code == 402)
 jid = A.get("/api/jobs?limit=1").json()["jobs"][0]["id"]
 ck("tracker is paid",
    G.post("/api/jobs/track", json={"job_id": jid, "status": "saved"}).status_code == 402)
-ck("extension: one free autofill",
-   G.get("/api/apply/profile?code="
-         + G.post("/api/apply/pair-code", json={}).json()["code"]).status_code == 200)
-ck("extension is paid after the free autofill",
+ck("extension is paid",
    G.post("/api/apply/pair-code", json={}).status_code == 402)
+ck("free still browses jobs", G.get("/api/jobs?limit=3").status_code == 200)
+ck("free job view is limited",
+   G.get("/api/jobs?limit=50").json().get("free_limited") is True)
 ck("interview prep free", A.get("/api/interview/guide?category=network").status_code == 200)
 
 # admin bypasses the gate
