@@ -14,6 +14,30 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.49.0 — Craxle, Axle, Workday + SmartRecruiters, date filter
+
+- **Rebranded to Craxle** across the app, admin, legal pages, extension and
+  build scripts. The wordmark renders as **Crax·le**.
+- **The AI guide is now Axle**, with a redrawn avatar — cleaner silhouette,
+  warmer tones, and a headset so it reads as a guide at a glance. It stays SVG
+  rather than a PNG because its mouth and eyelids animate by id while
+  speaking, which a flat image cannot do.
+- **Workday added — the biggest single source yet.** 9 verified tenants
+  (NVIDIA, Salesforce, Adobe, Mastercard, AstraZeneca, Autodesk, eBay, Workday,
+  PayPal) giving ~2,700 postings. It uses Workday's own public JSON endpoint —
+  the one its career pages call — not HTML parsing, so a restyle cannot break
+  it.
+- **SmartRecruiters added** via their official public postings API. Seeded with
+  one verified company; more is a matter of adding slugs to `JOB_SMARTRECRUITERS`.
+- **Total live postings: ~16,300**, up from 13,652.
+- **Date posted filter, four windows:** past 24 hours, 3 days, week, month.
+  It uses the employer's posted date where they give one and falls back to when
+  we first saw the job, which is the honest stand-in.
+- **Cache-busting on `tutor.js` and `presenter.js`** — returning visitors were
+  being served the previous build's scripts after a deploy.
+- Fixed the wordmark, which was split across a `<span>` and so was only
+  half-renamed by the word-boundary pass.
+
 ## 1.48.0 — craxle.com
 
 - The extension now pairs with **craxle.com**. The old Railway URL is kept as

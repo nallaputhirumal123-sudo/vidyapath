@@ -3282,11 +3282,30 @@ _ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
 _WORKABLE = ""
 _RECRUITEE = ""
 
+# Workday tenants as "tenant|site|host". Every one below was verified to
+# return postings; the site and host segments differ per company and are not
+# guessable, so add new ones only after checking they respond.
+_WORKDAY = ",".join([
+    "nvidia|NVIDIAExternalCareerSite|wd5",
+    "salesforce|External_Career_Site|wd12",
+    "adobe|external_experienced|wd5",
+    "mastercard|CorporateCareers|wd1",
+    "astrazeneca|Careers|wd3",
+    "autodesk|Ext|wd1",
+    "ebay|apply|wd5",
+    "workday|Workday|wd5",
+    "paypal|jobs|wd1",
+])
+
+_SMARTRECRUITERS = "Visa"
+
 
 def _job_tokens(name):
     raw = env(f"JOB_{name.upper()}", {"greenhouse": _GREENHOUSE, "lever": _LEVER,
                                       "ashby": _ASHBY, "workable": _WORKABLE,
-                                      "recruitee": _RECRUITEE}[name])
+                                      "recruitee": _RECRUITEE,
+                                      "workday": _WORKDAY,
+                                      "smartrecruiters": _SMARTRECRUITERS}[name])
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
@@ -3501,9 +3520,69 @@ async def _fetch_recruitee(client, token):
     return out
 
 
+WORKDAY_PAGES = int(env("WORKDAY_PAGES", "15") or 15)   # 20 postings a page
+
+
+async def _fetch_workday(client, token):
+    """Workday's own public jobs endpoint — the one its career sites call.
+
+    Token is "tenant|site|host", e.g. "nvidia|NVIDIAExternalCareerSite|wd5".
+    This is the documented CxS JSON endpoint that every Workday career page
+    fetches from, not HTML scraping: no parsing of markup, nothing that
+    breaks when they restyle the page.
+    """
+    tenant, site, host = (token.split("|") + ["wd1"])[:3]
+    base = f"https://{tenant}.{host}.myworkdayjobs.com"
+    out = []
+    for page in range(WORKDAY_PAGES):
+        r = await client.post(
+            f"{base}/wday/cxs/{tenant}/{site}/jobs",
+            json={"appliedFacets": {}, "limit": 20, "offset": page * 20,
+                  "searchText": ""})
+        r.raise_for_status()
+        posts = r.json().get("jobPostings") or []
+        if not posts:
+            break
+        for j in posts:
+            path = j.get("externalPath") or ""
+            out.append(_job_row(
+                "workday", f"{tenant}:{path}",
+                j.get("title"), tenant.title(), j.get("locationsText", ""),
+                f"{base}/en-US/{site}{path}", j.get("title", ""),
+                _ts(j.get("postedOn"))))
+    return out
+
+
+async def _fetch_smartrecruiters(client, company):
+    """SmartRecruiters' official public postings API."""
+    out = []
+    for page in range(5):
+        r = await client.get(
+            f"https://api.smartrecruiters.com/v1/companies/{company}/postings",
+            params={"limit": 100, "offset": page * 100})
+        r.raise_for_status()
+        items = r.json().get("content") or []
+        if not items:
+            break
+        for j in items:
+            loc = j.get("location") or {}
+            where = ", ".join(x for x in (loc.get("city"), loc.get("region"),
+                                          loc.get("country")) if x)
+            out.append(_job_row(
+                "smartrecruiters", j.get("id"), j.get("name"),
+                (j.get("company") or {}).get("identifier", company),
+                where or ("Remote" if loc.get("remote") else ""),
+                f"https://jobs.smartrecruiters.com/{company}/{j.get('id')}",
+                (j.get("jobAd") or {}).get("sections", {}).get(
+                    "jobDescription", {}).get("text", "") or j.get("name", ""),
+                _ts(j.get("releasedDate"))))
+    return out
+
+
 _FETCHERS = {"greenhouse": _fetch_greenhouse, "lever": _fetch_lever,
              "ashby": _fetch_ashby, "workable": _fetch_workable,
-             "recruitee": _fetch_recruitee}
+             "recruitee": _fetch_recruitee, "workday": _fetch_workday,
+             "smartrecruiters": _fetch_smartrecruiters}
 
 # ---- aggregators: every sector, every country, but they need a free key ----
 # Company ATS boards only ever cover the companies we list, and those skew
@@ -4111,9 +4190,27 @@ def _job_json(j, extra=None):
     return d
 
 
+# How recent a posting is. Employers give a posted date when they can; when
+# they don't, when we first saw it is the honest stand-in.
+POSTED_WINDOWS = [{"id": "1", "label": "Past 24 hours", "days": 1},
+                  {"id": "3", "label": "Past 3 days", "days": 3},
+                  {"id": "7", "label": "Past week", "days": 7},
+                  {"id": "30", "label": "Past month", "days": 30}]
+
+
 def _jobs_query(db, q="", country="", location="", remote=False, status="open",
-                category="", job_type="", engagement="", visa=""):
+                category="", job_type="", engagement="", visa="", posted=""):
     query = db.query(Job)
+    if posted:
+        try:
+            days = int(posted)
+        except ValueError:
+            days = 0
+        if days > 0:
+            cut = now() - dt.timedelta(days=days)
+            query = query.filter(
+                case((Job.posted_at.isnot(None), Job.posted_at),
+                     else_=Job.first_seen) >= cut)
     if job_type:
         query = query.filter(Job.job_type == job_type.strip().lower())
     if engagement:
@@ -4147,10 +4244,10 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
 def jobs_search(q: str = "", country: str = "", location: str = "",
                 remote: bool = False, status: str = "open", limit: int = 20,
                 offset: int = 0, category: str = "", job_type: str = "",
-                engagement: str = "", visa: str = "",
+                engagement: str = "", visa: str = "", posted: str = "",
                 user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Search the stored postings. Newest first."""
-    query = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa)
+    query = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted)
     if q:
         # Searching "engineer" must not put a sales role that merely mentions
         # engineers above an actual engineering job. Title hits rank first.
@@ -4160,7 +4257,7 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     else:
         query = query.order_by(Job.first_seen.desc())
     off, lim = max(offset, 0), min(max(limit, 1), 50)
-    total = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa).count()
+    total = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted).count()
     rows = query.offset(off).limit(lim).all()
     out = [_job_json(j) for j in rows]
     _mark_tracked(db, user, out)
@@ -4235,6 +4332,7 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
         "job_types": _facet(db, Job.job_type, JOB_TYPE_LABELS),
         "engagements": _facet(db, Job.engagement, ENGAGEMENT_LABELS),
         "visas": _facet(db, Job.visa, VISA_LABELS),
+        "posted_windows": POSTED_WINDOWS,
         "new_today": db.query(func.count(Job.id)).filter(
             Job.first_seen >= now() - dt.timedelta(days=1)).scalar(),
     }
@@ -4271,6 +4369,7 @@ class JobMatchIn(BaseModel):
     job_type: str = Field(default="", max_length=20)
     engagement: str = Field(default="", max_length=10)
     visa: str = Field(default="", max_length=20)
+    posted: str = Field(default="", max_length=4)
 
 
 @app.post("/api/jobs/match")
@@ -4293,7 +4392,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     my_fams = _families(rtext)
     rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
                        "open", body.category, body.job_type, body.engagement,
-                       body.visa).order_by(Job.first_seen.desc()).limit(6000).all()
+                       body.visa, body.posted).order_by(Job.first_seen.desc()).limit(6000).all()
 
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.

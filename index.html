@@ -2533,7 +2533,7 @@ const REAL_PRACTICE=[
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
         category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
-        jobType:"",engagement:"",visa:"",
+        jobType:"",engagement:"",visa:"",posted:"",
         tab:"find",tracks:null,trackTab:"saved"};
 const TRACK_LABELS={saved:"Saved",applied:"Applied",interviewing:"Interviewing",
                     offer:"Offer received",rejected:"Rejected",archived:"Archived"};
@@ -2652,8 +2652,9 @@ function jbReadInputs(){
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
   if(k) JB.category=k.value;
-  const jt=$("#jbType");
+  const jt=$("#jbType"), pd=$("#jbPosted");
   if(jt) JB.jobType=jt.value;
+  if(pd) JB.posted=pd.value;
 }
 /* keepPage: paging through results must not reset you to the first page. */
 async function jbRun(mode,keepPage){
@@ -2667,12 +2668,12 @@ async function jbRun(mode,keepPage){
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
         q:JB.q,country:JB.country,location:JB.location,remote:JB.remote,
         limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,category:JB.category,
-        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa});
+        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted});
       JB.jobs=res.jobs; JB.meta=res;
     }else{
       const p=new URLSearchParams({q:JB.q,country:JB.country,location:JB.location,
         remote:JB.remote?"true":"false",status:"open",category:JB.category,
-        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,
+        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted,
         limit:String(JB.perPage),offset:String(JB.offset)});
       const res=await api.get("/api/jobs?"+p);
       JB.jobs=res.jobs; JB.meta=res;
@@ -2881,7 +2882,7 @@ function jbSectionHTML(){
   const sel=(id,anyLabel,opts,cur)=>!opts.length?"":
     `<select id="${id}" class="ask-input" style="flex:1;min-width:165px">
       <option value="">${anyLabel}</option>
-      ${opts.map(o=>`<option value="${esc(o.id)}" ${cur===o.id?"selected":""}>${esc(o.label)} (${o.count})</option>`).join("")}
+      ${opts.map(o=>`<option value="${esc(o.id)}" ${cur===o.id?"selected":""}>${esc(o.label)}${o.count==null?"":` (${o.count})`}</option>`).join("")}
     </select>`;
   const fresh=f&&f.updated
     ? `Updated ${jbAgo(f.updated)} · <b>${f.open}</b> open roles${f.closed?` · ${f.closed} recently closed`:""} · ${f.retention_days} days of history`
@@ -2931,6 +2932,7 @@ function jbSectionHTML(){
     </div>
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
       ${sel("jbType","⏱️ Any job type",(f&&f.job_types)||[],JB.jobType)}
+      ${sel("jbPosted","🕒 Any time",((f&&f.posted_windows)||[]).map(w=>({id:w.id,label:w.label,count:null})),JB.posted)}
       ${JB.mode==="match"?`<select id="jbMin" class="ask-input" style="min-width:150px">
         ${[[0,"Any match"],[50,"50%+ — worth a look"],[70,"70%+ — strong fit"],[85,"85%+ — near perfect"]]
           .map(([v,t])=>`<option value="${v}" ${JB.minScore===v?"selected":""}>${t}</option>`).join("")}
@@ -3085,7 +3087,7 @@ function renderCareers(){
   const up=$("#jbUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) jbUpload(e.target.files[0]); };
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
   const qi=$("#jbQ"); if(qi) qi.oninput=e=>jbSuggest(e.target.value);
-  ["jbCat","jbType"].forEach(id=>{
+  ["jbCat","jbType","jbPosted"].forEach(id=>{
     const el=$("#"+id); if(el) el.onchange=()=>jbRun();
   });
   document.querySelectorAll("[data-jbstatus]").forEach(sel=>{
