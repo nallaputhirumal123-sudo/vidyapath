@@ -622,8 +622,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.68.4"></script>
-<script src="presenter.js?v=1.68.4"></script>
+<script src="tutor.js?v=1.70.0"></script>
+<script src="presenter.js?v=1.70.0"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
@@ -4279,6 +4279,95 @@ const RZ_TIPS={
 };
 function rzTip(t){ return `<div style="font-size:12.5px;color:var(--dim);margin:2px 0 8px">💡 ${esc(t)}</div>`; }
 
+let ATS=null, ATS_BUSY=false;
+/* Free and AI-free: the same checks the matcher runs, so the advice can never
+   contradict the score a user sees on their job matches. */
+async function runAtsCheck(){
+  ATS_BUSY=true; ATS=null; paintAts();
+  try{
+    rzLoad(); jbRestoreUpload();
+    ATS=await api.post("/api/resume/ats-check",{resume:RESUME,resume_text:RZ_UPTEXT});
+  }catch(e){ ATS={error:e.message}; }
+  ATS_BUSY=false; paintAts();
+}
+function paintAts(){ const el=$("#atsOut"); if(el) el.innerHTML=atsBodyHTML(); }
+function atsRing(pct,tier){
+  const col = pct>=85?"#4bbf82" : pct>=70?"#8bc34a" : pct>=55?"#e0b050" : "#e05a5a";
+  const deg = Math.round((pct/100)*360);
+  return `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="width:96px;height:96px;border-radius:50%;flex-shrink:0;
+      background:conic-gradient(${col} ${deg}deg, var(--panel2) 0);
+      display:flex;align-items:center;justify-content:center">
+      <div style="width:74px;height:74px;border-radius:50%;background:var(--panel);
+        display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:24px;font-weight:800;color:${col};line-height:1">${pct}</div>
+        <div style="font-size:9.5px;color:var(--dim);letter-spacing:.5px">ATS SCORE</div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:180px">
+      <div style="font-size:17px;font-weight:750">Tier ${esc(tier.tier)} — ${esc(tier.label)}</div>
+      <div style="font-size:13px;color:var(--dim);margin-top:3px">${esc(tier.note||"")}</div>
+    </div>
+  </div>`;
+}
+function atsBodyHTML(){
+  if(ATS_BUSY) return `<div style="color:var(--dim);font-size:13.5px;padding:8px 0">Checking your resume…</div>`;
+  if(!ATS) return `<div style="color:var(--dim);font-size:13.5px;padding:8px 0">
+    Press <b>Check my resume</b> — it scores how well an applicant tracking system
+    can read it, and lists exactly what to change. Free, and it uses no AI credits.</div>`;
+  if(ATS.error) return `<div style="color:#e05a5a;font-size:13.5px">${esc(ATS.error)}</div>`;
+
+  const sev={high:{c:"#e05a5a",t:"Fix first"},medium:{c:"#e0b050",t:"Worth fixing"},
+             low:{c:"#8896a8",t:"Nice to have"}};
+  const bar=(label,val)=>`<div style="flex:1;min-width:130px">
+      <div class="row" style="justify-content:space-between;font-size:12px;color:var(--dim)">
+        <span>${label}</span><span style="font-variant-numeric:tabular-nums">${val}</span></div>
+      <div style="height:6px;background:var(--panel2);border-radius:99px;margin-top:4px;overflow:hidden">
+        <div style="height:100%;width:${val}%;background:var(--accent)"></div></div>
+    </div>`;
+
+  return `
+  ${atsRing(ATS.ats_score, ATS)}
+  <div class="row" style="gap:14px;margin-top:16px;flex-wrap:wrap">
+    ${bar("Measurable impact", ATS.impact_score)}
+    ${bar("Machine readability", ATS.readability_score)}
+    ${bar("Skills named", Math.min(Math.round(ATS.skills_count/12*100),100))}
+  </div>
+
+  ${(ATS.advice||[]).length ? `
+  <div class="eyebrow" style="margin-top:18px">What to change, most valuable first</div>
+  ${ATS.advice.map(a=>`
+    <div class="card" style="margin-bottom:10px;border-left:3px solid ${sev[a.severity].c}">
+      <div class="row" style="justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">
+        <b style="font-size:14.5px">${esc(a.area)}</b>
+        <span class="pill" style="font-size:11px;color:${sev[a.severity].c}">${sev[a.severity].t}</span>
+      </div>
+      <div style="font-size:13.5px;color:var(--text);margin-top:6px">${esc(a.problem)}</div>
+      <div style="font-size:12.5px;color:var(--dim);margin-top:4px">${esc(a.why)}</div>
+      <div style="font-size:13.5px;color:var(--body);margin-top:8px"><b>Do this:</b> ${esc(a.fix)}</div>
+      ${a.example?`<pre style="margin-top:8px;background:var(--panel2);padding:10px 12px;
+        border-radius:8px;font-size:12.5px;white-space:pre-wrap;color:var(--body)">${esc(a.example)}</pre>`:""}
+    </div>`).join("")}`
+  : `<div class="card" style="margin-top:16px;border-color:#4bbf82">
+       <b style="color:#4bbf82">Nothing to fix.</b>
+       <div style="font-size:13px;color:var(--dim);margin-top:4px">
+         Your resume passes every check we run. Match scores will now come down to
+         how well your skills fit each specific job.</div>
+     </div>`}
+
+  ${(ATS.skills_found||[]).length?`
+  <div class="card" style="margin-top:6px">
+    <b style="font-size:13.5px">Skills we could read (${ATS.skills_count})</b>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">
+      Only these are visible to a keyword matcher. Anything missing needs naming explicitly.</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap">
+      ${ATS.skills_found.map(k=>`<span class="pill" style="font-size:11.5px">${esc(k)}</span>`).join("")}
+    </div>
+  </div>`:""}
+
+  <div style="font-size:12px;color:var(--dim);margin-top:12px">${esc(ATS.note||"")}</div>`;
+}
+
 function renderResume(){
   rzLoad();
   const pct=rzProgress();
@@ -4301,6 +4390,18 @@ function renderResume(){
       </div>
       <div style="text-align:center;flex-shrink:0">${rzCircle(pct)}<div style="font-size:11px;color:var(--dim);margin-top:2px">complete</div></div>
     </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div>
+        <b>🎯 ATS check</b>
+        <div style="font-size:12.5px;color:var(--dim);margin-top:2px">
+          How well a hiring system can read your resume — and what to fix. Free.</div>
+      </div>
+      <button class="btn sm" data-rz-act="ats">Check my resume</button>
+    </div>
+    <div id="atsOut" style="margin-top:12px">${atsBodyHTML()}</div>
   </div>
 
   <div class="h1" style="font-size:19px;margin:6px 0 10px">✍️ Build your resume</div>
@@ -4646,6 +4747,7 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="ai") rzAI();
   else if(b.dataset.rzAct==="bull") rzBulletsAI(+b.dataset.i);
   else if(b.dataset.rzAct==="sklsug") rzSkillsAI();
+  else if(b.dataset.rzAct==="ats") runAtsCheck();
   else if(b.dataset.rzAct==="match") rzMatch();
   else if(b.dataset.rzAct==="clrup") rzClearUpload();
   else if(b.dataset.rzAct==="delphoto"){ RESUME.photo=""; rzSave(); renderResume(); }
