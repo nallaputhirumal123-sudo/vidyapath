@@ -559,6 +559,12 @@ MAIL_FROM = env("MAIL_FROM") or SMTP_USER
 MAIL_ENABLED = bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
 
+# Background email failures are invisible by design — we must not reveal
+# through a delay or an error whether an address is registered. That makes
+# them impossible to debug, so the last one is kept here for the admin.
+LAST_MAIL = {"ok": None, "to": "", "at": None, "error": ""}
+
+
 def send_email(to: str, subject: str, body: str):
     """Send one plain-text email. Never raises into the request.
 
@@ -566,7 +572,9 @@ def send_email(to: str, subject: str, body: str):
     the user wait, and must not reveal — through a timeout — whether an
     account exists.
     """
+    LAST_MAIL.update({"to": to, "at": now().isoformat(), "ok": None, "error": ""})
     if not MAIL_ENABLED:
+        LAST_MAIL.update({"ok": False, "error": "MAIL_ENABLED is false — SMTP not configured"})
         print(f"MAIL DISABLED — would have sent to {to}: {subject}")
         return
     import smtplib
@@ -581,7 +589,9 @@ def send_email(to: str, subject: str, body: str):
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
+        LAST_MAIL.update({"ok": True})
     except Exception as e:
+        LAST_MAIL.update({"ok": False, "error": f"{type(e).__name__}: {e}"[:400]})
         print(f"Email to {to} failed: {type(e).__name__}: {e}")
 
 
@@ -3504,6 +3514,25 @@ def ask_config(user: User = Depends(current_user)):
             "model": _PROVIDER_MODEL if ASK_ENABLED else ""}
 
 
+@app.get("/api/mail/whoami")
+def mail_whoami(email: str = "", user: User = Depends(admin_user),
+                db: Session = Depends(get_db)):
+    """Admin-only: does this address actually have an account, and can it be
+    reset? A reset for an unregistered address sends nothing on purpose, and
+    that looks identical to a broken mail server from the outside."""
+    e = (email or user.email).lower().strip()
+    u = db.query(User).filter(func.lower(User.email) == e).first()
+    if not u:
+        return {"email": e, "account_exists": False,
+                "why_no_email": "No account with that address, so no reset "
+                                "email is sent. Check for a typo, or whether "
+                                "you signed up with a different address."}
+    return {"email": e, "account_exists": True, "active": bool(u.is_active),
+            "signed_up_with_google": not bool(u.password_hash),
+            "would_send": bool(u.is_active),
+            "last_background_email": LAST_MAIL}
+
+
 @app.get("/api/mail/selftest")
 def mail_selftest(user: User = Depends(admin_user)):
     """Admin-only: actually send one email and report the real error.
@@ -3514,7 +3543,8 @@ def mail_selftest(user: User = Depends(admin_user)):
     """
     info = {"enabled": MAIL_ENABLED, "host": SMTP_HOST or "(unset)",
             "port": SMTP_PORT, "user": SMTP_USER or "(unset)",
-            "from": MAIL_FROM or "(unset)", "to": user.email}
+            "from": MAIL_FROM or "(unset)", "to": user.email,
+            "last_background_email": LAST_MAIL}
     if not MAIL_ENABLED:
         missing = [k for k, v in (("SMTP_HOST", SMTP_HOST), ("SMTP_USER", SMTP_USER),
                                   ("SMTP_PASS", SMTP_PASS)) if not v]
