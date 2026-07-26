@@ -1569,6 +1569,10 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     role = "admin" if user.is_admin else (t.role if t else "student")
     return {
         "id": user.id, "name": user.name, "email": user.email,
+        # Carried here so the page can show the Pro badge on first paint.
+        # Asking /api/billing/me for it would leave every screen briefly
+        # claiming the user is on the free plan.
+        "plan": plan_of(user),
         "email_verified": bool(user.email_verified),
         "verification_required": REQUIRE_EMAIL_VERIFICATION,
         "is_admin": user.is_admin, "path": user.path,
