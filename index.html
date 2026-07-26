@@ -2595,9 +2595,10 @@ let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:fal
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
         category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
         jobType:"",engagement:"",visa:"",posted:"",
-        tab:"find",tracks:null,trackTab:"saved"};
-const TRACK_LABELS={saved:"Saved",applied:"Applied",interviewing:"Interviewing",
-                    offer:"Offer received",rejected:"Rejected",archived:"Archived"};
+        tab:"find",tracks:null,trackTab:"viewed"};
+const TRACK_LABELS={viewed:"Recently viewed",saved:"Saved",applied:"Applied",
+                    interviewing:"Interviewing",offer:"Offer received",
+                    rejected:"Rejected",archived:"Archived"};
 async function jbLoadTracks(){
   try{ JB.tracks=await api.get("/api/jobs/tracked"); }catch(e){ JB.tracks=null; }
 }
@@ -2620,6 +2621,14 @@ async function jbPairCode(){
       <div style="font-size:12px;color:var(--dim);margin-bottom:4px">Type this into the extension — it expires in ${Math.round((r.expires_in||600)/60)} minutes:</div>
       <div style="font-family:ui-monospace,monospace;font-size:19px;font-weight:700;letter-spacing:2px;color:var(--accent)">${esc(r.code)}</div></div>`;
   }catch(e){ if(box) box.innerHTML=`<span style="color:#e05a5a">${esc(e.message)}</span>`; }
+}
+async function jbClearTracked(status){
+  try{
+    const r=await api.del("/api/jobs/tracked"+(status?"?status="+encodeURIComponent(status):""));
+    toast(`Removed ${r.removed} ${r.removed===1?"job":"jobs"}.`);
+  }catch(e){ toast(e.message); }
+  JB.jobs.forEach(j=>{ if(!status || j.tracked===status) j.tracked=""; });
+  await jbLoadTracks(); renderCareers();
 }
 async function jbUntrack(id){
   try{ await api.del("/api/jobs/track/"+id); }catch(e){}
@@ -2984,7 +2993,12 @@ function jbTrackerHTML(){
   const chips=(t.statuses||[]).map(s=>`<button class="ask-chip ${JB.trackTab===s.id?"on":""}"
       data-jbtrtab="${s.id}" style="font-size:13px">${esc(s.label)} <b style="opacity:.75">${c[s.id]||0}</b></button>`).join("");
   const rows=(t.tracks||[]).filter(x=>x.status===JB.trackTab);
+  const here=TRACK_LABELS[JB.trackTab]||JB.trackTab;
   return `<div class="ask-chips" style="margin-bottom:12px">${chips}</div>
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-bottom:10px;flex-wrap:wrap">
+    ${rows.length?`<button class="btn ghost sm" data-jbclearstage="${JB.trackTab}">Clear ${esc(here)} (${rows.length})</button>`:""}
+    <button class="btn ghost sm" data-jbclearall="1" style="color:#e05a5a">Clear everything</button>
+  </div>
   ${rows.length?rows.map(jbTrackCardHTML).join(""):`<div class="card">
     <div style="color:var(--dim);font-size:13.5px">Nothing at the <b>${esc(TRACK_LABELS[JB.trackTab]||JB.trackTab)}</b> stage yet.</div></div>`}`;
 }
@@ -3105,14 +3119,27 @@ document.addEventListener("click",e=>{
   if(sv){ const id=+sv.dataset.jbsave;
           if(sv.dataset.on) jbUntrack(id); else jbTrack(id,"saved",true);
           return; }
+  const cs=e.target.closest("[data-jbclearstage]");
+  if(cs){ const st=cs.dataset.jbclearstage;
+          if(confirm(`Remove everything under "${TRACK_LABELS[st]||st}"? This cannot be undone.`))
+            jbClearTracked(st);
+          return; }
+  const ca=e.target.closest("[data-jbclearall]");
+  if(ca){ if(confirm("Remove every saved and applied job from your tracker? This cannot be undone."))
+            jbClearTracked("");
+          return; }
   const dl=e.target.closest("[data-jbdel]");
   if(dl){ if(confirm("Remove this from your applications?")) jbUntrack(+dl.dataset.jbdel); return; }
-  /* Opening the employer's form is the moment an application really starts,
-     so record it then rather than asking the user to tick a box afterwards. */
+  /* Opening the employer's form is not the same as applying — plenty of
+     people look and close the tab. Save it, then ask. */
   const ap=e.target.closest("[data-jbapplied]");
   if(ap){ const id=+ap.dataset.jbapplied;
           const j=JB.jobs.find(x=>x.id===id);
-          if(j && !["applied","interviewing","offer"].includes(j.tracked)) jbTrack(id,"applied",true);
+          if(j && !["applied","interviewing","offer"].includes(j.tracked)){
+            jbTrack(id,"viewed",true);
+            toastAsk("Added to Recently viewed. Did you finish the application?",
+                     "✓ I applied", ()=>jbTrack(id,"applied",true));
+          }
           return; }
   const kt=e.target.closest("[data-jbkit]");
   if(kt){ jbApplyKit(+kt.dataset.jbkit); return; }
@@ -3730,7 +3757,17 @@ async function renderPlans(){
     btn.onclick=()=>startCheckout(btn.dataset.buy,btn.dataset.period,btn);
   });
 }
-function toast(msg){
+function toastAsk(msg, label, onYes){
+  const t=toast(msg, 9000);
+  if(!t) return;
+  const b=document.createElement("button");
+  b.textContent=label;
+  b.style.cssText="margin-left:12px;background:var(--accent);color:#1a1206;border:none;"
+    +"border-radius:7px;padding:5px 11px;font-weight:700;font-size:12.5px;cursor:pointer";
+  b.onclick=()=>{ onYes(); t.style.display="none"; };
+  t.appendChild(b);
+}
+function toast(msg, ms){
   let t=$("#vpToast");
   if(!t){ t=document.createElement("div"); t.id="vpToast";
     t.style.cssText="position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:99999;"
@@ -3738,7 +3775,8 @@ function toast(msg){
       +"border-radius:11px;font-size:13.5px;box-shadow:0 8px 30px rgba(0,0,0,.45)";
     document.body.appendChild(t); }
   t.textContent=msg; t.style.display="block";
-  clearTimeout(t._h); t._h=setTimeout(()=>{t.style.display="none";},4500);
+  clearTimeout(t._h); t._h=setTimeout(()=>{t.style.display="none";}, ms||4500);
+  return t;
 }
 
 /* ===================== MESSAGES / NOTIFICATIONS ===================== */

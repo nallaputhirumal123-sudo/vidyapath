@@ -317,9 +317,15 @@ class JobTrack(Base):
 
 
 # The order a real application moves through, which the UI shows as tabs.
-TRACK_STATUSES = ["saved", "applied", "interviewing", "offer", "rejected", "archived"]
-TRACK_LABELS = {"saved": "Saved", "applied": "Applied", "interviewing": "Interviewing",
-                "offer": "Offer received", "rejected": "Rejected", "archived": "Archived"}
+# "viewed" comes first because opening an employer's form is not applying —
+# most people look and close the tab, and recording that as an application
+# makes the tracker lie to them.
+TRACK_STATUSES = ["viewed", "saved", "applied", "interviewing", "offer",
+                  "rejected", "archived"]
+TRACK_LABELS = {"viewed": "Recently viewed", "saved": "Saved",
+                "applied": "Applied", "interviewing": "Interviewing",
+                "offer": "Offer received", "rejected": "Rejected",
+                "archived": "Archived"}
 
 
 class Job(Base):
@@ -347,6 +353,11 @@ class Job(Base):
     # time meant tokenising 5,000 full descriptions per request, which took
     # over 30 seconds; reading a short CSV column is instant.
     skills = Column(Text, default="")        # comma-joined skill tokens
+    # Skills that appeared under Requirements / Qualifications / Responsibilities
+    # rather than anywhere in the ad. A skill listed as a requirement means far
+    # more than one mentioned in a benefits blurb, and scoring them the same is
+    # why matches felt arbitrary.
+    req_skills = Column(Text, default="")
     posted_at = Column(DateTime(timezone=True))
     first_seen = Column(DateTime(timezone=True), default=now, index=True)
     last_seen = Column(DateTime(timezone=True), default=now, index=True)
@@ -3817,6 +3828,7 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
 # postings, straight from the employer, free and without an API key. We never
 # scrape LinkedIn/Indeed/Naukri: that breaks their terms and gets blocked.
 
+JOBS_PER_COMPANY = int(env("JOBS_PER_COMPANY", "3") or 3)
 JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
 JOB_REFRESH_HOURS = 24          # daily refresh
 
@@ -3982,6 +3994,32 @@ def _visa_of(blob: str) -> str:
     return ""
 
 
+# The headings real job ads use before they list what they actually want.
+_REQ_HEADING = _re.compile(
+    r"(requirement|qualification|what you.{0,4}ll (need|bring|do)|who you are|"
+    r"skills|responsibilit|about you|must have|we.{0,4}re looking for|"
+    r"experience with|your profile|what we.{0,4}re looking for)", _re.I)
+
+
+def _requirement_text(blob: str) -> str:
+    """The part of a posting that states what the job needs.
+
+    Everything from the first requirements-ish heading onward, stopping at the
+    benefits/EEO boilerplate that follows. Falls back to the whole text when a
+    posting has no headings, so nothing is ever scored on an empty string.
+    """
+    if not blob:
+        return ""
+    m = _REQ_HEADING.search(blob)
+    if not m:
+        return blob
+    tail = blob[m.start():]
+    stop = _re.search(
+        r"(equal opportunity|benefits|perks|we offer|compensation|"
+        r"about (us|the company)|diversity|accommodation)", tail, _re.I)
+    return tail[:stop.start()] if stop and stop.start() > 200 else tail
+
+
 def _job_row(source, ext_id, title, company, location, url, desc="", posted=None):
     """Normalise one posting into the shape the refresh loop stores."""
     title, company = (title or "").strip()[:300], (company or "").strip()[:200]
@@ -3998,6 +4036,8 @@ def _job_row(source, ext_id, title, company, location, url, desc="", posted=None
         "job_type": _job_type_of(blob), "engagement": _engagement_of(blob),
         "visa": _visa_of(blob),
         "skills": ",".join(sorted({w for w in _words(blob) if w in _SKILLS})),
+        "req_skills": ",".join(sorted(
+            {w for w in _words(_requirement_text(blob)) if w in _SKILLS})),
         "url": url[:1000], "text": blob,
         "posted_at": posted,
     }
@@ -4404,6 +4444,7 @@ def _store_jobs(db, rows, reached):
             row.location, row.country = r["location"], r["country"]
             row.remote, row.url, row.text = r["remote"], r["url"], r["text"]
             row.category, row.skills = r["category"], r["skills"]
+            row.req_skills = r["req_skills"]
             row.job_type, row.engagement = r["job_type"], r["engagement"]
             row.visa = r["visa"]
             row.last_seen, row.is_open, row.closed_at = now(), True, None
@@ -4671,7 +4712,27 @@ def _job_skills(job):
     return {w for w in _words(job.text or "") if w in _SKILLS}
 
 
-def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
+def _job_req_skills(job):
+    """Skills the posting lists as requirements, not merely mentions."""
+    got = getattr(job, "req_skills", "") or ""
+    if got:
+        return set(got.split(","))
+    return {w for w in _words(_requirement_text(job.text or "")) if w in _SKILLS}
+
+
+# Words in a job title that say what the role IS, so a resume aimed at one
+# thing stops matching a title about something else.
+_TITLE_STOP = set("""senior junior lead principal staff sr jr i ii iii iv the a an
+and or of for with new remote hybrid onsite full time part contract intern
+level entry mid experienced years year team group global regional""".split())
+
+
+def _title_words(t):
+    return {w for w in _words(t or "") if w not in _TITLE_STOP and len(w) > 2}
+
+
+def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
+               my_titles=None):
     """0-100 fit score, plus the skills that matched and the ones missing.
 
     Two things keep this honest. Skills are weighted by how rare they are
@@ -4680,26 +4741,41 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
     resume's — without that gate, shared buzzwords alone rated a network
     engineer a perfect fit for a compliance product manager.
     """
+    my_titles = my_titles or set()
     jskills = _job_skills(job)
-    # Title words only. Scanning whole descriptions here cost 30s a request,
-    # and the title is where the signal actually is.
-    jwords = set(_words(job.title or ""))
+    jreq = _job_req_skills(job) or jskills
+    jwords = _title_words(job.title)
     idf = idf or {}
 
     hit = skills & jskills
     miss = jskills - skills
+    req_hit = skills & jreq
+    req_miss = jreq - skills
 
     def w(s):
         base = idf.get(s, 1.0)
+        # A skill named under Requirements counts triple: that is the job
+        # asking for it, rather than the word appearing somewhere in the ad.
+        if s in jreq:
+            base *= 3.0
         return base * (0.25 if s in _WEAK_SKILLS else 1.0)
 
     want = sum(w(s) for s in jskills)
     have = sum(w(s) for s in hit)
     coverage = (have / want) if want else 0.0
     depth = min(have / 4.0, 1.0)          # absolute weight of what you matched
-    kw_pct = len(keywords & jwords) / max(len(jwords), 1)
 
-    score = 100 * (0.45 * coverage + 0.35 * depth + 0.20 * min(kw_pct * 1.6, 1.0))
+    # How many of the stated requirements you actually meet. This is the number
+    # a human recruiter is really applying, so it carries the most weight.
+    req_cover = (len(req_hit) / len(jreq)) if jreq else 0.0
+
+    # Does the job title describe the same work as the resume's own titles?
+    # Without this, anything sharing a toolchain scored alike, which is why
+    # results felt like "3 to 8 things they happen to do".
+    title_overlap = (len(jwords & my_titles) / len(jwords)) if (jwords and my_titles) else 0.0
+
+    score = 100 * (0.30 * coverage + 0.20 * depth
+                   + 0.30 * req_cover + 0.20 * min(title_overlap * 1.5, 1.0))
 
     # A posting too thin to name a few skills can't support a confident score.
     if len(jskills) < 3:
@@ -4727,7 +4803,10 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None):
         score += 8
     elif level == "senior" and any(t in title for t in _SENIOR):
         score += 8
-    return (max(0, min(100, round(score))), sorted(hit)[:12], sorted(miss)[:8])
+    # Report the requirements they miss, not random unmatched words — that
+    # is what tells someone whether to apply.
+    return (max(0, min(100, round(score))), sorted(hit)[:12],
+            sorted(req_miss)[:8] or sorted(miss)[:8])
 
 
 def _level_of(resume_text: str):
@@ -4964,6 +5043,17 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
                  "skills section (languages, tools, frameworks) and try again.")
     level = _level_of(rtext)
     my_fams = _families(rtext)
+    # The titles this person has actually held, plus their stated target role.
+    # Matching title-to-title is what stops "shares a toolchain" being treated
+    # as "does the same job".
+    my_titles = set()
+    for e in (body.resume.get("exp") or [])[:6]:
+        my_titles |= _title_words(str(e.get("role", "")))
+    my_titles |= _title_words(str(body.resume.get("title", "")))
+    if not my_titles:
+        # Uploaded resumes have no structure, so take the strongest role words
+        # from the first few lines, where a title almost always sits.
+        my_titles = _title_words(" ".join(rtext.splitlines()[:6]))
     rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
                        "open", body.category, body.job_type, body.engagement,
                        body.visa, body.posted).order_by(Job.first_seen.desc()).limit(6000).all()
@@ -4980,7 +5070,8 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     # the best-scoring copy and listing the other places it is open.
     best = {}
     for j in rows:
-        score, hit, miss = _score_job(j, skills, keywords, level, idf, my_fams)
+        score, hit, miss = _score_job(j, skills, keywords, level, idf,
+                                      my_fams, my_titles)
         key = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
         item = _job_json(j, {"score": score, "matched": hit, "missing": miss})
         prev = best.get(key)
@@ -4994,6 +5085,16 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
         it["also_in"] = [x for x in it["also_in"] if x and x != it["location"]][:4]
     if body.min_score > 0:
         scored = [d for d in scored if d["score"] >= body.min_score]
+
+    # No more than a few roles from any one employer near the top. One company
+    # with 400 open jobs would otherwise fill the entire first page, which is
+    # what made results look like "mostly the same company".
+    per_company, spread, overflow = {}, [], []
+    for d in scored:
+        c = (d.get("company") or "").lower()
+        per_company[c] = per_company.get(c, 0) + 1
+        (spread if per_company[c] <= JOBS_PER_COMPANY else overflow).append(d)
+    scored = spread + overflow
 
     off = max(body.offset, 0)
     lim = min(max(body.limit, 1), 50)
@@ -5062,6 +5163,21 @@ def jobs_tracked(status: str = "", user: User = Depends(current_user),
             "counts": {s: counts.get(s, 0) for s in TRACK_STATUSES},
             "total": sum(counts.values()),
             "statuses": [{"id": s, "label": TRACK_LABELS[s]} for s in TRACK_STATUSES]}
+
+
+@app.delete("/api/jobs/tracked")
+def jobs_untrack_many(status: str = "", user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Clear one stage, or the whole tracker when no status is given."""
+    q = db.query(JobTrack).filter(JobTrack.user_id == user.id)
+    st = (status or "").strip().lower()
+    if st:
+        if st not in TRACK_STATUSES:
+            raise HTTPException(400, "Unknown status")
+        q = q.filter(JobTrack.status == st)
+    removed = q.delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True, "removed": removed, "status": st or "all"}
 
 
 @app.delete("/api/jobs/track/{job_id}")
