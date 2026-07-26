@@ -2513,6 +2513,44 @@ function jbAgo(iso){
 async function jbFilters(){
   try{ JB.filters=await api.get("/api/jobs/filters"); }catch(e){ JB.filters=null; }
 }
+/* The uploaded resume's text is kept server-side as a note, so matching still
+   works after a refresh — a plain JS variable would be lost on reload. */
+function jbRestoreUpload(){
+  if(RZ_UPTEXT) return;
+  RZ_UPTEXT=S.notes["resume_uptext"]||"";
+  RZ_UPNAME=S.notes["resume_upname"]||"";
+}
+async function jbUpload(file){
+  JB.msg="Reading "+file.name+"…"; JB.jobs=[]; JB.ran=true; jbPaint();
+  const fd=new FormData(); fd.append("file",file);
+  try{
+    const rr=await fetch("/api/resume/extract",{method:"POST",credentials:"same-origin",body:fd});
+    if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Could not read that file"); }
+    const d=await rr.json();
+    RZ_UPTEXT=d.text||""; RZ_UPNAME=d.name||file.name; RZ_MATCH=null;
+    S.notes["resume_uptext"]=RZ_UPTEXT; S.notes["resume_upname"]=RZ_UPNAME;
+    api.post("/api/note",{key:"resume_uptext",value:RZ_UPTEXT}).catch(()=>{});
+    api.post("/api/note",{key:"resume_upname",value:RZ_UPNAME}).catch(()=>{});
+    JB.mode="match"; renderCareers();
+    jbRun("match");                      // straight to results, no second click
+  }catch(e){ JB.msg=e.message; jbPaint(); }
+}
+function jbClearUpload(){
+  RZ_UPTEXT=""; RZ_UPNAME="";
+  S.notes["resume_uptext"]=""; S.notes["resume_upname"]="";
+  api.post("/api/note",{key:"resume_uptext",value:""}).catch(()=>{});
+  api.post("/api/note",{key:"resume_upname",value:""}).catch(()=>{});
+  JB.jobs=[]; JB.ran=false; JB.msg=""; renderCareers();
+}
+/* What we'll actually match on: an uploaded file wins, else the built resume. */
+function jbResumeSource(){
+  rzLoad(); jbRestoreUpload();
+  if(RZ_UPTEXT.trim()) return {kind:"upload", label:RZ_UPNAME||"uploaded resume"};
+  const built=[RESUME.title,(RESUME.skills||[]).map(s=>s.items).join(" "),
+               (RESUME.exp||[]).map(e=>e.role+" "+e.bullets).join(" ")].join(" ").trim();
+  if(built.length>30) return {kind:"built", label:"the resume you built here"};
+  return {kind:"none", label:""};
+}
 function jbReadInputs(){
   const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote");
   if(q) JB.q=q.value.trim();
@@ -2526,7 +2564,7 @@ async function jbRun(mode){
   JB.loading=true; JB.msg=""; JB.ran=true; jbPaint();
   try{
     if(JB.mode==="match"){
-      rzLoad();
+      rzLoad(); jbRestoreUpload();
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
         q:JB.q,country:JB.country,location:JB.location,remote:JB.remote,limit:40});
       JB.jobs=res.jobs; JB.meta=res;
@@ -2570,8 +2608,11 @@ function jbCardHTML(j){
 function jbResultsHTML(){
   if(JB.loading) return `<div style="color:var(--dim);font-size:13.5px;padding:10px 0">Searching live postings…</div>`;
   if(JB.msg) return `<div style="color:var(--dim);font-size:13.5px;padding:10px 0">${esc(JB.msg)}</div>`;
-  if(!JB.ran) return `<div style="color:var(--dim);font-size:13.5px;padding:10px 0">
+  if(!JB.ran){
+    if(JB.mode==="match"&&jbResumeSource().kind==="none") return "";
+    return `<div style="color:var(--dim);font-size:13.5px;padding:10px 0">
     ${JB.mode==="match"?"Press <b>Match my resume</b> — we score every live posting against your resume. No AI credits used.":"Press <b>Search</b> to browse every live posting."}</div>`;
+  }
   if(!JB.jobs.length) return "";
   const head=JB.mode==="match"&&JB.meta
     ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">Scored ${JB.meta.scanned} live postings against your resume · showing your best ${JB.jobs.length}${JB.meta.level?` · pitched at <b>${esc(JB.meta.level)}</b> level`:""}</div>`
@@ -2579,6 +2620,34 @@ function jbResultsHTML(){
   return head+JB.jobs.map(jbCardHTML).join("");
 }
 function jbPaint(){ const el=$("#jbOut"); if(el) el.innerHTML=jbResultsHTML(); }
+/* Resume checks live here, next to the jobs they're for — the builder page is
+   only for building. Both read the same resume the matcher uses. */
+function jbChecksHTML(){
+  const src=jbResumeSource();
+  const which=src.kind==="upload"?esc(src.label):"your resume";
+  if(src.kind==="none") return `
+  <div class="eyebrow" style="margin-top:24px">Tailor your resume to a job</div>
+  <div class="card"><div style="font-size:13.5px;color:var(--dim)">
+    Upload a resume above, or <a href="#" data-jbnav="resume" style="color:var(--accent)">build one</a>, and you can score it against any job description and grammar-check it here.
+  </div></div>`;
+  return `
+  <div class="eyebrow" style="margin-top:24px">Tailor your resume to a job</div>
+  <div class="card" style="margin-bottom:14px">
+    <b>🎯 Match to a job description</b>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Paste a job post to score <b>${which}</b> against it — you get the match score, the exact missing keywords, and what to change. Found a job above? Open it, copy the description, and paste it here.</div>
+    <textarea id="rzJD" class="pj-note" style="min-height:90px;width:100%" placeholder="Paste the full job description here…"></textarea>
+    <div style="margin-top:8px"><button class="btn sm" data-rz-act="match">Check my match</button>
+      <span id="rzMatchMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span></div>
+    <div id="rzMatchOut" style="margin-top:12px">${RZ_MATCH?rzMatchHTML():""}</div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <b>🔤 Spelling &amp; grammar check</b>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Scan <b>${which}</b> for spelling and grammar mistakes — it lists exactly what to fix.</div>
+    <button class="btn sm" data-rz-act="proof">Check spelling &amp; grammar</button>
+    <span id="rzProofMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span>
+    <div id="rzProofOut" style="margin-top:10px"></div>
+  </div>`;
+}
 function jbSectionHTML(){
   const f=JB.filters;
   const fresh=f&&f.updated
@@ -2597,8 +2666,19 @@ function jbSectionHTML(){
     </div>
     <div style="font-size:12.5px;color:var(--dim);margin:8px 0 10px">
       Real postings taken straight from companies' own career sites, refreshed every day.
-      ${JB.mode==="match"?"Matching runs on your device's resume data — it uses no AI credits and never counts against your daily limit.":""}
+      ${JB.mode==="match"?"Matching uses no AI credits and never counts against your daily limit.":""}
     </div>
+    ${JB.mode==="match"?(function(){const src=jbResumeSource();
+      if(src.kind==="none") return `<div style="background:var(--panel2);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+        <div style="font-size:13.5px;margin-bottom:8px">Upload your resume and we'll rank every live posting against it.</div>
+        <label class="btn sm" style="cursor:pointer">⬆ Upload resume<input id="jbUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
+        <span style="font-size:12px;color:var(--dim);margin-left:10px">PDF, DOCX or TXT — or <a href="#" data-jbnav="resume" style="color:var(--accent)">build one here</a></span>
+      </div>`;
+      return `<div class="row" style="gap:8px;align-items:center;background:var(--panel2);border-radius:8px;padding:9px 13px;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:13px">Matching against <b>${esc(src.label)}</b></span>
+        <label class="btn ghost sm" style="cursor:pointer;margin-left:auto">⬆ Upload a different resume<input id="jbUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
+        ${src.kind==="upload"?`<button class="btn ghost sm" data-jbclear="1">✕ Remove</button>`:""}
+      </div>`;})():""}
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
       <input id="jbQ" class="ask-input" style="flex:2;min-width:170px" placeholder="Job title or keyword — e.g. backend engineer" value="${esc(JB.q)}"/>
       <select id="jbCountry" class="ask-input" style="flex:1;min-width:140px">
@@ -2618,6 +2698,10 @@ document.addEventListener("click",e=>{
   if(m){ jbReadInputs(); JB.mode=m.dataset.jbmode; JB.jobs=[]; JB.ran=false; JB.msg=""; renderCareers(); return; }
   const g=e.target.closest("[data-jbgo]");
   if(g){ jbRun(); return; }
+  const c=e.target.closest("[data-jbclear]");
+  if(c){ jbClearUpload(); return; }
+  const n=e.target.closest("[data-jbnav]");
+  if(n){ e.preventDefault(); document.querySelector('[data-nav="'+n.dataset.jbnav+'"]').click(); return; }
 });
 document.addEventListener("keydown",e=>{
   if(e.key==="Enter"&&(e.target.id==="jbQ"||e.target.id==="jbLoc")) jbRun();
@@ -2630,7 +2714,9 @@ function renderCareers(){
 
   ${jbSectionHTML()}
 
-  <div class="eyebrow">Roles you can aim for — and what the job is really like</div>
+  ${jbChecksHTML()}
+
+  <div class="eyebrow" style="margin-top:24px">Roles you can aim for — and what the job is really like</div>
   ${CAREER_ROLES.map(r=>`<div class="card" style="margin-bottom:14px">
     <div style="font-size:17px;font-weight:650">${r.icon} ${esc(r.role)}</div>
     <p style="color:var(--body);font-size:14px;margin:8px 0 4px">${esc(r.does)}</p>
@@ -2698,6 +2784,8 @@ function renderCareers(){
       <li>For every application, be able to explain out loud one decision you were unsure about in your project.</li>
     </ul>
   </div>`;
+  const up=$("#jbUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) jbUpload(e.target.files[0]); };
+  const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
   if(!JB.filters) jbFilters().then(()=>{ if(S.view.page==="careers") renderCareers(); });
 }
 
@@ -3497,42 +3585,23 @@ function renderResume(){
   const pct=rzProgress();
   const orig=false;   // one path only: the structured ATS builder
   $("#main").innerHTML=`
-  <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· build, check &amp; download an ATS resume</span></div>
+  <div class="h1">📄 Resume builder <span style="font-size:13px;color:var(--dim)">· build &amp; download an ATS resume</span></div>
 
   <div class="card" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;gap:18px;align-items:flex-start;flex-wrap:wrap">
       <div style="flex:1;min-width:250px">
         <b>Your resume</b>
-        <div style="font-size:12.5px;color:var(--dim);margin:3px 0 9px">Build a clean ATS resume below, or load an existing one to check it. The live preview equals the download.</div>
+        <div style="font-size:12.5px;color:var(--dim);margin:3px 0 9px">Build a clean ATS resume below. The live preview equals the download. To score it against a job or check the grammar, go to <a href="#" data-jbnav="careers" style="color:var(--accent)">Careers &amp; jobs</a>.</div>
         <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
-          <label class="btn ghost sm" style="cursor:pointer">⬆ Load a resume (check only)<input id="rzUp" type="file" accept=".pdf,.docx,.txt" style="display:none"></label>
           <button class="btn ghost sm" data-rz-act="saveas">💾 Save</button>
           <button class="btn ghost sm" data-rz-act="newres">＋ New blank</button>
-          ${RZ_UPNAME?`<button class="btn ghost sm" data-rz-act="clrup">✕ Clear loaded</button>`:""}
         </div>
-        <div id="rzUpMsg" style="font-size:12.5px;color:var(--dim);margin-top:7px">${RZ_UPNAME?`Loaded for checking: <b style="color:var(--text)">${esc(RZ_UPNAME)}</b>`:""}</div>
+        <div id="rzUpMsg" style="font-size:12.5px;color:var(--dim);margin-top:7px"></div>
         ${(function(){const L=rzSaveList();return L.length?`<div style="margin-top:9px"><div style="font-size:12px;color:var(--dim);margin-bottom:5px">Saved resumes:</div>
           ${L.map(r=>`<span class="pill" style="margin:2px 6px 2px 0"><button data-loadres="${r.id}" style="background:none;border:none;color:var(--accent);cursor:pointer;font:inherit">${esc(r.name)}</button> <button data-delres="${r.id}" style="background:none;border:none;color:var(--dim);cursor:pointer">×</button></span>`).join("")}</div>`:"";})()}
       </div>
       <div style="text-align:center;flex-shrink:0">${rzCircle(pct)}<div style="font-size:11px;color:var(--dim);margin-top:2px">complete</div></div>
     </div>
-  </div>
-
-  <div class="card" style="margin-bottom:14px">
-    <b>🎯 Match to a job description</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Paste a job post to score ${RZ_UPNAME?"your loaded resume":"your resume"} against it — see the match score and the exact keywords and changes to make.</div>
-    <textarea id="rzJD" class="pj-note" style="min-height:90px;width:100%" placeholder="Paste the full job description here…"></textarea>
-    <div style="margin-top:8px"><button class="btn sm" data-rz-act="match">Check my match</button>
-      <span id="rzMatchMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span></div>
-    <div id="rzMatchOut" style="margin-top:12px">${RZ_MATCH?rzMatchHTML():""}</div>
-  </div>
-
-  <div class="card" style="margin-bottom:14px">
-    <b>🔤 Spelling &amp; grammar check</b>
-    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">Scan ${RZ_UPNAME?"your loaded resume":"your resume"} for spelling and grammar mistakes — it lists exactly what to fix.</div>
-    <button class="btn sm" data-rz-act="proof">Check spelling &amp; grammar</button>
-    <span id="rzProofMsg" style="font-size:12.5px;color:var(--dim);margin-left:10px"></span>
-    <div id="rzProofOut" style="margin-top:10px"></div>
   </div>
 
   <div class="h1" style="font-size:19px;margin:6px 0 10px">✍️ Build your resume</div>
@@ -3554,23 +3623,8 @@ function renderResume(){
     </div>
   </div>`;
   const ed=$("#rzEditor"); if(ed) ed.oninput=onResumeInput;
-  const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
-  const up=$("#rzUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) rzAnalyzeUpload(e.target.files[0]); };
   const ph=$("#rzPhoto"); if(ph) ph.onchange=e=>{ if(e.target.files[0]) rzPhoto(e.target.files[0]); };
 }
-async function rzAnalyzeUpload(file){
-  const m=$("#rzUpMsg"); if(m)m.textContent="Reading your resume…";
-  const fd=new FormData(); fd.append("file",file);
-  try{
-    const rr=await fetch("/api/resume/extract",{method:"POST",credentials:"same-origin",body:fd});
-    if(!rr.ok){ let d={}; try{d=await rr.json()}catch(e){} throw new Error(d.detail||"Could not read that file"); }
-    const d=await rr.json();
-    RZ_UPTEXT=d.text||""; RZ_UPNAME=d.name||file.name; RZ_MATCH=null;
-    renderResume();
-    const m2=$("#rzUpMsg"); if(m2)m2.textContent="Loaded — now paste a job description or run the checks below.";
-  }catch(e){ const m2=$("#rzUpMsg"); if(m2)m2.textContent=e.message; }
-}
-function rzClearUpload(){ RZ_UPTEXT=""; RZ_UPNAME=""; RZ_MATCH=null; renderResume(); }
 function rzHasSections(){ return !!(RESUME.sections&&RESUME.sections.length); }
 let RZ_OPENSEC={0:true};   // which imported sections are expanded for editing
 /* ---- section editor: one text box per section heading ---- */
@@ -3885,7 +3939,11 @@ document.addEventListener("click",e=>{
       const items=g.items.split(",").map(s=>s.trim()).filter(Boolean);
       if(!items.some(s=>s.toLowerCase()===sk.toLowerCase())){ items.push(sk); g.items=items.join(", "); }
       list.splice(idx,1); (RZ_MATCH.strong=RZ_MATCH.strong||[]).push(sk);
-      rzSave(); renderResume(); const ta=$("#rzJD"); if(ta)ta.value=RZ_JD; return; } }
+      rzSave();
+      // The match card lives on the Careers page now — repaint whichever page
+      // the user is actually on, or we'd throw them into the builder.
+      if(S.view.page==="careers") renderCareers(); else renderResume();
+      const ta=$("#rzJD"); if(ta)ta.value=RZ_JD; return; } }
   if(b.dataset.rzstyle!==undefined){ RESUME.style=+b.dataset.rzstyle; rzSave(); renderResume(); }
   else if(b.dataset.rzadd){ const L=b.dataset.rzadd;
     const blank={skills:{label:"Skills",items:""},exp:{role:"",company:"",place:"",dates:"",bullets:"",ctx:""},edu:{degree:"",school:"",place:"",year:""},proj:{name:"",tech:"",desc:"",link:""}}[L];

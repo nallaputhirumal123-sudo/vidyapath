@@ -3625,11 +3625,19 @@ def _score_job(job, skills, keywords, level):
 
 
 def _level_of(resume_text: str):
+    """Seniority, from job titles only.
+
+    Held titles are checked first and degrees are ignored on purpose: almost
+    every resume lists a B.Tech or a graduation, so treating those as junior
+    signals labelled experienced people junior and docked their best matches.
+    """
     low = (resume_text or "").lower()
-    if any(t in low for t in ("intern", "fresher", "graduate", "b.tech", "student")):
-        return "junior"
-    if any(t in low for t in ("senior", "lead", "principal", "manager", "architect")):
+    if any(t in low for t in ("senior ", "sr. ", "lead ", "principal ", "staff ",
+                              "head of ", "manager", "architect")):
         return "senior"
+    if any(t in low for t in ("intern", "fresher", "trainee", "recent graduate",
+                              "currently studying", "final year")):
+        return "junior"
     return ""
 
 

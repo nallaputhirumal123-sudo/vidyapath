@@ -14,6 +14,25 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.40.0 — Upload on the jobs page, and one home for resume checks
+
+- **Upload your resume where the jobs are.** The Careers page now takes a PDF,
+  DOCX or TXT directly and matches it against every live posting straight
+  away — you no longer have to build a resume first.
+- **The uploaded resume survives a refresh.** Its text is stored against your
+  account instead of only in the browser tab, so matching still works when you
+  come back. "Remove" clears it.
+- **Resume builder is now just for building.** The job-description match and
+  the spelling/grammar check moved to Careers & jobs, next to the jobs they
+  are for. The builder keeps the editor, styles, live preview, PDF download
+  and saved resumes.
+- **Fixed: experienced people were being labelled junior.** Seniority was read
+  from the whole resume, so a listed `B.Tech` or "graduate" outvoted a
+  "Senior Engineer" job title — which then docked 22 points from exactly the
+  senior roles that fit best. It now reads job titles only. A senior data
+  engineer's top matches went from ~69 (mixed roles) to 75–80 (senior data
+  engineering roles).
+
 ## 1.39.0 — Live job board, resume matching, co-pilot removed
 
 - **Live jobs (new):** the Careers page now lists real, current openings —
