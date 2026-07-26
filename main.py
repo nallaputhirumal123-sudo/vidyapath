@@ -1373,7 +1373,7 @@ def auth_forgot(body: ForgotIn, background: BackgroundTasks,
                 "message": "Password reset by email isn't available right now. "
                            "If you signed up with Google, use Continue with "
                            "Google. Otherwise email "
-                           "nallaputhirumal123@gmail.com and we'll reset it."}
+                           "support@craxle.com and we'll reset it."}
     email = body.email.lower().strip()
     user = db.query(User).filter(func.lower(User.email) == email).first()
     if user and user.is_active:

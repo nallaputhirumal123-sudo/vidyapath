@@ -180,6 +180,12 @@ check("terms: no bank details", "30704210518" not in terms)
 check("privacy: no placeholders", "[YOUR" not in priv)
 check("privacy: extension section", "extension" in priv.lower())
 check("privacy: no bank details", "30704210518" not in priv)
+# The published contact address must be on our own domain. A personal mailbox
+# on a paid product's invoices and legal pages reads as an individual, not a
+# business, and it is the address a customer looks at before disputing.
+for _n, _d in (("terms", terms), ("privacy", priv)):
+    check(f"{_n}: contact is on craxle.com",
+          "support@craxle.com" in _d and "gmail.com" not in _d)
 
 # ---------- unauthenticated access ----------
 anon = TestClient(m.app)
