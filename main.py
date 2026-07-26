@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, DateTime, Date,
-    ForeignKey, UniqueConstraint, func, cast,
+    ForeignKey, UniqueConstraint, func, cast, case,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 
@@ -119,7 +119,7 @@ GEMINI_API_KEY = _clean_key("GEMINI_API_KEY")
 GROQ_API_KEY = _clean_key("GROQ_API_KEY")
 ANTHROPIC_API_KEY = _clean_key("ANTHROPIC_API_KEY")
 
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GROQ_MODEL = env("GROQ_MODEL", "llama-3.3-70b-versatile")
 ANTHROPIC_MODEL = env("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 
@@ -262,6 +262,31 @@ class AskCache(Base):
     lesson = Column(Text, default="{}")     # JSON: {title, steps[], takeaway}
     hits = Column(Integer, default=0)       # how many times served from cache
     created_at = Column(DateTime(timezone=True), default=now)
+
+
+class Job(Base):
+    """One live job posting, refreshed daily from public career-site APIs.
+
+    A posting is identified by (source, external_id). Each refresh updates
+    last_seen; a posting that stops appearing in its source feed is marked
+    closed rather than deleted, so users can still see what recently went."""
+    __tablename__ = "jobs"
+    id = Column(Integer, primary_key=True)
+    source = Column(String(40), nullable=False, index=True)
+    external_id = Column(String(200), nullable=False)
+    title = Column(String(300), default="")
+    company = Column(String(200), default="", index=True)
+    country = Column(String(80), default="", index=True)
+    location = Column(String(200), default="")
+    remote = Column(Boolean, default=False)
+    url = Column(Text, default="")
+    text = Column(Text, default="")          # lowercased title+desc, for matching
+    posted_at = Column(DateTime(timezone=True))
+    first_seen = Column(DateTime(timezone=True), default=now, index=True)
+    last_seen = Column(DateTime(timezone=True), default=now, index=True)
+    is_open = Column(Boolean, default=True, index=True)
+    closed_at = Column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_job_src"),)
 
 
 # ---- School / classroom system (all NEW tables, existing ones untouched) --
@@ -777,6 +802,22 @@ def _startup():
 
     print("WARNING: database setup did not succeed. The app is running so "
           "you can reach /api/status, but content will be unavailable.")
+
+
+JOBS_ENABLED = env("JOBS_ENABLED", "1") not in ("0", "false", "no")
+
+
+@app.on_event("startup")
+async def _start_jobs():
+    """Kick off the daily job crawl in the background.
+
+    Its own handler, and fire-and-forget: a slow or failing career-site API
+    must never hold up boot and fail the deploy healthcheck."""
+    if not JOBS_ENABLED:
+        print("Job board refresh disabled (JOBS_ENABLED=0)")
+        return
+    import asyncio
+    asyncio.create_task(_jobs_loop())
 
 
 @app.get("/api/health")
@@ -2284,6 +2325,74 @@ def _upstream_ok(r, provider):
         raise RuntimeError(f"{provider} HTTP {r.status_code}: {body}")
 
 
+AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
+
+
+def _ai_used_today(db, user):
+    """How many billable AI checks this user has run today (cache hits free)."""
+    day = now().strftime("%Y%m%d")
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == f"aiq_{day}").first()
+    try:
+        return int(row.v) if row else 0
+    except Exception:
+        return 0
+
+
+def _ai_enforce_limit(db, user):
+    if getattr(user, "is_admin", False):
+        return
+    if _ai_used_today(db, user) >= AI_DAILY_LIMIT:
+        raise HTTPException(
+            429, f"You've used today's {AI_DAILY_LIMIT} AI checks. The limit "
+                 "resets tomorrow. (Re-running the same check is free.)")
+
+
+def _ai_bump(db, user):
+    if getattr(user, "is_admin", False):
+        return
+    day = now().strftime("%Y%m%d")
+    key = f"aiq_{day}"
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == key).first()
+    if row:
+        try:
+            row.v = str(int(row.v) + 1)
+        except Exception:
+            row.v = "1"
+    else:
+        db.add(Note(user_id=user.id, k=key, v="1"))
+    db.commit()
+
+
+def _ai_cache_key(prefix, *parts):
+    import hashlib
+    h = hashlib.sha256("||".join(p or "" for p in parts).encode("utf-8", "ignore")).hexdigest()
+    return f"{prefix}:{h}"
+
+
+def _ai_cache_get(db, qkey):
+    """Return a cached AI result (and count the hit), or None."""
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if not row:
+        return None
+    row.hits = (row.hits or 0) + 1
+    db.commit()
+    try:
+        return json.loads(row.lesson)
+    except Exception:
+        return None
+
+
+def _ai_cache_put(db, qkey, result):
+    try:
+        if db.query(AskCache).filter(AskCache.qkey == qkey).first():
+            return
+        db.add(AskCache(qkey=qkey[:500], subject="resume", level="",
+                        question="", lesson=json.dumps(result), hits=0))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 def _ai_error_message(e):
     """Turn a raw upstream error into a friendly message for the user. Rate
     limits (very common on free AI tiers) get their own clear explanation."""
@@ -2537,7 +2646,8 @@ def _resume_text(r):
 
 
 @app.post("/api/resume/match")
-async def resume_match(body: MatchIn, user: User = Depends(current_user)):
+async def resume_match(body: MatchIn, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
     """Full AI analysis of the resume against a JD: overall score, sub-scores,
     and gaps categorised as critical / weak / strong."""
     if not ASK_ENABLED:
@@ -2546,6 +2656,12 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
     if len(jd) < 40:
         raise HTTPException(400, "Paste the full job description first")
     rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
+    # Same resume + same JD → serve the stored result for free (no quota used).
+    ckey = _ai_cache_key("rmatch", rtext, jd[:3500])
+    cached = _ai_cache_get(db, ckey)
+    if cached is not None:
+        return cached
+    _ai_enforce_limit(db, user)
     prompt = (
         "You are an ATS resume analyst. Compare the RESUME to the JOB "
         "DESCRIPTION and score the fit honestly.\n\n"
@@ -2581,7 +2697,7 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
             return max(0, min(100, int(v)))
         except Exception:
             return 0
-    return {
+    result = {
         "score": sc(d.get("score", 0)),
         "subscores": {"keywords": sc(sub.get("keywords", 0)),
                       "experience": sc(sub.get("experience", 0)),
@@ -2589,6 +2705,9 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user)):
         "critical": lst("critical"), "weak": lst("weak"),
         "strong": lst("strong"), "advice": lst("advice", 6, 280),
     }
+    _ai_bump(db, user)
+    _ai_cache_put(db, ckey, result)
+    return result
 
 
 # ---- repair a .docx whose embedded images are corrupt -------------------
@@ -3039,7 +3158,8 @@ class ProofreadIn(BaseModel):
 
 
 @app.post("/api/resume/proofread")
-async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)):
+async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user),
+                           db: Session = Depends(get_db)):
     """Flag spelling and grammar issues in the resume text so the user can fix
     them. Returns a list of {wrong, right, why} — it does not auto-edit."""
     if not ASK_ENABLED:
@@ -3047,6 +3167,11 @@ async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)
     rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
     if len(rtext.strip()) < 20:
         raise HTTPException(400, "Add some resume content first")
+    ckey = _ai_cache_key("rproof", rtext)
+    cached = _ai_cache_get(db, ckey)
+    if cached is not None:
+        return cached
+    _ai_enforce_limit(db, user)
     prompt = (
         "You are a meticulous proofreader for resumes. Find SPELLING and GRAMMAR "
         "mistakes in the text below. For each mistake, give the exact wrong text, "
@@ -3070,48 +3195,10 @@ async def resume_proofread(body: ProofreadIn, user: User = Depends(current_user)
         r = str(it.get("right", "")).strip()[:80]
         if w and r and w.lower() != r.lower():
             issues.append({"wrong": w, "right": r, "why": str(it.get("why", "")).strip()[:60]})
-    return {"issues": issues}
-
-
-class ChatIn(BaseModel):
-    resume: dict = {}
-    message: str = Field(min_length=1, max_length=1000)
-    history: list = []
-    resume_text: str = Field(default="", max_length=40000)
-
-
-@app.post("/api/resume/chat")
-async def resume_chat(body: ChatIn, user: User = Depends(current_user)):
-    """Advice-only resume co-pilot. It gives clear, specific suggestions the
-    user reads and applies themselves — it never edits the resume directly."""
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The AI co-pilot is not switched on")
-    rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:4000]
-    hist = ""
-    for m in (body.history or [])[-6:]:
-        who = "User" if str(m.get("role")) == "user" else "Coach"
-        hist += f"{who}: {str(m.get('content',''))[:300]}\n"
-    prompt = (
-        "You are the Vidya Resume Coach — a warm, practical career advisor "
-        "inside a resume builder. The user will ask for help. Give clear, "
-        "specific, actionable advice they can apply themselves. When you "
-        "suggest better wording, show the exact rewritten line(s) in quotes so "
-        "they can copy it. Be concise. Use ONLY the user's real facts — never "
-        "invent employers, dates, degrees or numbers.\n\n"
-        + (f"Conversation so far:\n{hist}\n" if hist else "")
-        + f"Their resume (text):\n{rtext}\n\n"
-        + f"User asks: \"{body.message.strip()}\"\n\n"
-        "Reply in plain text: 2-5 short sentences of advice, and where useful a "
-        "few concrete example lines. Do NOT return JSON, code fences or lists of "
-        "actions — just your helpful written answer."
-    )
-    try:
-        reply = await _ai_text(prompt, 900)
-    except Exception as e:
-        print(f"Resume chat failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, _ai_error_message(e))
-    reply = (reply or "").replace("```", "").strip()
-    return {"reply": reply[:2000]}
+    result = {"issues": issues}
+    _ai_bump(db, user)
+    _ai_cache_put(db, ckey, result)
+    return result
 
 
 @app.get("/api/ask/config")
@@ -3174,6 +3261,503 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
                     question=question[:2000], lesson=json.dumps(lesson), hits=0))
     db.commit()
     return {"lesson": lesson, "cached": False}
+
+
+# ---------------------------- live jobs -----------------------------------
+# Jobs come from the PUBLIC APIs that companies' own career pages are built
+# on (Greenhouse, Lever, Ashby, Workable, Recruitee). They are the real
+# postings, straight from the employer, free and without an API key. We never
+# scrape LinkedIn/Indeed/Naukri: that breaks their terms and gets blocked.
+
+JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
+JOB_REFRESH_HOURS = 24          # daily refresh
+
+# Board tokens. A company that renames or leaves its ATS simply stops
+# returning rows — the fetcher skips it silently and the rest still work.
+# Extend without touching code: JOB_GREENHOUSE="stripe,figma,..." etc.
+_GREENHOUSE = ("stripe,figma,databricks,cloudflare,coinbase,robinhood,dropbox,"
+               "reddit,discord,brex,instacart,lyft,pinterest,twilio,asana,"
+               "samsara,affirm,chime,flexport,gitlab,airtable,amplitude,"
+               "mixpanel,vercel,scaleai,duolingo,gusto,carta,squarespace,"
+               "fivetran,verkada,checkr,betterment,elastic,mongodb,postman,"
+               "airbnb,datadog")
+_LEVER = "palantir,cred,meesho,nium,matchgroup"
+_ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
+          "elevenlabs,decagon,mercor,sierra,suno,perplexity,zed,harvey,modal,"
+          "warp,browserbase,lovable,synthesia,cognition,fireworksai,baseten,"
+          "langchain,n8n")
+# No verified public boards seeded for these two, but the fetchers are live —
+# add tokens with JOB_WORKABLE / JOB_RECRUITEE and they start working.
+_WORKABLE = ""
+_RECRUITEE = ""
+
+
+def _job_tokens(name):
+    raw = env(f"JOB_{name.upper()}", {"greenhouse": _GREENHOUSE, "lever": _LEVER,
+                                      "ashby": _ASHBY, "workable": _WORKABLE,
+                                      "recruitee": _RECRUITEE}[name])
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+# Country detection from a free-text location string. ATS feeds write
+# locations however they like ("Bengaluru, India", "SF Bay Area", "Remote").
+_COUNTRY_ALIASES = {
+    "india": "India", "bengaluru": "India", "bangalore": "India",
+    "mumbai": "India", "delhi": "India", "gurgaon": "India", "gurugram": "India",
+    "hyderabad": "India", "chennai": "India", "pune": "India", "noida": "India",
+    "kolkata": "India", "ahmedabad": "India", "jaipur": "India", "kochi": "India",
+    "united states": "United States", "usa": "United States", "u.s.": "United States",
+    "us": "United States", "new york": "United States", "san francisco": "United States",
+    "seattle": "United States", "austin": "United States", "boston": "United States",
+    "chicago": "United States", "los angeles": "United States", "denver": "United States",
+    "atlanta": "United States", "bay area": "United States",
+    "united kingdom": "United Kingdom", "uk": "United Kingdom",
+    "london": "United Kingdom", "manchester": "United Kingdom",
+    "canada": "Canada", "toronto": "Canada", "vancouver": "Canada",
+    "montreal": "Canada", "germany": "Germany", "berlin": "Germany",
+    "munich": "Germany", "france": "France", "paris": "France",
+    "netherlands": "Netherlands", "amsterdam": "Netherlands",
+    "ireland": "Ireland", "dublin": "Ireland", "spain": "Spain",
+    "madrid": "Spain", "barcelona": "Spain", "poland": "Poland",
+    "warsaw": "Poland", "sweden": "Sweden", "stockholm": "Sweden",
+    "switzerland": "Switzerland", "zurich": "Switzerland",
+    "australia": "Australia", "sydney": "Australia", "melbourne": "Australia",
+    "singapore": "Singapore", "japan": "Japan", "tokyo": "Japan",
+    "brazil": "Brazil", "sao paulo": "Brazil", "mexico": "Mexico",
+    "israel": "Israel", "tel aviv": "Israel", "uae": "United Arab Emirates",
+    "dubai": "United Arab Emirates",
+}
+# Two-letter US state codes, so "Austin, TX" resolves to the United States.
+_US_STATES = set("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD "
+                 "MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC "
+                 "SD TN TX UT VT VA WA WV WI WY DC".split())
+
+
+# Longest alias first, so "united states" wins before "us", and each is
+# matched on word boundaries — plain substring matching would read "us" out
+# of "Austin" and "Belarus" and label them United States.
+_ALIAS_RE = [(_re.compile(rf"(?<![a-z]){_re.escape(a)}(?![a-z])"), c)
+             for a, c in sorted(_COUNTRY_ALIASES.items(),
+                                key=lambda kv: -len(kv[0]))]
+
+
+def _country_of(location: str) -> str:
+    """Best-effort country from a free-text location. '' when unknown."""
+    loc = (location or "").strip()
+    if not loc:
+        return ""
+    low = loc.lower()
+    for rx, country in _ALIAS_RE:
+        if rx.search(low):
+            return country
+    tail = loc.replace(",", " ").split()
+    if tail and tail[-1].upper() in _US_STATES:
+        return "United States"
+    return ""
+
+
+def _is_remote(location: str) -> bool:
+    low = (location or "").lower()
+    return "remote" in low or "anywhere" in low or "distributed" in low
+
+
+def _strip_html(s: str) -> str:
+    return _re.sub(r"<[^>]+>", " ", s or "").replace("&amp;", "&") \
+             .replace("&nbsp;", " ").replace("&#39;", "'")
+
+
+def _job_row(source, ext_id, title, company, location, url, desc="", posted=None):
+    """Normalise one posting into the shape the refresh loop stores."""
+    title, company = (title or "").strip()[:300], (company or "").strip()[:200]
+    location = (location or "").strip()[:200]
+    if not title or not url:
+        return None
+    blob = f"{title} {company} {location} {_strip_html(desc)}".lower()
+    return {
+        "source": source, "external_id": str(ext_id)[:200], "title": title,
+        "company": company, "location": location,
+        "country": _country_of(location), "remote": _is_remote(location),
+        "url": url[:1000], "text": _re.sub(r"\s+", " ", blob)[:4000],
+        "posted_at": posted,
+    }
+
+
+def _ts(v):
+    """Parse the assorted timestamp shapes the ATS feeds use."""
+    if not v:
+        return None
+    try:
+        if isinstance(v, (int, float)):
+            return dt.datetime.fromtimestamp(v / (1000 if v > 1e11 else 1), dt.timezone.utc)
+        return dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+async def _fetch_greenhouse(client, token):
+    r = await client.get(
+        f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true")
+    r.raise_for_status()
+    out = []
+    for j in (r.json().get("jobs") or []):
+        out.append(_job_row("greenhouse", j.get("id"), j.get("title"), token,
+                            (j.get("location") or {}).get("name", ""),
+                            j.get("absolute_url", ""), j.get("content", ""),
+                            _ts(j.get("updated_at"))))
+    return out
+
+
+async def _fetch_lever(client, token):
+    r = await client.get(f"https://api.lever.co/v0/postings/{token}?mode=json")
+    r.raise_for_status()
+    out = []
+    for j in r.json():
+        cat = j.get("categories") or {}
+        out.append(_job_row("lever", j.get("id"), j.get("text"), token,
+                            cat.get("location", ""), j.get("hostedUrl", ""),
+                            j.get("descriptionPlain", ""), _ts(j.get("createdAt"))))
+    return out
+
+
+async def _fetch_ashby(client, token):
+    r = await client.get(
+        f"https://api.ashbyhq.com/posting-api/job-board/{token}")
+    r.raise_for_status()
+    out = []
+    for j in (r.json().get("jobs") or []):
+        out.append(_job_row("ashby", j.get("id"), j.get("title"), token,
+                            j.get("location", ""), j.get("jobUrl", ""),
+                            j.get("descriptionPlain", ""), _ts(j.get("publishedAt"))))
+    return out
+
+
+async def _fetch_workable(client, token):
+    r = await client.get(
+        f"https://apply.workable.com/api/v1/widget/accounts/{token}?details=true")
+    r.raise_for_status()
+    out = []
+    for j in (r.json().get("jobs") or []):
+        loc = ", ".join(x for x in [j.get("city", ""), j.get("country", "")] if x)
+        out.append(_job_row("workable", j.get("shortcode"), j.get("title"), token,
+                            loc, j.get("url", ""), j.get("description", ""),
+                            _ts(j.get("published_on"))))
+    return out
+
+
+async def _fetch_recruitee(client, token):
+    r = await client.get(f"https://{token}.recruitee.com/api/offers/")
+    r.raise_for_status()
+    out = []
+    for j in (r.json().get("offers") or []):
+        loc = ", ".join(x for x in [j.get("city", ""), j.get("country", "")] if x)
+        out.append(_job_row("recruitee", j.get("id"), j.get("title"), token,
+                            loc, j.get("careers_url", ""), j.get("description", ""),
+                            _ts(j.get("published_at"))))
+    return out
+
+
+_FETCHERS = {"greenhouse": _fetch_greenhouse, "lever": _fetch_lever,
+             "ashby": _fetch_ashby, "workable": _fetch_workable,
+             "recruitee": _fetch_recruitee}
+
+
+async def _collect_jobs():
+    """Hit every configured board once.
+
+    Returns (rows, report, reached) where `reached` is the set of boards that
+    genuinely answered. Closing jobs is driven by `reached`, never by the rows
+    alone — otherwise one board timing out would look exactly like that
+    employer taking every posting down."""
+    import httpx
+    rows, report, reached = [], {}, set()
+    async with httpx.AsyncClient(
+            timeout=25, follow_redirects=True,
+            headers={"User-Agent": "VidyaPath/1.0 (job board reader)"}) as client:
+        for source, fetch in _FETCHERS.items():
+            for token in _job_tokens(source):
+                try:
+                    got = [r for r in await fetch(client, token) if r]
+                    rows += got
+                    reached.add((source, token))
+                    report[f"{source}:{token}"] = len(got)
+                except Exception as e:
+                    report[f"{source}:{token}"] = f"{type(e).__name__}"
+    return rows, report, reached
+
+
+def _store_jobs(db, rows, reached):
+    """Upsert this crawl, close postings that vanished, drop old history."""
+    seen, added, updated = set(), 0, 0
+    for r in rows:
+        seen.add((r["source"], r["external_id"]))
+        row = db.query(Job).filter(Job.source == r["source"],
+                                   Job.external_id == r["external_id"]).first()
+        if row:
+            row.title, row.company = r["title"], r["company"]
+            row.location, row.country = r["location"], r["country"]
+            row.remote, row.url, row.text = r["remote"], r["url"], r["text"]
+            row.last_seen, row.is_open, row.closed_at = now(), True, None
+            updated += 1
+        else:
+            db.add(Job(**r, first_seen=now(), last_seen=now(), is_open=True))
+            added += 1
+    db.commit()
+
+    # A posting we did not see, on a board we DID reach, has come off that
+    # career site — mark it closed so the user can still see it went.
+    closed = 0
+    for row in db.query(Job).filter(Job.is_open == True).all():  # noqa: E712
+        if ((row.source, row.company) in reached
+                and (row.source, row.external_id) not in seen):
+            row.is_open, row.closed_at = False, now()
+            closed += 1
+    cutoff = now() - dt.timedelta(days=JOB_RETENTION_DAYS)
+    pruned = db.query(Job).filter(Job.last_seen < cutoff).delete(
+        synchronize_session=False)
+    db.commit()
+    return {"added": added, "updated": updated, "closed": closed, "pruned": pruned}
+
+
+async def _refresh_jobs():
+    rows, report, reached = await _collect_jobs()
+    db = SessionLocal()
+    try:
+        stats = _store_jobs(db, rows, reached)
+    finally:
+        db.close()
+    print(f"jobs refresh: {stats} from {len(rows)} rows, {len(reached)} boards")
+    return {**stats, "fetched": len(rows), "boards_reached": len(reached),
+            "sources": report}
+
+
+async def _jobs_loop():
+    """Refresh on boot, then once a day. One instance, no extra dependency."""
+    import asyncio
+    while True:
+        try:
+            await _refresh_jobs()
+        except Exception as e:
+            print(f"jobs refresh failed: {type(e).__name__}: {e}")
+        await asyncio.sleep(JOB_REFRESH_HOURS * 3600)
+
+
+# ---- matching: pure keyword work, no AI call and no token cost -------------
+_SKILLS = set("""python java javascript typescript react angular vue node django
+flask fastapi spring rails golang go rust kotlin swift php ruby scala c c++ c#
+sql postgres postgresql mysql mongodb redis elasticsearch kafka spark hadoop
+airflow snowflake dbt tableau powerbi excel pandas numpy pytorch tensorflow
+sklearn keras nlp llm genai rag opencv aws azure gcp docker kubernetes
+terraform ansible jenkins ci cd git linux bash devops sre microservices rest
+graphql grpc html css tailwind bootstrap figma android ios flutter reactnative
+unity unreal blender selenium cypress jest pytest junit qa automation security
+pentesting soc siem iam cissp networking tcp dns firewall salesforce sap
+seo sem marketing analytics product agile scrum jira finance accounting hr
+recruiting sales crm support content design ux ui research statistics
+machinelearning deeplearning datascience blockchain solidity""".split())
+
+_STOP = set("""a an the and or of to in for with on at by from as is are be we
+you your our their this that will can has have who what job role team work
+years experience strong good great excellent ability skills required preferred
+plus using use used across including etc new all more most other one""".split())
+
+
+def _words(text: str):
+    return _re.findall(r"[a-z][a-z0-9+#.]{1,}", (text or "").lower())
+
+
+def _profile(resume_text: str):
+    """Turn a resume into the keyword set we score jobs against."""
+    ws = _words(resume_text)
+    skills = {w for w in ws if w in _SKILLS}
+    # Two-word skills the token split would lose ("machine learning").
+    low = (resume_text or "").lower()
+    for phrase, tag in (("machine learning", "machinelearning"),
+                        ("deep learning", "deeplearning"),
+                        ("data science", "datascience"),
+                        ("react native", "reactnative"),
+                        ("power bi", "powerbi")):
+        if phrase in low:
+            skills.add(tag)
+    keywords = {w for w in ws if len(w) > 3 and w not in _STOP}
+    return skills, keywords
+
+
+_SENIOR = ("senior", "sr.", "staff", "principal", "lead", "head", "director",
+           "manager", "architect", "vp")
+_JUNIOR = ("intern", "internship", "graduate", "trainee", "junior", "entry",
+           "fresher", "apprentice", "associate")
+
+
+def _score_job(job, skills, keywords, level):
+    """0-100 fit score, plus the skills that matched and the ones missing."""
+    jwords = set(_words(job.text or ""))
+    jskills = {w for w in jwords if w in _SKILLS}
+
+    hit = skills & jskills
+    miss = jskills - skills
+
+    # Two halves, deliberately. `coverage` is the share of what the job asks
+    # for that you have; `depth` is how many of your skills it wants at all.
+    # Coverage alone rates a job that names one tool you happen to know as a
+    # perfect match, which is how a sales role ends up above a backend role.
+    coverage = (len(hit) / len(jskills)) if jskills else 0.0
+    depth = min(len(hit) / 6.0, 1.0)
+    kw_pct = len(keywords & jwords) / max(len(jwords), 1)
+
+    score = 100 * (0.45 * coverage + 0.35 * depth + 0.20 * min(kw_pct * 4, 1.0))
+
+    # A posting too thin to name two skills cannot support a confident score.
+    if len(jskills) < 3:
+        score *= 0.55
+
+    title = (job.title or "").lower()
+    if any(s in title for s in skills):
+        score += 6
+    if level == "junior" and any(t in title for t in _SENIOR):
+        score -= 22
+    elif level == "senior" and any(t in title for t in _JUNIOR):
+        score -= 18
+    elif level == "junior" and any(t in title for t in _JUNIOR):
+        score += 8
+    elif level == "senior" and any(t in title for t in _SENIOR):
+        score += 8
+    return (max(0, min(100, round(score))), sorted(hit)[:12], sorted(miss)[:8])
+
+
+def _level_of(resume_text: str):
+    low = (resume_text or "").lower()
+    if any(t in low for t in ("intern", "fresher", "graduate", "b.tech", "student")):
+        return "junior"
+    if any(t in low for t in ("senior", "lead", "principal", "manager", "architect")):
+        return "senior"
+    return ""
+
+
+def _job_json(j, extra=None):
+    d = {
+        "id": j.id, "title": j.title, "company": j.company,
+        "location": j.location or ("Remote" if j.remote else ""),
+        "country": j.country, "remote": bool(j.remote), "url": j.url,
+        "source": j.source, "is_open": bool(j.is_open),
+        "posted_at": j.posted_at.isoformat() if j.posted_at else None,
+        "first_seen": j.first_seen.isoformat() if j.first_seen else None,
+        "closed_at": j.closed_at.isoformat() if j.closed_at else None,
+    }
+    if extra:
+        d.update(extra)
+    return d
+
+
+def _jobs_query(db, q="", country="", location="", remote=False, status="open"):
+    query = db.query(Job)
+    if status == "open":
+        query = query.filter(Job.is_open == True)      # noqa: E712
+    elif status == "closed":
+        query = query.filter(Job.is_open == False)     # noqa: E712
+    if country:
+        query = query.filter(func.lower(Job.country) == country.strip().lower())
+    if location:
+        query = query.filter(func.lower(Job.location).like(f"%{location.strip().lower()}%"))
+    if remote:
+        query = query.filter(Job.remote == True)       # noqa: E712
+    if q:
+        like = f"%{q.strip().lower()}%"
+        query = query.filter(func.lower(Job.title).like(like)
+                             | func.lower(Job.company).like(like)
+                             | func.lower(Job.text).like(like))
+    return query
+
+
+@app.get("/api/jobs")
+def jobs_search(q: str = "", country: str = "", location: str = "",
+                remote: bool = False, status: str = "open", limit: int = 60,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Search the stored postings. Newest first."""
+    query = _jobs_query(db, q, country, location, remote, status)
+    if q:
+        # Searching "engineer" must not put a sales role that merely mentions
+        # engineers above an actual engineering job. Title hits rank first.
+        query = query.order_by(
+            case((func.lower(Job.title).like(f"%{q.strip().lower()}%"), 0), else_=1),
+            Job.first_seen.desc())
+    else:
+        query = query.order_by(Job.first_seen.desc())
+    rows = query.limit(min(max(limit, 1), 200)).all()
+    return {"jobs": [_job_json(j) for j in rows],
+            "total": _jobs_query(db, q, country, location, remote, status).count()}
+
+
+@app.get("/api/jobs/filters")
+def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Countries we actually hold jobs for, so the filter never offers a dead
+    option. Also the freshness stamp the page shows."""
+    rows = db.query(Job.country, func.count(Job.id)).filter(
+        Job.is_open == True, Job.country != "").group_by(Job.country).all()  # noqa: E712
+    newest = db.query(func.max(Job.last_seen)).scalar()
+    return {
+        "countries": [{"country": c, "count": n}
+                      for c, n in sorted(rows, key=lambda x: -x[1])],
+        "open": db.query(func.count(Job.id)).filter(Job.is_open == True).scalar(),  # noqa: E712
+        "closed": db.query(func.count(Job.id)).filter(Job.is_open == False).scalar(),  # noqa: E712
+        "updated": newest.isoformat() if newest else None,
+        "retention_days": JOB_RETENTION_DAYS,
+    }
+
+
+class JobMatchIn(BaseModel):
+    resume: dict = {}
+    resume_text: str = Field(default="", max_length=40000)
+    country: str = Field(default="", max_length=80)
+    location: str = Field(default="", max_length=120)
+    q: str = Field(default="", max_length=120)
+    remote: bool = False
+    limit: int = 40
+
+
+@app.post("/api/jobs/match")
+def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """Rank open jobs against the user's resume.
+
+    Deliberately AI-free: scoring runs in Python over the stored postings, so
+    it is instant, costs nothing, and never touches the daily AI limit."""
+    rtext = (body.resume_text or "").strip() or _resume_text(body.resume or {})
+    if len(rtext.strip()) < 40:
+        raise HTTPException(400, "Add some resume details first, or upload a resume.")
+    skills, keywords = _profile(rtext)
+    if not skills:
+        raise HTTPException(
+            400, "We couldn't find recognisable skills in your resume. Add a "
+                 "skills section (languages, tools, frameworks) and try again.")
+    level = _level_of(rtext)
+    rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
+                       "open").order_by(Job.first_seen.desc()).limit(5000).all()
+    # One role open in three cities is three postings. Show it once, keeping
+    # the best-scoring copy and listing the other places it is open.
+    best = {}
+    for j in rows:
+        score, hit, miss = _score_job(j, skills, keywords, level)
+        key = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
+        item = _job_json(j, {"score": score, "matched": hit, "missing": miss})
+        prev = best.get(key)
+        if prev is None or score > prev["score"]:
+            item["also_in"] = prev["also_in"] + [prev["location"]] if prev else []
+            best[key] = item
+        elif j.location and j.location not in prev["also_in"]:
+            prev["also_in"].append(j.location)
+    scored = sorted(best.values(), key=lambda d: -d["score"])
+    for it in scored:
+        it["also_in"] = [x for x in it["also_in"] if x and x != it["location"]][:4]
+    return {"jobs": scored[:min(max(body.limit, 1), 100)],
+            "scanned": len(rows), "shown": len(scored), "level": level,
+            "your_skills": sorted(skills)[:30]}
+
+
+@app.post("/api/admin/jobs/refresh")
+async def admin_jobs_refresh(user: User = Depends(admin_user)):
+    """Force a crawl now. The per-source report shows which boards responded,
+    so a renamed or dead board token is obvious immediately."""
+    return await _refresh_jobs()
 
 
 # ---------------------------- admin ---------------------------------------

@@ -14,6 +14,47 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.39.0 — Live job board, resume matching, co-pilot removed
+
+- **Live jobs (new):** the Careers page now lists real, current openings —
+  around 10,000 of them — instead of only linking out to job sites. They are
+  read straight from the public APIs behind companies' own career pages
+  (Greenhouse, Lever, Ashby, Workable, Recruitee), so every posting is genuine
+  and links to the real application. We do not scrape LinkedIn/Indeed/Naukri:
+  that breaks their terms and gets blocked.
+- **Refreshed daily, one week of history:** a background task re-crawls every
+  board once a day. A posting that comes off a career site is marked **closed**
+  with the time it went, rather than vanishing, and rows older than 7 days are
+  pruned. Jobs are only closed on boards that actually answered, so one API
+  timeout can never wipe an employer's whole listing.
+- **Match to your resume — free:** scoring runs in plain Python over the stored
+  postings. It costs no AI credits and never touches the daily limit. Each job
+  shows a 0–100 match score, the skills you matched, and the gaps. Seniority is
+  inferred so juniors aren't shown staff roles.
+- **Search anywhere:** filter by country (only countries we actually hold jobs
+  for are offered), by city/state, by keyword, or remote-only. Title matches
+  rank above description mentions.
+- **Removed the resume co-pilot.** The open-ended chat was the most expensive
+  thing per answer and the least targeted. The focused checks — job match,
+  bullet rewrites, skills, grammar — all remain.
+- Admins can force a crawl at `POST /api/admin/jobs/refresh`; the response
+  reports every board, so a renamed or dead one is obvious.
+- Set `JOBS_ENABLED=0` to switch the crawler off. Extend the company list
+  without touching code via `JOB_GREENHOUSE`, `JOB_LEVER`, `JOB_ASHBY`,
+  `JOB_WORKABLE`, `JOB_RECRUITEE`.
+
+## 1.38.0 — Flash-Lite model, daily cap, and result caching
+
+- **Cheaper model:** default Gemini model is now `gemini-3.5-flash-lite`
+  (3–5× cheaper than Flash, plenty for scoring/grammar). Override with the
+  `GEMINI_MODEL` env var if you ever want a different one.
+- **Result caching:** a resume match (same resume + same job description) and a
+  grammar check (same resume) are now stored — re-running them is instant and
+  free, and does NOT count against the daily limit.
+- **Daily limit:** 50 AI checks per user per day (match + grammar + rewrites).
+  Cache hits don't count; admins are exempt. Hitting it shows a clear message
+  and resets the next day. Set the number via `AI_DAILY_LIMIT` in code.
+
 ## 1.37.0 — Lighter resume AI calls
 
 - Cut the token footprint of the resume checks (match, grammar, co-pilot) by
