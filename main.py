@@ -192,7 +192,7 @@ class User(Base):
     # Billing. `plan` is the source of truth for what someone may use; it is
     # only ever changed by a verified webhook, never by the browser.
     plan = Column(String(20), default="free", index=True)   # free | basic | pro
-    plan_provider = Column(String(20), default="")          # razorpay | stripe
+    plan_provider = Column(String(20), default="")          # stripe
     plan_ref = Column(String(120), default="")              # subscription id
     plan_expires = Column(DateTime(timezone=True))
     plan_started = Column(DateTime(timezone=True))
@@ -2763,12 +2763,13 @@ AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
 PLANS = {
     "free": {"name": "Free", "ai_total": 0, "kits_total": 0,
              "inr": None, "intl": None},
-    # One price worldwide, charged in rupees through Razorpay. Foreign cards
-    # convert it themselves. Kept as a single tier on purpose: two tiers make
-    # people stop and compare instead of deciding.
+    # One price worldwide, charged in US dollars through Stripe — Indian cards
+    # convert it themselves, the same way foreign cards used to convert the
+    # rupee price. Kept as a single tier on purpose: two tiers make people stop
+    # and compare instead of deciding. Amounts are in cents.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # unlimited
-            "inr_month": 140700, "intl_month": 140700,   # ~$15.99
-            "inr_year": 879900, "intl_year": 879900},    # ~$99.99
+            "usd_month": 1599,      # $15.99
+            "usd_year": 9999},      # $99.99
 }
 PAID_PLANS = ("pro",)
 
@@ -4073,7 +4074,12 @@ JOBS_PER_COMPANY = int(env("JOBS_PER_COMPANY", "3") or 3)
 COST_HOSTING_INR = float(env("COST_HOSTING_INR", "1700") or 1700)   # Railway
 COST_DOMAIN_INR = float(env("COST_DOMAIN_INR", "100") or 100)       # amortised
 COST_OTHER_INR = float(env("COST_OTHER_INR", "0") or 0)
-GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "2.36") or 2.36)     # Razorpay + GST
+# Stripe on an Indian account, billing in USD: 4.3% international card rate,
+# plus 2% to convert USD to INR at settlement, plus 18% GST on Stripe's fee.
+# That is roughly 7.4% all-in — far more than the 2.36% a domestic rupee
+# gateway cost, and enough to move the profit line, so it is not rounded down.
+# Override with GATEWAY_FEE_PCT once real settlements show the true number.
+GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "7.4") or 7.4)
 GST_RATE_PCT = float(env("GST_RATE_PCT", "18") or 18)
 USD_INR = float(env("USD_INR", "88") or 88)
 JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
@@ -6239,15 +6245,9 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
 
 
 # ============================ billing =====================================
-# Two gateways, one subscription state. Razorpay covers India, where UPI costs
-# almost nothing to accept; Stripe covers everywhere else. The user's `plan` is
+# Stripe is the only gateway, worldwide, in US dollars. The user's `plan` is
 # only ever written by a signature-verified webhook — never by the browser,
 # which could otherwise simply ask to be upgraded.
-RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET")
-RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET")
-RAZORPAY_ENABLED = bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
-
 STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET")
 STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)
@@ -6259,39 +6259,21 @@ STRIPE_PRICES = {
 }
 
 
-def _is_india(request: Request) -> bool:
-    """Which gateway and currency to show.
-
-    Razorpay is the only live gateway, and it settles in INR, so everyone is
-    billed in rupees for now — including customers abroad, whose cards handle
-    the conversion. Stripe can take over the non-India path later by making
-    this return the real country again.
-    """
-    # Read the real country even though both regions pay through Razorpay:
-    # the gateway is the same, only the amount differs. Unknown country is
-    # treated as international — the safer default is to charge more, not less.
-    return (request.headers.get("cf-ipcountry") or "").upper() == "IN"
-
-
 @app.get("/api/billing/plans")
 def billing_plans(request: Request, user: User = Depends(current_user),
                   db: Session = Depends(get_db)):
-    """What this user can buy, priced for where they are."""
-    india = _is_india(request)
-    # Both regions are billed in rupees through Razorpay; only the amount
-    # differs. Non-Indian cards handle the conversion themselves.
-    cur, sym = ("inr", "₹") if india else ("intl", "₹")
+    """What this user can buy. One price worldwide, in US dollars."""
 
     def money(v):
-        return None if v is None else f"{sym}{v/100:,.0f}"
+        return None if v is None else f"${v/100:,.2f}"
 
     out = []
     for pid in ("free", "pro"):
         p = PLANS[pid]
         out.append({
             "id": pid, "name": p["name"],
-            "month": money(p.get(f"{cur}_month")),
-            "year": money(p.get(f"{cur}_year")),
+            "month": money(p.get("usd_month")),
+            "year": money(p.get("usd_year")),
             "ai": ("Unlimited" if pid == "pro"
                    else f"{p.get('ai_total') or p.get('ai_month')} AI requests"
                         + (" to start" if pid == "free" else " a month")),
@@ -6300,9 +6282,9 @@ def billing_plans(request: Request, user: User = Depends(current_user),
                           + (" to start" if pid == "free" else " a month")),
         })
     return {
-        "plans": out, "currency": "INR", "region": "IN" if india else "INTL",
-        "gateway": "razorpay" if india else "stripe",
-        "available": {"razorpay": RAZORPAY_ENABLED, "stripe": STRIPE_ENABLED},
+        "plans": out, "currency": "USD",
+        "gateway": "stripe",
+        "available": {"stripe": STRIPE_ENABLED},
         "current": plan_of(user),
         "cancelled": bool(user.plan_cancelled_at),
         "access_until": user.plan_expires.isoformat() if user.plan_expires else None,
@@ -6375,31 +6357,6 @@ async def billing_checkout(body: CheckoutIn, request: Request,
         raise HTTPException(400, "Unknown plan")
     if period not in ("month", "year"):
         raise HTTPException(400, "Unknown billing period")
-    india = _is_india(request)
-
-    if india:
-        if not RAZORPAY_ENABLED:
-            raise HTTPException(503, "Payments are not switched on yet.")
-        amount = PLANS[plan].get(f"{'inr' if india else 'intl'}_{period}")
-        if not amount:
-            raise HTTPException(400, "That plan is not sold for that period")
-        auth = base64.b64encode(
-            f"{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}".encode()).decode()
-        async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.post("https://api.razorpay.com/v1/orders",
-                             headers={"Authorization": f"Basic {auth}"},
-                             json={"amount": amount, "currency": "INR",
-                                   "notes": {"user_id": str(user.id),
-                                             "plan": plan, "period": period}})
-        if r.status_code >= 300:
-            print("Razorpay order failed:", r.status_code, r.text[:300])
-            raise HTTPException(502, "Could not start the payment. Try again.")
-        o = r.json()
-        return {"gateway": "razorpay", "key_id": RAZORPAY_KEY_ID,
-                "order_id": o["id"], "amount": o["amount"], "currency": "INR",
-                "name": "Craxle", "plan": plan, "period": period,
-                "prefill": {"name": user.name, "email": user.email}}
-
     if not STRIPE_ENABLED:
         raise HTTPException(503, "Payments are not switched on yet.")
     price = STRIPE_PRICES.get((plan, period))
@@ -6416,6 +6373,14 @@ async def billing_checkout(body: CheckoutIn, request: Request,
                   "client_reference_id": str(user.id),
                   "metadata[user_id]": str(user.id),
                   "metadata[plan]": plan,
+                  "metadata[period]": period,
+                  # Also stamped on the subscription itself: renewal invoices
+                  # carry the subscription's metadata, not the checkout
+                  # session's, and without the period a yearly renewal would
+                  # be granted 32 days of access.
+                  "subscription_data[metadata][user_id]": str(user.id),
+                  "subscription_data[metadata][plan]": plan,
+                  "subscription_data[metadata][period]": period,
                   "success_url": f"{base}/?upgraded=1",
                   "cancel_url": f"{base}/?upgrade_cancelled=1"})
     if r.status_code >= 300:
@@ -6435,30 +6400,6 @@ def _activate(db, user_id, plan, provider, ref, period="month"):
     u.plan_expires = now() + dt.timedelta(days=days)
     db.commit()
     print(f"billing: user {u.id} -> {plan} via {provider} until {u.plan_expires}")
-
-
-@app.post("/api/billing/webhook/razorpay")
-async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
-    """Razorpay calls this. The signature is what makes it trustworthy."""
-    raw = await request.body()
-    sig = request.headers.get("x-razorpay-signature", "")
-    if not RAZORPAY_WEBHOOK_SECRET:
-        raise HTTPException(503, "Webhook secret not configured")
-    expected = hmac.new(RAZORPAY_WEBHOOK_SECRET.encode(), raw,
-                        hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, sig):
-        raise HTTPException(400, "Bad signature")
-    ev = json.loads(raw or b"{}")
-    kind = ev.get("event", "")
-    ent = (ev.get("payload") or {}).get("payment", {}).get("entity") \
-        or (ev.get("payload") or {}).get("order", {}).get("entity") or {}
-    notes = ent.get("notes") or {}
-    if kind in ("payment.captured", "order.paid"):
-        uid, plan = notes.get("user_id"), "pro"
-        if uid:
-            _activate(db, uid, plan if plan in PAID_PLANS else "pro", "razorpay", ent.get("id"),
-                      notes.get("period", "month"))
-    return {"ok": True}
 
 
 @app.post("/api/billing/webhook/stripe")
@@ -6488,9 +6429,19 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     md = obj.get("metadata") or {}
     if kind in ("checkout.session.completed", "invoice.payment_succeeded"):
         uid = md.get("user_id") or obj.get("client_reference_id")
+        period = md.get("period") or ""
+        sub = obj.get("subscription") or obj.get("id")
+        # A renewal invoice may carry neither: fall back to the subscription we
+        # already recorded, and to the length of the term they are currently on.
+        if (not uid or not period) and sub:
+            u = db.query(User).filter(User.plan_ref == str(sub)).first()
+            if u:
+                uid = uid or u.id
+                if not period and u.plan_started and u.plan_expires:
+                    span = (_aware(u.plan_expires) - _aware(u.plan_started)).days
+                    period = "year" if span > 200 else "month"
         if uid:
-            _activate(db, uid, "pro", "stripe",
-                      obj.get("subscription") or obj.get("id"))
+            _activate(db, uid, "pro", "stripe", sub, period or "month")
     elif kind in ("customer.subscription.deleted", "invoice.payment_failed"):
         sub = obj.get("subscription") or obj.get("id")
         u = db.query(User).filter(User.plan_ref == str(sub)).first()
@@ -6572,7 +6523,7 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
 
     Revenue is derived from the plan each user is on, not from a payments
     ledger — we do not store one. Treat these as indicative and reconcile
-    against Razorpay before relying on a number for tax or accounting.
+    against Stripe before relying on a number for tax or accounting.
     """
     users = db.query(User).all()
     total = len(users)
@@ -6585,7 +6536,9 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
         return (u.plan or "free") in PAID_PLANS and (exp is None or exp >= now_)
 
     paying = [u for u in users if live(u)]
-    by_plan, mrr_inr = {}, 0
+    # Prices are charged in USD through Stripe, but everything below — GST,
+    # hosting, the profit line — is rupee accounting, so convert once here.
+    by_plan, mrr_usd_cents = {}, 0
     for u in paying:
         by_plan[u.plan] = by_plan.get(u.plan, 0) + 1
         p = PLANS.get(u.plan, {})
@@ -6593,10 +6546,11 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
         # monthly and yearly customers are comparable.
         exp = u.plan_expires
         yearly = bool(exp and u.plan_started and (exp - u.plan_started).days > 200)
-        if yearly and p.get("inr_year"):
-            mrr_inr += p["inr_year"] / 12
-        elif p.get("inr_month"):
-            mrr_inr += p["inr_month"]
+        if yearly and p.get("usd_year"):
+            mrr_usd_cents += p["usd_year"] / 12
+        elif p.get("usd_month"):
+            mrr_usd_cents += p["usd_month"]
+    mrr_inr = mrr_usd_cents * USD_INR
 
     cancelled = sum(1 for u in users if u.plan_cancelled_at)
     week = now_ - dt.timedelta(days=7)
@@ -6658,7 +6612,7 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
         "ai_requests_total": ai_calls,
         "ai_cost_usd_estimate": ai_cost_usd,
         "note": "Derived from plan state, not a payments ledger. "
-                "Reconcile against Razorpay before using for accounting.",
+                "Reconcile against Stripe before using for accounting.",
     }
 
 

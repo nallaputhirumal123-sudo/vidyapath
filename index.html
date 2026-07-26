@@ -919,6 +919,7 @@ async function boot(){
   S.stats = prog.stats||{xp:0,level:1,streak:0,level_progress:0,next_level_at:250};
   S.view = {page:"home"};
   showApp(); render();
+  handleCheckoutReturn();
 
   TUTOR.init();
   refreshNotif();
@@ -929,6 +930,29 @@ async function boot(){
       ? `Welcome back ${first}. You have finished ${totalDone()} lessons. Pick up where you left off.`
       : `Hello ${first}. I am Axle, your guide. Start with Stage 1 and go in order. Tap me any time you get stuck.`);
   }, 800);
+}
+
+/* Stripe sends the customer back here after paying. The webhook is what
+   actually grants the plan, so wait for it to land rather than assuming — and
+   strip the query string either way, so a refresh doesn't replay this. */
+async function handleCheckoutReturn(){
+  const q=new URLSearchParams(location.search);
+  const paid=q.get("upgraded"), cancelled=q.get("upgrade_cancelled");
+  if(!paid && !cancelled) return;
+  history.replaceState({}, "", location.pathname);
+  if(cancelled){ toast("Checkout cancelled — you have not been charged."); return; }
+  toast("Payment received — activating your plan…");
+  for(let i=0;i<12;i++){
+    await new Promise(t=>setTimeout(t,1500));
+    const me=await api.get("/api/billing/me").catch(()=>null);
+    if(me && me.plan && me.plan!=="free"){
+      await loadBilling();
+      if(S.view && S.view.page==="plans") renderPlans();
+      toast("You're on "+String(me.plan).toUpperCase()+" 🎉");
+      return;
+    }
+  }
+  toast("Payment received. If your plan doesn't show in a minute, email us.");
 }
 
 let VERSION_INFO = {version:"?", commit:"?"};
@@ -3739,43 +3763,15 @@ async function loadBilling(){
   try{ BILLING=await api.get("/api/billing/plans"); }catch(e){ BILLING=null; }
   return BILLING;
 }
-/* Razorpay's popup needs their script; load it once, only when needed, so
-   nobody outside India downloads it. */
-function loadRazorpay(){
-  return new Promise((ok,bad)=>{
-    if(window.Razorpay) return ok();
-    const s=document.createElement("script");
-    s.src="https://checkout.razorpay.com/v1/checkout.js";
-    s.onload=ok; s.onerror=()=>bad(new Error("Could not load the payment window."));
-    document.head.appendChild(s);
-  });
-}
+/* Stripe Checkout is a hosted page, so this is a redirect, not a popup: no
+   third-party script to load and no card details ever touching our page. */
 async function startCheckout(plan,period,btn){
   const old=btn?btn.textContent:"";
   if(btn){ btn.disabled=true; btn.textContent="Opening…"; }
   try{
     const r=await api.post("/api/billing/checkout",{plan,period});
-    if(r.gateway==="stripe"){ location.href=r.url; return; }
-    await loadRazorpay();
-    const rz=new Razorpay({
-      key:r.key_id, order_id:r.order_id, amount:r.amount, currency:r.currency,
-      name:r.name, description:`Craxle ${plan} — ${period==="year"?"yearly":"monthly"}`,
-      prefill:r.prefill, theme:{color:"#ff9933"},
-      handler:async()=>{
-        // The webhook is what actually grants the plan; this only waits for
-        // it to land so the page can show the new state.
-        toast("Payment received — activating your plan…");
-        for(let i=0;i<10;i++){
-          await new Promise(t=>setTimeout(t,1500));
-          const me=await api.get("/api/billing/me").catch(()=>null);
-          if(me && me.plan!=="free"){ await loadBilling(); renderPlans(); toast("You're on "+me.plan.toUpperCase()+" 🎉"); return; }
-        }
-        renderPlans();
-        toast("Payment received. If your plan doesn't show in a minute, email us.");
-      },
-      modal:{ondismiss:()=>{ if(btn){btn.disabled=false;btn.textContent=old;} }}
-    });
-    rz.open();
+    if(!r.url) throw new Error("Could not start the payment.");
+    location.href=r.url;
   }catch(e){
     alert(e.message||"Could not start the payment.");
     if(btn){ btn.disabled=false; btn.textContent=old; }
@@ -3810,7 +3806,7 @@ async function renderPlans(){
   if(!BILLING){ $("#main").innerHTML=`<div class="h1">⚡ Plans</div>
     <div class="card">Could not load plans. Try again shortly.</div>`; return; }
   const b=BILLING, q=b.quota||{};
-  const live=(b.available||{}).razorpay||(b.available||{}).stripe;
+  const live=(b.available||{}).stripe;
   $("#main").innerHTML=`
   <div class="h1">⚡ Plans <span style="font-size:13px;color:var(--dim)">· prices in ${esc(b.currency)}</span></div>
   <p class="sub">Browsing jobs, resume matching, the application tracker and the

@@ -34,9 +34,9 @@ check("plan still free after checkout attempts",
       A.get("/api/billing/me").json()["plan"] == "free")
 
 # ---- webhooks reject forged/unsigned calls ----
-r = A.post("/api/billing/webhook/razorpay", json={"event": "payment.captured",
-      "payload": {"payment": {"entity": {"id": "x", "notes": {"user_id": "1", "plan": "pro"}}}}})
-check("razorpay webhook rejects unsigned", r.status_code >= 400, str(r.status_code))
+# Razorpay is gone — the endpoint must not still be accepting calls.
+r = A.post("/api/billing/webhook/razorpay", json={"event": "payment.captured"})
+check("razorpay webhook removed", r.status_code == 404, str(r.status_code))
 r = A.post("/api/billing/webhook/stripe", json={"type": "checkout.session.completed",
       "data": {"object": {"metadata": {"user_id": "1", "plan": "pro"}}}})
 check("stripe webhook rejects unsigned", r.status_code >= 400, str(r.status_code))

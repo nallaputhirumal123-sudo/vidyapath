@@ -45,7 +45,7 @@ run the endpoint by hand and look at the response.
 
 Be aware of the gaps rather than trusting a green run:
 
-- **Live payments.** Razorpay and Stripe are only exercised as far as rejecting
+- **Live payments.** Stripe is only exercised as far as rejecting
   forged webhooks. No real charge, refund or cancellation has ever run.
 - **Google sign-in.** The OAuth round trip cannot be automated here. A bug that
   rejected every new Google account survived a full green sweep because the
