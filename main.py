@@ -567,6 +567,22 @@ MAIL_FROM = env("MAIL_FROM") or SMTP_USER or "Craxle <onboarding@resend.dev>"
 MAIL_PROVIDER = "resend" if RESEND_API_KEY else ("smtp" if (SMTP_HOST and SMTP_USER and SMTP_PASS) else "")
 MAIL_ENABLED = bool(MAIL_PROVIDER)
 
+# Resend can only send from a domain you have verified, so a leftover Gmail
+# address in MAIL_FROM rejects every message with a 403. Fall back to their
+# shared sender rather than silently failing — it reaches the account owner,
+# which is enough to prove the setup works.
+_FREE_MAIL = ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
+              "live.com", "icloud.com", "protonmail.com", "rediffmail.com")
+MAIL_FROM_OVERRIDDEN = ""
+if MAIL_PROVIDER == "resend" and any(d in MAIL_FROM.lower() for d in _FREE_MAIL):
+    MAIL_FROM_OVERRIDDEN = MAIL_FROM
+    MAIL_FROM = "Craxle <onboarding@resend.dev>"
+    print(f"MAIL_FROM {MAIL_FROM_OVERRIDDEN!r} cannot be used with Resend — "
+          f"you can only send from a domain you have verified. Using "
+          f"{MAIL_FROM} instead, which only delivers to the address that owns "
+          f"the Resend account. Verify craxle.com at resend.com/domains and "
+          f"set MAIL_FROM to an address on it.")
+
 
 # Background email failures are invisible by design — we must not reveal
 # through a delay or an error whether an address is registered. That makes
@@ -3584,6 +3600,7 @@ def mail_selftest(user: User = Depends(admin_user)):
     here — it needs an App Password — and that is the usual cause.
     """
     info = {"enabled": MAIL_ENABLED, "provider": MAIL_PROVIDER or "(none)",
+            "from_overridden_because_unverified": MAIL_FROM_OVERRIDDEN or None,
             "host": SMTP_HOST or "(unset)", "port": SMTP_PORT,
             "user": SMTP_USER or "(unset)",
             "from": MAIL_FROM or "(unset)", "to": user.email,
