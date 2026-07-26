@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "VidyaPath Autofill",
+  "version": "1.0.0",
+  "description": "Fills your details into a job application form you already opened. It never submits anything for you.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://vidyapath-athlyx-a9c9.up.railway.app/*"],
+  "action": {
+    "default_title": "VidyaPath Autofill",
+    "default_popup": "popup.html"
+  },
+  "icons": { "128": "icon128.png" }
+}

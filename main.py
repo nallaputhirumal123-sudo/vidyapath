@@ -4403,6 +4403,81 @@ def job_untrack(job_id: int, user: User = Depends(current_user),
     return {"ok": True}
 
 
+# ---- browser extension: one-time pairing, then everything stays local ------
+# The extension never receives a session cookie. The site mints a short-lived
+# single-use code, the extension trades it once for the profile, and stores it
+# in the browser. That way a compromised extension cannot act as the user, and
+# the resume never travels on later form fills.
+_PAIR_CODES = {}                      # code -> (user_id, expires_at)
+PAIR_TTL = dt.timedelta(minutes=10)
+
+
+def _prune_pair_codes():
+    t = now()
+    for c in [c for c, (_, exp) in _PAIR_CODES.items() if exp < t]:
+        _PAIR_CODES.pop(c, None)
+
+
+@app.post("/api/apply/pair-code")
+def apply_pair_code(user: User = Depends(current_user)):
+    """Mint a pairing code to type into the extension. Expires in 10 minutes."""
+    _prune_pair_codes()
+    code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
+    _PAIR_CODES[code] = (user.id, now() + PAIR_TTL)
+    return {"code": code, "expires_in": int(PAIR_TTL.total_seconds())}
+
+
+@app.get("/api/apply/profile")
+def apply_profile(code: str = "", db: Session = Depends(get_db)):
+    """Trade a pairing code for the autofill profile. Single use.
+
+    Returns only what a job application form actually asks for. No password,
+    no session, nothing that would let the caller act as the user.
+    """
+    _prune_pair_codes()
+    entry = _PAIR_CODES.pop((code or "").strip().upper(), None)
+    if not entry:
+        raise HTTPException(401, "That code is wrong or has expired. Generate a new one.")
+    user = db.get(User, entry[0])
+    if not user:
+        raise HTTPException(401, "Account not found")
+
+    raw = db.query(Note).filter(Note.user_id == user.id,
+                                Note.k == "resume_data").first()
+    try:
+        r = json.loads(raw.v) if raw and raw.v else {}
+    except Exception:
+        r = {}
+    links = str(r.get("links") or "")
+
+    def find(*keys):
+        for k in keys:
+            m = _re.search(rf"https?://\S*{k}\S*", links, _re.I)
+            if m:
+                return m.group(0).rstrip(".,;")
+        return ""
+
+    exp = (r.get("exp") or [{}])[0] if r.get("exp") else {}
+    edu = (r.get("edu") or [{}])[0] if r.get("edu") else {}
+    full = str(r.get("name") or user.name or "").strip()
+    first, _, last = full.partition(" ")
+    return {
+        "first_name": first, "last_name": last.strip(), "full_name": full,
+        "email": str(r.get("email") or user.email or ""),
+        "phone": str(r.get("phone") or ""),
+        "location": str(r.get("location") or user.city or ""),
+        "linkedin": find("linkedin"), "github": find("github"),
+        "portfolio": find("portfolio", "vercel", "netlify", "\\.dev", "\\.me"),
+        "current_title": str(exp.get("role") or r.get("title") or ""),
+        "current_company": str(exp.get("company") or ""),
+        "school": str(edu.get("school") or user.college or ""),
+        "degree": str(edu.get("degree") or user.degree or ""),
+        "grad_year": str(edu.get("year") or ""),
+        "summary": str(r.get("summary") or "")[:1200],
+        "synced_at": now().isoformat(),
+    }
+
+
 class ApplyKitIn(BaseModel):
     job_id: int
     resume: dict = {}

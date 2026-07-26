@@ -14,6 +14,32 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.47.0 — Autofill browser extension
+
+- **New `extension/` folder: a Chrome/Edge extension that fills a job
+  application form in one click.** Name, email, phone, LinkedIn, GitHub,
+  portfolio, current role and company, school and degree.
+- **It never submits.** No `form.submit()`, no button clicks, no Enter key.
+  You check every field and press the employer's own submit button. Verified
+  by a test that fails if the form is ever submitted.
+- **No AI, no tokens.** Field matching is deterministic label matching. An LLM
+  would cost money on every form and would not be better at working out that
+  "First Name" means your first name.
+- **No session cookie reaches the extension.** The site mints a single-use
+  pairing code that expires in 10 minutes; the extension trades it once for a
+  read-only profile and stores it in the browser. Nothing that can act as you
+  ever leaves the site. Replay of a used code is rejected.
+- **It only runs when you click** — `activeTab` injection, no background
+  script, no content script registered against any site.
+- **It refuses rather than guesses.** Tested against Greenhouse, Lever, Ashby
+  and placeholder-only field layouts: 12 fields filled correctly, while
+  "Referrer First Name", "Emergency Contact Phone", "Confirm Email" and "Why
+  do you want to work here?" were all correctly left empty, and a pre-filled
+  field was left untouched. Resume upload boxes are highlighted, not faked —
+  browsers do not let an extension attach a file, and pretending otherwise
+  would be worse than saying so.
+- Careers page gains a **Connect extension** button that generates the code.
+
 ## 1.46.0 — Application tracker
 
 - **Two tabs on the careers page: Find jobs and My applications.**

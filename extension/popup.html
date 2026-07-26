@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  :root{color-scheme:dark}
+  body{width:310px;margin:0;padding:16px;background:#0b0f16;color:#ccd6e2;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:13.5px;line-height:1.55}
+  h1{font-size:15px;color:#fff;margin:0 0 3px}
+  .sub{color:#8896a8;font-size:12px;margin-bottom:13px}
+  button{width:100%;padding:10px;border-radius:9px;border:none;background:#ff9933;color:#1a1206;
+    font-weight:700;font-size:13.5px;cursor:pointer;margin-top:8px}
+  button.ghost{background:transparent;border:1px solid #24303f;color:#ccd6e2;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  input{width:100%;padding:9px 10px;border-radius:8px;border:1px solid #24303f;
+    background:#131b26;color:#fff;font-size:13.5px;letter-spacing:1px;text-align:center}
+  .msg{margin-top:11px;font-size:12.5px;padding:9px 11px;border-radius:8px;display:none}
+  .ok{background:rgba(75,191,130,.13);color:#7fd6a6}
+  .err{background:rgba(224,90,90,.13);color:#eaa0a0}
+  .info{background:rgba(255,153,51,.11);color:#e8b981}
+  .who{font-size:12px;color:#8896a8;margin-bottom:11px;padding:9px 11px;background:#131b26;border-radius:8px}
+  .who b{color:#fff}
+  .note{margin-top:13px;font-size:11.5px;color:#8896a8;border-top:1px solid #1c2532;padding-top:11px}
+  a{color:#ff9933}
+</style>
+
+<h1>VidyaPath Autofill</h1>
+<div class="sub">Fills your details into a form you already opened.</div>
+
+<div id="setup" style="display:none">
+  <div style="font-size:12.5px;margin-bottom:8px">
+    Open <a href="#" id="siteLink">VidyaPath &rarr; Careers</a>, press
+    <b>Connect extension</b>, and type the code here.
+  </div>
+  <input id="code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+  <button id="pair">Connect</button>
+</div>
+
+<div id="ready" style="display:none">
+  <div class="who">Signed in as <b id="who"></b><br><span id="when"></span></div>
+  <button id="fill">Fill this form</button>
+  <button id="resync" class="ghost">Re-sync my details</button>
+  <button id="forget" class="ghost">Disconnect</button>
+</div>
+
+<div id="msg" class="msg"></div>
+
+<div class="note">
+  This never submits an application. It fills the boxes; you check them and
+  press the employer's own submit button. Your details are stored in this
+  browser only.
+</div>
+
+<script src="popup.js"></script>
