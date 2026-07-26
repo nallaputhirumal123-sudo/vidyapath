@@ -622,8 +622,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.68.2"></script>
-<script src="presenter.js?v=1.68.2"></script>
+<script src="tutor.js?v=1.68.3"></script>
+<script src="presenter.js?v=1.68.3"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
@@ -4653,8 +4653,28 @@ document.addEventListener("click",e=>{
   else if(b.dataset.rzAct==="newres") rzNew();
 });
 /* ===================== ROUTER ===================== */
+/* The app never pushed history, so the browser's back button left the site
+   entirely — on mobile that lands you on the sign-in screen, which reads as
+   being logged out. Each view now gets a history entry, and back walks them. */
+let _histLock = false;
+function pushView(){
+  if(_histLock || !AUTHED) return;
+  const v = S.view || {page:"home"};
+  const prev = history.state && history.state.view;
+  if(prev && prev.page === v.page && prev.track === v.track && prev.id === v.id) return;
+  history.pushState({view:{...v}}, "", "#" + (v.page || "home"));
+}
+window.addEventListener("popstate", e => {
+  if(!AUTHED) return;                     // signed out: let the browser leave
+  const v = e.state && e.state.view;
+  _histLock = true;                       // don't re-push while restoring
+  S.view = v ? {...v} : {page:"home"};
+  try{ render(); } finally{ _histLock = false; }
+});
+
 function render(){
   if(!AUTHED) return showGate();
+  pushView();
   renderWho();
   const v=S.view;
   if(v.page==="home")           renderHome();
