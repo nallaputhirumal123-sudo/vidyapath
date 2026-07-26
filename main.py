@@ -4900,6 +4900,80 @@ _JUNIOR = ("intern", "internship", "graduate", "trainee", "junior", "entry",
            "fresher", "apprentice", "associate")
 
 
+# ---- resume-level signals -------------------------------------------------
+# Computed once per search, not per job: they describe the resume, not the fit.
+
+_ACTION_SENIOR = ("led", "spearheaded", "owned", "drove", "architected", "founded",
+                  "directed", "managed", "built", "designed", "launched", "scaled",
+                  "negotiated", "mentored", "established", "delivered", "reduced",
+                  "increased", "grew", "saved", "migrated", "automated")
+_ACTION_JUNIOR = ("assisted", "supported", "helped", "participated", "shadowed",
+                  "learned", "attended", "observed", "maintained", "updated")
+# A metric is a number doing work: a percentage, money, a multiplier, a count of
+# people, or a unit of time or data.
+_METRIC_RE = _re.compile(
+    r"(\d+\s?%|[$₹€£]\s?\d|\d+\s?(x|k|m|bn|cr|lakh)|"
+    r"\d+\s?(people|engineers|members|users|customers|clients|hours|days|"
+    r"weeks|months|ms|seconds|tb|gb|qps|rps))", _re.I)
+
+
+def _impact_score(rtext: str) -> float:
+    """How much of the resume shows outcomes rather than duties.
+
+    Recruiters and ATS models both reward "reduced latency by 35%" over
+    "responsible for performance". This measures that directly.
+    """
+    low = (rtext or "").lower()
+    lines = [l for l in low.splitlines() if len(l.strip()) > 25]
+    if not lines:
+        return 0.0
+    with_metric = sum(1 for l in lines if _METRIC_RE.search(l))
+    strong = sum(1 for v in _ACTION_SENIOR if v in low)
+    weak = sum(1 for v in _ACTION_JUNIOR if v in low)
+    metric_ratio = min(with_metric / max(len(lines) * 0.4, 1), 1.0)   # ~40% is strong
+    verb_ratio = strong / max(strong + weak, 1)
+    return round(0.65 * metric_ratio + 0.35 * verb_ratio, 3)
+
+
+_SECTIONS = ("experience", "education", "skills", "projects", "summary",
+             "employment", "work history", "certification")
+
+
+def _parsing_score(rtext: str) -> float:
+    """Whether this resume is machine-readable at all.
+
+    A real ATS drops candidates whose layout it cannot parse. We cannot see
+    the layout, but we can see what survived extraction — too little text, or
+    no recognisable section headings, means an employer's parser will
+    struggle with the same file.
+    """
+    low = (rtext or "").lower()
+    if not low.strip():
+        return 0.0
+    found = sum(1 for h in _SECTIONS if h in low)
+    words = len(low.split())
+    length_ok = 1.0 if 200 <= words <= 1200 else (0.6 if words >= 80 else 0.25)
+    # Very long unbroken runs usually mean a multi-column layout collapsed.
+    longest_line = max((len(l) for l in low.splitlines()), default=0)
+    layout_ok = 0.6 if longest_line > 600 else 1.0
+    return round(min(found / 4.0, 1.0) * 0.5 + length_ok * 0.35 + layout_ok * 0.15, 3)
+
+
+def match_tier(score: int) -> dict:
+    """The band a score falls in, in the language recruiters actually use."""
+    if score >= 85:
+        return {"tier": "S", "label": "Exceptional fit",
+                "note": "Strong overlap on skills, seniority and evidence."}
+    if score >= 70:
+        return {"tier": "A", "label": "Strong candidate",
+                "note": "Meets the core requirements with minor gaps."}
+    if score >= 55:
+        return {"tier": "B", "label": "Average fit",
+                "note": "Missing key skills, domain experience or seniority."}
+    return {"tier": "C", "label": "Weak fit",
+            "note": "Significant mismatch on skills or experience level."}
+
+
 def _job_skills(job):
     """The job's skills, from the column filled at ingest.
 
@@ -4934,7 +5008,7 @@ def _title_words(t):
 
 
 def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
-               my_titles=None):
+               my_titles=None, impact=0.5, parsing=0.8):
     """0-100 fit score, plus the skills that matched and the ones missing.
 
     Two things keep this honest. Skills are weighted by how rare they are
@@ -4976,37 +5050,48 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     # results felt like "3 to 8 things they happen to do".
     title_overlap = (len(jwords & my_titles) / len(jwords)) if (jwords and my_titles) else 0.0
 
-    score = 100 * (0.30 * coverage + 0.20 * depth
-                   + 0.30 * req_cover + 0.20 * min(title_overlap * 1.5, 1.0))
+    # ---- five weighted factors, the model real ATS products use ----
+    # 1. Hard skills (33%) — what you can do, with stated requirements
+    #    counted far more heavily than a passing mention.
+    f_skills = 0.55 * req_cover + 0.30 * coverage + 0.15 * depth
 
-    # A posting too thin to name a few skills can't support a confident score.
-    if len(jskills) < 3:
-        score *= 0.5
-
-    title = (job.title or "").lower()
-    # Read the family off the stored column. Re-deriving it here ran ~240
-    # regexes per job, which was 26 of the 30 seconds a match took.
+    # 2. Role fit and seniority (27%) — is this the same job at the same level?
     job_fams = {job.category} if job.category else set()
     if my_fams and job_fams:
-        if job_fams & my_fams:
-            score += 10                                   # same line of work
-        elif job_fams & {f for m in my_fams for f in _ADJACENT.get(m, set())}:
-            score *= 0.80                                 # a sideways step
-        else:
-            score *= 0.35                                 # a different career
+        fam = 1.0 if (job_fams & my_fams) else (
+            0.55 if job_fams & {f for m in my_fams for f in _ADJACENT.get(m, set())}
+            else 0.10)
+    else:
+        fam = 0.5                      # unknown family: neither reward nor punish
+    title = (job.title or "").lower()
+    seniority = 0.5
+    if level == "senior":
+        seniority = 0.15 if any(t in title for t in _JUNIOR) else (
+            1.0 if any(t in title for t in _SENIOR) else 0.6)
+    elif level == "junior":
+        seniority = 0.15 if any(t in title for t in _SENIOR) else (
+            1.0 if any(t in title for t in _JUNIOR) else 0.6)
+    f_role = 0.45 * fam + 0.30 * min(title_overlap * 1.5, 1.0) + 0.25 * seniority
 
+    # 3. Evidence of impact (17%) and 5. readability (8%) describe the resume,
+    #    so they are the same for every job in one search — passed in rather
+    #    than recomputed 6,000 times.
+    f_impact = impact
+    f_parse = parsing
+
+    # 4. Domain (15%) — same industry beats same toolchain. Approximated by the
+    #    role family, which is the only industry signal a posting reliably gives.
+    f_domain = fam
+
+    score = 100 * (0.33 * f_skills + 0.27 * f_role + 0.17 * f_impact
+                   + 0.15 * f_domain + 0.08 * f_parse)
+
+    # A posting too thin to name a few skills cannot support a confident score.
+    if len(jskills) < 3:
+        score *= 0.7
     if any(s in title for s in skills if s not in _WEAK_SKILLS):
-        score += 6
-    if level == "junior" and any(t in title for t in _SENIOR):
-        score -= 22
-    elif level == "senior" and any(t in title for t in _JUNIOR):
-        score -= 18
-    elif level == "junior" and any(t in title for t in _JUNIOR):
-        score += 8
-    elif level == "senior" and any(t in title for t in _SENIOR):
-        score += 8
-    # Report the requirements they miss, not random unmatched words — that
-    # is what tells someone whether to apply.
+        score += 4
+
     return (max(0, min(100, round(score))), sorted(hit)[:12],
             sorted(req_miss)[:8] or sorted(miss)[:8])
 
@@ -5249,6 +5334,8 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     # The titles this person has actually held, plus their stated target role.
     # Matching title-to-title is what stops "shares a toolchain" being treated
     # as "does the same job".
+    impact = _impact_score(rtext)
+    parsing = _parsing_score(rtext)
     my_titles = set()
     for e in (body.resume.get("exp") or [])[:6]:
         my_titles |= _title_words(str(e.get("role", "")))
@@ -5278,9 +5365,10 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     best = {}
     for j in rows:
         score, hit, miss = _score_job(j, skills, keywords, level, idf,
-                                      my_fams, my_titles)
+                                      my_fams, my_titles, impact, parsing)
         key = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
-        item = _job_json(j, {"score": score, "matched": hit, "missing": miss})
+        item = _job_json(j, {"score": score, "matched": hit, "missing": miss,
+                             **match_tier(score)})
         prev = best.get(key)
         if prev is None or score > prev["score"]:
             item["also_in"] = prev["also_in"] + [prev["location"]] if prev else []
@@ -5308,6 +5396,15 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     page = scored[off:off + lim]
     _mark_tracked(db, user, page)
     return {"jobs": page, "scanned": len(rows), "total": len(scored),
+            # What the score is made of, so a user can see why it moved.
+            "scoring": {
+                "weights": {"hard_skills": 33, "role_and_seniority": 27,
+                            "impact_evidence": 17, "domain": 15, "readability": 8},
+                "your_impact_score": round(impact * 100),
+                "your_readability_score": round(parsing * 100),
+                "tiers": {"S": "85-100 exceptional", "A": "70-84 strong",
+                          "B": "55-69 average", "C": "below 55 weak"},
+            },
             "offset": off, "limit": lim, "has_more": off + lim < len(scored),
             "level": level, "families": sorted(my_fams),
             "your_skills": sorted(s for s in skills if s not in _WEAK_SKILLS)[:30]}
