@@ -585,7 +585,10 @@ def send_email(to: str, subject: str, body: str):
     msg["Subject"] = subject
     msg.set_content(body)
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+        # Short timeout on purpose. A blocked outbound SMTP port hangs instead
+        # of refusing, and these run in the request threadpool — long hangs
+        # exhaust it and take the whole site down with a gateway timeout.
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as s:
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
@@ -3550,8 +3553,24 @@ def mail_selftest(user: User = Depends(admin_user)):
                                   ("SMTP_PASS", SMTP_PASS)) if not v]
         return {**info, "ok": False,
                 "error": "Not configured. Missing: " + ", ".join(missing)}
+    # Prove the port is even reachable before opening an SMTP session. Many
+    # hosts block outbound 587/465 to stop spam, and a blocked port hangs
+    # rather than refusing — which is what took the site down: the request
+    # sat open until Cloudflare gave up with a 524.
+    import socket
     import smtplib
     from email.message import EmailMessage
+    try:
+        with socket.create_connection((SMTP_HOST, SMTP_PORT), timeout=5):
+            pass
+    except Exception as e:
+        return {**info, "ok": False,
+                "error": f"Cannot reach {SMTP_HOST}:{SMTP_PORT} — "
+                         f"{type(e).__name__}: {e}"[:300],
+                "hint": "The host is very likely blocking outbound SMTP. "
+                        "Railway and most PaaS providers do. Use an HTTP email "
+                        "API instead (Resend, Postmark, SendGrid) — they use "
+                        "port 443, which is never blocked."}
     msg = EmailMessage()
     msg["From"] = MAIL_FROM
     msg["To"] = user.email
@@ -3559,7 +3578,7 @@ def mail_selftest(user: User = Depends(admin_user)):
     msg.set_content("If you are reading this, password reset emails will "
                     "reach your users.\n\nCraxle")
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as s:
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)

@@ -85,18 +85,27 @@ window.__vpFill = function (profile) {
    * land in "email of your manager".
    */
   const RULES = [
-    { key: "first_name", yes: [/\bfirst[\s_-]*name\b/, /\bgiven name\b/, /\bfname\b/],
-      no: [/last/, /referr/, /emergency/, /manager/, /spouse/] },
-    { key: "last_name", yes: [/\blast[\s_-]*name\b/, /\bsurname\b/, /\bfamily name\b/, /\blname\b/],
-      no: [/first/, /referr/, /emergency/, /manager/] },
+    /* Combined name fields must be tested before the split ones. "Legal First
+     * and Last Name" contains both words, so the single-name rules exclude
+     * each other and nothing matched at all. */
+    { key: "full_name", yes: [/first and last name/, /first & last name/,
+        /full legal name/, /legal name/, /name \(first and last\)/,
+        /first.{0,6}last name/],
+      no: [/referr/, /emergency/, /manager/, /spouse/, /company/, /school/] },
+    { key: "first_name", yes: [/\bfirst[\s_-]*name\b/, /\bgiven name\b/, /\bfname\b/,
+        /preferred first name/],
+      no: [/last/, /referr/, /emergency/, /manager/, /spouse/] },
+    { key: "last_name", yes: [/\blast[\s_-]*name\b/, /\bsurname\b/, /\bfamily name\b/,
+        /\blname\b/, /preferred last name/],
+      no: [/first/, /referr/, /emergency/, /manager/] },
     { key: "full_name", yes: [/\bfull[\s_-]*name\b/, /^name$/, /^full name$/,
-        /\byour name\b/, /\bcandidate name\b/, /\blegal name\b/, /^name of applicant$/],
-      no: [/first/, /last/, /user ?name/, /company/, /school/, /referr/, /file/,
-           /nickname/, /preferred/] },
+        /\byour name\b/, /\bcandidate name\b/, /^name of applicant$/],
+      no: [/first/, /last/, /user ?name/, /company/, /school/, /referr/, /file/,
+           /nickname/] },
     { key: "email", yes: [/\be-?mail\b/],
-      no: [/confirm/, /referr/, /manager/, /emergency/, /alternate/] },
+      no: [/confirm/, /referr/, /manager/, /emergency/, /alternate/] },
     { key: "phone", yes: [/\bphone\b/, /\bmobile\b/, /\btelephone\b/, /\bcontact number\b/],
-      no: [/emergency/, /referr/, /work phone/, /home phone/] },
+      no: [/emergency/, /referr/, /work phone/, /home phone/] },
     /* Deliberately narrow, and listed before the split address fields below
      * would otherwise lose to it. A bare "address" or "city" belongs to the
      * specific field, not to the one-line location — otherwise "Street
