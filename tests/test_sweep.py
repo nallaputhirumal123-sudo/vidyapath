@@ -161,12 +161,22 @@ check("lessons load", lessons > 70, f"{lessons} lessons")
 for path in ("/", "/terms.html", "/privacy.html", "/api/health", "/api/version"):
     check(f"page {path}", A.get(path).status_code == 200)
 terms = A.get("/terms.html").text
+priv = A.get("/privacy.html").text
 check("terms: no placeholders left", "[YOUR" not in terms and "[GSTIN]" not in terms)
-check("terms: GSTIN present", "36ANDPN8437E4ZT" in terms)
+# The operator identity must be stated and must agree across both documents,
+# or a payment processor reviewing them sees two different businesses.
+check("terms: operator named", "Thirumal Reddy" in terms)
+check("terms: operator address stated", "Anna, Texas 75409" in terms)
+check("terms: governing law stated", "State of Texas" in terms)
+check("terms and privacy name the same operator",
+      ("Thirumal Reddy" in terms) == ("Thirumal Reddy" in priv))
+check("no stale Indian entity left in terms",
+      not any(w in terms for w in ("Velisse", "Ravinder", "36ANDPN8437E4ZT", "Hyderabad")))
+check("no stale Indian entity left in privacy",
+      not any(w in priv for w in ("Velisse", "Ravinder", "36ANDPN8437E4ZT", "Hyderabad")))
 check("terms: 3-day refund", "3 days" in terms)
 check("terms: EU 14-day right kept", "14 days" in terms)
 check("terms: no bank details", "30704210518" not in terms)
-priv = A.get("/privacy.html").text
 check("privacy: no placeholders", "[YOUR" not in priv)
 check("privacy: extension section", "extension" in priv.lower())
 check("privacy: no bank details", "30704210518" not in priv)
