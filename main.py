@@ -1203,6 +1203,15 @@ def auth_forgot(body: ForgotIn, background: BackgroundTasks,
     registered — otherwise this endpoint becomes a way to discover who has an
     account here.
     """
+    # Do not promise an email we cannot send. This says nothing about whether
+    # the address is registered, so it leaks nothing — it just stops someone
+    # waiting for a link that can never arrive.
+    if not MAIL_ENABLED:
+        return {"ok": False, "mail_disabled": True,
+                "message": "Password reset by email isn't available right now. "
+                           "If you signed up with Google, use Continue with "
+                           "Google. Otherwise email "
+                           "nallaputhirumal123@gmail.com and we'll reset it."}
     email = body.email.lower().strip()
     user = db.query(User).filter(func.lower(User.email) == email).first()
     if user and user.is_active:
