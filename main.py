@@ -119,7 +119,10 @@ GEMINI_API_KEY = _clean_key("GEMINI_API_KEY")
 GROQ_API_KEY = _clean_key("GROQ_API_KEY")
 ANTHROPIC_API_KEY = _clean_key("ANTHROPIC_API_KEY")
 
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-3.5-flash-lite")
+# Verified against /api/ai/selftest. Check any new model ID there before
+# changing this: a wrong ID does not fail loudly — the provider fallback
+# quietly serves every request from Groq instead, at Groq's cost.
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash-lite")
 GROQ_MODEL = env("GROQ_MODEL", "llama-3.3-70b-versatile")
 ANTHROPIC_MODEL = env("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 

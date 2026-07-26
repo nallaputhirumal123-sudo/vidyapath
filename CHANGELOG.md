@@ -14,6 +14,15 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.40.1 — Correct the default Gemini model
+
+- The default `GEMINI_MODEL` was `gemini-3.5-flash-lite`, which is not a real
+  model ID. Nothing appeared broken, because a bad ID doesn't fail loudly —
+  the provider fallback silently served every request from Groq instead. Now
+  `gemini-2.5-flash-lite`, confirmed via `/api/ai/selftest`.
+- Check any future model ID at `/api/ai/selftest` (admin only) before shipping
+  it: that endpoint returns the raw provider response.
+
 ## 1.40.0 — Upload on the jobs page, and one home for resume checks
 
 - **Upload your resume where the jobs are.** The Careers page now takes a PDF,
