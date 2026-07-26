@@ -589,6 +589,7 @@ const api = {
   },
   get:  p       => api.call(p),
   post: (p,b)   => api.call(p,{method:"POST",body:b}),
+  del:  p       => api.call(p,{method:"DELETE"}),
 };
 
 /* ===================== STATE ===================== */
@@ -2530,7 +2531,27 @@ const REAL_PRACTICE=[
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
         category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
-        jobType:"",engagement:"",visa:""};
+        jobType:"",engagement:"",visa:"",
+        tab:"find",tracks:null,trackTab:"saved"};
+const TRACK_LABELS={saved:"Saved",applied:"Applied",interviewing:"Interviewing",
+                    offer:"Offer received",rejected:"Rejected",archived:"Archived"};
+async function jbLoadTracks(){
+  try{ JB.tracks=await api.get("/api/jobs/tracked"); }catch(e){ JB.tracks=null; }
+}
+/* Saving and applying are the same call — only the status differs. */
+async function jbTrack(id,status,silent){
+  try{
+    await api.post("/api/jobs/track",{job_id:id,status});
+    const j=JB.jobs.find(x=>x.id===id); if(j) j.tracked=status;
+    await jbLoadTracks();
+    if(!silent) renderCareers(); else jbPaint();
+  }catch(e){ JB.msg=e.message; jbPaint(); }
+}
+async function jbUntrack(id){
+  try{ await api.del("/api/jobs/track/"+id); }catch(e){}
+  const j=JB.jobs.find(x=>x.id===id); if(j) j.tracked="";
+  await jbLoadTracks(); renderCareers();
+}
 
 function jbAgo(iso){
   if(!iso) return "";
@@ -2618,10 +2639,8 @@ function jbReadInputs(){
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
   if(k) JB.category=k.value;
-  const jt=$("#jbType"), en=$("#jbEng"), vs=$("#jbVisa");
+  const jt=$("#jbType");
   if(jt) JB.jobType=jt.value;
-  if(en) JB.engagement=en.value;
-  if(vs) JB.visa=vs.value;
 }
 /* keepPage: paging through results must not reset you to the first page. */
 async function jbRun(mode,keepPage){
@@ -2685,8 +2704,14 @@ function jbCardHTML(j){
         ${gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:""}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-        <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener">${closed?"View ↗":"Apply ↗"}</a>
+        <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener"
+           data-jbapplied="${j.id}">${closed?"View ↗":"Apply ↗"}</a>
         ${closed?"":`<button class="btn ghost sm" data-jbkit="${j.id}">✨ Apply kit</button>`}
+        ${closed?"":(j.tracked==="applied"||j.tracked==="interviewing"||j.tracked==="offer"
+          ?`<span class="pill" style="text-align:center;color:#4bbf82;font-size:11.5px">✓ ${esc(TRACK_LABELS[j.tracked]||"Applied")}</span>`
+          :j.tracked==="saved"
+            ?`<button class="btn ghost sm" data-jbsave="${j.id}" data-on="1" title="Saved — click to remove">♥ Saved</button>`
+            :`<button class="btn ghost sm" data-jbsave="${j.id}">♡ Save</button>`)}
       </div>
     </div>
     ${JB.kitFor===j.id?jbKitHTML():""}</div>`;
@@ -2783,6 +2808,59 @@ function jbChecksHTML(){
   </div>
   </div>`;
 }
+function jbTabsHTML(){
+  const t=JB.tracks||{}, c=t.counts||{};
+  const applied=(c.applied||0)+(c.interviewing||0)+(c.offer||0);
+  const tab=(id,label,n)=>`<button class="ask-chip ${JB.tab===id?"on":""}" data-jbtab="${id}"
+    style="font-size:13.5px">${label}${n?` <b style="opacity:.75">${n}</b>`:""}</button>`;
+  return `<div class="ask-chips" style="margin-bottom:12px">
+    ${tab("find","🔍 Find jobs",0)}
+    ${tab("track","📋 My applications",(t.total||0))}
+    ${JB.tab==="track"?"":""}
+  </div>`;
+}
+/* The pipeline view: what you saved, applied to, and how far each one got. */
+function jbTrackerHTML(){
+  const t=JB.tracks;
+  if(!t) return `<div class="card"><div style="color:var(--dim);font-size:13.5px">Loading your applications…</div></div>`;
+  if(!t.total) return `<div class="card">
+    <b>Nothing tracked yet</b>
+    <div style="font-size:13.5px;color:var(--dim);margin-top:6px">
+      Find a job you like and press <b>♡ Save</b> or <b>✓ Mark applied</b>. Everything you
+      save or apply to appears here, so you can see what you have sent and what came back.
+    </div>
+    <div style="margin-top:10px"><button class="btn sm" data-jbtab="find">🔍 Find jobs</button></div>
+  </div>`;
+  const c=t.counts||{};
+  const chips=(t.statuses||[]).map(s=>`<button class="ask-chip ${JB.trackTab===s.id?"on":""}"
+      data-jbtrtab="${s.id}" style="font-size:13px">${esc(s.label)} <b style="opacity:.75">${c[s.id]||0}</b></button>`).join("");
+  const rows=(t.tracks||[]).filter(x=>x.status===JB.trackTab);
+  return `<div class="ask-chips" style="margin-bottom:12px">${chips}</div>
+  ${rows.length?rows.map(jbTrackCardHTML).join(""):`<div class="card">
+    <div style="color:var(--dim);font-size:13.5px">Nothing at the <b>${esc(TRACK_LABELS[JB.trackTab]||JB.trackTab)}</b> stage yet.</div></div>`}`;
+}
+function jbTrackCardHTML(t){
+  const when=t.applied_at?`Applied ${jbAgo(t.applied_at)}`:`Saved ${jbAgo(t.updated_at)}`;
+  return `<div class="card" style="margin-bottom:10px">
+    <div class="row" style="gap:14px;align-items:flex-start;flex-wrap:wrap">
+      ${t.score?`<div style="text-align:center;flex-shrink:0;min-width:46px">
+        <div style="font-size:19px;font-weight:800;color:${t.score>=80?"#4bbf82":t.score>=60?"#e0b050":"var(--dim)"}">${t.score}</div>
+        <div style="font-size:9.5px;color:var(--dim);letter-spacing:.5px">MATCH</div></div>`:""}
+      <div style="flex:1;min-width:210px">
+        <div style="font-weight:700;font-size:15px">${esc(t.title)}</div>
+        <div style="font-size:13px;color:var(--body)">${esc(t.company)}${t.location?` · ${esc(t.location)}`:""}</div>
+        <div style="font-size:11.5px;color:var(--dim);margin-top:3px">${when}</div>
+      </div>
+      <div class="row" style="gap:6px;flex-shrink:0;flex-wrap:wrap;align-items:center">
+        <select class="ask-input" data-jbstatus="${t.job_id}" style="min-width:150px;font-size:13px">
+          ${Object.entries(TRACK_LABELS).map(([k,v])=>`<option value="${k}" ${t.status===k?"selected":""}>${v}</option>`).join("")}
+        </select>
+        ${t.url?`<a class="btn ghost sm" href="${esc(t.url)}" target="_blank" rel="noopener">Open ↗</a>`:""}
+        <button class="btn ghost sm" data-jbdel="${t.job_id}" title="Remove from tracker">✕</button>
+      </div>
+    </div>
+  </div>`;
+}
 function jbSectionHTML(){
   const f=JB.filters;
   /* Only render a filter when we hold jobs for it — an empty dropdown, or one
@@ -2840,8 +2918,6 @@ function jbSectionHTML(){
     </div>
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
       ${sel("jbType","⏱️ Any job type",(f&&f.job_types)||[],JB.jobType)}
-      ${sel("jbEng","🤝 W2 / C2C — any",(f&&f.engagements)||[],JB.engagement)}
-      ${sel("jbVisa","🛂 Any work authorisation",(f&&f.visas)||[],JB.visa)}
       ${JB.mode==="match"?`<select id="jbMin" class="ask-input" style="min-width:150px">
         ${[[0,"Any match"],[50,"50%+ — worth a look"],[70,"70%+ — strong fit"],[85,"85%+ — near perfect"]]
           .map(([v,t])=>`<option value="${v}" ${JB.minScore===v?"selected":""}>${t}</option>`).join("")}
@@ -2863,6 +2939,25 @@ document.addEventListener("click",e=>{
   const sg=e.target.closest("[data-jbsugg]");
   if(sg){ const inp=$("#jbQ"); if(inp) inp.value=sg.dataset.jbsugg;
           JB.q=sg.dataset.jbsugg; JB.suggOpen=false; jbPaintSugg(); jbRun(); return; }
+  const tb=e.target.closest("[data-jbtab]");
+  if(tb){ JB.tab=tb.dataset.jbtab; JB.suggOpen=false;
+          if(JB.tab==="track") jbLoadTracks().then(renderCareers); else renderCareers();
+          return; }
+  const tt=e.target.closest("[data-jbtrtab]");
+  if(tt){ JB.trackTab=tt.dataset.jbtrtab; renderCareers(); return; }
+  const sv=e.target.closest("[data-jbsave]");
+  if(sv){ const id=+sv.dataset.jbsave;
+          if(sv.dataset.on) jbUntrack(id); else jbTrack(id,"saved",true);
+          return; }
+  const dl=e.target.closest("[data-jbdel]");
+  if(dl){ if(confirm("Remove this from your applications?")) jbUntrack(+dl.dataset.jbdel); return; }
+  /* Opening the employer's form is the moment an application really starts,
+     so record it then rather than asking the user to tick a box afterwards. */
+  const ap=e.target.closest("[data-jbapplied]");
+  if(ap){ const id=+ap.dataset.jbapplied;
+          const j=JB.jobs.find(x=>x.id===id);
+          if(j && !["applied","interviewing","offer"].includes(j.tracked)) jbTrack(id,"applied",true);
+          return; }
   const kt=e.target.closest("[data-jbkit]");
   if(kt){ jbApplyKit(+kt.dataset.jbkit); return; }
   const cp=e.target.closest("[data-jbcopy]");
@@ -2884,9 +2979,10 @@ function renderCareers(){
   <div class="h1">💼 Careers &amp; jobs</div>
   <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply — worldwide — and practice that mirrors what you'd do on day one.</p>
 
-  ${jbSectionHTML()}
+  ${jbTabsHTML()}
+  ${JB.tab==="track"?jbTrackerHTML():jbSectionHTML()}
 
-  ${jbChecksHTML()}
+  ${JB.tab==="track"?"":jbChecksHTML()}
 
   <div class="eyebrow" style="margin-top:24px">Roles you can aim for — and what the job is really like</div>
   ${CAREER_ROLES.map(r=>`<div class="card" style="margin-bottom:14px">
@@ -2959,9 +3055,13 @@ function renderCareers(){
   const up=$("#jbUp"); if(up) up.onchange=e=>{ if(e.target.files[0]) jbUpload(e.target.files[0]); };
   const jd=$("#rzJD"); if(jd){ jd.value=RZ_JD; jd.oninput=e=>{ RZ_JD=e.target.value; }; }
   const qi=$("#jbQ"); if(qi) qi.oninput=e=>jbSuggest(e.target.value);
-  ["jbCat","jbType","jbEng","jbVisa"].forEach(id=>{
+  ["jbCat","jbType"].forEach(id=>{
     const el=$("#"+id); if(el) el.onchange=()=>jbRun();
   });
+  document.querySelectorAll("[data-jbstatus]").forEach(sel=>{
+    sel.onchange=e=>jbTrack(+sel.dataset.jbstatus,e.target.value);
+  });
+  if(!JB.tracks) jbLoadTracks().then(()=>{ if(S.view.page==="careers") renderCareers(); });
   if(!JB.filters) jbFilters().then(()=>{ if(S.view.page==="careers") renderCareers(); });
 }
 

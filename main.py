@@ -267,6 +267,35 @@ class AskCache(Base):
     created_at = Column(DateTime(timezone=True), default=now)
 
 
+class JobTrack(Base):
+    """A job a user saved or applied to, and where it got to.
+
+    Kept separate from Job so that pruning old postings never destroys
+    someone's application history — the title and company are copied in for
+    exactly that reason, and the row survives the listing closing.
+    """
+    __tablename__ = "job_tracks"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    job_id = Column(Integer, index=True)          # not a FK: jobs get pruned
+    status = Column(String(20), default="saved", index=True)
+    title = Column(String(300), default="")
+    company = Column(String(200), default="")
+    location = Column(String(200), default="")
+    url = Column(Text, default="")
+    score = Column(Integer, default=0)
+    note = Column(Text, default="")
+    applied_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+# The order a real application moves through, which the UI shows as tabs.
+TRACK_STATUSES = ["saved", "applied", "interviewing", "offer", "rejected", "archived"]
+TRACK_LABELS = {"saved": "Saved", "applied": "Applied", "interviewing": "Interviewing",
+                "offer": "Offer received", "rejected": "Rejected", "archived": "Archived"}
+
+
 class Job(Base):
     """One live job posting, refreshed daily from public career-site APIs.
 
@@ -4133,8 +4162,23 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     off, lim = max(offset, 0), min(max(limit, 1), 50)
     total = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa).count()
     rows = query.offset(off).limit(lim).all()
-    return {"jobs": [_job_json(j) for j in rows], "total": total,
+    out = [_job_json(j) for j in rows]
+    _mark_tracked(db, user, out)
+    return {"jobs": out, "total": total,
             "offset": off, "limit": lim, "has_more": off + lim < total}
+
+
+def _mark_tracked(db, user, items):
+    """Tag each result with the user's saved/applied state, so the list can
+    show it without a second request per card."""
+    ids = [d["id"] for d in items]
+    if not ids:
+        return
+    seen = dict(db.query(JobTrack.job_id, JobTrack.status)
+                .filter(JobTrack.user_id == user.id,
+                        JobTrack.job_id.in_(ids)).all())
+    for d in items:
+        d["tracked"] = seen.get(d["id"], "")
 
 
 @app.get("/api/jobs/categories")
@@ -4281,10 +4325,82 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     off = max(body.offset, 0)
     lim = min(max(body.limit, 1), 50)
     page = scored[off:off + lim]
+    _mark_tracked(db, user, page)
     return {"jobs": page, "scanned": len(rows), "total": len(scored),
             "offset": off, "limit": lim, "has_more": off + lim < len(scored),
             "level": level, "families": sorted(my_fams),
             "your_skills": sorted(s for s in skills if s not in _WEAK_SKILLS)[:30]}
+
+
+class TrackIn2(BaseModel):
+    job_id: int
+    status: str = Field(default="saved", max_length=20)
+    note: str = Field(default="", max_length=2000)
+
+
+def _track_json(t):
+    return {"id": t.id, "job_id": t.job_id, "status": t.status,
+            "title": t.title, "company": t.company, "location": t.location,
+            "url": t.url, "score": t.score or 0, "note": t.note or "",
+            "applied_at": t.applied_at.isoformat() if t.applied_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None}
+
+
+@app.post("/api/jobs/track")
+def job_track(body: TrackIn2, user: User = Depends(current_user),
+              db: Session = Depends(get_db)):
+    """Save a job, or move it along the pipeline. One row per user per job."""
+    status = (body.status or "saved").strip().lower()
+    if status not in TRACK_STATUSES:
+        raise HTTPException(400, f"Unknown status. Use one of: {', '.join(TRACK_STATUSES)}")
+    row = db.query(JobTrack).filter(JobTrack.user_id == user.id,
+                                    JobTrack.job_id == body.job_id).first()
+    if not row:
+        job = db.get(Job, body.job_id)
+        if not job:
+            raise HTTPException(404, "That job is no longer listed")
+        # Copy the details in — the posting may be pruned later, but the user's
+        # record of having applied to it should outlive the listing.
+        row = JobTrack(user_id=user.id, job_id=job.id, title=job.title,
+                       company=job.company, location=job.location, url=job.url)
+        db.add(row)
+    row.status = status
+    if body.note:
+        row.note = body.note
+    if status == "applied" and not row.applied_at:
+        row.applied_at = now()
+    db.commit()
+    db.refresh(row)
+    return {"ok": True, "track": _track_json(row)}
+
+
+@app.get("/api/jobs/tracked")
+def jobs_tracked(status: str = "", user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    """Everything the user saved or applied to, plus a count per stage."""
+    q = db.query(JobTrack).filter(JobTrack.user_id == user.id)
+    if status:
+        q = q.filter(JobTrack.status == status.strip().lower())
+    rows = q.order_by(JobTrack.updated_at.desc()).limit(500).all()
+    counts = dict(db.query(JobTrack.status, func.count(JobTrack.id))
+                  .filter(JobTrack.user_id == user.id)
+                  .group_by(JobTrack.status).all())
+    return {"tracks": [_track_json(t) for t in rows],
+            "counts": {s: counts.get(s, 0) for s in TRACK_STATUSES},
+            "total": sum(counts.values()),
+            "statuses": [{"id": s, "label": TRACK_LABELS[s]} for s in TRACK_STATUSES]}
+
+
+@app.delete("/api/jobs/track/{job_id}")
+def job_untrack(job_id: int, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Remove a job from the tracker entirely."""
+    row = db.query(JobTrack).filter(JobTrack.user_id == user.id,
+                                    JobTrack.job_id == job_id).first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return {"ok": True}
 
 
 class ApplyKitIn(BaseModel):

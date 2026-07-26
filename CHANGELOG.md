@@ -14,6 +14,25 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.46.0 — Application tracker
+
+- **Two tabs on the careers page: Find jobs and My applications.**
+- **Save a job** with ♡ on any result. **Pressing Apply records it
+  automatically** — the moment you open the employer's form is when the
+  application really starts, so you are not asked to tick a box afterwards.
+- **A pipeline you can move things through:** Saved → Applied → Interviewing →
+  Offer received → Rejected → Archived, with a count on each stage and a
+  dropdown on every row to move it along. Remove anything with ✕.
+- **Your history outlives the listing.** The job title, company, location and
+  link are copied onto your record when you save it, so pruning old postings
+  after 7 days never erases what you applied to.
+- **Removed the W2/C2C and work-authorisation filters.** They were built and
+  correct, but the free sources carry almost nothing for them (W2 4, C2C 3),
+  and a filter that returns nothing is worse than no filter. The parsing stays
+  in place, so they can come back the moment a source that carries those
+  postings is connected. Job type (full-time / contract / part-time /
+  internship) stays — that one has real data behind it.
+
 ## 1.45.0 — Terms and Privacy Policy rewritten for paid subscriptions
 
 - **Terms of Use** rewritten for a paid service: who operates VidyaPath,
