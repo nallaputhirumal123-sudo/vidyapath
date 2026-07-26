@@ -4584,12 +4584,20 @@ def _store_jobs(db, rows, reached):
 
 
 async def _refresh_jobs():
+    import asyncio
     rows, report, reached = await _collect_jobs()
-    db = SessionLocal()
-    try:
-        stats = _store_jobs(db, rows, reached)
-    finally:
-        db.close()
+
+    def _store():
+        db = SessionLocal()
+        try:
+            return _store_jobs(db, rows, reached)
+        finally:
+            db.close()
+
+    # Off the event loop. Writing ~16,000 rows is a minute of synchronous
+    # database work, and running it inline froze every other request for that
+    # whole time — including /api/version, which does nothing at all.
+    stats = await asyncio.to_thread(_store)
     print(f"jobs refresh: {stats} from {len(rows)} rows, {len(reached)} boards")
     return {**stats, "fetched": len(rows), "boards_reached": len(reached),
             "sources": report}
