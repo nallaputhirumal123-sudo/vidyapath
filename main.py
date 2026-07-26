@@ -1497,16 +1497,22 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
     if not user:
         # New Google user — no password; a random hash blocks password login.
+        # is_active is set explicitly: column defaults are applied by SQLAlchemy
+        # at INSERT, so on a freshly constructed object it is still None — and
+        # the check below then read that as "deactivated" and turned every new
+        # Google sign-up away.
         user = User(email=email, name=name[:120],
                     password_hash=hash_pw(secrets.token_urlsafe(24)),
+                    is_active=True,
                     is_admin=(email == ADMIN_EMAIL))
         db.add(user)
     else:
         user.last_seen = now()
         if email == ADMIN_EMAIL and not user.is_admin:
             user.is_admin = True
-    if not user.is_active:
-        return RedirectResponse("/?error=account_disabled")
+        # Only an existing account can have been deactivated.
+        if not user.is_active:
+            return RedirectResponse("/?error=account_disabled")
     db.commit()
     db.refresh(user)
 

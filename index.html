@@ -438,6 +438,13 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
   .ask-chips{gap:6px}
   .ask-chip{font-size:12.5px;padding:6px 11px}
 }
+
+/* The bell and theme buttons are position:fixed at top-right, so on mobile
+   they sat on top of the sticky topbar and covered whatever was under them.
+   Reserve their width instead of letting them overlap. */
+@media (max-width:900px){
+  .topbar{padding-right:112px}
+}
 </style>
 </head>
 <body>
@@ -615,8 +622,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.67.0"></script>
-<script src="presenter.js?v=1.67.0"></script>
+<script src="tutor.js?v=1.68.2"></script>
+<script src="presenter.js?v=1.68.2"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var PRESENTER = window.Presenter || { tour(){}, explain(){}, close(){} };
