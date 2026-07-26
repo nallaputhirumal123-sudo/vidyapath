@@ -1,7 +1,7 @@
 /* The site the extension pairs with. The Railway URL stays as a fallback so
  * an extension paired before the domain moved keeps working. */
 const SITE = "https://craxle.com";
-const FALLBACK_SITE = "https://vidyapath-athlyx-a9c9.up.railway.app";
+const FALLBACK_SITE = "https://vidyapath-athlyx-38f1.up.railway.app";
 
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.style.display = on ? "block" : "none"; };
