@@ -10,26 +10,73 @@ window.__vpFill = function (profile) {
   const filled = [];
   const skipped = [];
 
-  /* ---------- finding the label that belongs to a field ---------- */
+  /* ---------- finding the label that belongs to a field ----------
+   * Returns two things, and the distinction matters. `label` is the human
+   * caption alone, so an exact rule like ^name$ can be tested against it.
+   * `blob` is everything we know, for looser word-boundary rules. Joining
+   * the two together was a bug: "Name" became "name type here _field_name",
+   * and every anchored rule stopped matching.
+   */
+  const clean = (s) => (s || "").toLowerCase()
+    .replace(/[*∗]/g, " ")             // required-field asterisks
+    .replace(/\(optional\)|\(required\)/g, " ")
+    .replace(/\s+/g, " ").trim();
+
   function labelFor(el) {
-    const bits = [];
+    let label = "";
+    const take = (t) => { if (!label && clean(t)) label = clean(t); };
+
     if (el.id) {
       const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (l) bits.push(l.innerText);
+      if (l) take(l.innerText);
+    }
+    const by = el.getAttribute("aria-labelledby");
+    if (by) {
+      by.split(/\s+/).forEach((id) => {
+        const n = document.getElementById(id);
+        if (n) take(n.innerText);
+      });
     }
     const wrap = el.closest("label");
-    if (wrap) bits.push(wrap.innerText);
-    // Greenhouse/Lever/Ashby all put the label in a parent div's first text node
-    const box = el.closest("div,fieldset,section");
-    if (box) {
-      const lb = box.querySelector("label,legend,.label,[class*='label']");
-      if (lb) bits.push(lb.innerText);
+    if (wrap) take(wrap.innerText);
+    take(el.getAttribute("aria-label"));
+
+    /* Ashby, Workday and most React forms render the caption as a plain div
+     * above the input rather than a <label>. Walk up a few levels looking
+     * for a label-ish node or a preceding sibling with short text. */
+    const FIELDS = "input,textarea,select";
+    let node = el, hops = 0;
+    while (node && hops < 4 && !label) {
+      node = node.parentElement;
+      if (!node) break;
+      hops++;
+      // Stop as soon as the container holds another field: we have left this
+      // input's own group, and anything found above belongs to a sibling.
+      // Without this the walk reached the <form> and handed every unlabelled
+      // input the form's first label.
+      if (node.querySelectorAll(FIELDS).length > 1) break;
+      // `i` flag: classes like _fieldLabel_x8k are camelCase, and CSS
+      // attribute matching is case-sensitive without it.
+      for (const lb of node.children) {
+        if (label) break;
+        if (lb.contains(el) || lb.querySelector(FIELDS)) continue;
+        if (lb.matches("label,legend,[class*='label' i]") ||
+            clean(lb.innerText).length <= 60) take(lb.innerText);
+      }
+      let sib = node.previousElementSibling;
+      while (sib && !label) {
+        if (!sib.querySelector(FIELDS)) {
+          const t = clean(sib.innerText);
+          if (t && t.length <= 60) take(t);
+        }
+        sib = sib.previousElementSibling;
+      }
     }
-    bits.push(el.getAttribute("aria-label") || "");
-    bits.push(el.getAttribute("placeholder") || "");
-    bits.push(el.getAttribute("name") || "");
-    bits.push(el.id || "");
-    return bits.join(" ").toLowerCase().replace(/\s+/g, " ").trim();
+
+    const blob = [label, el.getAttribute("aria-label"),
+                  el.getAttribute("placeholder"), el.getAttribute("name"),
+                  el.id].map(clean).filter(Boolean).join(" ");
+    return { label, blob };
   }
 
   /* ---------- what each profile value is allowed to match ----------
@@ -42,8 +89,10 @@ window.__vpFill = function (profile) {
       no: [/last/, /referr/, /emergency/, /manager/, /spouse/] },
     { key: "last_name", yes: [/\blast[\s_-]*name\b/, /\bsurname\b/, /\bfamily name\b/, /\blname\b/],
       no: [/first/, /referr/, /emergency/, /manager/] },
-    { key: "full_name", yes: [/\bfull[\s_-]*name\b/, /^name$/, /\byour name\b/, /\bcandidate name\b/],
-      no: [/first/, /last/, /user ?name/, /company/, /school/, /referr/, /file/] },
+    { key: "full_name", yes: [/\bfull[\s_-]*name\b/, /^name$/, /^full name$/,
+        /\byour name\b/, /\bcandidate name\b/, /\blegal name\b/, /^name of applicant$/],
+      no: [/first/, /last/, /user ?name/, /company/, /school/, /referr/, /file/,
+           /nickname/, /preferred/] },
     { key: "email", yes: [/\be-?mail\b/],
       no: [/confirm/, /referr/, /manager/, /emergency/, /alternate/] },
     { key: "phone", yes: [/\bphone\b/, /\bmobile\b/, /\btelephone\b/, /\bcontact number\b/],
@@ -65,12 +114,18 @@ window.__vpFill = function (profile) {
       no: [/why (this|our|do you)/, /cover letter/] },
   ];
 
-  function valueFor(label) {
-    for (const r of RULES) {
-      const v = profile[r.key];
-      if (!v) continue;
-      if (r.no.some((rx) => rx.test(label))) continue;
-      if (r.yes.some((rx) => rx.test(label))) return { key: r.key, value: v };
+  function valueFor(found) {
+    const { label, blob } = found;
+    // The caption is checked first and on its own, so an exact rule can be
+    // exact. Only then do we fall back to the looser blob.
+    for (const src of [label, blob]) {
+      if (!src) continue;
+      for (const r of RULES) {
+        const v = profile[r.key];
+        if (!v) continue;
+        if (r.no.some((rx) => rx.test(src))) continue;
+        if (r.yes.some((rx) => rx.test(src))) return { key: r.key, value: v };
+      }
     }
     return null;
   }

@@ -3740,8 +3740,13 @@ async def _fetch_themuse(client, _=None):
     return out
 
 
+# The Muse is deliberately absent. Its landing_page links 404 about half the
+# time — 15 of 30 sampled — because it keeps listings after the employer has
+# taken them down. It was 14% of the board and the only source with dead
+# links; every other one returned 200 across the board. A job that cannot be
+# opened is worse than no job, so the fetcher stays but is not wired in.
 _FREE_AGGREGATORS = {
-    "themuse": _fetch_themuse, "arbeitnow": _fetch_arbeitnow,
+    "arbeitnow": _fetch_arbeitnow,
     "remotive": _fetch_remotive, "remoteok": _fetch_remoteok,
     "jobicy": _fetch_jobicy, "himalayas": _fetch_himalayas,
 }
@@ -3824,8 +3829,20 @@ async def _collect_jobs():
     return rows, report, reached
 
 
+# Sources we have switched off. Their rows must be deleted outright: a
+# retired source never appears in a crawl, so the "vanished from the board"
+# rule never fires and the rows would sit there as open forever.
+RETIRED_SOURCES = ("themuse",)
+
+
 def _store_jobs(db, rows, reached):
     """Upsert this crawl, close postings that vanished, drop old history."""
+    gone = db.query(Job).filter(Job.source.in_(RETIRED_SOURCES)).delete(
+        synchronize_session=False)
+    if gone:
+        db.commit()
+        print(f"jobs: removed {gone} rows from retired sources "
+              f"({', '.join(RETIRED_SOURCES)})")
     seen, added, updated = set(), 0, 0
     for r in rows:
         seen.add((r["source"], r["external_id"]))

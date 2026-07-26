@@ -14,6 +14,27 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.50.0 — Dropped The Muse, fixed autofill on Ashby-style forms
+
+- **Removed The Muse.** Half its links were dead: 15 of 30 sampled URLs
+  returned 404, because it keeps listings after the employer has taken them
+  down. It was 1,980 jobs, 14% of the board, and the only source with broken
+  links — every other one returned 200 across the board. Its rows are deleted
+  outright on the next crawl, since a retired source never reappears and so
+  would never be marked closed.
+- **Fixed autofill filling nothing on Ashby-style forms.** The label was being
+  joined with the placeholder and field id into one string, so an exact rule
+  like `^name$` was tested against `"name type here _systemfield_name"` and
+  never matched. The caption is now matched on its own first, then the wider
+  text. A form that filled 0 fields now fills 6.
+- Label detection also walks up to nearby container elements and preceding
+  siblings, and matches class names case-insensitively — Ashby and most React
+  forms render the caption as a `div`, not a `<label>`.
+- **Fixed a regression that fix introduced:** the ancestor search used a
+  subtree query, so an unlabelled input adopted the form's first label and the
+  city box got filled with a first name. It now stops climbing as soon as the
+  container holds another field.
+
 ## 1.49.0 — Craxle, Axle, Workday + SmartRecruiters, date filter
 
 - **Rebranded to Craxle** across the app, admin, legal pages, extension and
