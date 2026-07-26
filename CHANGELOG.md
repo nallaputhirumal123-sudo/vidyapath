@@ -14,6 +14,13 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.47.1 — My applications is only the tracker
+
+- The **My applications** tab showed the whole careers page underneath it —
+  roles to aim for, practice projects, job boards, company career pages, the
+  extension card. All of that now stays in **Find jobs**, where it belongs.
+  The tracker tab shows the tracker and nothing else.
+
 ## 1.47.0 — Autofill browser extension
 
 - **New `extension/` folder: a Chrome/Edge extension that fills a job
