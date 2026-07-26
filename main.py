@@ -5053,6 +5053,11 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
     first, _, last = full.partition(" ")
     return {
         "first_name": first, "last_name": last.strip(), "full_name": full,
+        # Blank on purpose: a resume rarely carries these, and the person
+        # fills them once in the extension rather than on every form.
+        "middle_name": "", "preferred_first_name": "",
+        "preferred_middle_name": "", "preferred_last_name": "",
+        "phone_country_code": "",
         "email": str(r.get("email") or user.email or ""),
         "phone": str(r.get("phone") or ""),
         "location": str(r.get("location") or user.city or ""),

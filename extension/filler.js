@@ -10,6 +10,23 @@ window.__vpFill = function (profile) {
   const filled = [];
   const skipped = [];
 
+  /* "Preferred" name fields are usually the same as the legal ones. Filling
+   * them from the legal name when the user has not set a different one is
+   * what they would type anyway, and leaving a required field blank is worse. */
+  profile = Object.assign({}, profile);
+  const fallback = {
+    preferred_first_name: "first_name",
+    preferred_middle_name: "middle_name",
+    preferred_last_name: "last_name",
+  };
+  for (const [pref, legal] of Object.entries(fallback)) {
+    if (!(profile[pref] || "").trim()) profile[pref] = profile[legal] || "";
+  }
+  if (!(profile.full_name || "").trim()) {
+    profile.full_name = [profile.first_name, profile.middle_name, profile.last_name]
+      .filter(Boolean).join(" ");
+  }
+
   /* ---------- finding the label that belongs to a field ----------
    * Returns two things, and the distinction matters. `label` is the human
    * caption alone, so an exact rule like ^name$ can be tested against it.
@@ -41,10 +58,25 @@ window.__vpFill = function (profile) {
     if (wrap) take(wrap.innerText);
     take(el.getAttribute("aria-label"));
 
+    const FIELDS = "input,textarea,select";
+
+    /* Flat layouts put the caption directly before the input with no wrapper
+     * — "Email Address" then <input> as siblings inside the form. The walk-up
+     * below bails on any container holding several fields, which is the whole
+     * form here, so check the immediate siblings first. */
+    let sib0 = el.previousElementSibling, near = 0;
+    while (sib0 && !label && near < 3) {
+      if (!sib0.querySelector(FIELDS) && !sib0.matches(FIELDS)) {
+        const t = clean(sib0.innerText);
+        if (t && t.length <= 60) take(t);
+      } else break;          // hit another field: its label, not ours
+      sib0 = sib0.previousElementSibling;
+      near++;
+    }
+
     /* Ashby, Workday and most React forms render the caption as a plain div
      * above the input rather than a <label>. Walk up a few levels looking
      * for a label-ish node or a preceding sibling with short text. */
-    const FIELDS = "input,textarea,select";
     let node = el, hops = 0;
     while (node && hops < 4 && !label) {
       node = node.parentElement;
@@ -92,12 +124,19 @@ window.__vpFill = function (profile) {
         /full legal name/, /legal name/, /name \(first and last\)/,
         /first.{0,6}last name/],
       no: [/referr/, /emergency/, /manager/, /spouse/, /company/, /school/] },
-    { key: "first_name", yes: [/\bfirst[\s_-]*name\b/, /\bgiven name\b/, /\bfname\b/,
-        /preferred first name/],
-      no: [/last/, /referr/, /emergency/, /manager/, /spouse/] },
-    { key: "last_name", yes: [/\blast[\s_-]*name\b/, /\bsurname\b/, /\bfamily name\b/,
-        /\blname\b/, /preferred last name/],
-      no: [/first/, /referr/, /emergency/, /manager/] },
+    { key: "preferred_first_name", yes: [/preferred first name/, /preferred given name/],
+      no: [/\breferr/, /emergency/] },
+    { key: "preferred_middle_name", yes: [/preferred middle name/], no: [] },
+    { key: "preferred_last_name", yes: [/preferred last name/, /preferred surname/],
+      no: [/\breferr/, /emergency/] },
+    { key: "middle_name", yes: [/\bmiddle[\s_-]*name\b/, /\bmiddle initial\b/],
+      no: [/preferred/, /\breferr/, /emergency/] },
+    { key: "first_name", yes: [/\bfirst[\s_-]*name\b/, /\bgiven name\b/, /\bfname\b/],
+      no: [/last/, /middle/, /preferred/, /\breferr/, /emergency/, /manager/, /spouse/] },
+    { key: "last_name", yes: [/\blast[\s_-]*name\b/, /\bsurname\b/, /\bfamily name\b/, /\blname\b/],
+      no: [/first/, /middle/, /preferred/, /\breferr/, /emergency/, /manager/] },
+    { key: "phone_country_code", yes: [/country code/, /dial(ling)? code/, /phone code/],
+      no: [/post/, /zip/] },
     { key: "full_name", yes: [/\bfull[\s_-]*name\b/, /^name$/, /^full name$/,
         /\byour name\b/, /\bcandidate name\b/, /^name of applicant$/],
       no: [/first/, /last/, /user ?name/, /company/, /school/, /referr/, /file/,

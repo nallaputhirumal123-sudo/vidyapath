@@ -72,11 +72,22 @@
   <div class="grp">Personal</div>
   <div class="row2">
     <div><label>First name</label><input data-f="first_name"></div>
-    <div><label>Last name</label><input data-f="last_name"></div>
+    <div><label>Middle name</label><input data-f="middle_name"></div>
   </div>
+  <label>Last name</label><input data-f="last_name">
   <label>Full name</label><input data-f="full_name">
+  <div class="grp">Preferred name <span style="text-transform:none;color:#8896a8;font-weight:400">— leave blank to reuse the legal name</span></div>
+  <div class="row2">
+    <div><label>Preferred first</label><input data-f="preferred_first_name"></div>
+    <div><label>Preferred middle</label><input data-f="preferred_middle_name"></div>
+  </div>
+  <label>Preferred last</label><input data-f="preferred_last_name">
+  <div class="grp">Contact</div>
   <label>Email</label><input data-f="email" type="email">
-  <label>Phone</label><input data-f="phone" type="tel">
+  <div class="row2">
+    <div><label>Country code</label><input data-f="phone_country_code" placeholder="+1"></div>
+    <div><label>Phone</label><input data-f="phone" type="tel"></div>
+  </div>
 
   <div class="grp">Address</div>
   <label>Street address</label><input data-f="address">
