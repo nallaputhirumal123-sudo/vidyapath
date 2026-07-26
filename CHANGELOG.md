@@ -14,6 +14,27 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.57.0 — Fix AI features failing on newer Gemini models
+
+Three causes, all of which surfaced to the user as the same useless message,
+"The AI could not respond just now":
+
+- **JSON was only requested in the prompt, never enforced.** Every call that
+  expects JSON now sets the API's own JSON mode, so the model cannot reply
+  with prose.
+- **The parser accepted only a bare JSON string.** A preamble, a fence or a
+  closing remark broke it. It now falls back to the outermost `{...}` or
+  `[...]`, and when it genuinely fails it reports what the model actually
+  said instead of a generic error.
+- **Newer models were spending the whole token budget on internal thinking.**
+  That is billed against the same allowance as the answer, so a long request
+  could return no visible text. Thinking is now disabled on every Gemini from
+  2.5 upwards, not just the 2.5 series, and the apply kit's budget is raised
+  from 1,200 to 2,500 tokens.
+- The admin self-test now runs a second, apply-kit-shaped call and reports
+  HTTP status, characters returned, finish reason and token usage — enough to
+  tell a wrong model id from a token-budget problem from a rate limit.
+
 ## 1.55.0 — Two devices, admin exemption, live model list
 
 - **Two devices per account instead of one.** A phone and a laptop is ordinary

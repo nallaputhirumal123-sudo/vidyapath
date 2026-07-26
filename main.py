@@ -195,6 +195,11 @@ class User(Base):
     plan_ref = Column(String(120), default="")              # subscription id
     plan_expires = Column(DateTime(timezone=True))
     plan_started = Column(DateTime(timezone=True))
+    # Two-factor. Off by default: making it compulsory at signup costs more
+    # accounts than it protects, at this size.
+    totp_secret = Column(String(64), default="")
+    totp_enabled = Column(Boolean, default=False, nullable=False)
+    totp_backup = Column(Text, default="")     # hashed single-use codes
 
 
 class Track(Base):
@@ -2731,8 +2736,11 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
         if json_mode:
             gen["responseMimeType"] = "application/json"
         model = GEMINI_MODEL_BEST if best else GEMINI_MODEL
-        # Thinking budget is a 2.5-era setting; newer models reject it.
-        if model.startswith("gemini-2.5"):
+        # Gemini models from 2.5 onwards do internal "thinking" that is billed
+        # against the same output budget. Left on, it can consume the whole
+        # allowance and return no visible text at all — which reaches the user
+        # as "the AI could not respond". None of these tasks benefit from it.
+        if _re.match(r"gemini-(2\.5|[3-9]|\d{2})", model):
             gen["thinkingConfig"] = {"thinkingBudget": 0}
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -2863,8 +2871,28 @@ async def resume_ai(body: ResumeAIIn, user: User = Depends(current_user)):
 
 
 def _ai_json(text):
-    clean = (text or "").replace("```json", "").replace("```", "").strip()
-    return json.loads(clean)
+    """Parse a model's JSON reply, tolerating the ways models wrap it.
+
+    Asking for JSON in the prompt is not a guarantee: models add a preamble,
+    fence the block, or append a closing remark. Parsing the whole string and
+    hoping meant one stray sentence surfaced to the user as "the AI could not
+    respond", which is both wrong and unfixable from their side.
+    """
+    raw = (text or "").strip()
+    clean = raw.replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(clean)
+    except Exception:
+        pass
+    # Fall back to the outermost {...} or [...] in the response.
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start, end = clean.find(opener), clean.rfind(closer)
+        if start != -1 and end > start:
+            try:
+                return json.loads(clean[start:end + 1])
+            except Exception:
+                continue
+    raise ValueError(f"Model did not return JSON. First 200 chars: {raw[:200]!r}")
 
 
 class BulletsIn(BaseModel):
@@ -2895,7 +2923,7 @@ async def resume_bullets(body: BulletsIn, user: User = Depends(current_user)):
         'Respond with ONLY valid JSON: {"bullets": ["...", "...", "..."]}'
     )
     try:
-        data = _ai_json(await _ai_text(prompt, 700))
+        data = _ai_json(await _ai_text(prompt, 700, json_mode=True))
     except Exception as e:
         print(f"Resume bullets failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI writer could not respond. Try again.")
@@ -2922,7 +2950,7 @@ async def resume_skills(body: RoleIn, user: User = Depends(current_user)):
         'Respond with ONLY valid JSON: {"skills": ["Python", "SQL", "..."]}'
     )
     try:
-        data = _ai_json(await _ai_text(prompt, 500))
+        data = _ai_json(await _ai_text(prompt, 500, json_mode=True))
     except Exception as e:
         print(f"Resume skills failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, "The AI writer could not respond. Try again.")
@@ -3001,7 +3029,7 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user),
         '"advice": ["<specific next step, with example wording>", "..."]}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 900))
+        d = _ai_json(await _ai_text(prompt, 900, json_mode=True))
     except Exception as e:
         print(f"Resume match failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
@@ -3418,7 +3446,7 @@ async def resume_parse(file: UploadFile = File(...),
         '"proj":[{"name":"","tech":"","desc":"","link":""}],"certs":""}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 6000))
+        d = _ai_json(await _ai_text(prompt, 6000, json_mode=True))
     except Exception as e:
         print(f"Resume parse failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
@@ -3571,14 +3599,47 @@ async def ai_selftest(user: User = Depends(admin_user)):
     Gemini rate-limit/quota reason). Visit /api/ai/selftest while signed in as
     an admin."""
     info = {"provider": AI_PROVIDER, "model": _PROVIDER_MODEL, "enabled": ASK_ENABLED,
+            "everyday_model": GEMINI_MODEL, "apply_kit_model": GEMINI_MODEL_BEST,
             "fallback_order": _providers_in_order()}
     if not ASK_ENABLED:
         return {**info, "ok": False, "error": "No AI key configured on the server"}
-    try:
-        out = await _ai_text("Reply with exactly: OK", 20)
-        return {**info, "ok": True, "sample": (out or "")[:200]}
-    except Exception as e:
-        return {**info, "ok": False, "error": f"{type(e).__name__}: {e}"[:600]}
+
+    # Two calls, because they fail differently. The short one proves the key
+    # and model id work at all; the long one is shaped like a real apply kit,
+    # which is where an empty response or a token-budget problem shows up.
+    async def probe(label, model, tokens, prompt):
+        try:
+            async with httpx.AsyncClient(timeout=60) as c:
+                gen = {"maxOutputTokens": tokens, "temperature": 0.4}
+                if model.startswith("gemini-2.5"):
+                    gen["thinkingConfig"] = {"thinkingBudget": 0}
+                r = await c.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    headers={"x-goog-api-key": GEMINI_API_KEY,
+                             "content-type": "application/json"},
+                    json={"contents": [{"parts": [{"text": prompt}]}],
+                          "generationConfig": gen})
+            body = r.json()
+            cands = body.get("candidates") or []
+            text = "".join(p.get("text", "") for c_ in cands
+                           for p in c_.get("content", {}).get("parts", [])).strip()
+            return {"model": model, "http": r.status_code,
+                    "chars_returned": len(text),
+                    "finish_reason": (cands[0].get("finishReason") if cands else None),
+                    "usage": body.get("usageMetadata"),
+                    "sample": text[:160],
+                    "error": None if r.status_code < 300 else str(body.get("error"))[:300],
+                    "ok": r.status_code < 300 and bool(text)}
+        except Exception as e:
+            return {"model": model, "ok": False,
+                    "error": f"{type(e).__name__}: {e}"[:300]}
+
+    short = await probe("short", GEMINI_MODEL, 20, "Reply with exactly: OK")
+    long_prompt = ("Return ONLY valid JSON: {\"summary\":\"<two sentences about a "
+                   "network engineer>\",\"bullets\":[\"a\",\"b\",\"c\"]}")
+    long = await probe("long", GEMINI_MODEL_BEST, 1200, long_prompt)
+    return {**info, "ok": bool(short.get("ok") and long.get("ok")),
+            "short_call": short, "apply_kit_style_call": long}
 
 
 @app.post("/api/ask")
@@ -5039,7 +5100,7 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
         '"flags": ["<anything in the posting they may not meet, stated plainly>"]}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 1200, best=True))
+        d = _ai_json(await _ai_text(prompt, 2500, json_mode=True, best=True))
     except Exception as e:
         print(f"Apply kit failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
