@@ -3916,13 +3916,33 @@ async function loadBilling(){
   try{ BILLING=await api.get("/api/billing/plans"); }catch(e){ BILLING=null; }
   return BILLING;
 }
-/* Stripe Checkout is a hosted page, so this is a redirect, not a popup: no
-   third-party script to load and no card details ever touching our page. */
+/* Cashfree's SDK is loaded only when someone actually starts a payment, so a
+   visitor who never opens Plans never downloads it. */
+function loadCashfree(){
+  return new Promise((ok,bad)=>{
+    if(window.Cashfree) return ok();
+    const s=document.createElement("script");
+    s.src="https://sdk.cashfree.com/js/v3/cashfree.js";
+    s.onload=ok; s.onerror=()=>bad(new Error("Could not load the payment window."));
+    document.head.appendChild(s);
+  });
+}
+/* Stripe Checkout is a hosted page, so that path is a redirect with no script
+   to load and no card details ever touching our page. */
 async function startCheckout(plan,period,btn){
   const old=btn?btn.textContent:"";
   if(btn){ btn.disabled=true; btn.textContent="Opening…"; }
   try{
     const r=await api.post("/api/billing/checkout",{plan,period});
+    if(r.gateway==="cashfree"){
+      if(!r.payment_session_id) throw new Error("Could not start the payment.");
+      await loadCashfree();
+      // redirectTarget:_self so the return_url lands back on our own page,
+      // where handleCheckoutReturn waits for the webhook to grant the plan.
+      Cashfree({mode:r.mode==="sandbox"?"sandbox":"production"})
+        .checkout({paymentSessionId:r.payment_session_id, redirectTarget:"_self"});
+      return;
+    }
     if(!r.url) throw new Error("Could not start the payment.");
     location.href=r.url;
   }catch(e){
