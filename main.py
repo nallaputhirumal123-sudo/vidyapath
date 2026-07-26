@@ -2731,16 +2731,23 @@ AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
 PLANS = {
     "free": {"name": "Free", "ai_total": 10, "kits_total": 3,
              "inr": None, "usd": None},
+    # Two rupee prices per plan. Everyone pays through Razorpay in INR, but a
+    # visitor outside India pays the international rate — 449 rupees is about
+    # $5, which is well under what this market pays, while raising the Indian
+    # price would price out the students it is built for.
     "basic": {"name": "Basic", "ai_month": 100, "kits_month": 30,
-              "inr_month": 44900, "usd_month": 1099,
-              "inr_year": None, "usd_year": None},
+              "inr_month": 44900, "intl_month": 109900,   # ~$12.49
+              "inr_year": None, "intl_year": None,
+              "usd_month": 1099, "usd_year": None},
     # Pro must cost more than Basic in both currencies, or nobody has a reason
     # to choose it. The annual price is deliberately below 12x monthly: a
     # job-seeker subscription usually churns at 2-3 months, and annual is the
     # only thing that changes that.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # None = unlimited
-            "inr_month": 74900, "usd_month": 1599,
-            "inr_year": 349900, "usd_year": 10000},
+            "inr_month": 74900, "intl_month": 158300,   # ~$17.99
+            "inr_year": 349900, "intl_year": 879900,    # ~$100
+
+            "usd_month": 1599, "usd_year": 10000},
 }
 # Free-tier allowances are lifetime totals, not daily: someone must be able to
 # try the product properly once, not a little every day forever.
@@ -5765,8 +5772,9 @@ def _is_india(request: Request) -> bool:
     the conversion. Stripe can take over the non-India path later by making
     this return the real country again.
     """
-    if not STRIPE_ENABLED:
-        return True
+    # Read the real country even though both regions pay through Razorpay:
+    # the gateway is the same, only the amount differs. Unknown country is
+    # treated as international — the safer default is to charge more, not less.
     return (request.headers.get("cf-ipcountry") or "").upper() == "IN"
 
 
@@ -5775,11 +5783,12 @@ def billing_plans(request: Request, user: User = Depends(current_user),
                   db: Session = Depends(get_db)):
     """What this user can buy, priced for where they are."""
     india = _is_india(request)
-    cur = "inr" if india else "usd"
-    sym = "₹" if india else "$"
+    # Both regions are billed in rupees through Razorpay; only the amount
+    # differs. Non-Indian cards handle the conversion themselves.
+    cur, sym = ("inr", "₹") if india else ("intl", "₹")
 
     def money(v):
-        return None if v is None else f"{sym}{v/100:,.0f}" if india else f"{sym}{v/100:,.2f}"
+        return None if v is None else f"{sym}{v/100:,.0f}"
 
     out = []
     for pid in ("free", "basic", "pro"):
@@ -5796,7 +5805,7 @@ def billing_plans(request: Request, user: User = Depends(current_user),
                           + (" to start" if pid == "free" else " a month")),
         })
     return {
-        "plans": out, "currency": cur.upper(), "region": "IN" if india else "INTL",
+        "plans": out, "currency": "INR", "region": "IN" if india else "INTL",
         "gateway": "razorpay" if india else "stripe",
         "available": {"razorpay": RAZORPAY_ENABLED, "stripe": STRIPE_ENABLED},
         "current": plan_of(user),
@@ -5876,7 +5885,7 @@ async def billing_checkout(body: CheckoutIn, request: Request,
     if india:
         if not RAZORPAY_ENABLED:
             raise HTTPException(503, "Payments are not switched on yet.")
-        amount = PLANS[plan].get(f"inr_{period}")
+        amount = PLANS[plan].get(f"{'inr' if india else 'intl'}_{period}")
         if not amount:
             raise HTTPException(400, "That plan is not sold for that period")
         auth = base64.b64encode(
