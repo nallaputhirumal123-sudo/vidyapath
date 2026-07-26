@@ -2835,6 +2835,10 @@ def ai_quota(db, user):
                 "resume_upload_left": max(
                     0, FREE_TRIAL["resume_upload"]
                     - _trial_used(db, user, "resume_upload")),
+                "match_left": max(0, FREE_TRIAL["match"]
+                                  - _trial_used(db, user, "match")),
+                "extension_left": max(0, FREE_TRIAL["extension"]
+                                      - _trial_used(db, user, "extension")),
                 "apply_left": 0 if applied else 1,
                 "apply_job_id": int(applied.v) if applied
                 and str(applied.v or "").isdigit() else None,
@@ -2860,7 +2864,7 @@ def require_paid(user, feature="This"):
 # application before deciding, without giving away the product. The free
 # application is handled separately by apply_gate, which tracks a job rather
 # than a count.
-FREE_TRIAL = {"resume_upload": 1}
+FREE_TRIAL = {"resume_upload": 1, "match": 1, "extension": 1}
 
 
 def _trial_used(db, user, key):
@@ -5693,7 +5697,8 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     Deliberately AI-free: scoring runs in Python over the stored postings, so
     it is instant, costs nothing, and never touches the daily AI limit."""
     import math
-    require_paid(user, "Resume matching")
+    require_paid_or_trial(db, user, "match", "Resume matching",
+                          spent="one free match")
     rtext = (body.resume_text or "").strip() or _resume_text(body.resume or {})
     if len(rtext.strip()) < 40:
         raise HTTPException(400, "Add some resume details first, or upload a resume.")
@@ -5768,6 +5773,10 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     lim = min(max(body.limit, 1), 50)
     page = scored[off:off + lim]
     _mark_tracked(db, user, page)
+    # One request, not one page: allowing off>0 through after the allowance is
+    # spent would be unlimited matching behind a query parameter. The free go
+    # returns a full page of ranked jobs, which is the thing worth seeing.
+    _trial_consume(db, user, "match")
     return {"jobs": page, "scanned": len(rows), "total": len(scored),
             # What the score is made of, so a user can see why it moved.
             "scoring": {
@@ -5891,9 +5900,17 @@ def _prune_pair_codes():
 
 
 @app.post("/api/apply/pair-code")
-def apply_pair_code(user: User = Depends(current_user)):
-    """Mint a pairing code to type into the extension. Expires in 10 minutes."""
-    require_paid(user, "The browser extension")
+def apply_pair_code(user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Mint a pairing code to type into the extension. Expires in 10 minutes.
+
+    Minting is free while the trial autofill is unspent, and deliberately does
+    not consume it: a code expires after 10 minutes, and burning someone's one
+    free autofill because they were slow typing it in would be indefensible.
+    The allowance is spent in apply_profile, when data is actually handed over.
+    """
+    require_paid_or_trial(db, user, "extension", "The browser extension",
+                          spent="one free autofill")
     _prune_pair_codes()
     code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
     _PAIR_CODES[code] = (user.id, now() + PAIR_TTL)
@@ -5914,6 +5931,12 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
     user = db.get(User, entry[0])
     if not user:
         raise HTTPException(401, "Account not found")
+    # Re-checked here, not just at pairing: this is where the profile actually
+    # leaves the server, and the code may have been minted before the allowance
+    # ran out.
+    require_paid_or_trial(db, user, "extension", "The browser extension",
+                          spent="one free autofill")
+    _trial_consume(db, user, "extension")
 
     raw = db.query(Note).filter(Note.user_id == user.id,
                                 Note.k == "resume_data").first()

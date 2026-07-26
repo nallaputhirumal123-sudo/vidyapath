@@ -97,7 +97,8 @@ check("pairing profile carries no auth material",
 
 # ---- AI quota enforced server-side ----
 q = A.get("/api/billing/plans").json()["quota"]
-check("free quota is a lifetime total", q.get("period") == "total" and q.get("limit") == 10)
+check("free quota is a lifetime total", q.get("period") == "total" and q.get("limit") == 0,
+      str(q))
 
 # ---- interview guide handles junk ----
 for c in ("", "zzz", "<script>", "network"):

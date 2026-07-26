@@ -102,11 +102,20 @@ check("bad status rejected",
       A.post("/api/jobs/track", json={"job_id": jid, "status": "nonsense"}).status_code == 400)
 
 # ---------- billing ----------
-b = A.get("/api/billing/plans").json()
-check("plans listed", len(b.get("plans", [])) == 3)
-check("free plan is current", b.get("current") == "free")
-check("quota exposed", b.get("quota", {}).get("limit") == 10)
-check("cancel refused on free", A.post("/api/billing/cancel", json={}).status_code == 400)
+# A was made admin above, which reads as Pro — so the free-plan assertions need
+# their own untouched account, or they silently test the admin path instead.
+FREE = TestClient(m.app)
+FE = f"sweepfree{int(time.time())}@example.com"
+FREE.post("/api/auth/signup", json={"name": "Sweep Free", "email": FE, "password": P})
+
+b = FREE.get("/api/billing/plans").json()
+check("plans listed", len(b.get("plans", [])) == 2, str(len(b.get("plans", []))))
+check("free plan is current", b.get("current") == "free", str(b.get("current")))
+check("quota exposed", b.get("quota", {}).get("limit") == 0, str(b.get("quota")))
+check("free trial allowances exposed",
+      b.get("quota", {}).get("trial", {}).get("resume_upload_left") == 1,
+      str(b.get("quota", {}).get("trial")))
+check("cancel refused on free", FREE.post("/api/billing/cancel", json={}).status_code == 400)
 check("checkout blocked without keys",
       A.post("/api/billing/checkout", json={"plan": "pro", "period": "month"}).status_code == 503)
 check("unknown plan rejected",
@@ -166,7 +175,9 @@ anon = TestClient(m.app)
 for path in ("/api/jobs", "/api/jobs/tracked", "/api/billing/me", "/api/interview/guide"):
     check(f"auth required: {path}", anon.get(path).status_code == 401)
 check("admin endpoints protected", anon.get("/api/admin/stats").status_code in (401, 403))
-check("mail selftest protected", A.get("/api/mail/selftest").status_code in (401, 403))
+# A is admin by this point, so it must be a non-admin account that gets refused.
+check("mail selftest protected", FREE.get("/api/mail/selftest").status_code in (401, 403),
+      str(FREE.get("/api/mail/selftest").status_code))
 
 print("\n" + "=" * 62)
 print(f"PASSED {len(PASS)}   FAILED {len(FAIL)}")

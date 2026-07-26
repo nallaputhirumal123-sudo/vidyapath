@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 sent = {}
 m.send_email = lambda to, s_, b: sent.update({"to": to, "subject": s_, "body": b})
 
+# strips /* … */ and // … comments, so source checks look at real code only
+_re_c = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
+
 P, F = [], []
 def ck(n, c, d=""):
     (P if c else F).append(n + (f" — {d}" if d else ""))
@@ -16,6 +19,14 @@ def ck(n, c, d=""):
 A = TestClient(m.app)
 E = f"regress{int(time.time())}@example.com"
 A.post("/api/auth/signup", json={"name": "Regress Test", "email": E, "password": "RegPass123!"})
+
+# Matching is a paid feature — a free account gets one run and is then blocked,
+# which is correct behaviour but makes the repeated match checks below fail for
+# the wrong reason. Put the tester on Pro so these test matching, not billing.
+_db = m.SessionLocal()
+_u = _db.query(m.User).filter(m.func.lower(m.User.email) == E.lower()).first()
+_u.plan = "pro"; _u.plan_until = m.now() + m.dt.timedelta(days=30)
+_db.commit(); _db.close()
 
 # === previously flagged bugs, re-checked ===
 
@@ -81,8 +92,12 @@ ck("Resend is the mail provider path",
 f = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'extension/filler.js'), encoding="utf-8").read()
 ck("referrer exclusion anchored", "/\\breferr/" in f and "no: [/referr/" not in f)
 ck("preferred name rules exist", "preferred_first_name" in f)
+# Check the code, not the comments — the file's header paragraph says it never
+# calls <form>.submit(), which a naive substring search reads as a violation.
+_code = _re_c.sub("", f)
 ck("filler never submits",
-   "form.submit" not in f and ".submit()" not in f)
+   "form.submit" not in _code and ".submit()" not in _code
+   and ".click()" not in _code and "requestSubmit" not in _code)
 
 # 9. forgot password promised mail it could not send
 m.MAIL_ENABLED = False
@@ -95,13 +110,25 @@ ck("browsing jobs is free", A.get("/api/jobs?limit=3").status_code == 200)
 ck("job filters free", A.get("/api/jobs/filters").status_code == 200)
 ck("categories free", A.get("/api/jobs/categories").status_code == 200)
 ck("suggestions free", A.get("/api/jobs/suggest?q=eng").status_code == 200)
-ck("matching is paid",
-   A.post("/api/jobs/match", json={"resume_text": "Cisco BGP OSPF F5 Linux Python "
-                                                  "network engineer senior"}).status_code == 402)
+# A is on Pro (see the top of this file), so gating has to be checked on a
+# genuinely free account. Free now gets one go at matching and the extension —
+# these confirm the wall is still there once the go is spent.
+G = TestClient(m.app)
+GE = f"gate{int(time.time())}@example.com"
+G.post("/api/auth/signup", json={"name": "Gate Test", "email": GE, "password": "GatePass123!"})
+RES = "Cisco BGP OSPF F5 Linux Python network engineer senior"
+ck("matching: one free run", G.post("/api/jobs/match",
+   json={"resume_text": RES}).status_code == 200)
+ck("matching is paid after the free run",
+   G.post("/api/jobs/match", json={"resume_text": RES}).status_code == 402)
 jid = A.get("/api/jobs?limit=1").json()["jobs"][0]["id"]
 ck("tracker is paid",
-   A.post("/api/jobs/track", json={"job_id": jid, "status": "saved"}).status_code == 402)
-ck("extension is paid", A.post("/api/apply/pair-code", json={}).status_code == 402)
+   G.post("/api/jobs/track", json={"job_id": jid, "status": "saved"}).status_code == 402)
+ck("extension: one free autofill",
+   G.get("/api/apply/profile?code="
+         + G.post("/api/apply/pair-code", json={}).json()["code"]).status_code == 200)
+ck("extension is paid after the free autofill",
+   G.post("/api/apply/pair-code", json={}).status_code == 402)
 ck("interview prep free", A.get("/api/interview/guide?category=network").status_code == 200)
 
 # admin bypasses the gate

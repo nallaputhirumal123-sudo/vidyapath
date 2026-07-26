@@ -92,6 +92,61 @@ kb = A.post("/api/jobs/apply-kit", json={"job_id": JOB_B, "resume_text": RESUME}
 ck("apply kit blocked for any other job", kb.status_code == 402,
    f"{kb.status_code} {kb.text[:120]}")
 
+# --- one match run, then blocked ---
+C = TestClient(m.app)
+EC = f"trial3{int(time.time())}@example.com"
+C.post("/api/auth/signup", json={"name": "Trial Three", "email": EC,
+                                 "password": "TrialPass123!"})
+m1 = C.post("/api/jobs/match", json={"resume_text": RESUME, "limit": 20})
+ck("1st match allowed", m1.status_code == 200, f"{m1.status_code} {m1.text[:120]}")
+ck("match returned ranked jobs", bool(m1.json().get("jobs")),
+   str(m1.json().get("total")))
+ck("match returned a score breakdown", "scoring" in m1.json())
+m2 = C.post("/api/jobs/match", json={"resume_text": RESUME, "limit": 20})
+ck("2nd match blocked with 402", m2.status_code == 402,
+   f"{m2.status_code} {m2.text[:120]}")
+m3 = C.post("/api/jobs/match", json={"resume_text": RESUME, "limit": 20,
+                                     "offset": 20})
+ck("paging past the allowance is blocked too", m3.status_code == 402,
+   f"{m3.status_code} {m3.text[:120]}")
+
+# a match that fails validation must not burn the go
+D = TestClient(m.app)
+ED = f"trial4{int(time.time())}@example.com"
+D.post("/api/auth/signup", json={"name": "Trial Four", "email": ED,
+                                 "password": "TrialPass123!"})
+junk = D.post("/api/jobs/match", json={"resume_text": "hello there " * 20})
+ck("unusable resume rejected", junk.status_code == 400, str(junk.status_code))
+ok = D.post("/api/jobs/match", json={"resume_text": RESUME, "limit": 5})
+ck("failed match did not consume the free go", ok.status_code == 200,
+   f"{ok.status_code} {ok.text[:120]}")
+
+# --- one extension autofill ---
+X = TestClient(m.app)
+EX = f"trial5{int(time.time())}@example.com"
+X.post("/api/auth/signup", json={"name": "Trial Five", "email": EX,
+                                 "password": "TrialPass123!"})
+p1 = X.post("/api/apply/pair-code", json={})
+ck("free account can pair the extension", p1.status_code == 200,
+   f"{p1.status_code} {p1.text[:120]}")
+code1 = p1.json().get("code", "")
+p2 = X.post("/api/apply/pair-code", json={})
+ck("re-pairing before use is allowed (codes expire)", p2.status_code == 200,
+   f"{p2.status_code} {p2.text[:120]}")
+code2 = p2.json().get("code", "")
+pr = X.get(f"/api/apply/profile?code={code2}")
+ck("1st autofill allowed", pr.status_code == 200, f"{pr.status_code} {pr.text[:120]}")
+ck("autofill carries no auth material",
+   not any(w in k.lower() for k in pr.json() for w in ("token", "session", "cookie", "pass")),
+   str(list(pr.json())[:8]))
+p3 = X.post("/api/apply/pair-code", json={})
+ck("pairing blocked once the autofill is spent", p3.status_code == 402,
+   f"{p3.status_code} {p3.text[:120]}")
+# a code minted before the allowance ran out must not still work
+stale = X.get(f"/api/apply/profile?code={code1}")
+ck("pre-minted code cannot outlive the allowance", stale.status_code in (401, 402),
+   f"{stale.status_code} {stale.text[:120]}")
+
 # --- saving/tracking beyond the free application stays paid ---
 sv = A.post("/api/jobs/track", json={"job_id": JOB_B, "status": "saved"})
 ck("saving jobs remains paid-only", sv.status_code == 402, str(sv.status_code))
@@ -105,6 +160,8 @@ db = m.SessionLocal()
 user = db.query(m.User).filter(m.User.email == E).first()
 q = m.ai_quota(db, user)
 ck("quota reports upload spent", q["trial"]["resume_upload_left"] == 0, str(q.get("trial")))
+ck("quota reports match and extension", "match_left" in q["trial"]
+   and "extension_left" in q["trial"], str(q.get("trial")))
 ck("quota reports application spent", q["trial"]["apply_left"] == 0, str(q.get("trial")))
 ck("quota names the free application's job", q["trial"]["apply_job_id"] == JOB_A,
    str(q["trial"]["apply_job_id"]))
