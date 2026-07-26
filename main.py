@@ -127,6 +127,11 @@ ANTHROPIC_API_KEY = _clean_key("ANTHROPIC_API_KEY")
 # changing this: a wrong ID does not fail loudly — the provider fallback
 # quietly serves every request from Groq instead, at Groq's cost.
 GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# Used only where the writing quality is the product: the apply kit's
+# cover note and screening answers. Everything else stays on the cheap
+# model, because scoring and classifying do not read any better on a
+# stronger one. Check /api/ai/models for what this key can use.
+GEMINI_MODEL_BEST = env("GEMINI_MODEL_BEST", GEMINI_MODEL)
 GROQ_MODEL = env("GROQ_MODEL", "llama-3.3-70b-versatile")
 ANTHROPIC_MODEL = env("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 
@@ -993,6 +998,11 @@ def status(request: Request, db: Session = Depends(get_db)):
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
         "google_signin_enabled": GOOGLE_ENABLED,
+        # Whether password reset can actually deliver. Shows configuration
+        # only — never the credentials themselves.
+        "mail_enabled": MAIL_ENABLED,
+        "mail_host": SMTP_HOST or "(unset)",
+        "mail_from": MAIL_FROM or "(unset)",
         # The exact string Google must have registered. A redirect_uri_mismatch
         # is almost always this value not being in the Console, so show it
         # rather than making someone reconstruct it by hand. Not a secret —
@@ -2713,16 +2723,19 @@ def _providers_in_order():
     return [p for p in order if keyed.get(p)]
 
 
-async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False):
+async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False,
+                             best=False):
     """One raw generation call to a single provider. Raises on HTTP error."""
     if provider == "gemini":
         gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
         if json_mode:
             gen["responseMimeType"] = "application/json"
-        if "2.5" in GEMINI_MODEL:
+        model = GEMINI_MODEL_BEST if best else GEMINI_MODEL
+        # Thinking budget is a 2.5-era setting; newer models reject it.
+        if model.startswith("gemini-2.5"):
             gen["thinkingConfig"] = {"thinkingBudget": 0}
         r = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
             json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen})
         _upstream_ok(r, "gemini")
@@ -2751,7 +2764,8 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
                    if b.get("type") == "text").strip()
 
 
-async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False) -> str:
+async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
+                   best: bool = False) -> str:
     """Generate text, trying each available provider in turn. If one is rate-
     limited or errors, automatically fall back to the next configured provider."""
     import httpx
@@ -2762,7 +2776,8 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False)
     async with httpx.AsyncClient(timeout=60) as client:
         for prov in providers:
             try:
-                txt = await _provider_generate(client, prov, prompt, max_tokens, json_mode)
+                txt = await _provider_generate(client, prov, prompt, max_tokens,
+                                               json_mode, best)
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
@@ -3459,6 +3474,49 @@ def ask_config(user: User = Depends(current_user)):
     return {"enabled": ASK_ENABLED,
             "provider": AI_PROVIDER if ASK_ENABLED else "",
             "model": _PROVIDER_MODEL if ASK_ENABLED else ""}
+
+
+@app.get("/api/mail/selftest")
+def mail_selftest(user: User = Depends(admin_user)):
+    """Admin-only: actually send one email and report the real error.
+
+    Run synchronously and without swallowing the exception, because the whole
+    point is to see why it failed. Gmail rejects a normal account password
+    here — it needs an App Password — and that is the usual cause.
+    """
+    info = {"enabled": MAIL_ENABLED, "host": SMTP_HOST or "(unset)",
+            "port": SMTP_PORT, "user": SMTP_USER or "(unset)",
+            "from": MAIL_FROM or "(unset)", "to": user.email}
+    if not MAIL_ENABLED:
+        missing = [k for k, v in (("SMTP_HOST", SMTP_HOST), ("SMTP_USER", SMTP_USER),
+                                  ("SMTP_PASS", SMTP_PASS)) if not v]
+        return {**info, "ok": False,
+                "error": "Not configured. Missing: " + ", ".join(missing)}
+    import smtplib
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["From"] = MAIL_FROM
+    msg["To"] = user.email
+    msg["Subject"] = "Craxle mail test"
+    msg.set_content("If you are reading this, password reset emails will "
+                    "reach your users.\n\nCraxle")
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        return {**info, "ok": True, "sent": True,
+                "note": f"Check {user.email} — including the spam folder."}
+    except Exception as e:
+        hint = ""
+        text = f"{type(e).__name__}: {e}"
+        if "Username and Password not accepted" in text or "5.7.8" in text:
+            hint = ("Gmail refused the password. Use a 16-character App "
+                    "Password (Google Account > Security > 2-Step "
+                    "Verification > App passwords), not your normal password.")
+        elif "Connection" in text or "timed out" in text:
+            hint = "Could not reach the mail server. Check SMTP_HOST and SMTP_PORT."
+        return {**info, "ok": False, "error": text[:400], "hint": hint}
 
 
 @app.get("/api/ai/models")
@@ -4981,7 +5039,7 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
         '"flags": ["<anything in the posting they may not meet, stated plainly>"]}'
     )
     try:
-        d = _ai_json(await _ai_text(prompt, 1200))
+        d = _ai_json(await _ai_text(prompt, 1200, best=True))
     except Exception as e:
         print(f"Apply kit failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
