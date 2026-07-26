@@ -14,6 +14,22 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.55.0 — Two devices, admin exemption, live model list
+
+- **Two devices per account instead of one.** A phone and a laptop is ordinary
+  use; strict one-device signed people out every time they switched, which
+  would have generated complaints without stopping real sharing — that needs
+  three or more devices anyway. A third sign-in pushes out the oldest. Set
+  `MAX_DEVICES` to change it.
+- **Admins are exempt.** Running the site means being signed in on several
+  browsers at once, and locking yourself out of your own admin panel costs
+  something and protects nothing.
+- **New `/api/ai/models` (admin only)** — reads the live list of models the
+  configured Gemini key can actually use, newest first, flagging the one in
+  use. Model names change faster than a hardcoded list can track, and a wrong
+  `GEMINI_MODEL` fails silently into the Groq fallback rather than erroring,
+  so guessing is expensive.
+
 ## 1.54.0 — Pricing page and checkout
 
 - **Plans & billing page** in the sidebar: three plans, your current plan, and

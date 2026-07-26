@@ -178,10 +178,10 @@ class User(Base):
     path = Column(String(40), default="")
     created_at = Column(DateTime(timezone=True), default=now)
     last_seen = Column(DateTime(timezone=True), default=now)
-    # One active session per account. Signing in mints a new value and every
-    # token carrying the old one stops working, so a shared password logs the
-    # previous person out instead of granting two seats for one subscription.
-    session_token = Column(String(64), default="")
+    # Active sessions, newest first, as a comma-separated list capped at
+    # MAX_DEVICES. Two devices is deliberate: a phone and a laptop is ordinary
+    # use, while sharing an account around a group needs more than that.
+    session_token = Column(String(400), default="")
     session_seen_at = Column(DateTime(timezone=True))
     # Billing. `plan` is the source of truth for what someone may use; it is
     # only ever changed by a verified webhook, never by the browser.
@@ -575,21 +575,29 @@ def send_email(to: str, subject: str, body: str):
         print(f"Email to {to} failed: {type(e).__name__}: {e}")
 
 
-def make_token(user: User, db: Session = None) -> str:
-    """Mint a session token, retiring whatever session came before it.
+MAX_DEVICES = int(env("MAX_DEVICES", "2") or 2)
 
-    The random value is stored on the user and copied into the JWT. Any token
-    holding an older value fails the check in current_user, which is what
-    enforces one login per account.
+
+def _sessions(user) -> list:
+    return [s for s in (user.session_token or "").split(",") if s]
+
+
+def make_token(user: User, db: Session = None) -> str:
+    """Mint a session token and remember it as one of this user's devices.
+
+    Signing in on a third device pushes out the oldest, so an account can be
+    used from a phone and a laptop but not passed around a group.
     """
+    fresh = secrets.token_urlsafe(18)
     if db is not None:
-        user.session_token = secrets.token_urlsafe(24)
+        keep = ([fresh] + _sessions(user))[:MAX_DEVICES]
+        user.session_token = ",".join(keep)
         user.session_seen_at = now()
         db.commit()
     payload = {
         "sub": str(user.id),
         "adm": user.is_admin,
-        "st": user.session_token or "",
+        "st": fresh if db is not None else (_sessions(user)[:1] or [""])[0],
         "exp": now() + dt.timedelta(days=SESSION_DAYS),
         "iat": now(),
     }
@@ -615,12 +623,17 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, int(payload["sub"]))
     if not user or not user.is_active:
         raise HTTPException(401, "Account not available")
-    # One login per account. Accounts created before this existed have no
+    # One login per account, to stop one subscription covering several people.
+    # Admins are exempt: running the site means being signed in on several
+    # browsers at once, and locking yourself out of your own admin panel is a
+    # cost with no benefit. Accounts created before this existed have no
     # stored token, so they keep working until their next sign-in.
-    if user.session_token and payload.get("st") != user.session_token:
+    if (user.session_token and not user.is_admin
+            and payload.get("st") not in _sessions(user)):
         raise HTTPException(
-            401, "You were signed out because this account was used on another "
-                 "device. Each account can be signed in on one device at a time.")
+            401, f"Signed out because this account is in use on more than "
+                 f"{MAX_DEVICES} devices. Craxle allows {MAX_DEVICES} at a "
+                 f"time — sign in again here to use this one.")
     # touch last_seen at most once a minute
     try:
         last = user.last_seen
