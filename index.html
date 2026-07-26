@@ -423,6 +423,21 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+/* Job filters on a phone. These are <select>s with long option labels
+   ("Sales & business development (1760)"); at 140-165px the text is simply
+   clipped, so on narrow screens each control takes a full row instead. */
+@media (max-width:560px){
+  #jbQ,#jbCat,#jbType,#jbPosted,#jbCountry,#jbLoc,#jbMin,#jbSuggWrap{
+    flex:1 1 100%!important; min-width:0!important; width:100%!important;
+  }
+  #jbCat,#jbType,#jbPosted,#jbCountry,#jbMin{
+    text-overflow:ellipsis;                /* if it still cannot fit, say so */
+    padding-right:30px;                    /* room for the native arrow */
+  }
+  .ask-chips{gap:6px}
+  .ask-chip{font-size:12.5px;padding:6px 11px}
+}
 </style>
 </head>
 <body>
