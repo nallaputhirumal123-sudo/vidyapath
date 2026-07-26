@@ -58,11 +58,14 @@ oversight: submitting on someone's behalf puts their data in front of an
 employer without them seeing it, breaks the terms of every applicant tracking
 system, and gets real applicants blacklisted.
 
-## Before publishing to the Chrome Web Store
+## If the domain changes
 
-- Replace `SITE` in `popup.js` and the `host_permissions` entry in
-  `manifest.json` if your domain changes.
-- Add a real `icon128.png` (and 48/16 sizes if you want them).
+Two files: `SITE` at the top of `popup.js`, and `host_permissions` in
+`manifest.json`. Both currently point at `craxle.com`, with the Railway URL
+kept as a fallback so an extension paired before the move keeps working.
+Reload the extension at `chrome://extensions` after editing either.
+
+## Before publishing to the Chrome Web Store
 - The store listing must include a privacy policy URL and declare what you
   collect. This extension stores the profile locally and transmits nothing
   after pairing — say exactly that.

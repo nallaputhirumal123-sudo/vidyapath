@@ -14,6 +14,17 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.48.0 — craxle.com
+
+- The extension now pairs with **craxle.com**. The old Railway URL is kept as
+  a fallback in both `host_permissions` and the pairing call, so an extension
+  paired before the move keeps working and pairing still succeeds part-way
+  through a DNS change.
+- Pairing tries the domain first, then the fallback — except on a 401, where
+  the code itself is wrong and trying another host would not help.
+- No server change was needed: the Google OAuth redirect already derives from
+  `PUBLIC_BASE_URL` or the request host.
+
 ## 1.47.1 — My applications is only the tracker
 
 - The **My applications** tab showed the whole careers page underneath it —

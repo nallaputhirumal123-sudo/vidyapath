@@ -1,4 +1,7 @@
-const SITE = "https://vidyapath-athlyx-a9c9.up.railway.app";
+/* The site the extension pairs with. The Railway URL stays as a fallback so
+ * an extension paired before the domain moved keeps working. */
+const SITE = "https://craxle.com";
+const FALLBACK_SITE = "https://vidyapath-athlyx-a9c9.up.railway.app";
 
 const $ = (id) => document.getElementById(id);
 const show = (el, on) => { el.style.display = on ? "block" : "none"; };
@@ -26,11 +29,24 @@ function paint(profile) {
 }
 
 async function pair(code) {
-  const r = await fetch(`${SITE}/api/apply/profile?code=${encodeURIComponent(code)}`);
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.detail || "Could not connect");
-  await chrome.storage.local.set({ profile: d });
-  return d;
+  // Try the domain first, then the Railway URL — during a DNS move either
+  // one may be the live site, and the user should not have to care which.
+  let lastErr = "Could not connect";
+  for (const base of [SITE, FALLBACK_SITE]) {
+    try {
+      const r = await fetch(`${base}/api/apply/profile?code=${encodeURIComponent(code)}`);
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        await chrome.storage.local.set({ profile: d });
+        return d;
+      }
+      lastErr = d.detail || lastErr;
+      if (r.status === 401) break;   // the code itself is bad; another host won't help
+    } catch (e) {
+      lastErr = "Could not reach the site. Check your connection.";
+    }
+  }
+  throw new Error(lastErr);
 }
 
 $("siteLink").onclick = (e) => {
