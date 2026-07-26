@@ -18,9 +18,10 @@ import bcrypt
 import jwt
 import base64
 import io
+import hashlib
 from urllib.parse import urlencode
 from fastapi import (FastAPI, Depends, HTTPException, Request, Response, status,
-                     UploadFile, File)
+                     UploadFile, File, BackgroundTasks)
 from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                Response as RawResponse)
 from fastapi.staticfiles import StaticFiles
@@ -174,6 +175,11 @@ class User(Base):
     path = Column(String(40), default="")
     created_at = Column(DateTime(timezone=True), default=now)
     last_seen = Column(DateTime(timezone=True), default=now)
+    # One active session per account. Signing in mints a new value and every
+    # token carrying the old one stops working, so a shared password logs the
+    # previous person out instead of granting two seats for one subscription.
+    session_token = Column(String(64), default="")
+    session_seen_at = Column(DateTime(timezone=True))
 
 
 class Track(Base):
@@ -507,10 +513,73 @@ def verify_pw(pw: str, h: str) -> bool:
         return False
 
 
-def make_token(user: User) -> str:
+class PasswordReset(Base):
+    """A single-use password reset link.
+
+    Only the hash of the token is stored, so a leaked database still cannot
+    be used to reset anyone's password.
+    """
+    __tablename__ = "password_resets"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    token_hash = Column(String(64), unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True))
+    used_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=now)
+
+
+RESET_TTL = dt.timedelta(hours=1)
+
+# ---- email ---------------------------------------------------------------
+SMTP_HOST = env("SMTP_HOST")
+SMTP_PORT = int(env("SMTP_PORT", "587") or 587)
+SMTP_USER = env("SMTP_USER")
+SMTP_PASS = env("SMTP_PASS")
+MAIL_FROM = env("MAIL_FROM") or SMTP_USER
+MAIL_ENABLED = bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
+
+
+def send_email(to: str, subject: str, body: str):
+    """Send one plain-text email. Never raises into the request.
+
+    Called from a background task: a slow or broken mail server must not make
+    the user wait, and must not reveal — through a timeout — whether an
+    account exists.
+    """
+    if not MAIL_ENABLED:
+        print(f"MAIL DISABLED — would have sent to {to}: {subject}")
+        return
+    import smtplib
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["From"] = MAIL_FROM
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content(body)
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+    except Exception as e:
+        print(f"Email to {to} failed: {type(e).__name__}: {e}")
+
+
+def make_token(user: User, db: Session = None) -> str:
+    """Mint a session token, retiring whatever session came before it.
+
+    The random value is stored on the user and copied into the JWT. Any token
+    holding an older value fails the check in current_user, which is what
+    enforces one login per account.
+    """
+    if db is not None:
+        user.session_token = secrets.token_urlsafe(24)
+        user.session_seen_at = now()
+        db.commit()
     payload = {
         "sub": str(user.id),
         "adm": user.is_admin,
+        "st": user.session_token or "",
         "exp": now() + dt.timedelta(days=SESSION_DAYS),
         "iat": now(),
     }
@@ -536,6 +605,12 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, int(payload["sub"]))
     if not user or not user.is_active:
         raise HTTPException(401, "Account not available")
+    # One login per account. Accounts created before this existed have no
+    # stored token, so they keep working until their next sign-in.
+    if user.session_token and payload.get("st") != user.session_token:
+        raise HTTPException(
+            401, "You were signed out because this account was used on another "
+                 "device. Each account can be signed in on one device at a time.")
     # touch last_seen at most once a minute
     try:
         last = user.last_seen
@@ -958,9 +1033,9 @@ def reload_curriculum(user: User = Depends(admin_user), db: Session = Depends(ge
 
 
 # ---------------------------- auth ----------------------------------------
-def set_session(resp: Response, user: User):
+def set_session(resp: Response, user: User, db: Session = None):
     resp.set_cookie(
-        "vp_session", make_token(user),
+        "vp_session", make_token(user, db),
         httponly=True, samesite="lax", secure=COOKIE_SECURE,
         max_age=SESSION_DAYS * 86400, path="/",
     )
@@ -985,7 +1060,7 @@ def signup(body: SignupIn, response: Response, db: Session = Depends(get_db)):
     # slot (subject teacher), or grant generic teacher access.
     role = apply_school_code(db, user, (body.school_code or "").strip())
 
-    set_session(response, user)
+    set_session(response, user, db)
     return {"id": user.id, "name": user.name, "email": user.email,
             "is_admin": user.is_admin, "is_teacher": role in ("head", "teacher"),
             "role": role}
@@ -1052,11 +1127,81 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
         raise HTTPException(403, "This account has been deactivated")
     user.last_seen = now()
     db.commit()
-    set_session(response, user)
+    set_session(response, user, db)
     t = teacher_row(user, db)
     return {"id": user.id, "name": user.name, "email": user.email,
             "is_admin": user.is_admin, "is_teacher": bool(t) or user.is_admin,
             "is_head": is_head(user, db)}
+
+
+class ForgotIn(BaseModel):
+    email: EmailStr
+
+
+class ResetIn(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    password: str = Field(min_length=8, max_length=200)
+
+
+@app.post("/api/auth/forgot")
+def auth_forgot(body: ForgotIn, background: BackgroundTasks,
+                request: Request, db: Session = Depends(get_db)):
+    """Start a password reset.
+
+    Always returns the same response whether or not the address is
+    registered — otherwise this endpoint becomes a way to discover who has an
+    account here.
+    """
+    email = body.email.lower().strip()
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    if user and user.is_active:
+        # Retire any earlier link so only the newest one works.
+        db.query(PasswordReset).filter(PasswordReset.user_id == user.id,
+                                       PasswordReset.used_at.is_(None)) \
+          .update({"used_at": now()}, synchronize_session=False)
+        raw = secrets.token_urlsafe(32)
+        db.add(PasswordReset(
+            user_id=user.id,
+            token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+            expires_at=now() + RESET_TTL))
+        db.commit()
+        base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+        link = f"{base}/reset?token={raw}"
+        background.add_task(
+            send_email, user.email, "Reset your Craxle password",
+            f"Hello {user.name},\n\n"
+            f"Use this link to set a new password. It expires in one hour and "
+            f"can be used once:\n\n{link}\n\n"
+            f"If you did not ask for this, ignore this email — your password "
+            f"has not changed.\n\nCraxle")
+    return {"ok": True,
+            "message": "If that email has an account, a reset link is on its way."}
+
+
+@app.post("/api/auth/reset")
+def auth_reset(body: ResetIn, response: Response, db: Session = Depends(get_db)):
+    """Finish a password reset and sign the user in on this device only."""
+    h = hashlib.sha256(body.token.strip().encode()).hexdigest()
+    row = db.query(PasswordReset).filter(PasswordReset.token_hash == h).first()
+    if not row or row.used_at is not None:
+        raise HTTPException(400, "That reset link has already been used. "
+                                 "Request a new one.")
+    exp = row.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=dt.timezone.utc)
+    if exp is None or exp < now():
+        raise HTTPException(400, "That reset link has expired. Request a new one.")
+    user = db.get(User, row.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(400, "That account is no longer available")
+
+    user.password_hash = hash_pw(body.password)
+    row.used_at = now()
+    db.commit()
+    # A reset ends every other session — if someone else knew the old
+    # password, this is what removes their access.
+    set_session(response, user, db)
+    return {"ok": True, "name": user.name, "email": user.email}
 
 
 @app.post("/api/auth/logout")
@@ -1161,7 +1306,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     db.refresh(user)
 
     resp = RedirectResponse("/")
-    set_session(resp, user)
+    set_session(resp, user, db)
     resp.delete_cookie("g_state", path="/")
     return resp
 
@@ -5207,6 +5352,12 @@ def static_file(filename: str, ext: str):
 # ---------------------------- static pages --------------------------------
 @app.get("/")
 def index():
+    return FileResponse(BASE_DIR / "index.html")
+
+
+@app.get("/reset")
+def reset_page():
+    """The reset link lands here; the page reads ?token= and calls the API."""
     return FileResponse(BASE_DIR / "index.html")
 
 

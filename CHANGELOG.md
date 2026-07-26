@@ -14,6 +14,32 @@ Format: MAJOR.MINOR.PATCH
 
 ---
 
+## 1.52.0 — One login per account, password reset, international legal docs
+
+- **One account, one login.** Signing in retires the previous session, so a
+  shared password logs the other person out instead of giving two people one
+  subscription. The signed-out device sees a plain explanation rather than a
+  bare error. Accounts that existed before this keep working until their next
+  sign-in.
+- **Forgot / reset password**, replacing the "ask an admin" placeholder:
+  - The response is identical whether or not the address is registered, so the
+    endpoint can't be used to discover who has an account.
+  - Links expire in **one hour**, work **once**, and only the token's hash is
+    stored — a leaked database cannot reset anyone's password.
+  - Requesting a new link cancels any earlier one.
+  - Resetting ends every other session, which is what removes access from
+    someone who knew the old password.
+  - Email goes out in the background, so a slow mail server never reveals
+    through a delay that an account exists. Configure with `SMTP_HOST`,
+    `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`; without them the
+    server logs instead of sending.
+- **Terms and Privacy rewritten for worldwide customers** from an Indian sole
+  proprietorship: GST for Indian customers and local tax elsewhere, the EU/UK
+  statutory 14-day cancellation right, Indian governing law with an explicit
+  carve-out preserving foreign consumers' mandatory rights, GDPR legal bases,
+  DPDP and California rights, Standard Contractual Clauses for transfers, and
+  a new section covering what the browser extension stores and where.
+
 ## 1.51.0 — Editable autofill details, 28 fields, dropdown support
 
 - **You can now edit your details in the extension.** "✎ Edit my details"

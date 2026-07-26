@@ -738,8 +738,57 @@ function showGate(){ $("#loading").style.display="none"; $("#app").classList.rem
 function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); if(typeof paintMsgFab==="function") paintMsgFab(); }
 function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
 
-const _fl=$("#forgotLink"); if(_fl) _fl.onclick=e=>{ e.preventDefault();
-  authMsg("If you signed up with Google, use \"Continue with Google\" above. Otherwise ask your teacher or the site admin to reset your password — automatic email reset isn't set up yet."); };
+/* ---- forgot password ---- */
+const _fl=$("#forgotLink"); if(_fl) _fl.onclick=async e=>{ e.preventDefault();
+  const email=($("#li_email").value||"").trim();
+  if(!email){ authMsg("Type your email address above first, then press this again."); return; }
+  authMsg("Sending…", true);
+  try{
+    const r=await api.post("/api/auth/forgot",{email});
+    // Deliberately the same message whether or not the account exists.
+    authMsg(r.message||"If that email has an account, a reset link is on its way.", true);
+  }catch(err){ authMsg(err.message); }
+};
+
+/* ---- reset password: the emailed link lands on /reset?token=… ---- */
+function resetToken(){
+  const u=new URL(location.href);
+  return u.searchParams.get("token") || "";
+}
+function showResetForm(){
+  $("#loading").style.display="none";
+  $("#app").classList.remove("on");
+  $("#topbar").style.display="none";
+  $("#gate").style.display="block";
+  const box=$("#authcardBody")||$("#gate");
+  $("#loginForm").style.display="none";
+  $("#signupForm").style.display="none";
+  const tabs=$("#tabLogin")?.parentElement; if(tabs) tabs.style.display="none";
+  let f=$("#resetForm");
+  if(!f){
+    f=document.createElement("form"); f.id="resetForm";
+    f.innerHTML=`<div class="field"><label>New password</label>
+        <input id="rs_pw" type="password" minlength="8" required placeholder="At least 8 characters"></div>
+      <div class="field"><label>Confirm new password</label>
+        <input id="rs_pw2" type="password" minlength="8" required></div>
+      <button class="btn" id="rs_btn" type="submit">Set new password</button>`;
+    ($("#loginForm").parentElement).appendChild(f);
+    f.onsubmit=async e=>{
+      e.preventDefault();
+      const a=$("#rs_pw").value, b=$("#rs_pw2").value;
+      if(a!==b){ authMsg("Those two passwords don't match."); return; }
+      const btn=$("#rs_btn"); btn.disabled=true; btn.textContent="Saving…";
+      try{
+        await api.post("/api/auth/reset",{token:resetToken(),password:a});
+        authMsg("Password changed. Loading your account…", true);
+        history.replaceState({},"","/");
+        location.href="/";
+      }catch(err){ authMsg(err.message); btn.disabled=false; btn.textContent="Set new password"; }
+    };
+  }
+  f.style.display="";
+  authMsg("Choose a new password for your account.", true);
+}
 $("#tabLogin").onclick=()=>{$("#tabLogin").classList.add("on");$("#tabSignup").classList.remove("on");$("#loginForm").style.display="";$("#signupForm").style.display="none";authMsg("");};
 $("#tabSignup").onclick=()=>{$("#tabSignup").classList.add("on");$("#tabLogin").classList.remove("on");$("#signupForm").style.display="";$("#loginForm").style.display="none";authMsg("");};
 
@@ -843,6 +892,9 @@ api.get("/api/auth/config").then(c=>{
 })();
 
 (async function init(){
+  // A reset link must show the new-password form even if an old session
+  // cookie is still sitting in the browser.
+  if(location.pathname==="/reset" && resetToken()){ showResetForm(); return; }
   try{ USER = await api.get("/api/auth/me"); AUTHED=true; await boot(); }
   catch(e){ showGate(); }
 })();
