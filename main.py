@@ -4111,7 +4111,9 @@ COST_OTHER_INR = float(env("COST_OTHER_INR", "0") or 0)
 GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "7.4") or 7.4)
 GST_RATE_PCT = float(env("GST_RATE_PCT", "18") or 18)
 USD_INR = float(env("USD_INR", "88") or 88)
-JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
+# A month of history. Anything a user saved or applied to is exempt from the
+# sweep entirely — see _protected_job_ids.
+JOB_RETENTION_DAYS = int(env("JOB_RETENTION_DAYS", "30") or 30)
 # Hourly, not daily. Being early is what wins an interview, and it is what Pro
 # sells — a board refreshed once a day is up to 24 hours stale at the worst
 # moment. Override with JOB_REFRESH_HOURS if the crawl ever gets expensive.
@@ -4764,6 +4766,11 @@ def _job_in_scope(r):
     return aliases.get(c, c) in ALLOWED_COUNTRIES
 
 
+def _protected_job_ids(db):
+    """Job ids some user has saved, applied to, or otherwise tracked."""
+    return {r[0] for r in db.query(JobTrack.job_id).distinct().all() if r[0]}
+
+
 def _store_jobs(db, rows, reached):
     """Upsert this crawl, close postings that vanished, drop old history."""
     gone = db.query(Job).filter(Job.source.in_(RETIRED_SOURCES)).delete(
@@ -4807,9 +4814,16 @@ def _store_jobs(db, rows, reached):
                 and (row.source, row.external_id) not in seen):
             row.is_open, row.closed_at = False, now()
             closed += 1
+    # A posting someone saved or applied to is theirs, not ours to delete.
+    # JobTrack copies the title and company at save time so the tracker still
+    # renders, but the Job row itself is what the apply kit and the match score
+    # read — deleting it turns a saved job into "no longer listed".
     cutoff = now() - dt.timedelta(days=JOB_RETENTION_DAYS)
-    pruned = db.query(Job).filter(Job.last_seen < cutoff).delete(
-        synchronize_session=False)
+    keep = _protected_job_ids(db)
+    q = db.query(Job).filter(Job.last_seen < cutoff)
+    if keep:
+        q = q.filter(~Job.id.in_(keep))
+    pruned = q.delete(synchronize_session=False)
     db.commit()
     return {"added": added, "updated": updated, "closed": closed, "pruned": pruned}
 
@@ -6617,8 +6631,10 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
     the board by clicking a button they were curious about.
     """
     rows = db.query(Job).all()
+    keep = _protected_job_ids(db)
     doomed = [j for j in rows
-              if not _job_in_scope({"category": j.category, "country": j.country})]
+              if j.id not in keep
+              and not _job_in_scope({"category": j.category, "country": j.country})]
     by_country, by_family = {}, {}
     for j in doomed:
         by_country[(j.country or "(blank)")] = by_country.get(j.country or "(blank)", 0) + 1
