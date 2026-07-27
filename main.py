@@ -6671,6 +6671,19 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
     active_7d = db.query(func.count(User.id)).filter(User.last_seen >= week_ago).scalar()
     new_7d = db.query(func.count(User.id)).filter(User.created_at >= week_ago).scalar()
 
+    # What the job board is actually producing. "Applied" counts the later
+    # pipeline stages too — someone interviewing obviously applied first, and
+    # counting only the "applied" status would undercount the further along
+    # somebody gets, which is exactly backwards.
+    APPLIED_STAGES = ("applied", "interviewing", "offer", "rejected")
+    applied_q = db.query(JobTrack).filter(JobTrack.status.in_(APPLIED_STAGES))
+    applications = applied_q.count()
+    applicants = db.query(func.count(func.distinct(JobTrack.user_id)))         .filter(JobTrack.status.in_(APPLIED_STAGES)).scalar() or 0
+    jobs_applied_to = db.query(func.count(func.distinct(JobTrack.job_id)))         .filter(JobTrack.status.in_(APPLIED_STAGES)).scalar() or 0
+    applications_7d = applied_q.filter(JobTrack.applied_at >= week_ago).count()
+    saved_total = db.query(func.count(JobTrack.id))         .filter(JobTrack.status == "saved").scalar() or 0
+    jobs_live = db.query(func.count(Job.id)).filter(Job.is_open == True).scalar() or 0  # noqa: E712
+
     # signups per day, last 30 days (cast works on both SQLite and Postgres)
     day = cast(User.created_at, Date).label("d")
     signups = db.query(day, func.count(User.id)) \
@@ -6708,6 +6721,14 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
         "total_users": total_users,
         "active_7d": active_7d,
         "new_7d": new_7d,
+        # The job board's actual output, not just its size.
+        "jobs_live": jobs_live,
+        "applications": applications,
+        "applications_7d": applications_7d,
+        "applicants": applicants,
+        "jobs_applied_to": jobs_applied_to,
+        "saved_total": saved_total,
+        "applications_per_applicant": round(applications / applicants, 1) if applicants else 0,
         "total_lessons": total_lessons,
         "completions": completions,
         "avg_per_user": round(completions / total_users, 1) if total_users else 0,
