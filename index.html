@@ -1481,7 +1481,13 @@ function exerciseHTML(l,e,k){
     </div>
     <div class="lab-body">
       <p style="margin-bottom:12px;font-size:14px;color:var(--body)">${e.q||""}</p>
-      <textarea class="code" id="code${k}" spellcheck="false">${esc(saved!==undefined?saved:(e.starter||""))}</textarea>
+      ${runnable
+        ? `<textarea class="code" id="code${k}" spellcheck="false">${esc(saved!==undefined?saved:(e.starter||""))}</textarea>`
+        /* A written answer is prose, not code. It used to get the same black
+           monospace editor, which on a lesson with no starter code read as an
+           empty terminal the student was expected to run something in. */
+        : `<textarea class="pj-note" id="code${k}" style="min-height:120px;width:100%"
+              placeholder="Type your answer here…">${esc(saved!==undefined?saved:(e.starter||""))}</textarea>`}
       <div class="row" style="margin-top:12px">
         ${runnable?`<button class="btn" id="run${k}">▶ Run</button>`
                   :`<button class="btn" id="reveal${k}">Show model answer</button>`}
