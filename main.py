@@ -4693,20 +4693,43 @@ async def _collect_jobs():
     genuinely answered. Closing jobs is driven by `reached`, never by the rows
     alone — otherwise one board timing out would look exactly like that
     employer taking every posting down."""
-    import httpx
+    import asyncio, httpx
     rows, report, reached = [], {}, set()
     async with httpx.AsyncClient(
             timeout=25, follow_redirects=True,
             headers={"User-Agent": "Craxle/1.0 (job board reader)"}) as client:
-        for source, fetch in _FETCHERS.items():
-            for token in _job_tokens(source):
+        # Concurrent, not serial. One board at a time with a 25s timeout meant
+        # ~400 boards could take an hour; the container restarted on the next
+        # deploy before the crawl ever finished, so the board silently stopped
+        # updating. The semaphore keeps it polite — 12 in flight, not 400 —
+        # and the whole stage is bounded so one hung host cannot stall it.
+        sem = asyncio.Semaphore(12)
+
+        async def one(source, fetch, token):
+            async with sem:
                 try:
                     got = [r for r in await fetch(client, token) if r]
-                    rows += got
-                    reached.add((source, token))
-                    report[f"{source}:{token}"] = len(got)
+                    return source, token, got, len(got)
                 except Exception as e:
-                    report[f"{source}:{token}"] = f"{type(e).__name__}"
+                    return source, token, [], f"{type(e).__name__}"
+
+        tasks = [one(source, fetch, token)
+                 for source, fetch in _FETCHERS.items()
+                 for token in _job_tokens(source)]
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), timeout=600)
+        except asyncio.TimeoutError:
+            print("jobs: board sweep hit the 10 minute cap; using what arrived")
+            results = []
+        for res in results:
+            if isinstance(res, Exception) or not res:
+                continue
+            source, token, got, outcome = res
+            rows += got
+            if isinstance(outcome, int):
+                reached.add((source, token))
+            report[f"{source}:{token}"] = outcome
 
         # Free aggregators. Each carries its own employers, so `reached` is
         # keyed on the feed itself — if one is down we simply keep what we had
