@@ -4889,6 +4889,11 @@ def _store_jobs(db, rows, reached):
             "pruned": pruned, "duplicates": dupes, "out_of_scope": skipped}
 
 
+# Outcome of the most recent crawl, whoever started it — the hourly loop or
+# the admin button. Read by /api/admin/jobs/refresh/status.
+_LAST_CRAWL = {"state": "never run"}
+
+
 # One crawl at a time, process-wide. The hourly loop and the admin button are
 # separate callers: when they overlapped, both fetched the same postings and
 # both inserted them, because each one's lookup ran before the other's write
@@ -4908,7 +4913,19 @@ async def _refresh_jobs():
                 "skipped_concurrent": True, "fetched": 0,
                 "boards_reached": 0, "sources": {}}
     async with _CRAWL_LOCK:
-        return await _refresh_jobs_locked()
+        # Recorded here rather than in the admin handler, so the hourly loop's
+        # crawls show up too. Previously only button-triggered crawls updated
+        # this, and the status read "never run" while the loop was working.
+        _LAST_CRAWL.clear()
+        _LAST_CRAWL.update({"state": "running", "started": now().isoformat()})
+        try:
+            r = await _refresh_jobs_locked()
+        except Exception as e:
+            _LAST_CRAWL.update({"state": "failed", "finished": now().isoformat(),
+                                "error": f"{type(e).__name__}: {e}"[:600]})
+            raise
+        _LAST_CRAWL.update({"state": "done", "finished": now().isoformat(), **r})
+        return r
 
 
 async def _refresh_jobs_locked():
@@ -6741,19 +6758,12 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
                       "families": sorted(ALLOWED_FAMILIES)}}
 
 
-# Last crawl's outcome, so the admin page can show it without holding a
-# request open for the whole crawl.
-_LAST_CRAWL = {"state": "never run"}
-
-
 async def _refresh_jobs_bg():
-    _LAST_CRAWL.update({"state": "running", "started": now().isoformat()})
+    """_refresh_jobs records its own outcome, so this only has to not die."""
     try:
-        r = await _refresh_jobs()
-        _LAST_CRAWL.update({"state": "done", "finished": now().isoformat(), **r})
+        await _refresh_jobs()
     except Exception as e:
-        _LAST_CRAWL.update({"state": "failed", "finished": now().isoformat(),
-                            "error": f"{type(e).__name__}: {e}"})
+        print(f"background crawl failed: {type(e).__name__}: {e}")
 
 
 @app.post("/api/admin/jobs/refresh")
