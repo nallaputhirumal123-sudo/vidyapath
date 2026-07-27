@@ -4710,6 +4710,43 @@ async def _collect_jobs():
 # rule never fires and the rows would sit there as open forever.
 RETIRED_SOURCES = ("themuse",)
 
+# What the board actually carries. Craxle serves IT and technology job seekers
+# in North America, and a board padded with roles nobody here searches for
+# makes matching worse, not better: every irrelevant posting is another chance
+# for the scorer to surface noise.
+#
+# "Technical and non-technical" means both sides of a tech company — engineers
+# and the product, design, support and QA roles around them — not every job in
+# every industry.
+ALLOWED_COUNTRIES = {c.strip().upper() for c in
+                     (env("JOB_COUNTRIES", "US,CA") or "US,CA").split(",") if c.strip()}
+ALLOWED_FAMILIES = {f.strip().lower() for f in
+                    (env("JOB_FAMILIES",
+                         "network,security,sysadmin,devops,backend,frontend,"
+                         "mobile,data,ml,qa,product,design,support")
+                     or "").split(",") if f.strip()}
+
+
+def _job_in_scope(r):
+    """Whether a crawled posting belongs on the board.
+
+    Country is matched loosely because sources spell it inconsistently — some
+    send "United States", some "US", some nothing at all. A blank country is
+    kept rather than dropped: remote listings often omit it, and discarding
+    them would lose exactly the roles people most want.
+    """
+    fam = (r.get("category") or "").strip().lower()
+    if ALLOWED_FAMILIES and fam and fam not in ALLOWED_FAMILIES:
+        return False
+    c = (r.get("country") or "").strip().upper()
+    if not c:
+        return True
+    if c in ALLOWED_COUNTRIES:
+        return True
+    aliases = {"UNITED STATES": "US", "USA": "US", "U.S.": "US",
+               "UNITED STATES OF AMERICA": "US", "CANADA": "CA"}
+    return aliases.get(c, c) in ALLOWED_COUNTRIES
+
 
 def _store_jobs(db, rows, reached):
     """Upsert this crawl, close postings that vanished, drop old history."""
@@ -4720,7 +4757,11 @@ def _store_jobs(db, rows, reached):
         print(f"jobs: removed {gone} rows from retired sources "
               f"({', '.join(RETIRED_SOURCES)})")
     seen, added, updated = set(), 0, 0
+    skipped = 0
     for r in rows:
+        if not _job_in_scope(r):
+            skipped += 1
+            continue
         seen.add((r["source"], r["external_id"]))
         row = db.query(Job).filter(Job.source == r["source"],
                                    Job.external_id == r["external_id"]).first()
@@ -4738,6 +4779,9 @@ def _store_jobs(db, rows, reached):
             db.add(Job(**r, first_seen=now(), last_seen=now(), is_open=True))
             added += 1
     db.commit()
+    if skipped:
+        print(f"jobs: skipped {skipped} out-of-scope postings "
+              f"(countries={sorted(ALLOWED_COUNTRIES)})")
 
     # A posting we did not see, on a board we DID reach, has come off that
     # career site — mark it closed so the user can still see it went.
@@ -6544,6 +6588,37 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                                  else now(), now())
             db.commit()
     return {"ok": True}
+
+
+@app.post("/api/admin/jobs/prune")
+def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
+                     db: Session = Depends(get_db)):
+    """Delete stored postings that fall outside the board's scope.
+
+    An endpoint rather than a migration because the scope is configurable:
+    widen JOB_COUNTRIES or JOB_FAMILIES later and this needs running again.
+    Defaults to a dry run — pass ?dry=0 to actually delete, so nobody wipes
+    the board by clicking a button they were curious about.
+    """
+    rows = db.query(Job).all()
+    doomed = [j for j in rows
+              if not _job_in_scope({"category": j.category, "country": j.country})]
+    by_country, by_family = {}, {}
+    for j in doomed:
+        by_country[(j.country or "(blank)")] = by_country.get(j.country or "(blank)", 0) + 1
+        by_family[(j.category or "(none)")] = by_family.get(j.category or "(none)", 0) + 1
+    if not dry:
+        for j in doomed:
+            db.delete(j)
+        db.commit()
+    return {"dry_run": bool(dry),
+            "total_stored": len(rows),
+            "out_of_scope": len(doomed),
+            "would_keep" if dry else "kept": len(rows) - len(doomed),
+            "by_country": dict(sorted(by_country.items(), key=lambda x: -x[1])[:15]),
+            "by_family": dict(sorted(by_family.items(), key=lambda x: -x[1])[:15]),
+            "scope": {"countries": sorted(ALLOWED_COUNTRIES),
+                      "families": sorted(ALLOWED_FAMILIES)}}
 
 
 @app.post("/api/admin/jobs/refresh")
