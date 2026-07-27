@@ -142,6 +142,11 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
 
 <script>
 const $=s=>document.querySelector(s);
+/* Plain newline for the monospace report panes. Written out rather than
+   inlined because a literal 
+ inside a template literal in this file is easy
+   to lose to an editor or a shell heredoc. */
+const NL=String.fromCharCode(10);   // literal escapes keep getting eaten
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtDate=s=>{ if(!s) return "—"; const d=new Date(s);
   return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"2-digit"}); };
