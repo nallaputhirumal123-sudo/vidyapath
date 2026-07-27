@@ -193,6 +193,14 @@ check("terms: no bank details", "30704210518" not in terms)
 check("privacy: no placeholders", "[YOUR" not in priv)
 check("privacy: extension section", "extension" in priv.lower())
 check("privacy: no bank details", "30704210518" not in priv)
+# Recruiter discovery shares personal data with third parties, so both
+# documents must describe it — and must say it is opt-in, or the consent the
+# code enforces is not the consent the user actually agreed to.
+check("privacy: recruiter access described", "found by employers" in priv)
+check("privacy: says opt-in and off by default",
+      "off unless you" in priv and "anonymous" in priv)
+check("terms: recruiter access described", "found by employers" in terms)
+check("terms: says off by default", "off by default" in terms)
 # The published contact address must be on our own domain. A personal mailbox
 # on a paid product's invoices and legal pages reads as an individual, not a
 # business, and it is the address a customer looks at before disputing.
