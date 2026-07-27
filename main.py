@@ -192,7 +192,7 @@ class User(Base):
     # Billing. `plan` is the source of truth for what someone may use; it is
     # only ever changed by a verified webhook, never by the browser.
     plan = Column(String(20), default="free", index=True)   # free | basic | pro
-    plan_provider = Column(String(20), default="")          # cashfree
+    plan_provider = Column(String(20), default="")          # stripe
     plan_ref = Column(String(120), default="")              # subscription id
     plan_expires = Column(DateTime(timezone=True))
     plan_started = Column(DateTime(timezone=True))
@@ -2767,21 +2767,15 @@ AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
 PLANS = {
     "free": {"name": "Free", "ai_total": 0, "kits_total": 0,
              "inr": None, "intl": None},
-    # One price worldwide, charged in rupees through Cashfree; foreign cards
-    # convert it themselves. Kept as a single tier on purpose: two tiers make
-    # people stop and compare instead of deciding.
-    # The 0/10/20/30% ladder off the monthly rate. Rupees are what Cashfree
-    # charges; the dollar column is kept only so the figures are to hand if the
-    # gateway ever changes. Amounts are in the currency's minor unit.
+    # One price worldwide, charged in US dollars through Stripe — Indian cards
+    # convert it themselves, the same way foreign cards used to convert the
+    # rupee price. Kept as a single tier on purpose: two tiers make people stop
+    # and compare instead of deciding. Amounts are in cents.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # unlimited
-            "inr_month": 140700,      # ₹1,407    — ₹1,407/mo
-            "inr_quarter": 379900,    # ₹3,799    — ₹1,266/mo, 10% off
-            "inr_half": 675900,       # ₹6,759    — ₹1,127/mo, 20% off
-            "inr_year": 1181900,      # ₹11,819   —   ₹985/mo, 30% off
-            "usd_month": 1599,        # $15.99    — $15.99/mo
-            "usd_quarter": 4299,      # $42.99    — $14.33/mo, 10% off
-            "usd_half": 7699,         # $76.99    — $12.83/mo, 20% off
-            "usd_year": 13499},       # $134.99   — $11.25/mo, 30% off
+            "usd_month": 1599,        # $15.99   — $15.99/mo
+            "usd_quarter": 4299,      # $42.99   — $14.33/mo, 10% off
+            "usd_half": 7699,         # $76.99   — $12.83/mo, 20% off
+            "usd_year": 13499},       # $134.99  — $11.25/mo, 30% off
 }
 PAID_PLANS = ("pro",)
 
@@ -4116,9 +4110,12 @@ JOBS_PER_COMPANY = int(env("JOBS_PER_COMPANY", "3") or 3)
 COST_HOSTING_INR = float(env("COST_HOSTING_INR", "1700") or 1700)   # Railway
 COST_DOMAIN_INR = float(env("COST_DOMAIN_INR", "100") or 100)       # amortised
 COST_OTHER_INR = float(env("COST_OTHER_INR", "0") or 0)
-# Cashfree domestic cards/UPI at ~2% plus 18% GST on the fee — about 2.36%.
+# Stripe on an Indian account, billing in USD: 4.3% international card rate,
+# plus 2% to convert USD to INR at settlement, plus 18% GST on Stripe's fee.
+# That is roughly 7.4% all-in — far more than the 2.36% a domestic rupee
+# gateway cost, and enough to move the profit line, so it is not rounded down.
 # Override with GATEWAY_FEE_PCT once real settlements show the true number.
-GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "2.36") or 2.36)
+GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "7.4") or 7.4)
 GST_RATE_PCT = float(env("GST_RATE_PCT", "18") or 18)
 USD_INR = float(env("USD_INR", "88") or 88)
 JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
@@ -6307,49 +6304,45 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
 
 
 # ============================ billing =====================================
-# Cashfree is the only gateway. It settles in rupees to the Indian account the
-# business holds. The user's `plan` is
+# Stripe is the only gateway, worldwide, in US dollars. The user's `plan` is
 # only ever written by a signature-verified webhook — never by the browser,
 # which could otherwise simply ask to be upgraded.
-CASHFREE_APP_ID = env("CASHFREE_APP_ID")
-CASHFREE_SECRET = env("CASHFREE_SECRET")
-CASHFREE_WEBHOOK_SECRET = env("CASHFREE_WEBHOOK_SECRET") or CASHFREE_SECRET
-CASHFREE_ENV = (env("CASHFREE_ENV", "production") or "production").lower()
-CASHFREE_BASE = ("https://sandbox.cashfree.com/pg" if CASHFREE_ENV == "sandbox"
-                 else "https://api.cashfree.com/pg")
-CASHFREE_ENABLED = bool(CASHFREE_APP_ID and CASHFREE_SECRET)
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET")
+STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)
 
+# Stripe Price IDs, created in the Stripe dashboard.
+STRIPE_PRICES = {
+    ("pro", "month"): env("STRIPE_PRICE_PRO_MONTH"),
+    ("pro", "year"): env("STRIPE_PRICE_PRO_YEAR"),
+}
 
 
 @app.get("/api/billing/plans")
 def billing_plans(request: Request, user: User = Depends(current_user),
                   db: Session = Depends(get_db)):
-    """What this user can buy, in the live gateway's currency."""
-    cur, sym = "inr", "₹"
+    """What this user can buy. One price worldwide, in US dollars."""
 
     def money(v):
-        if v is None:
-            return None
-        # Rupee amounts are whole; dollar amounts carry cents.
-        return f"{sym}{v/100:,.0f}" if cur == "inr" else f"{sym}{v/100:,.2f}"
+        return None if v is None else f"${v/100:,.2f}"
 
     out = []
     for pid in ("free", "pro"):
         p = PLANS[pid]
         out.append({
             "id": pid, "name": p["name"],
-            "month": money(p.get(f"{cur}_month")),
-            "year": money(p.get(f"{cur}_year")),
+            "month": money(p.get("usd_month")),
+            "year": money(p.get("usd_year")),
             # Every term on sale, cheapest-per-month last, with the saving
             # worked out here so the page never has to do arithmetic.
             "periods": [
                 {"id": k, "label": spec["label"], "months": spec["months"],
-                 "price": money(p.get(f"{cur}_{k}")),
-                 "per_month": money(p[f"{cur}_{k}"] / spec["months"]),
-                 "save_pct": round(100 * (1 - (p[f"{cur}_{k}"] / spec["months"])
-                                          / p[f"{cur}_month"]))}
+                 "price": money(p.get(f"usd_{k}")),
+                 "per_month": money(p[f"usd_{k}"] / spec["months"]),
+                 "save_pct": round(100 * (1 - (p[f"usd_{k}"] / spec["months"])
+                                          / p["usd_month"]))}
                 for k, spec in BILLING_PERIODS.items()
-                if p.get(f"{cur}_{k}") and p.get(f"{cur}_month")
+                if p.get(f"usd_{k}") and p.get("usd_month")
             ] if pid != "free" else [],
             "ai": ("Unlimited" if pid == "pro"
                    else f"{p.get('ai_total') or p.get('ai_month')} AI requests"
@@ -6359,9 +6352,9 @@ def billing_plans(request: Request, user: User = Depends(current_user),
                           + (" to start" if pid == "free" else " a month")),
         })
     return {
-        "plans": out, "currency": "INR" if cur == "inr" else "USD",
-        "gateway": "cashfree",
-        "available": {"cashfree": CASHFREE_ENABLED},
+        "plans": out, "currency": "USD",
+        "gateway": "stripe",
+        "available": {"stripe": STRIPE_ENABLED},
         "current": plan_of(user),
         "cancelled": bool(user.plan_cancelled_at),
         "access_until": user.plan_expires.isoformat() if user.plan_expires else None,
@@ -6394,9 +6387,21 @@ async def billing_cancel(user: User = Depends(current_user),
     if plan_of(user) == "free":
         raise HTTPException(400, "You are not on a paid plan.")
     note = ""
-    # Cashfree charges are one-off orders, not a stored mandate, so there is
-    # nothing to cancel at the gateway — simply not charging again is the
-    # cancellation. Access runs to the end of the paid period.
+    if user.plan_provider == "stripe" and STRIPE_ENABLED and user.plan_ref:
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.post(
+                    f"https://api.stripe.com/v1/subscriptions/{user.plan_ref}",
+                    headers={"Authorization": f"Bearer {STRIPE_SECRET_KEY}"},
+                    data={"cancel_at_period_end": "true"})
+            if r.status_code >= 300:
+                print("Stripe cancel failed:", r.status_code, r.text[:200])
+                note = ("We recorded your cancellation, but could not reach the "
+                        "payment provider. Email us if you are charged again.")
+        except Exception as e:
+            print(f"Stripe cancel error: {type(e).__name__}: {e}")
+            note = ("We recorded your cancellation, but could not reach the "
+                    "payment provider. Email us if you are charged again.")
     user.plan_cancelled_at = now()
     db.commit()
     exp = user.plan_expires
@@ -6422,46 +6427,61 @@ async def billing_checkout(body: CheckoutIn, request: Request,
         raise HTTPException(400, "Unknown plan")
     if period not in BILLING_PERIODS:
         raise HTTPException(400, "Unknown billing period")
+    if not STRIPE_ENABLED:
+        raise HTTPException(503, "Payments are not switched on yet.")
+    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
 
-    # Cashfree first when its keys are present: it settles to the Indian
-    # account the business actually holds.
-    if CASHFREE_ENABLED:
-        amount = PLANS[plan].get(f"inr_{period}")
+    # Two ways to price this. A Price ID created in the Stripe dashboard wins
+    # if one is configured; otherwise the amount is sent inline from PLANS.
+    # Inline is the default on purpose: it needs nothing set up in Stripe
+    # beyond an API key, and it cannot drift from the price the site quotes —
+    # a stale dashboard Price ID would charge a number nobody advertised.
+    price = STRIPE_PRICES.get((plan, period))
+    if price:
+        line = {"line_items[0][price]": price}
+    else:
+        amount = PLANS[plan].get(f"usd_{period}")
         if not amount:
             raise HTTPException(400, "That plan is not sold for that period")
-        base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
-        oid = f"craxle_{user.id}_{int(time.time())}"
-        async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.post(
-                f"{CASHFREE_BASE}/orders",
-                headers={"x-client-id": CASHFREE_APP_ID,
-                         "x-client-secret": CASHFREE_SECRET,
-                         "x-api-version": "2023-08-01",
-                         "Content-Type": "application/json"},
-                json={"order_id": oid,
-                      # Cashfree takes rupees as a decimal, not paise.
-                      "order_amount": round(amount / 100, 2),
-                      "order_currency": "INR",
-                      "customer_details": {
-                          "customer_id": f"u{user.id}",
-                          "customer_email": user.email,
-                          # Cashfree requires a phone; we do not collect one,
-                          # and the payment page lets the payer correct it.
-                          "customer_phone": "9999999999"},
-                      "order_meta": {"return_url": f"{base}/?upgraded=1"},
-                      # Read back in the webhook — the browser never says who
-                      # was upgraded or for how long.
-                      "order_tags": {"user_id": str(user.id),
-                                     "plan": plan, "period": period}})
-        if r.status_code >= 300:
-            print("Cashfree order failed:", r.status_code, r.text[:300])
-            raise HTTPException(502, "Could not start the payment. Try again.")
-        o = r.json()
-        return {"gateway": "cashfree", "mode": CASHFREE_ENV,
-                "payment_session_id": o.get("payment_session_id"),
-                "order_id": o.get("order_id"), "plan": plan, "period": period}
+        spec = BILLING_PERIODS[period]
+        line = {
+            "line_items[0][price_data][currency]": "usd",
+            "line_items[0][price_data][unit_amount]": str(int(amount)),
+            # Stripe has no "quarter": 3- and 6-month terms are a monthly
+            # interval with a count, not an interval of their own.
+            "line_items[0][price_data][recurring][interval]": spec["interval"],
+            "line_items[0][price_data][recurring][interval_count]": str(spec["count"]),
+            "line_items[0][price_data][product_data][name]":
+                f"Craxle {PLANS[plan]['name']}",
+            "line_items[0][price_data][product_data][description]":
+                "Resume matching, application tracking, apply kits and the "
+                "autofill extension.",
+        }
 
-    raise HTTPException(503, "Payments are not switched on yet.")
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(
+            "https://api.stripe.com/v1/checkout/sessions",
+            headers={"Authorization": f"Bearer {STRIPE_SECRET_KEY}"},
+            data={"mode": "subscription", **line,
+                  "line_items[0][quantity]": "1",
+                  "customer_email": user.email,
+                  "client_reference_id": str(user.id),
+                  "metadata[user_id]": str(user.id),
+                  "metadata[plan]": plan,
+                  "metadata[period]": period,
+                  # Also stamped on the subscription itself: renewal invoices
+                  # carry the subscription's metadata, not the checkout
+                  # session's, and without the period a yearly renewal would
+                  # be granted 32 days of access.
+                  "subscription_data[metadata][user_id]": str(user.id),
+                  "subscription_data[metadata][plan]": plan,
+                  "subscription_data[metadata][period]": period,
+                  "success_url": f"{base}/?upgraded=1",
+                  "cancel_url": f"{base}/?upgrade_cancelled=1"})
+    if r.status_code >= 300:
+        print("Stripe session failed:", r.status_code, r.text[:300])
+        raise HTTPException(502, "Could not start the payment. Try again.")
+    return {"gateway": "stripe", "url": r.json()["url"]}
 
 
 def _activate(db, user_id, plan, provider, ref, period="month"):
@@ -6477,44 +6497,56 @@ def _activate(db, user_id, plan, provider, ref, period="month"):
     print(f"billing: user {u.id} -> {plan} via {provider} until {u.plan_expires}")
 
 
-@app.post("/api/billing/webhook/cashfree")
-async def cashfree_webhook(request: Request, db: Session = Depends(get_db)):
-    """Cashfree calls this. The signature is what makes it trustworthy.
-
-    Cashfree signs timestamp + raw body with the client secret and sends the
-    result base64-encoded, which is why the raw bytes are used rather than the
-    parsed JSON — re-serialising would change the bytes and break the digest.
-    """
+@app.post("/api/billing/webhook/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Stripe calls this. Verifies the timestamped signature header."""
     raw = await request.body()
-    sig = request.headers.get("x-webhook-signature", "")
-    ts = request.headers.get("x-webhook-timestamp", "")
-    if not CASHFREE_WEBHOOK_SECRET:
+    header = request.headers.get("stripe-signature", "")
+    if not STRIPE_WEBHOOK_SECRET:
         raise HTTPException(503, "Webhook secret not configured")
-    expected = base64.b64encode(hmac.new(
-        CASHFREE_WEBHOOK_SECRET.encode(), (ts + raw.decode("utf-8", "replace")).encode(),
-        hashlib.sha256).digest()).decode()
-    if not (sig and hmac.compare_digest(expected, sig)):
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    t, v1 = parts.get("t", ""), parts.get("v1", "")
+    expected = hmac.new(STRIPE_WEBHOOK_SECRET.encode(),
+                        f"{t}.".encode() + raw, hashlib.sha256).hexdigest()
+    if not (v1 and hmac.compare_digest(expected, v1)):
         raise HTTPException(400, "Bad signature")
-    # Reject anything stale, so a captured call cannot be replayed to extend
-    # a subscription later.
+    # Reject anything older than five minutes, so a captured request cannot be
+    # replayed later to extend a subscription.
     try:
-        if abs(time.time() - int(ts)) > 300:
+        if abs(time.time() - int(t)) > 300:
             raise HTTPException(400, "Stale webhook")
     except ValueError:
         raise HTTPException(400, "Bad timestamp")
 
     ev = json.loads(raw or b"{}")
+    obj = (ev.get("data") or {}).get("object") or {}
     kind = ev.get("type", "")
-    data = ev.get("data") or {}
-    order = data.get("order") or {}
-    if kind in ("PAYMENT_SUCCESS_WEBHOOK",) or        (data.get("payment") or {}).get("payment_status") == "SUCCESS":
-        tags = order.get("order_tags") or {}
-        uid = tags.get("user_id")
-        period = tags.get("period", "month")
-        if period not in BILLING_PERIODS:
-            period = "month"
+    md = obj.get("metadata") or {}
+    if kind in ("checkout.session.completed", "invoice.payment_succeeded"):
+        uid = md.get("user_id") or obj.get("client_reference_id")
+        period = md.get("period") or ""
+        sub = obj.get("subscription") or obj.get("id")
+        # A renewal invoice may carry neither: fall back to the subscription we
+        # already recorded, and to the length of the term they are currently on.
+        if (not uid or not period) and sub:
+            u = db.query(User).filter(User.plan_ref == str(sub)).first()
+            if u:
+                uid = uid or u.id
+                if not period:
+                    period = _period_from_span(u.plan_started, u.plan_expires)
         if uid:
-            _activate(db, uid, "pro", "cashfree", order.get("order_id"), period)
+            _activate(db, uid, "pro", "stripe", sub, period or "month")
+    elif kind in ("customer.subscription.deleted", "invoice.payment_failed"):
+        sub = obj.get("subscription") or obj.get("id")
+        u = db.query(User).filter(User.plan_ref == str(sub)).first()
+        if u:
+            # Do not cut access mid-period; let it lapse at expiry.
+            # _aware() matters here: SQLite hands back naive datetimes, and
+            # comparing one against an aware now() raises, which would 500 the
+            # webhook — and Stripe retries a failing webhook for days.
+            u.plan_expires = min(_aware(u.plan_expires) if u.plan_expires
+                                 else now(), now())
+            db.commit()
     return {"ok": True}
 
 
@@ -6589,7 +6621,7 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
 
     Revenue is derived from the plan each user is on, not from a payments
     ledger — we do not store one. Treat these as indicative and reconcile
-    against the payment gateway before relying on a number for tax or accounting.
+    against Stripe before relying on a number for tax or accounting.
     """
     users = db.query(User).all()
     total = len(users)
@@ -6602,22 +6634,21 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
         return (u.plan or "free") in PAID_PLANS and (exp is None or exp >= now_)
 
     paying = [u for u in users if live(u)]
-    # Charged in rupees, and everything below — GST, hosting, the profit line —
-    # is rupee accounting too, so no conversion is needed.
-    by_plan, mrr_minor = {}, 0
-    charge_cur = "inr"
+    # Prices are charged in USD through Stripe, but everything below — GST,
+    # hosting, the profit line — is rupee accounting, so convert once here.
+    by_plan, mrr_usd_cents = {}, 0
     for u in paying:
         by_plan[u.plan] = by_plan.get(u.plan, 0) + 1
         p = PLANS.get(u.plan, {})
         # Every term is normalised to a month, so a 3-month and a 12-month
         # subscriber are comparable in the same MRR figure.
         per = _period_from_span(u.plan_started, u.plan_expires)
-        amt, months = p.get(f"{charge_cur}_{per}"), BILLING_PERIODS[per]["months"]
+        amt, months = p.get(f"usd_{per}"), BILLING_PERIODS[per]["months"]
         if amt:
-            mrr_minor += amt / months
-        elif p.get(f"{charge_cur}_month"):
-            mrr_minor += p[f"{charge_cur}_month"]
-    mrr_inr = mrr_minor
+            mrr_usd_cents += amt / months
+        elif p.get("usd_month"):
+            mrr_usd_cents += p["usd_month"]
+    mrr_inr = mrr_usd_cents * USD_INR
 
     cancelled = sum(1 for u in users if u.plan_cancelled_at)
     week = now_ - dt.timedelta(days=7)
@@ -6679,7 +6710,7 @@ def admin_revenue(user: User = Depends(admin_user), db: Session = Depends(get_db
         "ai_requests_total": ai_calls,
         "ai_cost_usd_estimate": ai_cost_usd,
         "note": "Derived from plan state, not a payments ledger. "
-                "Reconcile against the payment gateway before using for accounting.",
+                "Reconcile against Stripe before using for accounting.",
     }
 
 

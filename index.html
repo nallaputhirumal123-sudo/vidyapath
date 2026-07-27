@@ -1042,7 +1042,7 @@ async function boot(){
   }, 800);
 }
 
-/* The gateway sends the customer back here after paying. The webhook is what
+/* Stripe sends the customer back here after paying. The webhook is what
    actually grants the plan, so wait for it to land rather than assuming — and
    strip the query string either way, so a refresh doesn't replay this. */
 async function handleCheckoutReturn(){
@@ -3916,33 +3916,15 @@ async function loadBilling(){
   try{ BILLING=await api.get("/api/billing/plans"); }catch(e){ BILLING=null; }
   return BILLING;
 }
-/* Cashfree's SDK is loaded only when someone actually starts a payment, so a
-   visitor who never opens Plans never downloads it. */
-function loadCashfree(){
-  return new Promise((ok,bad)=>{
-    if(window.Cashfree) return ok();
-    const s=document.createElement("script");
-    s.src="https://sdk.cashfree.com/js/v3/cashfree.js";
-    s.onload=ok; s.onerror=()=>bad(new Error("Could not load the payment window."));
-    document.head.appendChild(s);
-  });
-}
-/* Cashfree opens its own hosted page, so no card details ever touch ours. */
+/* Stripe Checkout is a hosted page, so this is a redirect, not a popup: no
+   third-party script to load and no card details ever touching our page. */
 async function startCheckout(plan,period,btn){
   const old=btn?btn.textContent:"";
   if(btn){ btn.disabled=true; btn.textContent="Opening…"; }
   try{
     const r=await api.post("/api/billing/checkout",{plan,period});
-    if(r.gateway==="cashfree"){
-      if(!r.payment_session_id) throw new Error("Could not start the payment.");
-      await loadCashfree();
-      // redirectTarget:_self so the return_url lands back on our own page,
-      // where handleCheckoutReturn waits for the webhook to grant the plan.
-      Cashfree({mode:r.mode==="sandbox"?"sandbox":"production"})
-        .checkout({paymentSessionId:r.payment_session_id, redirectTarget:"_self"});
-      return;
-    }
-    throw new Error("Could not start the payment.");
+    if(!r.url) throw new Error("Could not start the payment.");
+    location.href=r.url;
   }catch(e){
     alert(e.message||"Could not start the payment.");
     if(btn){ btn.disabled=false; btn.textContent=old; }
@@ -3995,7 +3977,7 @@ async function renderPlans(){
   if(!BILLING){ $("#main").innerHTML=`<div class="h1">⚡ Plans</div>
     <div class="card">Could not load plans. Try again shortly.</div>`; return; }
   const b=BILLING, q=b.quota||{};
-  const live=(b.available||{}).cashfree;
+  const live=(b.available||{}).stripe;
   $("#main").innerHTML=`
   <div class="h1">⚡ Plans <span style="font-size:13px;color:var(--dim)">· prices in ${esc(b.currency)}</span></div>
   <p class="sub">Browsing jobs, resume matching, the application tracker and the

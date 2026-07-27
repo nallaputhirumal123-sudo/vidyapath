@@ -46,11 +46,9 @@ check("checkout cannot itself grant a plan",
 # Razorpay is gone — the endpoint must not still be accepting calls.
 r = A.post("/api/billing/webhook/razorpay", json={"event": "payment.captured"})
 check("razorpay webhook removed", r.status_code == 404, str(r.status_code))
-r = A.post("/api/billing/webhook/stripe", json={"type": "checkout.session.completed"})
-check("stripe webhook removed", r.status_code == 404, str(r.status_code))
-r = A.post("/api/billing/webhook/cashfree", json={"type": "PAYMENT_SUCCESS_WEBHOOK",
-      "data": {"order": {"order_tags": {"user_id": "1", "plan": "pro"}}}})
-check("cashfree webhook rejects unsigned", r.status_code >= 400, str(r.status_code))
+r = A.post("/api/billing/webhook/stripe", json={"type": "checkout.session.completed",
+      "data": {"object": {"metadata": {"user_id": "1", "plan": "pro"}}}})
+check("stripe webhook rejects unsigned", r.status_code >= 400, str(r.status_code))
 check("forged webhooks grant nothing",
       A.get("/api/billing/me").json().get("provider", "") == "",
       A.get("/api/billing/me").json().get("provider", ""))
