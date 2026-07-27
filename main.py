@@ -4172,42 +4172,22 @@ JOB_REFRESH_HOURS = float(env("JOB_REFRESH_HOURS", "1") or 1)
 # Board tokens. A company that renames or leaves its ATS simply stops
 # returning rows — the fetcher skips it silently and the rest still work.
 # Extend without touching code: JOB_GREENHOUSE="stripe,figma,..." etc.
-_GREENHOUSE = ("stripe,figma,databricks,cloudflare,coinbase,robinhood,dropbox,"
-               "reddit,discord,brex,instacart,lyft,pinterest,twilio,asana,"
-               "samsara,affirm,chime,flexport,gitlab,airtable,amplitude,"
-               "mixpanel,vercel,scaleai,duolingo,gusto,carta,squarespace,"
-               "fivetran,verkada,checkr,betterment,elastic,mongodb,postman,"
-               "airbnb,datadog,"
-               # More US/Canada engineering boards. Greenhouse tokens are the
-               # company's own slug; a wrong one simply returns nothing, so a
-               # dead token costs a request, not correctness.
-               "benchling,plaid,rippling,notion,figma-ai,sentry,grafana,"
-               "hashicorp,confluent,snyk,okta,auth0,segment,amplitudeinc,"
-               "retool,census,hex,dbtlabs,starburst,cockroachlabs,timescale,"
-               "neo4j,redis,temporalio,pulumi,render,railway,planetscale,"
-               "clerk,workos,knock,courier,resend,tailscale,1password,"
-               "shopify,faire,wealthsimple,clio,jobber,vidyard,ada,cohere,"
-               "coveo,lightspeed,hootsuite,thescore,benevity,visier,"
-               # Canada was 426 of 6,400 jobs — effectively a US-only board.
-               # These are Canadian-headquartered employers with public boards.
-               "applyboard,verafin,introhive,assent,trulioo,copperleaf,"
-               "absolutesoftware,neofinancial,koho,questrade,nuvei,kinaxis,"
-               "opentext,dayforce,ceridian,telus,sonder,article,float,"
-               "carbon6,mysa,bench,ritual,tulip,dialogue,league,felix,"
-               "clearco,borrowell,fintel,symend,pigment,secoda")
-_LEVER = ("palantir,cred,meesho,nium,matchgroup,"
-          "netflix,attentive,ironclad,alloy,pave,mural,kandji,abnormal,"
-          "veeva,nuro,zipline,shieldai,anduril,applied-intuition,"
-          "wave,thinkific,unbounce,later,jane,relay,d2l,axonify,"
-          "hopper,wattpad,ecobee,flipp,ssense,knix,goodfood,paystone,"
-          "getmaintainx,jitterbit,plusgrade,practicepanther,vena,tealbook")
+_GREENHOUSE = ("stripe,figma,databricks,cloudflare,coinbase,robinhood,"
+               "dropbox,reddit,discord,brex,instacart,lyft,pinterest,twilio,"
+               "asana,samsara,affirm,chime,flexport,gitlab,airtable,"
+               "amplitude,mixpanel,vercel,scaleai,duolingo,gusto,carta,"
+               "squarespace,fivetran,verkada,checkr,betterment,elastic,"
+               "mongodb,postman,airbnb,datadog,okta,starburst,cockroachlabs,"
+               "neo4j,planetscale,knock,tailscale,faire,hootsuite,ritual,"
+               "tulip")
+_LEVER = ("palantir,cred,meesho,nium,matchgroup,alloy,veeva,shieldai,"
+          "relay,d2l,wattpad,knix")
 _ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
-          "elevenlabs,decagon,mercor,sierra,suno,perplexity,zed,harvey,modal,"
-          "warp,browserbase,lovable,synthesia,cognition,fireworksai,baseten,"
-          "langchain,n8n,"
-          "anthropic,scale,together,groq,runway,character,glean,writer,"
-          "assemblyai,deepgram,pinecone,weaviate,chroma,llamaindex,"
-          "crusoe,lambdalabs,sierraai,abridge,openevidence,cohereai")
+          "elevenlabs,decagon,mercor,sierra,suno,perplexity,zed,harvey,"
+          "modal,warp,browserbase,lovable,synthesia,cognition,"
+          "fireworksai,baseten,langchain,n8n,runway,character,writer,"
+          "deepgram,pinecone,weaviate,llamaindex,crusoe,abridge,"
+          "openevidence")
 # No verified public boards seeded for these two, but the fetchers are live —
 # add tokens with JOB_WORKABLE / JOB_RECRUITEE and they start working.
 _WORKABLE = ""
@@ -4232,19 +4212,7 @@ _WORKDAY = ",".join([
 # US/Canada employers with sizeable IT and cyber organisations — these are
 # where the non-startup technical roles live, including plenty of contract and
 # W2 postings that never reach the startup ATS boards.
-_SMARTRECRUITERS = ("Visa,Bosch,McDonalds,Kyndryl,Avanade,Genpact,"
-                    "PublicisGroupe,Ubisoft,SquareEnix,LinkGroup,"
-                    "IPGMediabrands,Wolters,Experian,NielsenIQ,"
-                    "Rakuten,Deloitte,Atos,Tealium,ZoomInfo,BoschGroup,"
-                    # US IT staffing and consulting firms — this is where
-                    # contract and C2C postings actually live. They rarely use
-                    # the startup ATS boards, so without these the board is
-                    # full-time product roles only.
-                    "Cognizant,Infosys,Wipro,HCLTech,LTIMindtree,Capgemini,"
-                    "TechMahindra,Virtusa,UST,Mphasis,Hexaware,Coforge,"
-                    "Birlasoft,Zensar,PersistentSystems,NTTDATA,DXCTechnology,"
-                    "Insight,Randstad,Kforce,ApexSystems,CollaberaInc,"
-                    "JudgeGroup,MotionRecruitment,RobertHalf,Modis,Experis")
+_SMARTRECRUITERS = ("Visa,Experian,NielsenIQ,BoschGroup")
 
 
 def _job_tokens(name):
