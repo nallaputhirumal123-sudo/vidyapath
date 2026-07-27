@@ -1756,7 +1756,10 @@ const ASK_SUBJECTS=[
   {k:"Physics",   icon:"🧲"},
   {k:"Chemistry", icon:"⚗️"},
 ];
-const ASK_LEVELS=["Class 1–5","Class 6–8","Class 9–10","Class 11–12","College","Expert"];
+/* Three levels, not six school classes. Craxle serves working and
+   job-seeking adults; "Class 6–8" was never the right frame, and six
+   options made people stop and choose instead of asking. */
+const ASK_LEVELS=["Beginner","Intermediate","Advanced"];
 const ASK_SAMPLES={
   "General":["Why is the sky blue?","How does the internet work?","What is inflation?"],
   "Science":["What is photosynthesis?","Why do we feel friction?","How do vaccines work?"],
@@ -2094,7 +2097,7 @@ function renderAsk(){
     </div>
     <div class="ask-plabel" style="margin-top:12px">Level</div>
     <div class="ask-chips">
-      ${ASK_LEVELS.map(lv=>`<button class="ask-chip ${a.level===lv?"on":""}" data-ask="level" data-val="${esc(lv)}">${esc(lv)}</button>`).join("")}
+      ${ASK_LEVELS.map(lv=>`<button class="ask-chip ${(ASK_LEVELS.includes(a.level)?a.level:"Intermediate")===lv?"on":""}" data-ask="level" data-val="${esc(lv)}">${esc(lv)}</button>`).join("")}
     </div>
   </div>
 
