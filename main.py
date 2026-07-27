@@ -193,6 +193,15 @@ class User(Base):
     # only ever changed by a verified webhook, never by the browser.
     plan = Column(String(20), default="free", index=True)   # free | basic | pro
     plan_provider = Column(String(20), default="")          # stripe
+    # Recruiter discovery is opt-in and off by default. Existing users
+    # agreed to a policy saying we do not share personal data, so being
+    # findable has to be something they actively choose, never a default
+    # flipped on beneath them.
+    # Nullable on purpose: ADD COLUMN ... NOT NULL fails on a table that
+    # already has rows, so existing users would silently miss the column.
+    # Read it through open_to_work_on(), which treats NULL as off.
+    open_to_work = Column(Boolean, default=False)
+    open_to_work_at = Column(DateTime(timezone=True))
     plan_ref = Column(String(120), default="")              # subscription id
     plan_expires = Column(DateTime(timezone=True))
     plan_started = Column(DateTime(timezone=True))
@@ -6078,6 +6087,129 @@ def job_track(body: TrackIn2, user: User = Depends(current_user),
     db.commit()
     db.refresh(row)
     return {"ok": True, "track": _track_json(row)}
+
+
+# ---------------------------- hiring side ---------------------------------
+# Employers search candidates by pasting a job description. Two rules shape
+# everything here:
+#   1. Nobody appears unless they switched it on. Consent is explicit.
+#   2. Results are anonymous. Skills, seniority, location and a match score —
+#      never a name, email or phone. An employer asks for an introduction and
+#      the candidate decides. That protects the user and is worth more to the
+#      employer than a list they could have scraped.
+
+def open_to_work_on(u) -> bool:
+    return bool(getattr(u, "open_to_work", False))
+
+
+class HireSearchIn(BaseModel):
+    jd: str = Field(min_length=40, max_length=20000)
+    engagement: str = Field(default="", max_length=20)   # c2c / w2 / 1099
+    limit: int = 25
+
+
+def _candidate_score(jd_skills, jd_fams, jd_level, r_skills, r_fams, r_level):
+    """How well one resume answers a job description.
+
+    Deliberately the mirror of _score_job so a candidate and an employer see
+    the same number for the same pair — a match that reads 80% to the employer
+    must not read 60% to the candidate.
+    """
+    if not jd_skills:
+        return 0
+    hit = jd_skills & r_skills
+    skill = len(hit) / max(len(jd_skills), 1)
+    fam = 1.0 if (jd_fams & r_fams) else (0.35 if not jd_fams else 0.0)
+    order = ["junior", "mid", "senior", "lead"]
+    try:
+        gap = abs(order.index(r_level) - order.index(jd_level))
+        lvl = {0: 1.0, 1: 0.7}.get(gap, 0.4)
+    except ValueError:
+        lvl = 0.7
+    return round(100 * (0.60 * skill + 0.28 * fam + 0.12 * lvl))
+
+
+@app.post("/api/hire/search")
+def hire_search(body: HireSearchIn, user: User = Depends(admin_user),
+                db: Session = Depends(get_db)):
+    """Rank opted-in candidates against a job description.
+
+    Admin-only for now: employer accounts and billing are the next step, and
+    an unauthenticated version of this would be a candidate-data leak.
+    """
+    jd = body.jd.strip()
+    jd_skills, _kw = _profile(jd)
+    if not jd_skills:
+        raise HTTPException(400, "No recognisable skills in that job "
+                                 "description — add the tools and technologies.")
+    jd_fams, jd_level = _families(jd), _level_of(jd)
+    want = (body.engagement or "").strip().lower()
+
+    out = []
+    for u in db.query(User).filter(User.open_to_work == True).all():   # noqa: E712
+        note = db.query(Note).filter(Note.user_id == u.id,
+                                     Note.k == "resume_uptext").first()
+        rtext = (note.v if note else "") or ""
+        if len(rtext.strip()) < 120:
+            continue           # no resume on file — nothing to match against
+        r_skills, _ = _profile(rtext)
+        if not r_skills:
+            continue
+        score = _candidate_score(jd_skills, jd_fams, jd_level,
+                                 r_skills, _families(rtext), _level_of(rtext))
+        if score < 40:
+            continue
+        pref = db.query(Note).filter(Note.user_id == u.id,
+                                     Note.k == "work_engagement").first()
+        their = (pref.v if pref else "").strip().lower()
+        if want and their and want != their:
+            continue
+        out.append({
+            # An opaque handle, not the user id: an employer must not be able
+            # to enumerate accounts or correlate one across searches.
+            "ref": hashlib.sha256(f"cand{u.id}{JWT_SECRET}".encode()).hexdigest()[:16],
+            "score": score,
+            "matched_skills": sorted(jd_skills & r_skills)[:12],
+            "missing_skills": sorted(jd_skills - r_skills)[:8],
+            "level": _level_of(rtext),
+            "families": sorted(_families(rtext))[:3],
+            "engagement": their,
+            "open_since": _aware(u.open_to_work_at).date().isoformat()
+                          if u.open_to_work_at else None,
+        })
+    out.sort(key=lambda x: -x["score"])
+    return {"candidates": out[:max(1, min(body.limit, 100))],
+            "total": len(out),
+            "jd_skills": sorted(jd_skills)[:20],
+            "note": "Anonymous by design. Request an introduction and the "
+                    "candidate chooses whether to share their details."}
+
+
+class OpenToWorkIn(BaseModel):
+    on: bool
+    engagement: str = Field(default="", max_length=20)
+
+
+@app.post("/api/me/open-to-work")
+def set_open_to_work(body: OpenToWorkIn, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Opt in or out of being found by employers. Off until chosen."""
+    u = db.get(User, user.id)
+    u.open_to_work = bool(body.on)
+    u.open_to_work_at = now() if body.on else None
+    if body.engagement:
+        row = db.query(Note).filter(Note.user_id == u.id,
+                                    Note.k == "work_engagement").first()
+        if row is None:
+            row = Note(user_id=u.id, k="work_engagement", v="")
+            db.add(row)
+        row.v = body.engagement.strip().lower()[:20]
+    db.commit()
+    return {"ok": True, "open_to_work": bool(u.open_to_work),
+            "message": "Employers matching your resume can now find you — "
+                       "anonymously, until you accept an introduction."
+                       if body.on else
+                       "You are hidden from employer searches."}
 
 
 @app.get("/api/jobs/tracked")
