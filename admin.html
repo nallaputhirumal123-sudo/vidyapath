@@ -264,6 +264,8 @@ async function renderMoney(){
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn ghost sm" id="runRenewals">Run renewal reminders</button>
         <button class="btn ghost sm" id="runCrawl">Refresh jobs now</button>
+        <button class="btn ghost sm" id="pruneDry">Check what's out of scope</button>
+        <button class="btn ghost sm" id="pruneGo" style="color:#e05a5a">Delete out-of-scope jobs</button>
       </div>
       <div id="renewOut" style="font-size:12.5px;color:var(--dim);margin-top:6px"></div>
       <div id="crawlOut" style="font-size:12px;color:var(--dim);margin-top:6px;
@@ -297,6 +299,38 @@ async function renderMoney(){
         + `from ${r.fetched||0} rows.` + NL + NL + src;
     }catch(e){ $("#crawlOut").textContent = e.message; }
     cb.disabled = false; cb.textContent = "Refresh jobs now";
+  };
+
+  /* Prune is a POST, so it cannot be run by opening a URL, and pasting fetch()
+     into a console is a trap. Two buttons: one that only reports, one that
+     deletes and asks first. */
+  const showPrune = r => {
+    const line = o => Object.entries(o || {}).map(([k, v]) => `  ${k}: ${v}`).join(NL);
+    $("#crawlOut").textContent =
+      (r.dry_run ? "DRY RUN — nothing deleted." : "DELETED.") + NL
+      + `stored ${r.total_stored}, out of scope ${r.out_of_scope}, `
+      + `keeping ${r.would_keep ?? r.kept}` + NL + NL
+      + "By country:" + NL + line(r.by_country) + NL + NL
+      + "By role family:" + NL + line(r.by_family) + NL + NL
+      + "Scope: " + (r.scope.countries || []).join(", ")
+      + " / " + (r.scope.families || []).join(", ") + NL
+      + "Jobs any user saved or applied to are never deleted.";
+  };
+  const runPrune = async (dry, btn, label) => {
+    btn.disabled = true; btn.textContent = "Working…";
+    try{ showPrune(await api.post(`/api/admin/jobs/prune?dry=${dry}`, {})); }
+    catch(e){ $("#crawlOut").textContent = e.message; }
+    btn.disabled = false; btn.textContent = label;
+  };
+  const pd = $("#pruneDry");
+  if (pd) pd.onclick = () => runPrune(1, pd, "Check what's out of scope");
+  const pg = $("#pruneGo");
+  if (pg) pg.onclick = () => {
+    if (!confirm("Delete every stored job outside US/Canada and the technical "
+               + "role families? Jobs users saved or applied to are kept. "
+               + "Run the check first if you have not."))
+      return;
+    runPrune(0, pg, "Delete out-of-scope jobs");
   };
 }
 
