@@ -4112,7 +4112,10 @@ GATEWAY_FEE_PCT = float(env("GATEWAY_FEE_PCT", "7.4") or 7.4)
 GST_RATE_PCT = float(env("GST_RATE_PCT", "18") or 18)
 USD_INR = float(env("USD_INR", "88") or 88)
 JOB_RETENTION_DAYS = 7          # how much history we keep, per the spec
-JOB_REFRESH_HOURS = 24          # daily refresh
+# Hourly, not daily. Being early is what wins an interview, and it is what Pro
+# sells — a board refreshed once a day is up to 24 hours stale at the worst
+# moment. Override with JOB_REFRESH_HOURS if the crawl ever gets expensive.
+JOB_REFRESH_HOURS = float(env("JOB_REFRESH_HOURS", "1") or 1)
 
 # Board tokens. A company that renames or leaves its ATS simply stops
 # returning rows — the fetcher skips it silently and the rest still work.
