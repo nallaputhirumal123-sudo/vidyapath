@@ -587,6 +587,9 @@ VERIFY_TTL = dt.timedelta(days=3)
 # Off until email delivery is proven working. Turning this on before
 # then locks out every genuine signup, which is worse than the problem
 # it solves.
+# Whether signup ASKS for confirmation. It deliberately no longer gates paid
+# features: a customer who has paid must never be told to check an inbox for
+# mail that may not arrive. Verification is a nudge, not a lock.
 REQUIRE_EMAIL_VERIFICATION = env("REQUIRE_EMAIL_VERIFICATION", "0") == "1"
 
 # ---- email ---------------------------------------------------------------
@@ -2894,9 +2897,6 @@ def require_paid(user, feature="This"):
     resume is part of the paid product."""
     if getattr(user, "is_admin", False):
         return
-    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
-        raise HTTPException(403, "Confirm your email address first — check your "
-                                 "inbox for the link we sent.")
     if plan_of(user) == "free":
         raise HTTPException(402, f"{feature} is part of a paid plan. "
                                  "Browsing every live job stays free.")
@@ -2930,9 +2930,6 @@ def require_paid_or_trial(db, user, key, feature, spent="free go"):
     work actually succeeded, so a failed upload doesn't burn someone's turn."""
     if getattr(user, "is_admin", False):
         return
-    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
-        raise HTTPException(403, "Confirm your email address first — check your "
-                                 "inbox for the link we sent.")
     if plan_of(user) != "free":
         return
     limit = FREE_TRIAL.get(key, 0)
@@ -2967,9 +2964,6 @@ def apply_gate(db, user, job_id):
     """
     if getattr(user, "is_admin", False):
         return
-    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
-        raise HTTPException(403, "Confirm your email address first — check your "
-                                 "inbox for the link we sent.")
     if plan_of(user) != "free":
         return
     raise HTTPException(402, "Applying to jobs is part of Pro. The training "
@@ -2979,10 +2973,9 @@ def apply_gate(db, user, job_id):
 def _ai_enforce_limit(db, user):
     if getattr(user, "is_admin", False):
         return
-    # An unconfirmed address can't be reached, so it can't be supported,
-    # billed or recovered. Gate the costly features, not sign-in itself.
-    if REQUIRE_EMAIL_VERIFICATION and not getattr(user, "email_verified", False):
-        raise HTTPException(403, "Confirm your email address first — check your inbox for the link we sent, or request a new one from your account.")
+    # Deliberately no email-verification gate here either. Blocking a paying
+    # customer behind a confirmation link is only safe if the mail reliably
+    # arrives, and it does not yet.
     q = ai_quota(db, user)
     if q["limit"] is None:
         return

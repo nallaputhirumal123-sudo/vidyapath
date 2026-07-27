@@ -3252,10 +3252,6 @@ function jbTrackerHTML(){
   const rows=(t.tracks||[]).filter(x=>x.status===JB.trackTab);
   const here=TRACK_LABELS[JB.trackTab]||JB.trackTab;
   return `<div class="ask-chips" style="margin-bottom:12px">${chips}</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-bottom:10px;flex-wrap:wrap">
-    ${rows.length?`<button class="btn ghost sm" data-jbclearstage="${JB.trackTab}">Clear ${esc(here)} (${rows.length})</button>`:""}
-    <button class="btn ghost sm" data-jbclearall="1" style="color:#e05a5a">Clear everything</button>
-  </div>
   ${rows.length?rows.map(jbTrackCardHTML).join(""):`<div class="card">
     <div style="color:var(--dim);font-size:13.5px">Nothing at the <b>${esc(TRACK_LABELS[JB.trackTab]||JB.trackTab)}</b> stage yet.</div></div>`}`;
 }
@@ -3383,10 +3379,6 @@ document.addEventListener("click",e=>{
   if(cs){ const st=cs.dataset.jbclearstage;
           if(confirm(`Remove everything under "${TRACK_LABELS[st]||st}"? This cannot be undone.`))
             jbClearTracked(st);
-          return; }
-  const ca=e.target.closest("[data-jbclearall]");
-  if(ca){ if(confirm("Remove every saved and applied job from your tracker? This cannot be undone."))
-            jbClearTracked("");
           return; }
   const dl=e.target.closest("[data-jbdel]");
   if(dl){ if(confirm("Remove this from your applications?")) jbUntrack(+dl.dataset.jbdel); return; }
