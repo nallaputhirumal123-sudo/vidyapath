@@ -324,6 +324,41 @@ class JobAlert(Base):
     created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
+class EmployerJob(Base):
+    """A role an employer is hiring for. Separate from Job, which is a posting
+    we crawled — these are written by the employer on Craxle itself."""
+    __tablename__ = "employer_jobs"
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), index=True)
+    title = Column(String(200), default="")
+    company = Column(String(200), default="")
+    location = Column(String(200), default="")
+    engagement = Column(String(20), default="")      # c2c / w2 / 1099 / ""
+    jd = Column(Text, default="")
+    is_open = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class JobInvite(Base):
+    """An employer reaching out about one role, and the candidate's answer.
+
+    The score is stored at send time on purpose: the candidate must see the
+    same number the employer saw. Recomputing later, after either side edits
+    something, would quietly change what was already communicated.
+    """
+    __tablename__ = "job_invites"
+    id = Column(Integer, primary_key=True)
+    employer_job_id = Column(Integer, ForeignKey("employer_jobs.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    score = Column(Integer, default=0)
+    state = Column(String(12), default="sent", index=True)   # sent/accepted/declined
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+    answered_at = Column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("employer_job_id", "user_id",
+                                       name="uq_invite_once"),)
+
+
 class JobTrack(Base):
     """A job a user saved or applied to, and where it got to.
 
@@ -6183,6 +6218,160 @@ def hire_search(body: HireSearchIn, user: User = Depends(admin_user),
             "jd_skills": sorted(jd_skills)[:20],
             "note": "Anonymous by design. Request an introduction and the "
                     "candidate chooses whether to share their details."}
+
+
+class EmployerJobIn(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    company: str = Field(default="", max_length=200)
+    location: str = Field(default="", max_length=200)
+    engagement: str = Field(default="", max_length=20)
+    jd: str = Field(min_length=40, max_length=20000)
+    invite_above: int = 60
+
+
+def _match_candidates(db, jd, engagement=""):
+    """Every opted-in candidate scored against a JD, best first."""
+    jd_skills, _ = _profile(jd)
+    if not jd_skills:
+        return None, []
+    jd_fams, jd_level = _families(jd), _level_of(jd)
+    want = (engagement or "").strip().lower()
+    out = []
+    for u in db.query(User).filter(User.open_to_work == True).all():   # noqa: E712
+        note = db.query(Note).filter(Note.user_id == u.id,
+                                     Note.k == "resume_uptext").first()
+        rtext = (note.v if note else "") or ""
+        if len(rtext.strip()) < 120:
+            continue
+        r_skills, _ = _profile(rtext)
+        if not r_skills:
+            continue
+        pref = db.query(Note).filter(Note.user_id == u.id,
+                                     Note.k == "work_engagement").first()
+        their = (pref.v if pref else "").strip().lower()
+        if want and their and want != their:
+            continue
+        out.append((u, _candidate_score(jd_skills, jd_fams, jd_level, r_skills,
+                                        _families(rtext), _level_of(rtext)),
+                    sorted(jd_skills & r_skills), sorted(jd_skills - r_skills),
+                    _level_of(rtext), their))
+    out.sort(key=lambda x: -x[1])
+    return jd_skills, out
+
+
+@app.post("/api/hire/jobs")
+def hire_create_job(body: EmployerJobIn, user: User = Depends(admin_user),
+                    db: Session = Depends(get_db)):
+    """Post a role and invite the candidates who match it.
+
+    Invites go out only when the job description is saved — that is the point
+    at which the employer has said what they actually want. Pinging people
+    before that would mean interrupting them on behalf of a blank form.
+    """
+    job = EmployerJob(owner_id=user.id, title=body.title.strip(),
+                      company=body.company.strip(), location=body.location.strip(),
+                      engagement=(body.engagement or "").strip().lower(),
+                      jd=body.jd.strip())
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    jd_skills, matches = _match_candidates(db, job.jd, job.engagement)
+    if jd_skills is None:
+        db.delete(job)
+        db.commit()
+        raise HTTPException(400, "No recognisable skills in that job "
+                                 "description — add the tools and technologies.")
+    floor = max(0, min(int(body.invite_above), 100))
+    sent = 0
+    for u, score, hit, miss, lvl, eng in matches:
+        if score < floor:
+            continue
+        # One invite per candidate per role, enforced in the database too. An
+        # employer editing a JD must not be able to ping the same person twice.
+        if db.query(JobInvite).filter(JobInvite.employer_job_id == job.id,
+                                      JobInvite.user_id == u.id).first():
+            continue
+        db.add(JobInvite(employer_job_id=job.id, user_id=u.id, score=score))
+        db.add(JobAlert(user_id=u.id, kind="invite", icon="💼",
+                        text=f"{job.company or 'An employer'} is hiring a "
+                             f"{job.title} — you match {score}%.",
+                        url="/#invites"))
+        sent += 1
+    db.commit()
+    return {"job_id": job.id, "invited": sent, "matched": len(matches),
+            "jd_skills": sorted(jd_skills)[:20],
+            "message": f"{sent} candidate(s) invited. They see the role and "
+                       f"their match score; you see them only if they accept."}
+
+
+@app.get("/api/hire/jobs/{job_id}/candidates")
+def hire_job_candidates(job_id: int, user: User = Depends(admin_user),
+                        db: Session = Depends(get_db)):
+    """Who was invited, and who said yes. Contact details appear only for
+    candidates who accepted — that is the whole bargain."""
+    job = db.get(EmployerJob, job_id)
+    if not job or job.owner_id != user.id:
+        raise HTTPException(404, "No such role")
+    out = []
+    for inv in db.query(JobInvite).filter(
+            JobInvite.employer_job_id == job.id).order_by(
+            JobInvite.score.desc()).all():
+        u = db.get(User, inv.user_id)
+        if not u:
+            continue
+        row = {"ref": hashlib.sha256(f"cand{u.id}{JWT_SECRET}".encode()).hexdigest()[:16],
+               "score": inv.score, "state": inv.state,
+               "invited_at": _aware(inv.created_at).isoformat() if inv.created_at else None}
+        if inv.state == "accepted":
+            row.update({"name": u.name, "email": u.email})
+        out.append(row)
+    return {"job": {"id": job.id, "title": job.title, "company": job.company,
+                    "engagement": job.engagement, "is_open": job.is_open},
+            "candidates": out,
+            "accepted": sum(1 for x in out if x["state"] == "accepted"),
+            "invited": len(out)}
+
+
+@app.get("/api/me/invites")
+def my_invites(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Roles an employer has invited this candidate to, with the match score."""
+    out = []
+    for inv in db.query(JobInvite).filter(JobInvite.user_id == user.id).order_by(
+            JobInvite.created_at.desc()).limit(100).all():
+        job = db.get(EmployerJob, inv.employer_job_id)
+        if not job:
+            continue
+        out.append({"id": inv.id, "score": inv.score, "state": inv.state,
+                    "title": job.title, "company": job.company,
+                    "location": job.location, "engagement": job.engagement,
+                    "jd": job.jd[:1500],
+                    "when": _aware(inv.created_at).isoformat() if inv.created_at else None})
+    return {"invites": out, "pending": sum(1 for x in out if x["state"] == "sent")}
+
+
+class InviteAnswerIn(BaseModel):
+    accept: bool
+
+
+@app.post("/api/me/invites/{invite_id}")
+def answer_invite(invite_id: int, body: InviteAnswerIn,
+                  user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Accept or decline. Accepting is what releases your name and email to
+    that employer, and nothing else does."""
+    inv = db.get(JobInvite, invite_id)
+    if not inv or inv.user_id != user.id:
+        raise HTTPException(404, "No such invitation")
+    if inv.state != "sent":
+        raise HTTPException(400, "You have already answered this one.")
+    inv.state = "accepted" if body.accept else "declined"
+    inv.answered_at = now()
+    db.commit()
+    return {"ok": True, "state": inv.state,
+            "message": "Your name and email have been shared with this "
+                       "employer for this role only."
+                       if body.accept else
+                       "Declined. The employer is not told who declined."}
 
 
 class OpenToWorkIn(BaseModel):
