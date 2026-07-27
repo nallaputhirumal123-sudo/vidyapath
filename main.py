@@ -4889,7 +4889,29 @@ def _store_jobs(db, rows, reached):
             "pruned": pruned, "duplicates": dupes, "out_of_scope": skipped}
 
 
+# One crawl at a time, process-wide. The hourly loop and the admin button are
+# separate callers: when they overlapped, both fetched the same postings and
+# both inserted them, because each one's lookup ran before the other's write
+# landed. That is a unique-constraint violation on (source, external_id) and it
+# fails the WHOLE batch, not the one row.
+_CRAWL_LOCK = None
+
+
 async def _refresh_jobs():
+    import asyncio
+    global _CRAWL_LOCK
+    if _CRAWL_LOCK is None:
+        _CRAWL_LOCK = asyncio.Lock()
+    if _CRAWL_LOCK.locked():
+        print("jobs: a crawl is already running; skipping this one")
+        return {"added": 0, "updated": 0, "closed": 0, "pruned": 0,
+                "skipped_concurrent": True, "fetched": 0,
+                "boards_reached": 0, "sources": {}}
+    async with _CRAWL_LOCK:
+        return await _refresh_jobs_locked()
+
+
+async def _refresh_jobs_locked():
     import asyncio
     rows, report, reached = await _collect_jobs()
 
