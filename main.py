@@ -4056,7 +4056,10 @@ async def ai_selftest(user: User = Depends(admin_user)):
 async def ask_vidya(body: AskIn, user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
     subject = (body.subject or "General").strip()[:60]
-    level = (body.level or "School").strip()[:60]
+    # Default matches the picker's middle option. It was "School", left over
+    # from the class-based levels, so a request without one was prompted for
+    # a level the UI no longer offers.
+    level = (body.level or "Intermediate").strip()[:60]
     question = body.question.strip()
     qkey = f"{_norm_q(subject)}|{_norm_q(level)}|{_norm_q(question)}"[:500]
 
