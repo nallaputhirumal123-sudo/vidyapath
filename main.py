@@ -4125,12 +4125,28 @@ _GREENHOUSE = ("stripe,figma,databricks,cloudflare,coinbase,robinhood,dropbox,"
                "samsara,affirm,chime,flexport,gitlab,airtable,amplitude,"
                "mixpanel,vercel,scaleai,duolingo,gusto,carta,squarespace,"
                "fivetran,verkada,checkr,betterment,elastic,mongodb,postman,"
-               "airbnb,datadog")
-_LEVER = "palantir,cred,meesho,nium,matchgroup"
+               "airbnb,datadog,"
+               # More US/Canada engineering boards. Greenhouse tokens are the
+               # company's own slug; a wrong one simply returns nothing, so a
+               # dead token costs a request, not correctness.
+               "benchling,plaid,rippling,notion,figma-ai,sentry,grafana,"
+               "hashicorp,confluent,snyk,okta,auth0,segment,amplitudeinc,"
+               "retool,census,hex,dbtlabs,starburst,cockroachlabs,timescale,"
+               "neo4j,redis,temporalio,pulumi,render,railway,planetscale,"
+               "clerk,workos,knock,courier,resend,tailscale,1password,"
+               "shopify,faire,wealthsimple,clio,jobber,vidyard,ada,cohere,"
+               "coveo,lightspeed,hootsuite,thescore,benevity,visier")
+_LEVER = ("palantir,cred,meesho,nium,matchgroup,"
+          "netflix,attentive,ironclad,alloy,pave,mural,kandji,abnormal,"
+          "veeva,nuro,zipline,shieldai,anduril,applied-intuition,"
+          "wave,thinkific,unbounce,later,jane,relay,d2l,axonify")
 _ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
           "elevenlabs,decagon,mercor,sierra,suno,perplexity,zed,harvey,modal,"
           "warp,browserbase,lovable,synthesia,cognition,fireworksai,baseten,"
-          "langchain,n8n")
+          "langchain,n8n,"
+          "anthropic,scale,together,groq,runway,character,glean,writer,"
+          "assemblyai,deepgram,pinecone,weaviate,chroma,llamaindex,"
+          "crusoe,lambdalabs,sierraai,abridge,openevidence,cohereai")
 # No verified public boards seeded for these two, but the fetchers are live —
 # add tokens with JOB_WORKABLE / JOB_RECRUITEE and they start working.
 _WORKABLE = ""
