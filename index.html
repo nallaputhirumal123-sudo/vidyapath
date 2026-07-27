@@ -3176,12 +3176,15 @@ function jbChecksHTML(){
 }
 function jbTabsHTML(){
   const t=JB.tracks||{}, c=t.counts||{};
-  const applied=(c.applied||0)+(c.interviewing||0)+(c.offer||0);
+  /* Real applications only. t.total sums every stage — including recently
+     viewed and archived — so the tab read higher than the Applied chip and
+     looked like a count that would not clear after deleting. */
+  const applied=(c.applied||0)+(c.interviewing||0)+(c.offer||0)+(c.rejected||0);
   const tab=(id,label,n)=>`<button class="ask-chip ${JB.tab===id?"on":""}" data-jbtab="${id}"
     style="font-size:13.5px">${label}${n?` <b style="opacity:.75">${n}</b>`:""}</button>`;
   return `<div class="ask-chips" style="margin-bottom:12px">
     ${tab("find","🔍 Find jobs",0)}
-    ${tab("track","📋 My applications",(t.total||0))}
+    ${tab("track","📋 My applications",applied)}
     ${tab("prep","🎤 Interview prep",0)}
     ${JB.tab==="track"?"":""}
   </div>`;
