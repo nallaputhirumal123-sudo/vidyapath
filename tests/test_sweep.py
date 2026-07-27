@@ -160,8 +160,17 @@ check("lessons load", lessons > 70, f"{lessons} lessons")
 # ---------- public pages ----------
 for path in ("/", "/terms.html", "/privacy.html", "/api/health", "/api/version"):
     check(f"page {path}", A.get(path).status_code == 200)
-terms = A.get("/terms.html").text
-priv = A.get("/privacy.html").text
+# Both spellings must serve the real document. The extensionless form is what
+# gets pasted into a payment processor's review form, and it used to fall
+# through to the SPA catch-all — returning 200 while showing the app.
+for _p, _needle in (("/terms", "Terms of Use"), ("/terms.html", "Terms of Use"),
+                    ("/privacy", "Privacy"), ("/privacy.html", "Privacy")):
+    _r = A.get(_p)
+    check(f"{_p} serves the document, not the app",
+          _r.status_code == 200 and "Learn to Code" not in _r.text[:600],
+          _r.text[:80])
+terms = A.get("/terms").text
+priv = A.get("/privacy").text
 check("terms: no placeholders left", "[YOUR" not in terms and "[GSTIN]" not in terms)
 # The operator identity must be stated and must agree across both documents,
 # or a payment processor reviewing them sees two different businesses.

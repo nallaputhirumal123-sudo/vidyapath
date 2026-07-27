@@ -7158,6 +7158,19 @@ def index():
     return FileResponse(BASE_DIR / "index.html")
 
 
+@app.get("/terms")
+def terms_page():
+    """Extensionless alias. Without this the catch-all served index.html here,
+    so the URL returned 200 while showing the app instead of the document —
+    which is what a payment processor sees when it reviews the policy."""
+    return FileResponse(BASE_DIR / "terms.html")
+
+
+@app.get("/privacy")
+def privacy_page():
+    return FileResponse(BASE_DIR / "privacy.html")
+
+
 @app.get("/reset")
 def reset_page():
     """The reset link lands here; the page reads ?token= and calls the API."""
