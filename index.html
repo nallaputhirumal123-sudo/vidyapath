@@ -3187,6 +3187,28 @@ function jbTabsHTML(){
   </div>`;
 }
 /* ---- interview prep, driven by the role family ---- */
+/* Maps a job title to the guide's role family. Longest phrases first, so
+   "data engineer" is not caught by the "data" rule. Anything unrecognised
+   returns "" and the API serves its general guide. */
+const PREP_FAMILIES=[
+  [/security|cyber|soc analyst|infosec|penetration/i,"security"],
+  [/data scientist|machine learning|\bml\b|\bai\b|deep learning/i,"ai"],
+  [/data engineer|analytics engineer|etl|data warehouse/i,"data"],
+  [/data analyst|business analyst|bi\b/i,"data"],
+  [/network|cisco|noc\b/i,"network"],
+  [/devops|sre|platform|cloud|kubernetes|infrastructure/i,"devops"],
+  [/qa\b|test engineer|automation engineer/i,"qa"],
+  [/front[- ]?end|react|angular|\bui\b/i,"frontend"],
+  [/back[- ]?end|api engineer|java|python|golang|\bnode\b/i,"backend"],
+  [/full[- ]?stack|software|developer|engineer/i,"software"],
+  [/product manager|program manager|scrum/i,"product"],
+  [/support|help ?desk|service desk/i,"support"],
+];
+function jbFamilyFromTitle(title){
+  const t=String(title||"");
+  for(const [re,fam] of PREP_FAMILIES) if(re.test(t)) return fam;
+  return "";
+}
 let PREP=null, PREP_CAT="";
 async function jbLoadPrep(cat){
   PREP=null; if(JB.tab==="prep") renderCareers();
@@ -3297,6 +3319,9 @@ function jbTrackCardHTML(t){
           ${Object.entries(TRACK_LABELS).map(([k,v])=>`<option value="${k}" ${t.status===k?"selected":""}>${v}</option>`).join("")}
         </select>
         ${t.url?`<a class="btn ghost sm" href="${esc(t.url)}" target="_blank" rel="noopener">Open ↗</a>`:""}
+        ${["applied","interviewing","offer"].includes(t.status)
+          ? `<button class="btn ghost sm" data-jbprep="${esc(t.title)}"
+                     title="Interview prep for this role">🎤 Prep</button>` : ""}
         <button class="btn ghost sm" data-jbdel="${t.job_id}" title="Remove from tracker">✕</button>
       </div>
     </div>
@@ -3405,6 +3430,16 @@ document.addEventListener("click",e=>{
           if(confirm(`Remove everything under "${TRACK_LABELS[st]||st}"? This cannot be undone.`))
             jbClearTracked(st);
           return; }
+  /* Prep straight from a tracked application: the moment someone marks a job
+     applied, the interview is the next thing that happens to them, so the
+     route to it should not be "go find the tab and pick your role again". */
+  const pr=e.target.closest("[data-jbprep]");
+  if(pr){
+    JB.tab="prep"; JB.suggOpen=false;
+    renderCareers();
+    jbLoadPrep(jbFamilyFromTitle(pr.dataset.jbprep));
+    return;
+  }
   const dl=e.target.closest("[data-jbdel]");
   if(dl){ if(confirm("Remove this from your applications?")) jbUntrack(+dl.dataset.jbdel); return; }
   /* Opening the employer's form is not the same as applying — plenty of
