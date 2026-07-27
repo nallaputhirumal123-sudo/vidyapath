@@ -4137,11 +4137,20 @@ _GREENHOUSE = ("stripe,figma,databricks,cloudflare,coinbase,robinhood,dropbox,"
                "neo4j,redis,temporalio,pulumi,render,railway,planetscale,"
                "clerk,workos,knock,courier,resend,tailscale,1password,"
                "shopify,faire,wealthsimple,clio,jobber,vidyard,ada,cohere,"
-               "coveo,lightspeed,hootsuite,thescore,benevity,visier")
+               "coveo,lightspeed,hootsuite,thescore,benevity,visier,"
+               # Canada was 426 of 6,400 jobs — effectively a US-only board.
+               # These are Canadian-headquartered employers with public boards.
+               "applyboard,verafin,introhive,assent,trulioo,copperleaf,"
+               "absolutesoftware,neofinancial,koho,questrade,nuvei,kinaxis,"
+               "opentext,dayforce,ceridian,telus,sonder,article,float,"
+               "carbon6,mysa,bench,ritual,tulip,dialogue,league,felix,"
+               "clearco,borrowell,fintel,symend,pigment,secoda")
 _LEVER = ("palantir,cred,meesho,nium,matchgroup,"
           "netflix,attentive,ironclad,alloy,pave,mural,kandji,abnormal,"
           "veeva,nuro,zipline,shieldai,anduril,applied-intuition,"
-          "wave,thinkific,unbounce,later,jane,relay,d2l,axonify")
+          "wave,thinkific,unbounce,later,jane,relay,d2l,axonify,"
+          "hopper,wattpad,ecobee,flipp,ssense,knix,goodfood,paystone,"
+          "getmaintainx,jitterbit,plusgrade,practicepanther,vena,tealbook")
 _ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
           "elevenlabs,decagon,mercor,sierra,suno,perplexity,zed,harvey,modal,"
           "warp,browserbase,lovable,synthesia,cognition,fireworksai,baseten,"
@@ -4176,7 +4185,16 @@ _WORKDAY = ",".join([
 _SMARTRECRUITERS = ("Visa,Bosch,McDonalds,Kyndryl,Avanade,Genpact,"
                     "PublicisGroupe,Ubisoft,SquareEnix,LinkGroup,"
                     "IPGMediabrands,Wolters,Experian,NielsenIQ,"
-                    "Rakuten,Deloitte,Atos,Tealium,ZoomInfo,BoschGroup")
+                    "Rakuten,Deloitte,Atos,Tealium,ZoomInfo,BoschGroup,"
+                    # US IT staffing and consulting firms — this is where
+                    # contract and C2C postings actually live. They rarely use
+                    # the startup ATS boards, so without these the board is
+                    # full-time product roles only.
+                    "Cognizant,Infosys,Wipro,HCLTech,LTIMindtree,Capgemini,"
+                    "TechMahindra,Virtusa,UST,Mphasis,Hexaware,Coforge,"
+                    "Birlasoft,Zensar,PersistentSystems,NTTDATA,DXCTechnology,"
+                    "Insight,Randstad,Kforce,ApexSystems,CollaberaInc,"
+                    "JudgeGroup,MotionRecruitment,RobertHalf,Modis,Experis")
 
 
 def _job_tokens(name):
