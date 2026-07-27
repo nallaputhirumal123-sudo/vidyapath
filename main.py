@@ -6706,11 +6706,42 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
                       "families": sorted(ALLOWED_FAMILIES)}}
 
 
+# Last crawl's outcome, so the admin page can show it without holding a
+# request open for the whole crawl.
+_LAST_CRAWL = {"state": "never run"}
+
+
+async def _refresh_jobs_bg():
+    _LAST_CRAWL.update({"state": "running", "started": now().isoformat()})
+    try:
+        r = await _refresh_jobs()
+        _LAST_CRAWL.update({"state": "done", "finished": now().isoformat(), **r})
+    except Exception as e:
+        _LAST_CRAWL.update({"state": "failed", "finished": now().isoformat(),
+                            "error": f"{type(e).__name__}: {e}"})
+
+
 @app.post("/api/admin/jobs/refresh")
 async def admin_jobs_refresh(user: User = Depends(admin_user)):
-    """Force a crawl now. The per-source report shows which boards responded,
-    so a renamed or dead board token is obvious immediately."""
-    return await _refresh_jobs()
+    """Start a crawl and return immediately.
+
+    It cannot run inline: Cloudflare closes any request after 100 seconds and
+    a full sweep of 263 boards takes minutes, so the button always returned a
+    524 while the crawl kept going invisibly behind it. Poll
+    /api/admin/jobs/refresh/status for the report.
+    """
+    import asyncio
+    if _LAST_CRAWL.get("state") == "running":
+        return {"started": False, "already_running": True, **_LAST_CRAWL}
+    asyncio.create_task(_refresh_jobs_bg())
+    return {"started": True,
+            "note": "Crawling in the background — this takes a few minutes. "
+                    "Press Check status for the per-source report."}
+
+
+@app.get("/api/admin/jobs/refresh/status")
+def admin_jobs_refresh_status(user: User = Depends(admin_user)):
+    return _LAST_CRAWL
 
 
 # ---------------------------- admin ---------------------------------------

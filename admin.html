@@ -264,6 +264,7 @@ async function renderMoney(){
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn ghost sm" id="runRenewals">Run renewal reminders</button>
         <button class="btn ghost sm" id="runCrawl">Refresh jobs now</button>
+        <button class="btn ghost sm" id="crawlStat">Check crawl status</button>
         <button class="btn ghost sm" id="pruneDry">Check what's out of scope</button>
         <button class="btn ghost sm" id="pruneGo" style="color:#e05a5a">Delete out-of-scope jobs</button>
       </div>
@@ -285,20 +286,34 @@ async function renderMoney(){
 
   const cb = $("#runCrawl");
   if(cb) cb.onclick = async () => {
-    cb.disabled = true; cb.textContent = "Crawling… (up to 3 min)";
-    $("#crawlOut").textContent = "Fetching every source — this takes a couple of minutes.";
+    cb.disabled = true; cb.textContent = "Starting…";
     try{
-      const r = await api.post("/api/admin/jobs/refresh",{});
-      // Show what each source returned: a dead board token is obvious here.
-      const src = Object.entries(r.sources || {})
-        .sort((a,b) => (typeof b[1]==="number"?b[1]:-1) - (typeof a[1]==="number"?a[1]:-1))
-        .map(([k,v]) => k + ": " + v).join(String.fromCharCode(10));
-      const NL = String.fromCharCode(10);
-      $("#crawlOut").textContent =
-        `${r.added||0} added, ${r.updated||0} updated, ${r.closed||0} closed `
-        + `from ${r.fetched||0} rows.` + NL + NL + src;
+      const r = await api.post("/api/admin/jobs/refresh", {});
+      $("#crawlOut").textContent = r.already_running
+        ? "A crawl is already running. Press Check crawl status."
+        : (r.note || "Started.");
     }catch(e){ $("#crawlOut").textContent = e.message; }
     cb.disabled = false; cb.textContent = "Refresh jobs now";
+  };
+
+  /* The crawl runs in the background, so its result is polled rather than
+     awaited — Cloudflare closes any request at 100 seconds. */
+  const cs = $("#crawlStat");
+  if (cs) cs.onclick = async () => {
+    cs.disabled = true;
+    try{
+      const r = await api.get("/api/admin/jobs/refresh/status");
+      const src = Object.entries(r.sources || {})
+        .map(([k, v]) => `  ${k}: ${v}`).join(NL) || "  (no per-source report yet)";
+      $("#crawlOut").textContent =
+        `state: ${r.state}` + (r.error ? NL + r.error : "") + NL
+        + (r.added !== undefined
+            ? `${r.added} added, ${r.updated} updated, ${r.closed} closed, `
+              + `${r.pruned || 0} pruned from ${r.fetched} rows / `
+              + `${r.boards_reached} boards.` + NL + NL + src
+            : "");
+    }catch(e){ $("#crawlOut").textContent = e.message; }
+    cs.disabled = false;
   };
 
   /* Prune is a POST, so it cannot be run by opening a URL, and pasting fetch()
