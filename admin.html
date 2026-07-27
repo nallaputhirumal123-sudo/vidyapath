@@ -329,6 +329,22 @@ async function renderDash(){
       <div class="statsub">${(s.quiz||[]).reduce((a,q)=>a+q.passed,0)} passed</div></div>
   </div>
 
+  <!-- The job board's output. Jobs pulled is a vanity number on its own —
+       what matters is whether anyone applied to them. -->
+  <div class="eyebrow">Job board</div>
+  <div class="grid g5" style="margin-bottom:24px">
+    <div class="card"><div class="statlbl">Live jobs</div><div class="stat">${(s.jobs_live||0).toLocaleString()}</div>
+      <div class="statsub">open right now</div></div>
+    <div class="card"><div class="statlbl">Applications</div><div class="stat">${s.applications||0}</div>
+      <div class="statsub">${s.applications_7d||0} this week</div></div>
+    <div class="card"><div class="statlbl">Applicants</div><div class="stat">${s.applicants||0}</div>
+      <div class="statsub">${s.total_users?Math.round((s.applicants||0)/s.total_users*100):0}% of students applied</div></div>
+    <div class="card"><div class="statlbl">Jobs applied to</div><div class="stat">${s.jobs_applied_to||0}</div>
+      <div class="statsub">distinct postings</div></div>
+    <div class="card"><div class="statlbl">Per applicant</div><div class="stat">${s.applications_per_applicant||0}</div>
+      <div class="statsub">${s.saved_total||0} saved, not yet applied</div></div>
+  </div>
+
   <div class="grid g2">
     <div class="card">
       <div class="statlbl">Signups — last 30 days</div>
