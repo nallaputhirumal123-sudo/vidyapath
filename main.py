@@ -5810,6 +5810,7 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
         "closed": db.query(func.count(Job.id)).filter(Job.is_open == False).scalar(),  # noqa: E712
         "updated": newest.isoformat() if newest else None,
         "retention_days": JOB_RETENTION_DAYS,
+        "refresh_hours": JOB_REFRESH_HOURS,
         "job_types": _facet(db, Job.job_type, JOB_TYPE_LABELS),
         "engagements": _facet(db, Job.engagement, ENGAGEMENT_LABELS),
         "visas": _facet(db, Job.visa, VISA_LABELS),
