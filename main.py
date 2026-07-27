@@ -4169,7 +4169,14 @@ _WORKDAY = ",".join([
     "paypal|jobs|wd1",
 ])
 
-_SMARTRECRUITERS = "Visa"
+# SmartRecruiters slugs are the company's public careers identifier. Large
+# US/Canada employers with sizeable IT and cyber organisations — these are
+# where the non-startup technical roles live, including plenty of contract and
+# W2 postings that never reach the startup ATS boards.
+_SMARTRECRUITERS = ("Visa,Bosch,McDonalds,Kyndryl,Avanade,Genpact,"
+                    "PublicisGroupe,Ubisoft,SquareEnix,LinkGroup,"
+                    "IPGMediabrands,Wolters,Experian,NielsenIQ,"
+                    "Rakuten,Deloitte,Atos,Tealium,ZoomInfo,BoschGroup")
 
 
 def _job_tokens(name):
