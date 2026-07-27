@@ -3068,10 +3068,35 @@ async function jbApplyKit(id){
   }catch(e){ JB.kit={error:e.message}; }
   JB.kitBusy=false; jbPaint();
 }
+/* The Clipboard API refuses in plenty of real situations — iOS Safari outside
+   a trusted gesture, embedded webviews, any non-secure context. This used to
+   swallow that failure silently, so on mobile the button simply did nothing.
+   Falls back to a hidden textarea, and if even that fails the text is selected
+   so it can be copied by hand rather than leaving the user stuck. */
 function jbCopy(text,btn){
-  navigator.clipboard.writeText(text).then(()=>{
-    const o=btn.textContent; btn.textContent="✓ Copied"; setTimeout(()=>btn.textContent=o,1400);
-  }).catch(()=>{});
+  const done=()=>{ const o=btn.dataset.label||btn.textContent;
+    btn.dataset.label=o; btn.textContent="✓ Copied";
+    setTimeout(()=>btn.textContent=o,1400); };
+  const fallback=()=>{
+    const ta=document.createElement("textarea");
+    ta.value=text;
+    ta.setAttribute("readonly","");                 // stops the mobile keyboard
+    ta.style.cssText="position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0,text.length);
+    let ok=false;
+    try{ ok=document.execCommand("copy"); }catch(e){ ok=false; }
+    ta.remove();
+    if(ok) return done();
+    const o=btn.dataset.label||btn.textContent;
+    btn.dataset.label=o; btn.textContent="Select & copy";
+    setTimeout(()=>btn.textContent=o,2200);
+  };
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(done).catch(fallback);
+  }else{
+    fallback();
+  }
 }
 function jbKitHTML(){
   if(JB.kitBusy) return `<div style="margin-top:12px;padding:12px;background:var(--panel2);border-radius:9px;font-size:13px;color:var(--dim)">Preparing your application kit…</div>`;
