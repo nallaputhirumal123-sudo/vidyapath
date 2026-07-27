@@ -4828,12 +4828,21 @@ def _store_jobs(db, rows, reached):
         print(f"jobs: removed {gone} rows from retired sources "
               f"({', '.join(RETIRED_SOURCES)})")
     seen, added, updated = set(), 0, 0
-    skipped = 0
+    skipped = dupes = 0
     for r in rows:
         if not _job_in_scope(r):
             skipped += 1
             continue
-        seen.add((r["source"], r["external_id"]))
+        key = (r["source"], r["external_id"])
+        # A board can return the same posting twice in one crawl — Workday
+        # paginates with overlap. The row below is added to the session but not
+        # flushed, so the duplicate's SELECT finds nothing and inserts a second
+        # copy, and the whole transaction dies on the unique constraint at
+        # commit. One duplicate therefore discarded every job in the batch.
+        if key in seen:
+            dupes += 1
+            continue
+        seen.add(key)
         row = db.query(Job).filter(Job.source == r["source"],
                                    Job.external_id == r["external_id"]).first()
         if row:
@@ -4850,9 +4859,9 @@ def _store_jobs(db, rows, reached):
             db.add(Job(**r, first_seen=now(), last_seen=now(), is_open=True))
             added += 1
     db.commit()
-    if skipped:
+    if skipped or dupes:
         print(f"jobs: skipped {skipped} out-of-scope postings "
-              f"(countries={sorted(ALLOWED_COUNTRIES)})")
+              f"(countries={sorted(ALLOWED_COUNTRIES)}), {dupes} duplicates")
 
     # A posting we did not see, on a board we DID reach, has come off that
     # career site — mark it closed so the user can still see it went.
@@ -4873,7 +4882,8 @@ def _store_jobs(db, rows, reached):
         q = q.filter(~Job.id.in_(keep))
     pruned = q.delete(synchronize_session=False)
     db.commit()
-    return {"added": added, "updated": updated, "closed": closed, "pruned": pruned}
+    return {"added": added, "updated": updated, "closed": closed,
+            "pruned": pruned, "duplicates": dupes, "out_of_scope": skipped}
 
 
 async def _refresh_jobs():
