@@ -4274,15 +4274,30 @@ async function renderMessages(){
   const items=r.items||[];
   $("#main").innerHTML=`<div class="h1">🔔 Messages &amp; notifications</div>
     <p class="sub">Replies from teachers, new assignments, and requests all show here. Newest first.</p>
-    ${items.length?items.map(it=>`<div class="card" style="margin-bottom:10px;display:flex;gap:12px;align-items:flex-start${it.aid?";cursor:pointer":""}" ${it.aid?`data-notif-aid="${it.aid}" ${it.cid?`data-notif-cid="${it.cid}"`:""}`:""}>
+    ${items.length?items.map(it=>{
+      /* Job alerts are actionable too, not just assignments: an invitation the
+         user cannot click from the bell is a notification that wastes their
+         time. "invite" opens the invites tab; a closing job or new match opens
+         the posting itself. */
+      const goTab = it.type==="invite" ? "invites" : "";
+      const ext = !goTab && it.url && /^https?:/i.test(it.url) ? it.url : "";
+      const clickable = it.aid || goTab || ext;
+      return `<div class="card" style="margin-bottom:10px;display:flex;gap:12px;align-items:flex-start${clickable?";cursor:pointer":""}"
+        ${it.aid?`data-notif-aid="${it.aid}" ${it.cid?`data-notif-cid="${it.cid}"`:""}`:""}
+        ${goTab?`data-notif-tab="${goTab}"`:""}
+        ${ext?`data-notif-ext="${esc(ext)}"`:""}>
       <span style="font-size:20px">${it.icon||"🔔"}</span>
       <div style="flex:1;min-width:0"><div style="font-size:14.5px;color:var(--body)">${esc(it.text)}</div>
       <div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(timeAgo(it.when))}</div></div>
-      ${it.aid?`<span style="color:var(--dim)">→</span>`:""}
-    </div>`).join(""):`<div class="card" style="color:var(--dim)">Nothing yet. Notifications appear here when a teacher replies, an assignment is set, or a teacher sends a request.</div>`}`;
+      ${clickable?`<span style="color:var(--dim)">→</span>`:""}
+    </div>`;}).join(""):`<div class="card" style="color:var(--dim)">Nothing yet. Notifications appear here when a teacher replies, an assignment is set, or a teacher sends a request.</div>`}`;
   renderNav();
 }
 document.addEventListener("click",e=>{
+  const tb=e.target.closest("[data-notif-tab]");
+  if(tb){ JB.tab=tb.dataset.notifTab; S.view={page:"careers"}; render(); return; }
+  const ex=e.target.closest("[data-notif-ext]");
+  if(ex){ window.open(ex.dataset.notifExt,"_blank","noopener"); return; }
   const n=e.target.closest("[data-notif-aid]"); if(!n)return;
   const aid=n.dataset.notifAid, cid=n.dataset.notifCid;
   if(cid){ S.view={page:"tassign",cid:cid,aid:aid}; }   // teacher → submissions
