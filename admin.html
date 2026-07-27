@@ -334,6 +334,22 @@ async function renderMoney(){
   };
 }
 
+/* A bar per country / family, widest first. Shows where coverage actually is,
+   so widening JOB_COUNTRIES or JOB_FAMILIES can be judged rather than guessed. */
+function jobBreakdown(title, rows, total){
+  rows = rows || [];
+  if(!rows.length) return "";
+  const top = rows[0].count || 1;
+  return `<div class="card">
+    <div class="statlbl" style="margin-bottom:10px">${title}</div>
+    ${rows.map(r=>`<div class="fbar">
+      <div class="lbl">${esc(r.name)}</div>
+      <div class="g"><i style="width:${Math.round(r.count/top*100)}%"></i></div>
+      <div class="v">${r.count.toLocaleString()}${total?` · ${Math.round(r.count/total*100)}%`:""}</div>
+    </div>`).join("")}
+  </div>`;
+}
+
 /* ===================== DASHBOARD ===================== */
 async function renderDash(){
   const s=STATS=await api.get("/api/admin/stats");
@@ -377,6 +393,11 @@ async function renderDash(){
       <div class="statsub">distinct postings</div></div>
     <div class="card"><div class="statlbl">Per applicant</div><div class="stat">${s.applications_per_applicant||0}</div>
       <div class="statsub">${s.saved_total||0} saved, not yet applied</div></div>
+  </div>
+
+  <div class="grid g2" style="margin-bottom:24px">
+    ${jobBreakdown("Jobs by country", s.jobs_by_country, s.jobs_live)}
+    ${jobBreakdown("Jobs by role family", s.jobs_by_family, s.jobs_live)}
   </div>
 
   <div class="grid g2">

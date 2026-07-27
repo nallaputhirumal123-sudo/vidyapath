@@ -6694,6 +6694,19 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
     applications_7d = applied_q.filter(JobTrack.applied_at >= week_ago).count()
     saved_total = db.query(func.count(JobTrack.id))         .filter(JobTrack.status == "saved").scalar() or 0
     jobs_live = db.query(func.count(Job.id)).filter(Job.is_open == True).scalar() or 0  # noqa: E712
+    # Where the board's coverage actually is. Without this, tuning
+    # JOB_COUNTRIES / JOB_FAMILIES is guesswork — you widen the scope and have
+    # no idea whether it brought anything in.
+    jobs_by_country = [{"name": (c or "(unknown)"), "count": n} for c, n in
+                       db.query(Job.country, func.count(Job.id))
+                       .filter(Job.is_open == True)          # noqa: E712
+                       .group_by(Job.country)
+                       .order_by(func.count(Job.id).desc()).limit(12).all()]
+    jobs_by_family = [{"name": (f or "(uncategorised)"), "count": n} for f, n in
+                      db.query(Job.category, func.count(Job.id))
+                      .filter(Job.is_open == True)           # noqa: E712
+                      .group_by(Job.category)
+                      .order_by(func.count(Job.id).desc()).limit(12).all()]
 
     # signups per day, last 30 days (cast works on both SQLite and Postgres)
     day = cast(User.created_at, Date).label("d")
@@ -6734,6 +6747,8 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
         "new_7d": new_7d,
         # The job board's actual output, not just its size.
         "jobs_live": jobs_live,
+        "jobs_by_country": jobs_by_country,
+        "jobs_by_family": jobs_by_family,
         "applications": applications,
         "applications_7d": applications_7d,
         "applicants": applicants,
