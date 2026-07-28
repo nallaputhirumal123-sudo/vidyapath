@@ -5683,7 +5683,9 @@ def _words(text: str):
 _ROLE_FAMILIES = {
     "network": ("network engineer", "network administrator", "noc ", "cisco",
                 "routing", "switching", "bgp", "ospf", "sd-wan", "f5 ",
-                "load balancer", "juniper", "palo alto", "network security"),
+                "load balancer", "juniper", "palo alto", "network security",
+                "network operations", "lan", "wan", "wireless engineer",
+                "voip", "telecom engineer"),
     "security": ("security engineer", "security analyst", "soc analyst",
                  "penetration test", "penetration testing", "penetration tester",
                  "pentest",
@@ -5691,29 +5693,64 @@ _ROLE_FAMILIES = {
                  "offensive security", "infosec", "appsec", "netsec",
                  "vulnerability", "threat", "cybersecurity", "cyber security",
                  "incident response", "malware", "forensic", "grc analyst",
-                 "iam engineer", "identity and access"),
+                 "iam engineer", "identity and access",
+                "information security", "security architect",
+                 "security operations center", "security engineering",
+                 "identity and access management", "iam analyst",
+                 "identity access management", "access management engineer",
+                 "compliance auditor", "it compliance", "security manager",
+                 "security consultant", "security operations"),
     "sysadmin": ("system administrator", "sysadmin", "it engineer",
                  "it support", "help desk", "helpdesk", "desktop support",
-                 "it administrator", "windows administrator"),
+                 "it administrator", "windows administrator",
+                "systems administrator", "virtualization", "vmware",
+                 "it infrastructure", "data center technician",
+                 "data center engineer", "data centre", "storage engineer",
+                 "storage administrator", "migration specialist",
+                 "application support", "incident manager", "service desk",
+                 "endpoint engineer", "active directory"),
     "devops": ("devops", "sre", "site reliability", "platform engineer",
-               "infrastructure engineer", "cloud engineer", "release engineer"),
+               "infrastructure engineer", "cloud engineer", "release engineer",
+                "enterprise architect", "cloud architect",
+               "cloud solutions architect", "kubernetes administrator",
+               "kubernetes engineer", "ci/cd", "ci cd", "pipeline architect",
+               "release manager", "build engineer", "build and automation",
+               "systems engineer", "linux engineer"),
     "backend": ("backend", "back-end", "software engineer", "full stack",
-                "fullstack", "api engineer", "server engineer", "golang engineer"),
+                "fullstack", "api engineer", "server engineer", "golang engineer",
+                "api integration", "integration engineer",
+                "integration specialist", "embedded systems", "embedded software",
+                "embedded engineer", "firmware engineer", "game developer",
+                "game engineer", "cms developer", "webmaster",
+                "software developer", "java developer", "python developer",
+                "php developer", ".net developer", "c++ developer"),
     "frontend": ("frontend", "front-end", "ui engineer", "web developer",
-                 "javascript engineer", "react engineer"),
+                 "javascript engineer", "react engineer",
+                "web engineer", "web designer", "wordpress"),
     "mobile": ("android engineer", "ios engineer", "mobile engineer",
-               "android developer", "ios developer"),
+               "android developer", "ios developer",
+                "mobile developer", "mobile application", "flutter developer",
+               "react native"),
     "data": ("data engineer", "data analyst", "analytics engineer",
-             "business intelligence", "etl developer", "data warehouse"),
+             "business intelligence", "etl developer", "data warehouse",
+                "database administrator", "dba", "big data", "data architect",
+             "data platform", "reporting analyst", "tableau developer",
+             "power bi developer"),
     "ml": ("machine learning", "ml engineer", "data scientist", "ai engineer",
            "research scientist", "nlp engineer", "computer vision",
-           "applied scientist"),
+           "applied scientist",
+                "ai prompt engineer", "prompt engineer", "llm engineer",
+           "generative ai", "ai/ml", "ai engineering"),
     "qa": ("qa engineer", "quality assurance", "test engineer", "sdet",
-           "automation engineer", "test automation"),
+           "automation engineer", "test automation",
+                "qa analyst", "quality engineer", "performance test"),
     "product": ("business analyst", "systems analyst",
                 "business systems analyst", "it project manager",
                 "product manager", "product owner", "program manager",
-                "technical program", "product lead"),
+                "technical program", "product lead",
+                "scrum master", "agile coach", "technical writer",
+                "documentation specialist", "release train engineer",
+                "technical product"),
     "design": ("designer", "ux ", "ui/ux", "product design", "graphic design"),
     "sales": ("account executive", "account manager", "sales ", "business development",
               "sales development", "solutions consultant", "revenue"),
@@ -8312,6 +8349,36 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
             "by_family": dict(sorted(by_family.items(), key=lambda x: -x[1])[:15]),
             "scope": {"countries": sorted(ALLOWED_COUNTRIES),
                       "families": sorted(ALLOWED_FAMILIES)}}
+
+
+@app.post("/api/admin/jobs/recategorize")
+def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
+                            db: Session = Depends(get_db)):
+    """Re-label stored postings with today's family rules.
+
+    A posting's category is decided once, when it is crawled. Every time the
+    family keywords improve, the rows already on the board keep the old
+    answer — which is how half the board ended up uncategorised, invisible to
+    the category filter, and at risk of being pruned as non-technical. Run
+    this after any change to _ROLE_FAMILIES. Dry by default; ?dry=0 writes.
+    """
+    rows = db.query(Job).all()
+    changed, filled, cleared = [], 0, 0
+    for j in rows:
+        new = _primary_family(j.title or "", j.text or "")
+        if new != (j.category or ""):
+            if not j.category:
+                filled += 1
+            elif not new:
+                cleared += 1
+            changed.append((j.title or "")[:60] + f"  {j.category or '(none)'} -> {new or '(none)'}")
+            if not dry:
+                j.category = new
+    if not dry:
+        db.commit()
+    return {"dry_run": bool(dry), "total": len(rows), "changed": len(changed),
+            "newly_categorised": filled, "label_removed": cleared,
+            "examples": changed[:25]}
 
 
 async def _refresh_jobs_bg():
