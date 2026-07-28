@@ -335,6 +335,19 @@ input,select{font-family:inherit}
 .sub{color:var(--muted);margin-bottom:26px;max-width:760px}
 .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--dim);font-weight:700;margin:32px 0 12px}
 
+/* The score, said in words. It sits directly under the job title because
+   that is where the eye already is, and it is the one thing on the card no
+   other job board gives you — a number nobody can interrogate is just a
+   number. Each reason carries its own tone, so the shape of the row is
+   readable before a single word is: green across means apply. */
+.jb-why{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:9px}
+.jb-why-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.9px;
+  font-weight:750;color:var(--dim);margin-right:2px}
+.jb-why-i{font-size:11.5px;line-height:1.5;padding:2.5px 9px;border-radius:999px;
+  border:1px solid transparent;white-space:nowrap}
+.jb-why-i b{font-weight:800;margin-right:1px}
+@media(max-width:560px){.jb-why-i{white-space:normal}}
+
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
   padding:var(--s4);box-shadow:var(--shadow),var(--edge);
   transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease}
@@ -2030,7 +2043,10 @@ async function sbTeach(topic,keepTrail){
   try{
     const r=await api.post("/api/board/lesson",{topic:SB.topic,level:ASK.level||"Intermediate"});
     SB.lesson=r.lesson; SB.i=0;
-  }catch(e){ SB.error=e.message||"Could not build that lesson."; }
+  }catch(e){
+    SB.error=e.message||"Could not build that lesson.";
+    if(/not switched on|GEMINI_API_KEY/i.test(SB.error)) ASK.enabled=false;
+  }
   SB.busy=false; renderAsk();
 }
 function sbGo(d){
@@ -2337,6 +2353,9 @@ async function askSubmit(raw){
   }catch(e){
     ASK.loading=false;
     ASK.error=(e&&e.message)||"Axle could not reach the board just now. Try again.";
+    // The tutor being switched off is now learned from a real attempt rather
+    // than from a probe on page load.
+    if(/not switched on|GEMINI_API_KEY/i.test(ASK.error)) ASK.enabled=false;
     renderAsk();
   }
 }
@@ -2551,11 +2570,11 @@ function askGoSlide(d){
 
 function renderAsk(){
   const a=ASK;
-  // Check once whether the AI teacher is switched on, so the note shows up front.
-  if(a.enabled===null&&!a._cfgLoading){
-    a._cfgLoading=true;
-    api.get("/api/ask/config").then(c=>{ ASK.enabled=!!c.enabled; if(S.view.page==="ask")renderAsk(); }).catch(()=>{});
-  }
+  /* Opening a page is not asking for anything. This used to probe
+     /api/ask/config on every render just to decide whether to show a notice,
+     so landing on the board cost a request before the visitor had done
+     anything at all. Nothing is fetched until someone asks a question or
+     presses a button; the notice appears from the answer to that request. */
   const samples=ASK_SAMPLES[a.subject]||ASK_SAMPLES["General"];
   const disabledNote = a.enabled===false
     ? `<div class="ask-note">The AI teacher is not switched on yet. Ask the site owner to add a free <b>GEMINI_API_KEY</b> in the server settings — everything else keeps working.</div>` : "";
@@ -3550,12 +3569,15 @@ function jbCardHTML(j){
      means. This is the same score said in plain words — what you meet, what
      you do not, whether it is even your field — so a low number is useful
      instead of insulting, and a high one is believable. */
-  const WHY_STYLE={ok:"#4bbf82",mid:"#e0b050",no:"var(--dim)"};
-  const WHY_MARK={ok:"✓",mid:"~",no:"✕"};
-  const why=(j.why&&j.why.length)?`<div class="row" style="gap:10px;flex-wrap:wrap;
-      margin-top:7px;font-size:11.5px">
-    ${j.why.map(w=>`<span style="color:${WHY_STYLE[w.k]||"var(--dim)"}">
-      ${WHY_MARK[w.k]||"·"} ${esc(w.t)}</span>`).join("")}
+  const WHY_TONE={
+    ok :{fg:"#7ee2a8",bg:"rgba(75,191,130,.13)",bd:"rgba(75,191,130,.34)",mk:"✓"},
+    mid:{fg:"#efc266",bg:"rgba(224,176,80,.13)",bd:"rgba(224,176,80,.32)",mk:"!"},
+    no :{fg:"#f2907f",bg:"rgba(248,81,73,.11)", bd:"rgba(248,81,73,.28)", mk:"✕"}};
+  const why=(j.why&&j.why.length)?`<div class="jb-why">
+    <span class="jb-why-lbl">Why ${typeof j.score==="number"?j.score:"this"}</span>
+    ${j.why.map(w=>{const t=WHY_TONE[w.k]||WHY_TONE.mid;
+      return `<span class="jb-why-i" style="color:${t.fg};background:${t.bg};
+        border-color:${t.bd}"><b>${t.mk}</b> ${esc(w.t)}</span>`;}).join("")}
   </div>`:"";
   const score=typeof j.score==="number"?`<div style="text-align:center;min-width:52px">
       <div style="font-size:19px;font-weight:700;color:${j.score>=60?"#4bbf82":j.score>=35?"#e0b050":"var(--dim)"}">${j.score}</div>
@@ -3604,8 +3626,13 @@ function jbCardHTML(j){
         <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener"
            data-jbapplied="${j.id}">${closed?"View ↗":"Apply ↗"}</a>
         ${closed?"":`<button class="btn ghost sm" data-jbkit="${j.id}">✨ Apply kit</button>`}
-        ${closed?"":`<button class="btn ghost sm" data-jbprep="${esc(j.title)}"
-           title="Interview prep for this role">🎤 Interview prep</button>`}
+        <!-- Interview prep is for people who have an interview coming. Offering
+             it beside every Apply button made it look like another thing to do
+             before applying, which is the opposite of the point. It appears
+             once the application is in. -->
+        ${(!closed&&(j.tracked==="applied"||j.tracked==="interviewing"||j.tracked==="offer"))
+          ?`<button class="btn ghost sm" data-jbprep="${esc(j.title)}"
+             title="Interview prep for this role">🎤 Interview prep</button>`:""}
         ${closed?"":(j.tracked==="applied"||j.tracked==="interviewing"||j.tracked==="offer"
           ?`<span class="pill" style="text-align:center;color:#4bbf82;font-size:11.5px">✓ ${esc(TRACK_LABELS[j.tracked]||"Applied")}</span>`
           :j.tracked==="saved"

@@ -10,6 +10,7 @@ Admin panel:   http://localhost:8000/admin
 import os
 import re
 import json
+import calendar
 import secrets
 import datetime as dt
 from pathlib import Path
@@ -4701,7 +4702,12 @@ JSEARCH_QUERIES = [q.strip() for q in (env(
 # day at JOB_REFRESH_HOURS=6, at a quarter of the request cost — and a
 # posting missed this crawl is picked up four hours later, which for a
 # job board is no difference at all.
-JSEARCH_PER_CRAWL = int(env("JSEARCH_PER_CRAWL", "14") or 14)
+# "auto" spends whatever the plan can still afford this month, which is what
+# you want on a board: buying a bigger plan should mean more jobs without
+# anyone remembering to retune a number. A plain integer pins it instead.
+JSEARCH_PER_CRAWL_RAW = (env("JSEARCH_PER_CRAWL", "auto") or "auto").strip().lower()
+JSEARCH_PER_CRAWL = (0 if JSEARCH_PER_CRAWL_RAW in ("auto", "")
+                     else int(JSEARCH_PER_CRAWL_RAW))
 # A hard monthly ceiling on paid requests, set BELOW the plan so the cap bites
 # before the bill does. The RapidAPI Pro tier is 10,000 a month; at 11 crawls
 # a day and 14 queries each this uses about 4,600, so 9,000 leaves headroom
@@ -4725,13 +4731,38 @@ def _jsearch_used(db, add=0):
 _JSEARCH_CURSOR = 0
 
 
-def _jsearch_slice():
+def _jsearch_auto_n(used: int) -> int:
+    """How many queries this crawl can afford, from what is left this month.
+
+    A fixed slice either underspends a big plan for the whole month or burns
+    a small one by the 20th. This divides what remains by the crawls that
+    remain, so the allowance lands evenly on the last day of the month and a
+    larger plan turns into more jobs by itself. Every role every crawl is the
+    ceiling — past that there is nothing left to ask for.
+    """
+    left = JSEARCH_MONTHLY_CAP - used
+    if left <= 0:
+        return 0
+    n = now()
+    days_in_month = calendar.monthrange(n.year, n.month)[1]
+    every = max(0.5, JOB_REFRESH_HOURS)
+    active = (JOB_ACTIVE_END - JOB_ACTIVE_START) or 24
+    per_day = max(1, int(active / every))
+    # Crawls left today, plus every crawl on the days after this one.
+    crawls_left = max(1, int(max(0, JOB_ACTIVE_END - n.hour) / every)) \
+        + (days_in_month - n.day) * per_day
+    budget = left // crawls_left
+    return max(1, budget // max(1, JSEARCH_PAGES))
+
+
+def _jsearch_slice(used: int = 0):
     """The queries this crawl should run, advancing the cursor."""
     global _JSEARCH_CURSOR
     qs = JSEARCH_QUERIES
     if not qs:
         return []
-    n = max(1, min(JSEARCH_PER_CRAWL, len(qs)))
+    want = JSEARCH_PER_CRAWL or _jsearch_auto_n(used)
+    n = max(1, min(want, len(qs)))
     out = [qs[(_JSEARCH_CURSOR + i) % len(qs)] for i in range(n)]
     _JSEARCH_CURSOR = (_JSEARCH_CURSOR + n) % len(qs)
     return out
@@ -4941,9 +4972,14 @@ async def _fetch_jsearch(client, query, cc):
     # read zero requests: the calls were refused before they were ever metered.
     r = await client.get(
         JSEARCH_BASE,
+        # A month rather than a week. The request costs the same either way,
+        # and the narrower window was throwing away three quarters of what we
+        # had already paid for — postings stay open far longer than seven
+        # days, and anything already stored is a cheap update rather than a
+        # duplicate.
         params={"query": f"{query} in {cc}", "page": "1",
                 "num_pages": str(JSEARCH_PAGES), "country": cc.lower(),
-                "date_posted": "week"},
+                "date_posted": env("JSEARCH_WINDOW", "month") or "month"},
         headers={"X-API-Key": JSEARCH_KEY})
     if r.status_code >= 300:
         # RapidAPI says WHY in the body — wrong key, not subscribed, quota
@@ -5112,7 +5148,7 @@ async def _collect_jobs():
                 JSEARCH_QUERIES_THIS_RUN = None
             for cc in ([] if used >= JSEARCH_MONTHLY_CAP
                        else [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]):
-                for q in _jsearch_slice():
+                for q in _jsearch_slice(used):
                     key = f"jsearch:{cc}:{q}"
                     try:
                         got = [r for r in await _fetch_jsearch(client, q, cc) if r]
@@ -5162,7 +5198,7 @@ ALLOWED_COUNTRIES = {c.strip().upper() for c in
 ALLOWED_FAMILIES = {f.strip().lower() for f in
                     (env("JOB_FAMILIES",
                          "network,security,sysadmin,devops,backend,frontend,"
-                         "mobile,data,ml,qa,product,design,support")
+                         "mobile,data,ml,qa,product,design,support,other")
                      or "").split(",") if f.strip()}
 
 
@@ -5316,6 +5352,12 @@ def _store_jobs(db, rows, reached):
         if not _job_in_scope(r):
             skipped += 1
             continue
+        # It is on the board, so it has to be reachable. A posting with no
+        # category is invisible to the category filter — 16% of the board was
+        # sitting in that hole. Infer one from the tools it names, and if even
+        # that is silent, file it under Other rather than nowhere.
+        if not r.get("category"):
+            r["category"] = _family_from_text(r.get("text") or "") or "other"
         key = (r["source"], r["external_id"])
         # A board can return the same posting twice in one crawl — Workday
         # paginates with overlap. The row below is added to the session but not
@@ -5336,6 +5378,15 @@ def _store_jobs(db, rows, reached):
             row.req_skills = r["req_skills"]
             row.job_type, row.engagement = r["job_type"], r["engagement"]
             row.visa = r["visa"]
+            # Salary and posted date were missing from this list, so a posting
+            # first stored before either field existed was found, updated and
+            # left NULL on every crawl for the rest of its life. That is why
+            # pay showed on 0% of the board while a seventh of the postings
+            # stated it in plain text. An empty new parse never overwrites a
+            # value we already have — a truncated description should not erase
+            # a rate we read last week.
+            row.salary = r["salary"] or row.salary
+            row.posted_at = r.get("posted_at") or row.posted_at
             row.last_seen, row.is_open, row.closed_at = now(), True, None
             updated += 1
         else:
@@ -5819,6 +5870,46 @@ _ROLE_FAMILIES = {
 _FAMILY_ORDER = list(_ROLE_FAMILIES)
 
 
+# When a title says nothing a family recognises, the tools do. This is
+# deliberately read from the parsed skill list and not from free text: reading
+# the description itself is what once filed Administrative Business Partner
+# under Networking. A skill is a fact about the job; a word in a paragraph is
+# not. Order matters — the first family with two or more of its tools wins.
+_SKILL_FAMILY = [
+    ("network", ("cisco", "bgp", "ospf", "mpls", "vlan", "juniper", "f5",
+                 "paloalto", "sdwan", "wireshark", "dhcp", "dns", "tcp")),
+    ("security", ("siem", "soc", "splunk", "sentinel", "crowdstrike", "okta",
+                  "iam", "burp", "metasploit", "nessus", "owasp", "kali",
+                  "pentest", "firewall", "vpn")),
+    ("devops", ("kubernetes", "terraform", "docker", "ansible", "jenkins",
+                "helm", "prometheus", "grafana", "argocd", "gitops",
+                "cloudformation", "openshift")),
+    ("ml", ("pytorch", "tensorflow", "llm", "rag", "huggingface", "sklearn",
+            "keras", "nlp", "mlflow", "langchain")),
+    ("data", ("spark", "airflow", "snowflake", "dbt", "databricks", "kafka",
+              "hadoop", "redshift", "bigquery", "tableau", "powerbi")),
+    ("mobile", ("android", "ios", "kotlin", "swift", "flutter", "reactnative",
+                "xcode")),
+    ("frontend", ("react", "vue", "angular", "css", "html", "tailwind",
+                  "nextjs", "typescript")),
+    ("qa", ("selenium", "cypress", "playwright", "pytest", "junit",
+            "appium", "testng")),
+    ("backend", ("java", "python", "golang", "rust", "django", "spring",
+                 "nodejs", "postgres", "mysql", "redis", "graphql")),
+]
+
+
+def _family_from_text(text: str) -> str:
+    """A family from the tools a posting names, when its title gave us none."""
+    have = {w for w in _words(text or "") if w in _SKILLS}
+    if not have:
+        return ""
+    for fam, tools in _SKILL_FAMILY:
+        if len(have & set(tools)) >= 2:
+            return fam
+    return ""
+
+
 def _primary_family(title: str, text: str = "") -> str:
     """The job's category, from the title only.
 
@@ -5851,6 +5942,9 @@ CATEGORY_LABELS = {
     "construction": "Construction & civil", "hospitality": "Hospitality & food",
     "retail": "Retail & stores", "driver": "Driving & delivery",
     "science": "Science & research", "writing": "Writing & content",
+    # Technical, on the board, but its title names no discipline we would
+    # stand behind guessing. Better an honest bucket than an invisible job.
+    "other": "Other technical roles",
 }
 # Families close enough that crossing between them is a normal career move.
 _ADJACENT = {
@@ -6280,7 +6374,10 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     # here catches some of those; what is left genuinely unknown scores below
     # a confirmed same-family match, because "we could not tell" should never
     # outrank "this is your field", which is what a flat 0.5 did.
-    job_fams = {job.category} if job.category else _title_families(job.title or "")
+    # "other" is a shelf, not a discipline — scoring it as a family would tell
+    # every resume the job is in the wrong field.
+    job_fams = ({job.category} if (job.category and job.category != "other")
+                else _title_families(job.title or ""))
     if my_fams and job_fams:
         fam = 1.0 if (job_fams & my_fams) else (
             0.55 if job_fams & {f for m in my_fams for f in _ADJACENT.get(m, set())}
@@ -8385,9 +8482,25 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
     this after any change to _ROLE_FAMILIES. Dry by default; ?dry=0 writes.
     """
     rows = db.query(Job).all()
-    changed, filled, cleared = [], 0, 0
+    changed, filled, cleared, paid = [], 0, 0, 0
     for j in rows:
+        # Pay, from the text we already stored. Nothing is inferred: if the
+        # employer did not state a figure, the field stays empty.
+        if not (j.salary or "").strip():
+            s = _salary_from(j.text or "")
+            if s:
+                paid += 1
+                if not dry:
+                    j.salary = s
         new = _primary_family(j.title or "", j.text or "")
+        if not new:
+            # Same rule ingestion uses, so a backfilled row and a freshly
+            # crawled one end up with the same answer.
+            in_scope = _job_in_scope({"category": "", "country": j.country,
+                                      "location": j.location, "skills": j.skills,
+                                      "title": j.title})
+            if in_scope:
+                new = _family_from_text(j.text or "") or "other"
         if new != (j.category or ""):
             if not j.category:
                 filled += 1
@@ -8400,7 +8513,7 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
         db.commit()
     return {"dry_run": bool(dry), "total": len(rows), "changed": len(changed),
             "newly_categorised": filled, "label_removed": cleared,
-            "examples": changed[:25]}
+            "salary_filled": paid, "examples": changed[:25]}
 
 
 async def _refresh_jobs_bg():
