@@ -463,6 +463,10 @@ class Job(Base):
     remote = Column(Boolean, default=False)
     category = Column(String(30), default="", index=True)   # role family
     job_type = Column(String(20), default="", index=True)   # fulltime/contract/…
+    # Pay as the posting states it, verbatim-ish: "$120,000 - $150,000 a year",
+    # "$65/hr". Nullable so the migration can add it to a populated table, and
+    # blank whenever the ad does not say — a guessed salary is worse than none.
+    salary = Column(String(120), default="")
     engagement = Column(String(10), default="", index=True)  # w2 / c2c / 1099
     visa = Column(String(20), default="", index=True)        # sponsors/no/clearance
     url = Column(Text, default="")
@@ -4453,6 +4457,33 @@ def _requirement_text(blob: str) -> str:
     return tail[:stop.start()] if stop and stop.start() > 200 else tail
 
 
+_SALARY_RES = [
+    # "$120,000 - $150,000 a year" / "$120k-$150k"
+    _re.compile(r"\$\s?\d{2,3}(?:,\d{3})?(?:\.\d+)?\s?[kK]?\s?(?:-|–|to)\s?"
+                r"\$?\s?\d{2,3}(?:,\d{3})?(?:\.\d+)?\s?[kK]?"
+                r"(?:\s?(?:per|a|/)\s?(?:year|yr|annum|hour|hr))?", _re.I),
+    # "$65 per hour" / "$65/hr"
+    _re.compile(r"\$\s?\d{2,3}(?:\.\d+)?\s?(?:per\s?hour|/\s?hr|/\s?hour|an hour)", _re.I),
+    # "$120,000 per year"
+    _re.compile(r"\$\s?\d{2,3},\d{3}(?:\s?(?:per|a)\s?(?:year|yr|annum))?", _re.I),
+]
+
+
+def _salary_from(text):
+    """Pull a stated pay range out of a posting, or return blank.
+
+    Only patterns anchored on a currency symbol — plain numbers in a job ad are
+    far more often headcount, revenue or a version number than pay. Nothing is
+    inferred: if the employer did not say, the field stays empty.
+    """
+    t = (text or "")[:6000]
+    for rx in _SALARY_RES:
+        m = rx.search(t)
+        if m:
+            return _re.sub(r"\s+", " ", m.group(0)).strip()[:120]
+    return ""
+
+
 def _job_row(source, ext_id, title, company, location, url, desc="", posted=None):
     """Normalise one posting into the shape the refresh loop stores."""
     title, company = (title or "").strip()[:300], (company or "").strip()[:200]
@@ -4467,6 +4498,7 @@ def _job_row(source, ext_id, title, company, location, url, desc="", posted=None
         "country": _country_of(location), "remote": _is_remote(location),
         "category": _primary_family(title, blob),
         "job_type": _job_type_of(blob), "engagement": _engagement_of(blob),
+        "salary": _salary_from(desc) or _salary_from(title),
         "visa": _visa_of(blob),
         "skills": ",".join(sorted({w for w in _words(blob) if w in _SKILLS})),
         "req_skills": ",".join(sorted(
@@ -4921,6 +4953,21 @@ async def _fetch_jsearch(client, query, cc):
             row["country"] = j.get("job_country") or row["country"]
             if j.get("job_is_remote"):
                 row["remote"] = True
+            lo, hi = j.get("job_min_salary"), j.get("job_max_salary")
+            if lo or hi:
+                per = (j.get("job_salary_period") or "").lower()
+                unit = {"year": "a year", "hour": "an hour",
+                        "month": "a month"}.get(per, "")
+                cur = "$" if (j.get("job_salary_currency") or "USD") == "USD" else ""
+                if lo and hi:
+                    row["salary"] = f"{cur}{int(lo):,} - {cur}{int(hi):,} {unit}".strip()
+                else:
+                    row["salary"] = f"{cur}{int(lo or hi):,} {unit}".strip()
+            if j.get("job_employment_type"):
+                row["job_type"] = {"FULLTIME": "fulltime", "PARTTIME": "parttime",
+                                   "CONTRACTOR": "contract", "INTERN": "internship"
+                                   }.get(j["job_employment_type"].upper(),
+                                         row.get("job_type", ""))
             out.append(row)
     return out
 
@@ -5997,6 +6044,7 @@ def _job_json(j, extra=None):
         "country": j.country, "remote": bool(j.remote), "url": j.url,
         "category": j.category or "", "is_open": bool(j.is_open),
         "job_type": j.job_type or "", "engagement": j.engagement or "",
+        "salary": j.salary or "",
         "visa": j.visa or "",
         "posted_at": j.posted_at.isoformat() if j.posted_at else None,
         "first_seen": j.first_seen.isoformat() if j.first_seen else None,

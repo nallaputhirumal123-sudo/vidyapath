@@ -3091,6 +3091,15 @@ function jbCardHTML(j){
                   :`<span style="color:#4bbf82">● Open</span>`}
           · seen ${jbAgo(j.first_seen)}
         </div>
+        <!-- Pay only when the employer stated it. Most postings do not, and an
+             empty line reads better than "Salary not specified" on every card. -->
+        ${(j.salary||j.job_type)?`<div style="font-size:12.5px;margin-top:5px">
+          ${j.salary?`<b style="color:#4bbf82">💰 ${esc(j.salary)}</b>`:""}
+          ${j.salary&&j.job_type?`<span style="color:var(--dim)"> · </span>`:""}
+          ${j.job_type?`<span style="color:var(--body)">${esc(
+             {fulltime:"Full-time",contract:"Contract",parttime:"Part-time",
+              internship:"Internship"}[j.job_type]||j.job_type)}</span>`:""}
+        </div>`:""}
         ${chips?`<div class="ask-chips" style="margin-top:8px;gap:5px">${chips}</div>`:""}
         ${gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:""}
       </div>
