@@ -4903,7 +4903,11 @@ async def _fetch_jsearch(client, query, cc):
                 "date_posted": "week"},
         headers={"X-RapidAPI-Key": JSEARCH_KEY,
                  "X-RapidAPI-Host": "jsearch.p.rapidapi.com"})
-    r.raise_for_status()
+    if r.status_code >= 300:
+        # RapidAPI says WHY in the body — wrong key, not subscribed, quota
+        # gone — and a bare HTTPStatusError threw that away. 401/403/429 need
+        # completely different fixes, so the report has to tell them apart.
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:160]}")
     for j in (r.json().get("data") or []):
         loc = ", ".join(x for x in (j.get("job_city"), j.get("job_state")) if x)               or j.get("job_country") or ""
         row = _job_row("jsearch", j.get("job_id"), j.get("job_title"),
@@ -5030,11 +5034,12 @@ async def _collect_jobs():
                         finally:
                             _db.close()
                     except Exception as e:
-                        report[key] = f"{type(e).__name__}"
+                        report[key] = (str(e)[:180] if isinstance(e, RuntimeError)
+                                       else f"{type(e).__name__}")
                         # A paid plan that has run out returns 429. Stop the
                         # whole source rather than burning the rest of the
                         # queries against a quota that is already gone.
-                        if "429" in str(e) or "TooManyRequests" in type(e).__name__:
+                        if "429" in str(e) or "TooManyRequests" in type(e).__name__                                 or "exceeded" in str(e).lower():
                             report["jsearch"] = "stopped: rate limited"
                             break
                 else:
