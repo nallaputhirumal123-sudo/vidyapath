@@ -402,7 +402,22 @@ input,select{font-family:inherit}
 .jb-why{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:9px}
 .jb-why-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.9px;
   font-weight:750;color:var(--dim);margin-right:2px}
-.jb-why-i{font-size:11.5px;line-height:1.5;padding:2.5px 9px;border-radius:999px;
+/* On a phone the buttons column held its width and the job title was left
+   with about eighty pixels, so "Senior Virtualization & Systems Engineer"
+   came out one word per line and the card was three screens tall. Below
+   620px the actions move under the posting and lie flat, which gives the
+   title the full width it needs to be read at a glance. */
+@media(max-width:620px){
+  .jb-row{flex-direction:column}
+  .jb-acts{flex-direction:row!important;flex-wrap:wrap;width:100%;
+    padding-top:4px;border-top:1px solid var(--line)}
+  .jb-acts .btn,.jb-acts .pill{flex:1 1 auto;min-width:118px;text-align:center}
+}
+
+/* 11.5px in the dimmest token is legible in a design tool and not on a train.
+   Everything a candidate reads to decide whether to apply now sits at 12.5px
+   or above, in a colour with real contrast against the card. */
+.jb-why-i{font-size:12.5px;line-height:1.5;padding:3px 10px;border-radius:999px;
   border:1px solid transparent;white-space:nowrap}
 .jb-why-i b{font-weight:800;margin-right:1px}
 @media(max-width:560px){.jb-why-i{white-space:normal}}
@@ -3700,7 +3715,7 @@ function jbPage(dir){
 }
 function jbCardHTML(j){
   const closed=!j.is_open;
-  const chips=(j.matched||[]).slice(0,6).map(s=>`<span class="ask-chip" style="pointer-events:none;font-size:11px;padding:2px 8px;background:rgba(75,191,130,.15);border-color:rgba(75,191,130,.4)">${esc(s)}</span>`).join("");
+  const chips=(j.matched||[]).slice(0,6).map(s=>`<span class="ask-chip" style="pointer-events:none;font-size:12.5px;padding:3px 10px;color:#a9ecc4;background:rgba(75,191,130,.16);border-color:rgba(75,191,130,.42)">${esc(s)}</span>`).join("");
   const gaps=(j.missing||[]).slice(0,4).map(s=>`<span class="ask-chip" style="pointer-events:none;font-size:11px;padding:2px 8px;opacity:.75">${esc(s)}</span>`).join("");
   /* Every job board shows a percentage and leaves you to work out what it
      means. This is the same score said in plain words — what you meet, what
@@ -3728,16 +3743,16 @@ function jbCardHTML(j){
       <div style="font-size:19px;font-weight:700;line-height:1.15;white-space:nowrap;
         color:${j.score>=60?"#4bbf82":j.score>=35?"#e0b050":"var(--dim)"}">${j.score}</div>
       <div style="font-size:10px;color:var(--dim);letter-spacing:.5px">MATCH</div></div>`:"";
-  return `<div class="card" style="margin-bottom:10px;${closed?"opacity:.6":""}">
-    <div class="row" style="gap:12px;align-items:flex-start">
+  return `<div class="card jb-card" style="margin-bottom:10px;${closed?"opacity:.6":""}">
+    <div class="row jb-row" style="gap:12px;align-items:flex-start">
       ${score}
       <div style="flex:1;min-width:0">
-        <div style="font-weight:650;font-size:15px">${esc(j.title)}</div>
-        <div style="font-size:13px;color:var(--body);margin-top:2px">
+        <div style="font-weight:750;font-size:16.5px;line-height:1.3;letter-spacing:-.01em">${esc(j.title)}</div>
+        <div style="font-size:13.5px;color:var(--body);margin-top:3px">
           ${esc(j.company)} · ${esc(j.location||"—")}${j.remote?" · 🌐 Remote":""}
           ${j.also_in&&j.also_in.length?`<span style="color:var(--dim)"> +${j.also_in.length} more location${j.also_in.length>1?"s":""}</span>`:""}
         </div>
-        <div style="font-size:11.5px;color:var(--dim);margin-top:4px">
+        <div style="font-size:12.5px;color:var(--muted);margin-top:5px">
           ${closed?`<span style="color:#e05a5a">● Closed ${jbAgo(j.closed_at)}</span>`
                   :`<span style="color:#4bbf82">● Open</span>`}
           · seen ${jbAgo(j.first_seen)}
@@ -3762,18 +3777,18 @@ function jbCardHTML(j){
         ${(j.missing&&j.missing.length)?(function(){
           const done=j.missing.filter(s=>skillState(s)==="done").length;
           return `<div style="margin-top:7px">
-          <div style="font-size:11.5px;color:var(--dim);margin-bottom:4px">
+          <div style="font-size:12.5px;color:var(--muted);margin-bottom:5px">
             Missing for this role — tap to learn it${done?`
             <b style="color:#4bbf82">· ${done} of ${j.missing.length} studied</b>`:""}</div>
           <div class="ask-chips" style="gap:5px;margin:0">
             ${j.missing.map(sk=>`<button class="ask-chip"
                data-learnskill="${esc(sk)}" data-forrole="${esc(j.title||"")}"
-               style="font-size:11.5px${skillState(sk)==="done"
+               style="font-size:12.5px;padding:4px 11px${skillState(sk)==="done"
                  ?";border-color:rgba(75,191,130,.45);background:rgba(75,191,130,.10)":""}"
                >${skillBadge(sk)}${esc(sk)} →</button>`).join("")}
           </div></div>`;})():(gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:"")}
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+      <div class="jb-acts" style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
         <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener"
            data-jbapplied="${j.id}">${closed?"View ↗":"Apply ↗"}</a>
         ${closed?"":`<button class="btn ghost sm" data-jbkit="${j.id}">✨ Apply kit</button>`}
@@ -3873,7 +3888,7 @@ function jbResultsHTML(){
   if(!JB.jobs.length) return "";
   const m=JB.meta||{}, from=JB.offset+1, to=JB.offset+JB.jobs.length;
   const head=JB.mode==="match"
-    ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">Scored ${m.scanned} live postings · <b>${m.total}</b> worth showing${JB.minScore?` at ${JB.minScore}%+`:""} · viewing ${from}–${to}${m.level?` · pitched at <b>${esc(m.level)}</b> level`:""}${m.families&&m.families.length?` · read as <b>${m.families.map(esc).join(", ")}</b>`:""}</div>
+    ? `<div style="font-size:13px;color:var(--muted);margin-bottom:11px">Scored ${m.scanned} live postings · <b>${m.total}</b> worth showing${JB.minScore?` at ${JB.minScore}%+`:""} · viewing ${from}–${to}${m.level?` · pitched at <b>${esc(m.level)}</b> level`:""}${m.families&&m.families.length?` · read as <b>${m.families.map(esc).join(", ")}</b>`:""}</div>
        ${m.ats?(function(){const a=m.ats;
          const tone=v=>v>=65?"#4bbf82":v>=45?"#e0b050":"#f2907f";
          const bar=(label,v)=>`<div style="flex:1;min-width:118px">
