@@ -10,6 +10,7 @@ Admin panel:   http://localhost:8000/admin
 import os
 import re
 import json
+import math
 import calendar
 import secrets
 import datetime as dt
@@ -5479,6 +5480,16 @@ async def _refresh_jobs_locked():
             "sources": report}
 
 
+# The score a new posting has to reach before it is worth interrupting
+# someone. 80 is the honest reading of "a strong match" — but scoring was
+# rebalanced in v3.25.0 so that a wrong-field job can no longer ride a
+# well-written resume into the sixties, and everything came down with it. A
+# near-perfect network role against a network resume now lands at 79-89, so
+# 80 fires, but not often. Lower it to 75 if the alerts feel too quiet;
+# raising it above 85 will effectively switch them off.
+JOB_ALERT_MIN = int(env("JOB_ALERT_MIN", "80") or 80)
+
+
 def _job_alert_sweep():
     """Tell people what changed while they were not looking.
 
@@ -5496,6 +5507,21 @@ def _job_alert_sweep():
         cutoff = now() - dt.timedelta(days=1)
         fresh = db.query(Job).filter(Job.is_open == True,          # noqa: E712
                                      Job.first_seen >= cutoff).limit(1500).all()
+
+        # Rarity weights measured across the open board, exactly as the match
+        # page measures them. Passing an empty table here gave every skill a
+        # weight of 1.0, so the score in the email did not agree with the
+        # score on the card it linked to — the fastest way to make people stop
+        # believing both.
+        idf = {}
+        if fresh:
+            df, n = {}, 0
+            for j in db.query(Job).filter(Job.is_open == True).all():   # noqa: E712
+                n += 1
+                for s in _job_skills(j):
+                    df[s] = df.get(s, 0) + 1
+            n = max(n, 1)
+            idf = {s: math.log(n / (1 + c)) + 0.25 for s, c in df.items()}
 
         users = db.query(User).filter(User.is_active == True).all()  # noqa: E712
         for u in users:
@@ -5540,12 +5566,23 @@ def _job_alert_sweep():
             level = _level_of(rtext)
             impact, parsing = _impact_score(rtext), _parsing_score(rtext)
             titles = _title_words(" ".join(rtext.splitlines()[:6]))
+            # Already told them about these. A posting stays "new" for 24
+            # hours and the crawler runs every hour inside the window, so
+            # without this the same job produced an alert on all eleven passes
+            # — eleven bells for one job is how a notification bell gets
+            # ignored forever.
+            told = {r[0] for r in db.query(Note.k).filter(
+                Note.user_id == u.id, Note.k.like("alerted_%")).all()}
             best = []
             for j in fresh:
-                sc = _score_job(j, skills, keywords, level, {},
+                if f"alerted_{j.id}" in told:
+                    continue
+                sc = _score_job(j, skills, keywords, level, idf,
                                 my_fams, titles, impact, parsing)[0]
-                if sc >= 80:
+                if sc >= JOB_ALERT_MIN:
                     best.append((sc, j))
+            for _sc, j in best:
+                db.add(Note(user_id=u.id, k=f"alerted_{j.id}", v=str(_sc)))
             if best:
                 best.sort(key=lambda x: -x[0])
                 top = best[0][1]

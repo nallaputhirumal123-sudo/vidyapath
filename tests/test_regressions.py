@@ -137,6 +137,59 @@ ck("admin not blocked by paywall",
    A.post("/api/jobs/match", json={"resume_text": "Cisco BGP OSPF F5 Linux Python "
                                                   "network engineer senior"}).status_code == 200)
 
+# A posting stays "new" for 24 hours and the crawler runs every hour inside
+# the window, so the alert sweep saw the same fresh jobs on all eleven passes.
+# Without a memory of what it already said, one job rang the bell eleven
+# times, which is how a notification bell gets ignored for good.
+db = m.SessionLocal()
+try:
+    u = db.query(m.User).filter(m.func.lower(m.User.email) == E.lower()).first()
+    uid = u.id
+    db.query(m.Note).filter(m.Note.user_id == uid,
+                            m.Note.k.like("alerted_%")).delete(
+                                synchronize_session=False)
+    db.query(m.JobAlert).filter(m.JobAlert.user_id == uid).delete(
+        synchronize_session=False)
+    # Re-runnable: the suite runs against a database that keeps its rows, so
+    # yesterday's seed row would collide on (source, external_id) today.
+    db.query(m.Job).filter(m.Job.source == "regr",
+                           m.Job.external_id == "alert-dupe").delete(
+                               synchronize_session=False)
+    db.query(m.Note).filter(m.Note.user_id == uid,
+                            m.Note.k.like("alertmail_%")).delete(
+                                synchronize_session=False)
+    db.query(m.Note).filter(m.Note.user_id == uid,
+                            m.Note.k == "resume_uptext").delete(
+                                synchronize_session=False)
+    db.add(m.Note(user_id=uid, k="resume_uptext",
+                  v="Sr Network Engineer, 9 years of experience. cisco bgp "
+                    "ospf f5 paloalto sdwan vpn firewall wireshark python "
+                    "ansible. Senior Network Engineer at Acme."))
+    jd = ("Requirements: cisco bgp ospf f5 paloalto vpn firewall wireshark "
+          "python ansible sdwan. Senior network engineer, data centre. ") * 3
+    db.add(m.Job(source="regr", external_id="alert-dupe", title="Senior Network Engineer",
+                 company="Acme", location="Dallas, TX", country="US",
+                 url="https://example.com/a", text=jd, category="network",
+                 skills=",".join(sorted({w for w in m._words(jd) if w in m._SKILLS})),
+                 req_skills=",".join(sorted({w for w in m._words(m._requirement_text(jd))
+                                             if w in m._SKILLS})),
+                 is_open=True, first_seen=m.now(), last_seen=m.now()))
+    db.commit()
+finally:
+    db.close()
+
+_min = m.JOB_ALERT_MIN
+m.JOB_ALERT_MIN = 60          # the threshold is not what is under test here
+try:
+    first = m._job_alert_sweep()
+    second = m._job_alert_sweep()
+finally:
+    m.JOB_ALERT_MIN = _min
+ck("new-match alert fires after a crawl", first["created"] >= 1,
+   f"created {first['created']}")
+ck("the same job never alerts twice", second["created"] == 0,
+   f"second sweep created {second['created']}")
+
 print("\n" + "=" * 60)
 print(f"REGRESSION PASS {len(P)}   FAIL {len(F)}")
 print("=" * 60)
