@@ -1903,6 +1903,71 @@ function sbDiagramHTML(d){
     style="width:100%;height:auto" role="img" aria-label="diagram">
     ${arrows}${boxes}</svg></div>`;
 }
+/* The follow-ups that make it feel like a tutor rather than a lookup. Each
+   re-asks the SAME topic with a different lens, so the board keeps its thread
+   instead of starting a new conversation every time. */
+const SB_LENSES=[
+  ["simpler",  "Explain it simpler",   t=>t+" — explain much more simply, for a beginner"],
+  ["deeper",   "Go deeper",            t=>t+" — go deeper, with the details an expert would want"],
+  ["example",  "Show an example",      t=>t+" — walk through one concrete worked example end to end"],
+  ["why",      "Why does it matter?",  t=>t+" — why does this matter in real work, and when is it used"],
+  ["mistakes", "Common mistakes",      t=>t+" — the mistakes people make with this and how to avoid them"],
+  ["practice", "Give me practice",     t=>t+" — practice exercises with the answers explained"],
+];
+function sbLens(id){
+  const l=SB_LENSES.find(x=>x[0]===id); if(!l||!SB.topic) return;
+  sbTeach(l[2](SB.topic.replace(/ — .*$/,"")));
+}
+function sbAsk(){
+  const el=document.getElementById("sbFollow");
+  const q=(el&&el.value||"").trim();
+  if(!q) return;
+  sbTeach(SB.topic.replace(/ — .*$/,"")+" — specifically: "+q);
+}
+/* Notes live with the lesson, keyed by topic, in the same per-user notes the
+   rest of the app uses. Saved on demand rather than on every keystroke — a
+   note you did not mean to keep is worse than one you have to press save on. */
+function sbNoteKey(){ return "sbnote_"+(SB.topic||"").slice(0,80).toLowerCase(); }
+function sbSaveNote(){
+  const el=document.getElementById("sbNote"); if(!el) return;
+  const v=el.value||"";
+  S.notes[sbNoteKey()]=v;
+  api.post("/api/note",{key:sbNoteKey(),value:v}).catch(()=>{});
+  toast(v.trim()?"Note saved.":"Note cleared.");
+}
+/* Print rather than generate a PDF server-side: every browser can already
+   turn this into a PDF, it keeps the real text selectable, and it needs no
+   new dependency or endpoint. */
+function sbPrint(){
+  const l=SB.lesson; if(!l) return;
+  const nl=String.fromCharCode(10);
+  const steps=l.steps.map((st,k)=>
+    `<h3>Step ${k+1}</h3><p>${esc(st.t||"")}</p>`+
+    (st.code?`<pre>${esc(st.code)}</pre>`:"")+
+    (st.diagram?`<p><i>[diagram: ${esc((st.diagram.nodes||[]).join(" → "))}]</i></p>`:"")
+  ).join(nl);
+  const note=(S.notes[sbNoteKey()]||"").trim();
+  const w=window.open("","_blank");
+  if(!w) return toast("Allow pop-ups to save this as a PDF.");
+  w.document.write(`<html><head><title>${esc(l.title)} — Craxle</title>
+    <style>body{font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;
+      max-width:720px;margin:36px auto;padding:0 20px;color:#111}
+      h1{font-size:24px;margin-bottom:2px}h3{margin:20px 0 4px;font-size:15px}
+      pre{background:#f4f4f6;padding:11px 13px;border-radius:7px;overflow:auto;
+        font:13px/1.55 SF Mono,Menlo,Consolas,monospace;white-space:pre-wrap}
+      .tk{background:#fff8e5;border-left:3px solid #e0a91b;padding:9px 13px;margin-top:18px}
+      .nt{background:#eef6ff;border-left:3px solid #4d9fff;padding:9px 13px;margin-top:14px}
+      .ft{margin-top:26px;font-size:12px;color:#777}</style></head><body>
+    <h1>${esc(l.title)}</h1>
+    <div style="color:#666;font-size:13px">Craxle · ${esc(SB.topic||"")}</div>
+    ${steps}
+    ${l.takeaway?`<div class="tk"><b>Takeaway:</b> ${esc(l.takeaway)}</div>`:""}
+    ${note?`<div class="nt"><b>My notes:</b><br>${esc(note)}</div>`:""}
+    <div class="ft">craxle.com</div></body></html>`);
+  w.document.close();
+  setTimeout(()=>w.print(),300);
+}
+
 function sbBoardHTML(){
   if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
@@ -1922,7 +1987,29 @@ function sbBoardHTML(){
       ${l.steps.map((_,k)=>`<span class="sb-dot ${k===SB.i?"on":""}"></span>`).join("")}
       <button class="btn ghost sm" data-sb="next"
         ${SB.i>=l.steps.length-1?"disabled":""}>Next →</button>
-    </div>`;
+    </div>
+
+    <div class="ask-chips" style="margin-top:14px;gap:6px;justify-content:center">
+      ${SB_LENSES.map(([id,label])=>
+        `<button class="ask-chip" data-sblens="${id}">${label}</button>`).join("")}
+    </div>
+
+    <div class="row" style="gap:6px;margin-top:10px;align-items:flex-end">
+      <input id="sbFollow" class="ask-input" style="flex:1"
+        placeholder="Ask a follow-up — anything you did not understand…"/>
+      <button class="btn sm" data-sbask="1">Ask</button>
+    </div>
+
+    <details style="margin-top:12px">
+      <summary style="font-size:12.5px;color:#8fe3b0;cursor:pointer">
+        📝 My notes &amp; save as PDF</summary>
+      <textarea id="sbNote" class="pj-note" style="width:100%;min-height:90px;margin-top:8px"
+        placeholder="Write what you want to remember…">${esc(S.notes[sbNoteKey()]||"")}</textarea>
+      <div class="row" style="gap:6px;margin-top:6px">
+        <button class="btn ghost sm" data-sbnote="1">Save note</button>
+        <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
+      </div>
+    </details>`;
 }
 
 /* Split a long answer into board-sized slides. */
@@ -4556,7 +4643,15 @@ async function hjViewCandidates(id){
 }
 document.addEventListener("click",e=>{
   const b=e.target.closest("[data-sb]");
-  if(b) sbGo(b.dataset.sb==="next"?1:-1);
+  if(b) return sbGo(b.dataset.sb==="next"?1:-1);
+  const l=e.target.closest("[data-sblens]");
+  if(l) return sbLens(l.dataset.sblens);
+  if(e.target.closest("[data-sbask]")) return sbAsk();
+  if(e.target.closest("[data-sbnote]")) return sbSaveNote();
+  if(e.target.closest("[data-sbpdf]")) return sbPrint();
+});
+document.addEventListener("keydown",e=>{
+  if(e.target && e.target.id==="sbFollow" && e.key==="Enter"){ e.preventDefault(); sbAsk(); }
 });
 document.addEventListener("change",e=>{
   if(e.target && e.target.id==="chatFile" && e.target.files[0]) jbAttach(e.target.files[0]);
