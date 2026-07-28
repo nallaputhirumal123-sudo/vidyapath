@@ -2321,7 +2321,10 @@ function renderAsk(){
     <div style="flex:1;min-width:0">
       <div class="ask-frame"><div class="ask-board" id="askBoard">${SB.lesson||SB.busy||SB.error?sbBoardHTML():askBoardHTML()}</div></div>
       <div class="ask-tray"><span class="ask-chalk"></span><span class="ask-chalk y"></span></div>
-      <div class="ask-slidebar" id="askSlideBar" style="display:${hasLesson&&a.slides.length>1?"flex":"none"}">
+      <!-- The smart board draws its own Back/Next inside the board, so the
+           Ask slide bar is hidden while it is showing. Two identical pairs of
+           arrows on one screen is a guess about which one moves what. -->
+      <div class="ask-slidebar" id="askSlideBar" style="display:${!SB.lesson&&!SB.busy&&hasLesson&&a.slides.length>1?"flex":"none"}">
         <button class="ask-sbtn" data-ask="prevslide" title="Previous slide">‹</button>
         <span id="askSlideLbl">Slide ${Math.min((a.page||0)+1,a.slides.length)} / ${a.slides.length}</span>
         <button class="ask-sbtn" data-ask="nextslide" title="Next slide">›</button>
