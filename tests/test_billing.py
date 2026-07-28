@@ -63,7 +63,7 @@ ck("calls the checkout sessions endpoint",
 ck("uses the secret key as a bearer token",
    SENT["headers"].get("Authorization") == "Bearer sk_test_fake")
 ck("mode is subscription, not one-off", d.get("mode") == "subscription", str(d.get("mode")))
-ck("charges $15.99", d.get("line_items[0][price_data][unit_amount]") == "1599",
+ck("charges $9.99", d.get("line_items[0][price_data][unit_amount]") == "999",
    str(d.get("line_items[0][price_data][unit_amount]")))
 ck("currency is usd", d.get("line_items[0][price_data][currency]") == "usd")
 ck("recurs monthly", d.get("line_items[0][price_data][recurring][interval]") == "month",
@@ -78,8 +78,8 @@ ck("returns to the site after paying",
    d.get("success_url", "").endswith("/?upgraded=1"), str(d.get("success_url")))
 
 # ---------- every term on sale ----------
-EXPECT = {"month": ("1599", "month", "1"), "quarter": ("4299", "month", "3"),
-          "half": ("7699", "month", "6"), "year": ("13499", "year", "1")}
+EXPECT = {"month": ("999", "month", "1"), "quarter": ("2699", "month", "3"),
+          "half": ("4799", "month", "6"), "year": ("8999", "year", "1")}
 for per, (amt, interval, count) in EXPECT.items():
     r = A.post("/api/billing/checkout", json={"plan": "pro", "period": per})
     ck(f"{per} checkout starts", r.status_code == 200, str(r.status_code))

@@ -2881,10 +2881,10 @@ PLANS = {
     # rupee price. Kept as a single tier on purpose: two tiers make people stop
     # and compare instead of deciding. Amounts are in cents.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # unlimited
-            "usd_month": 1599,        # $15.99   — $15.99/mo
-            "usd_quarter": 4299,      # $42.99   — $14.33/mo, 10% off
-            "usd_half": 7699,         # $76.99   — $12.83/mo, 20% off
-            "usd_year": 13499},       # $134.99  — $11.25/mo, 30% off
+            "usd_month": 999,         # $9.99    —  $9.99/mo
+            "usd_quarter": 2699,      # $26.99   —  $9.00/mo, 10% off
+            "usd_half": 4799,         # $47.99   —  $8.00/mo, 20% off
+            "usd_year": 8999},        # $89.99   —  $7.50/mo, 25% off
 }
 PAID_PLANS = ("pro",)
 
@@ -5280,6 +5280,10 @@ def _job_alert_sweep():
     """
     db = SessionLocal()
     made = 0
+    emailed = 0
+    # Collected and sent AFTER the commit: mail is slow and can fail, and
+    # neither should roll back or delay the alerts themselves.
+    outbox = []
     try:
         cutoff = now() - dt.timedelta(days=1)
         fresh = db.query(Job).filter(Job.is_open == True,          # noqa: E712
@@ -5343,14 +5347,52 @@ def _job_alert_sweep():
                     text=f"New {best[0][0]}% match: {top.title} at {top.company}{more}.",
                     url=top.url or ""))
                 made += 1
+                # And by email. An in-app bell only reaches someone who was
+                # coming back anyway; the point of an alert is to reach the
+                # person who was not. Capped at five so it reads as a
+                # shortlist, and at most once a day — a job board that mails
+                # twice in a day gets filtered forever.
+                if MAIL_ENABLED and (u.email or "").strip():
+                    dkey = "alertmail_" + now().strftime("%Y%m%d")
+                    if not db.query(Note).filter(Note.user_id == u.id,
+                                                 Note.k == dkey).first():
+                        db.add(Note(user_id=u.id, k=dkey, v="1"))
+                        emailed += 1
+                        nl = chr(10)
+                        lines = nl.join(
+                            "  " + str(sc) + "%  " + (jj.title or "") +
+                            " - " + (jj.company or "") + nl +
+                            "        " + (jj.url or "")
+                            for sc, jj in best[:5])
+                        n = len(best)
+                        plural = "s" if n > 1 else ""
+                        first_name = (u.name or "").split(" ")[0] or "there"
+                        base = PUBLIC_BASE_URL or "https://craxle.com"
+                        outbox.append((
+                            u.email,
+                            str(n) + " new job" + plural +
+                            " matching your resume",
+                            "Hello " + first_name + "," + nl + nl +
+                            str(n) + " new posting" + plural + " came in that "
+                            "your resume scores 80% or better against:" +
+                            nl + nl + lines + nl + nl +
+                            "See them all, with the reason behind each score:" +
+                            nl + base + "/#careers" + nl + nl +
+                            "You are getting this because you have a resume on "
+                            "Craxle. Reply to this email to stop these alerts." + nl))
         db.commit()
     except Exception as e:
         print(f"job alert sweep failed: {type(e).__name__}: {e}")
     finally:
         db.close()
-    if made:
-        print(f"job alerts: {made} created")
-    return {"created": made}
+    for to, subject, body in outbox:
+        try:
+            send_email(to, subject, body)
+        except Exception as e:
+            print(f"alert mail to {to} failed: {type(e).__name__}: {e}")
+    if made or emailed:
+        print(f"job alerts: {made} created, {emailed} emailed")
+    return {"created": made, "emailed": emailed}
 
 
 @app.post("/api/admin/alerts/run")
