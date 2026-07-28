@@ -3782,6 +3782,7 @@ function jbCardHTML(j){
           ${j.visa?`<span style="color:var(--dim)"> · </span><span style="color:${
              j.visa==="sponsors"?"var(--ok)":"var(--dim)"}">${esc(
              {sponsors:"Sponsors a visa",no_sponsorship:"No sponsorship",
+              citizen:"US citizens only",
               clearance:"Clearance required"}[j.visa]||j.visa)}</span>`:""}
         </div>`:""}
         ${why}

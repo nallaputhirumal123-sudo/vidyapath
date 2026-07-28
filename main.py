@@ -471,6 +471,12 @@ class Job(Base):
     # "$65/hr". Nullable so the migration can add it to a populated table, and
     # blank whenever the ad does not say — a guessed salary is worse than none.
     salary = Column(String(120), default="")
+    # Years of experience the posting demands, parsed at ingest. Stored
+    # rather than read from the text at match time because the description
+    # is deferred on that query — reading it there would lazy-load
+    # thousands of rows one at a time. Nullable: existing rows fill on the
+    # next crawl or from the backfill endpoint.
+    min_years = Column(Integer, default=0)
     engagement = Column(String(10), default="", index=True)  # w2 / c2c / 1099
     visa = Column(String(20), default="", index=True)        # sponsors/no/clearance
     url = Column(Text, default="")
@@ -1030,6 +1036,17 @@ def _migrate_columns():
                 print(f"migrated: added column {table.name}.{col.name}")
             except Exception as e:
                 print(f"migrate note ({table.name}.{col.name}): {e}")
+
+
+try:
+    # Also at import, not only at startup. Anything that imports the module and
+    # talks to the database directly — every test file, every admin script —
+    # otherwise queries a table missing the newest column and dies on "no such
+    # column". Skips tables that do not exist yet, so a fresh database is
+    # unaffected.
+    _migrate_columns()
+except Exception as _e:                                   # pragma: no cover
+    print(f"migrate at import skipped: {type(_e).__name__}: {_e}")
 
 
 def seed_if_empty():
@@ -4412,6 +4429,16 @@ def _engagement_of(blob: str) -> str:
     filtering on separately from the contract/full-time split."""
     c2c = _re.search(r"\b(c2c|corp[- ]to[- ]corp|corp2corp)\b", blob)
     w2 = _re.search(r"\bw-?2\b", blob)
+    # "W2 only, no corp-to-corp" contains both terms and means the opposite of
+    # both. A posting that says no to C2C was being filed as accepting it,
+    # which sends contractors to a role that will not take them.
+    if c2c and _re.search(r"\b(no|not?|without|non)[- ]?(c2c|corp[- ]to[- ]corp|"
+                          r"corp2corp)\b", blob):
+        c2c = None
+    # Contract-to-hire is its own thing: a contract that converts. Neither the
+    # contract nor the permanent filter finds it, so it needs naming.
+    if _re.search(r"\b(c2h|contract[- ]to[- ]hire|temp[- ]to[- ](hire|perm))\b", blob):
+        return "c2h"
     if c2c and w2:
         return "w2_c2c"
     if c2c:
@@ -4428,6 +4455,14 @@ def _visa_of(blob: str) -> str:
     it saves them an application that was never going to work."""
     if _re.search(r"\b(security clearance|ts/sci|secret clearance|polygraph)\b", blob):
         return "clearance"
+    # Citizenship is a harder gate than sponsorship and was folded in with it,
+    # so a role nobody on a visa can take read the same as one that merely
+    # will not sponsor. Named separately because it is the difference between
+    # "apply anyway" and "do not bother".
+    if _re.search(r"(u\.?s\.? citizenship (is )?required|must be a u\.?s\.? citizen|"
+                  r"citizenship (is )?required|u\.?s\.? citizens? only|"
+                  r"american citizens? only|us citizens? required)", blob):
+        return "citizen"
     if _re.search(r"(no (visa )?sponsorship|not able to sponsor|unable to sponsor|"
                   r"without sponsorship|cannot sponsor|no c2c|us citizens? only|"
                   r"green card holders? only|citizens? or green card)", blob):
@@ -4477,6 +4512,41 @@ _SALARY_RES = [
 ]
 
 
+# A number of years, then either a "+" or the word experience within a few
+# words. Requiring "experience" immediately after missed "12 Years of exp
+# Required" and "5+ years, 10 preferred"; dropping it entirely matched "3
+# years ago". The lookbehind stops "100 years" being read as 10.
+_YEARS_RE = _re.compile(
+    # The upper half of a range only counts when a dash or "to" introduces it.
+    # Left optional on its own it swallowed the "00" of "100 years", turning
+    # an absurd number into a plausible 10.
+    r"(?<!\d)(\d{1,2})\s*(\+)?\s*(?:(?:[-–]|to)\s*\d{1,2}\s*\+?\s*)?"
+    r"(?:years?|yrs?)\b(?:[^.\n]{0,28}?\b(experience|exp)\b)?", _re.I)
+
+
+def _years_matches(text):
+    """Every stated year-count that is really about experience."""
+    out = []
+    for num, plus, word in _YEARS_RE.findall(text or ""):
+        if not (plus or word):
+            continue                      # "3 years ago" is not a requirement
+        n = int(num)
+        if 0 < n <= 25:
+            out.append(n)
+    return out
+
+
+def _years_required(text):
+    """Years of experience a posting asks for, or 0 when it does not say.
+
+    Takes the LOWEST number stated. "8 to 12 years" and "5+ years, 10
+    preferred" are both asking for the first one; scoring someone out on the
+    upper bound of a range would reject people the employer would interview.
+    """
+    got = _years_matches(text)
+    return min(got) if got else 0
+
+
 def _salary_from(text):
     """Pull a stated pay range out of a posting, or return blank.
 
@@ -4507,6 +4577,7 @@ def _job_row(source, ext_id, title, company, location, url, desc="", posted=None
         "category": _primary_family(title, blob),
         "job_type": _job_type_of(blob), "engagement": _engagement_of(blob),
         "salary": _salary_from(desc) or _salary_from(title),
+        "min_years": _years_required(blob),
         "visa": _visa_of(blob),
         "skills": ",".join(sorted({w for w in _words(blob) if w in _SKILLS})),
         "req_skills": ",".join(sorted(
@@ -5394,6 +5465,7 @@ def _store_jobs(db, rows, reached):
             # value we already have — a truncated description should not erase
             # a rate we read last week.
             row.salary = r["salary"] or row.salary
+            row.min_years = r.get("min_years") or row.min_years
             row.posted_at = r.get("posted_at") or row.posted_at
             row.last_seen, row.is_open, row.closed_at = now(), True, None
             updated += 1
@@ -5618,7 +5690,8 @@ def _job_alert_sweep():
                 if f"alerted_{j.id}" in told:
                     continue
                 sc = _score_job(j, skills, keywords, level, idf,
-                                my_fams, titles, impact, parsing)[0]
+                                my_fams, titles, impact, parsing,
+                                my_years=_years_of(rtext))[0]
                 if sc >= JOB_ALERT_FLOOR:
                     best.append((sc, j))
             # Everything at or above MIN is exceptional and always goes. If
@@ -6509,7 +6582,7 @@ def _title_words(t):
 
 
 def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
-               my_titles=None, impact=0.5, parsing=0.8):
+               my_titles=None, impact=0.5, parsing=0.8, my_years=0):
     """0-100 fit score, plus the skills that matched and the ones missing.
 
     Two things keep this honest. Skills are weighted by how rare they are
@@ -6588,6 +6661,18 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
         seniority = 0.10 if is_exec else (
             0.15 if any(t in title for t in _SENIOR) else (
                 1.0 if any(t in title for t in _JUNIOR) else 0.6))
+    # Years demanded versus years held. Seniority was read from title words
+    # alone, so "12 Years of exp Required" against an 8-year resume scored 80:
+    # nothing in the model had looked at the sentence doing the rejecting. A
+    # year or two short is normal and costs nothing; four years short is the
+    # filter a recruiter actually applies.
+    need = getattr(job, "min_years", 0) or 0
+    short = max(0, need - my_years) if (need and my_years) else 0
+    if short >= 4:
+        seniority *= 0.35
+    elif short >= 2:
+        seniority *= 0.65
+
     f_role = 0.45 * fam + 0.30 * min(title_overlap * 1.5, 1.0) + 0.25 * seniority
 
     # 3. Evidence of impact (17%) and 5. readability (8%) describe the resume,
@@ -6612,6 +6697,15 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     relevance = max(fam, min(title_overlap * 1.5, 1.0))
     if relevance < 0.5:
         score *= 0.55 + 0.9 * relevance     # 0.10 → x0.64, 0.5 → x1.0
+
+    # Years short is a gate, not a nudge. Routed through seniority alone it
+    # moved a 12-years-wanted / 8-years-held posting from 74 to 72, which is
+    # not what a recruiter's filter does with that CV. Four years short is
+    # usually an automatic no; two is worth flagging and still applying for.
+    if short >= 4:
+        score *= 0.78
+    elif short >= 2:
+        score *= 0.92
 
     # A posting too thin to name a few skills cannot support a confident score.
     if len(jskills) < 3:
@@ -6643,6 +6737,10 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
             why.append(("ok", "your level"))
     elif level == "junior" and seniority <= 0.2:
         why.append(("no", "above your level"))
+    if short >= 2:
+        why.append(("no", f"wants {need} years, you have {my_years}"))
+    elif need and my_years >= need:
+        why.append(("ok", f"{need}+ years asked, you have {my_years}"))
     if title_overlap >= 0.5:
         why.append(("ok", "same job title"))
     if req_miss:
@@ -6655,6 +6753,13 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
             # rest of what the posting mentions.
             sorted(req_miss) + [s for s in sorted(miss) if s not in req_miss],
             [{"k": k, "t": t} for k, t in why[:5]])
+
+
+def _years_of(resume_text: str) -> int:
+    """Years of experience the resume claims, or 0. Highest figure stated —
+    a resume saying "8 years" and "3 years with Kubernetes" has 8."""
+    got = _years_matches(resume_text)
+    return max(got) if got else 0
 
 
 def _level_of(resume_text: str):
@@ -7329,6 +7434,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     # Matching title-to-title is what stops "shares a toolchain" being treated
     # as "does the same job".
     impact = _impact_score(rtext)
+    my_years = _years_of(rtext)
     parsing = _parsing_score(rtext)
     my_titles = set()
     for e in (body.resume.get("exp") or [])[:6]:
@@ -7401,7 +7507,8 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     best = {}
     for j in rows:
         score, hit, miss, why = _score_job(j, skills, keywords, level, idf,
-                                           my_fams, my_titles, impact, parsing)
+                                           my_fams, my_titles, impact, parsing,
+                                           my_years=my_years)
         key = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
         item = _job_json(j, {"score": score, "matched": hit, "missing": miss,
                              "why": why, **match_tier(score)})
@@ -8762,7 +8869,7 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
     this after any change to _ROLE_FAMILIES. Dry by default; ?dry=0 writes.
     """
     rows = db.query(Job).all()
-    changed, filled, cleared, paid, skilled = [], 0, 0, 0, 0
+    changed, filled, cleared, paid, skilled, yrs = [], 0, 0, 0, 0, 0
     for j in rows:
         # Pay, from the text we already stored. Nothing is inferred: if the
         # employer did not state a figure, the field stays empty.
@@ -8777,6 +8884,12 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
         # 4,000 characters of description at request time instead of reading
         # a comma-separated list — which is also what stops the query from
         # being able to leave the description behind entirely.
+        if not j.min_years and (j.text or ""):
+            y = _years_required(j.text)
+            if y:
+                yrs += 1
+                if not dry:
+                    j.min_years = y
         if not (j.skills or "").strip() and (j.text or ""):
             sk = sorted({w for w in _words(j.text) if w in _SKILLS})
             rq = sorted({w for w in _words(_requirement_text(j.text))
@@ -8808,6 +8921,7 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
     return {"dry_run": bool(dry), "total": len(rows), "changed": len(changed),
             "newly_categorised": filled, "label_removed": cleared,
             "salary_filled": paid, "skills_filled": skilled,
+            "years_filled": yrs,
             "examples": changed[:25]}
 
 
