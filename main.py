@@ -8,6 +8,7 @@ Admin panel:   http://localhost:8000/admin
 """
 
 import os
+import re
 import json
 import secrets
 import datetime as dt
@@ -4948,7 +4949,27 @@ async def _fetch_jsearch(client, query, cc):
         # gone — and a bare HTTPStatusError threw that away. 401/403/429 need
         # completely different fixes, so the report has to tell them apart.
         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:160]}")
-    for j in (r.json().get("data") or []):
+    # The payload shape is the provider's to change, and it has changed: what
+    # arrives under "data" is a list of jobs on one endpoint and an object
+    # wrapping that list on another. Reading it one way turned every query
+    # into a bare AttributeError — iterating a dict hands back its keys, and a
+    # string has no .get. Take the list wherever it is, and skip anything that
+    # is not a job object rather than failing the whole query over one row.
+    body = r.json()
+    if not isinstance(body, dict):
+        raise RuntimeError(f"unexpected payload: {str(body)[:120]}")
+    data = body.get("data")
+    if isinstance(data, dict):
+        for k in ("jobs", "results", "data", "items"):
+            if isinstance(data.get(k), list):
+                data = data[k]
+                break
+    if not isinstance(data, list):
+        raise RuntimeError(
+            f"no job list in response (keys: {list(body)[:6]})")
+    for j in data:
+        if not isinstance(j, dict):
+            continue
         loc = ", ".join(x for x in (j.get("job_city"), j.get("job_state")) if x)               or j.get("job_country") or ""
         row = _job_row("jsearch", j.get("job_id"), j.get("job_title"),
                        j.get("employer_name", ""), loc,
@@ -4961,21 +4982,34 @@ async def _fetch_jsearch(client, query, cc):
             row["country"] = j.get("job_country") or row["country"]
             if j.get("job_is_remote"):
                 row["remote"] = True
-            lo, hi = j.get("job_min_salary"), j.get("job_max_salary")
+            def _num(v):
+                # Salary arrives as a number, a numeric string, or null
+                # depending on the source posting. None of those should cost
+                # us the row.
+                try:
+                    return int(float(v))
+                except (TypeError, ValueError):
+                    return 0
+
+            lo, hi = _num(j.get("job_min_salary")), _num(j.get("job_max_salary"))
             if lo or hi:
-                per = (j.get("job_salary_period") or "").lower()
+                per = str(j.get("job_salary_period") or "").lower()
                 unit = {"year": "a year", "hour": "an hour",
                         "month": "a month"}.get(per, "")
                 cur = "$" if (j.get("job_salary_currency") or "USD") == "USD" else ""
                 if lo and hi:
-                    row["salary"] = f"{cur}{int(lo):,} - {cur}{int(hi):,} {unit}".strip()
+                    row["salary"] = f"{cur}{lo:,} - {cur}{hi:,} {unit}".strip()
                 else:
-                    row["salary"] = f"{cur}{int(lo or hi):,} {unit}".strip()
-            if j.get("job_employment_type"):
+                    row["salary"] = f"{cur}{(lo or hi):,} {unit}".strip()
+            # One endpoint sends a string, another a list of them.
+            et = j.get("job_employment_type") or j.get("job_employment_types") or ""
+            if isinstance(et, (list, tuple)):
+                et = et[0] if et else ""
+            if et:
                 row["job_type"] = {"FULLTIME": "fulltime", "PARTTIME": "parttime",
-                                   "CONTRACTOR": "contract", "INTERN": "internship"
-                                   }.get(j["job_employment_type"].upper(),
-                                         row.get("job_type", ""))
+                                   "CONTRACTOR": "contract", "CONTRACT": "contract",
+                                   "INTERN": "internship", "INTERNSHIP": "internship"
+                                   }.get(str(et).upper(), row.get("job_type", ""))
             out.append(row)
     return out
 
@@ -5089,8 +5123,12 @@ async def _collect_jobs():
                         finally:
                             _db.close()
                     except Exception as e:
+                        # Always carry the message. A report that said only
+                        # "AttributeError" for every query named the type of
+                        # the bug and nothing about where it was — which cost
+                        # a crawl's worth of guessing.
                         report[key] = (str(e)[:180] if isinstance(e, RuntimeError)
-                                       else f"{type(e).__name__}")
+                                       else f"{type(e).__name__}: {e}"[:180])
                         # A paid plan that has run out returns 429. Stop the
                         # whole source rather than burning the rest of the
                         # queries against a quota that is already gone.
@@ -5127,20 +5165,97 @@ ALLOWED_FAMILIES = {f.strip().lower() for f in
                      or "").split(",") if f.strip()}
 
 
+# Half the boards leave `country` empty and put it in the location string
+# instead, so a Berlin role arrived indistinguishable from a US remote one and
+# the blank-is-fine rule let it straight through. If the location names
+# somewhere we do not serve, that is an answer — treat it as one.
+_NON_US_PLACES = (
+    "canada|ontario|toronto|vancouver|montreal|calgary|ottawa|quebec|alberta"
+    "|british columbia|mississauga|edmonton|winnipeg"
+    "|united kingdom|england|scotland|wales|london, uk|manchester|birmingham"
+    "|edinburgh|glasgow|bristol|leeds|dublin|ireland"
+    "|germany|deutschland|berlin|munich|münchen|frankfurt|hamburg|cologne"
+    "|stuttgart|dusseldorf|düsseldorf"
+    "|france|paris|lyon|toulouse|marseille"
+    "|spain|madrid|barcelona|valencia|portugal|lisbon|porto"
+    "|netherlands|amsterdam|rotterdam|utrecht|eindhoven|belgium|brussels"
+    "|switzerland|zurich|zürich|geneva|austria|vienna"
+    "|sweden|stockholm|norway|oslo|denmark|copenhagen|finland|helsinki"
+    "|poland|warsaw|krakow|kraków|wroclaw|czech|prague|hungary|budapest"
+    "|romania|bucharest|bulgaria|sofia|greece|athens|ukraine|kyiv|kiev"
+    "|italy|milan|rome|turin"
+    "|india|bangalore|bengaluru|hyderabad|pune|chennai|mumbai|delhi|noida"
+    "|gurgaon|gurugram|kolkata|ahmedabad|kochi|coimbatore|indore|jaipur"
+    "|pakistan|karachi|lahore|bangladesh|dhaka|sri lanka|colombo"
+    "|australia|sydney|melbourne|brisbane|perth|adelaide|canberra"
+    "|new zealand|auckland|wellington"
+    "|singapore|malaysia|kuala lumpur|indonesia|jakarta|thailand|bangkok"
+    "|vietnam|hanoi|ho chi minh|philippines|manila|cebu"
+    "|japan|tokyo|osaka|korea|seoul|china|beijing|shanghai|shenzhen"
+    "|hong kong|taiwan|taipei"
+    "|mexico|guadalajara|monterrey|mexico city|brazil|brasil|sao paulo"
+    "|são paulo|rio de janeiro|argentina|buenos aires|chile|santiago"
+    "|colombia|bogota|bogotá|medellin|medellín|peru|lima|costa rica"
+    "|uruguay|montevideo"
+    "|israel|tel aviv|turkey|istanbul|ankara|uae|dubai|abu dhabi"
+    "|saudi|riyadh|qatar|doha|egypt|cairo|south africa|johannesburg"
+    "|cape town|nigeria|lagos|kenya|nairobi|morocco|casablanca"
+    "|luxembourg|iceland|reykjavik|malta|cyprus|nicosia"
+    "|estonia|tallinn|latvia|riga|lithuania|vilnius|slovakia|bratislava"
+    "|slovenia|ljubljana|croatia|zagreb|serbia|belgrade|armenia|yerevan"
+    "|moldova|belarus|minsk|kazakhstan|almaty|uzbekistan|tashkent"
+    "|nepal|kathmandu|cambodia|phnom penh|myanmar|yangon"
+    "|ghana|accra|tanzania|uganda|kampala|ethiopia|addis ababa"
+    "|tunisia|algeria|jordan|amman|lebanon, |beirut|kuwait|bahrain|manama"
+    "|oman|muscat|ecuador|quito|bolivia|paraguay|asuncion|venezuela|caracas"
+    "|panama city|guatemala|san salvador|dominican republic|santo domingo"
+    "|emea|apac|latam|anywhere in europe|europe only|uk only|eu only"
+)
+_NON_US_RE = re.compile(r"(?:^|[\s,/()\-])(?:" + _NON_US_PLACES + r")(?:$|[\s,/()\-])",
+                        re.I)
+
+# Several of those city names are also US cities — Vienna VA, Dublin OH,
+# Paris TX, Athens GA, Hamburg NY. A US signal anywhere in the location wins,
+# so the foreign-city list can stay broad without deleting American jobs.
+_US_STATES = (
+    "alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware"
+    "|florida|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana"
+    "|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri"
+    "|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york"
+    "|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania"
+    "|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont"
+    "|virginia|washington|west virginia|wisconsin|wyoming|georgia"
+    "|district of columbia|puerto rico"
+)
+_US_HINT_RE = re.compile(
+    r"(?:^|[\s,/()\-])(?:united states|usa|u\.s\.a?\.?|"
+    + _US_STATES + r"|d\.c\.)(?:$|[\s,/()\-])", re.I)
+# State abbreviations only count as uppercase tokens: "IN", "OR" and "ME" are
+# ordinary words in a lowercase sentence, and matching those would keep
+# everything.
+_US_ABBR_RE = re.compile(
+    r"(?:^|[\s,/(\-])(?:A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]"
+    r"|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])(?:$|[\s,/)\-])")
+
+
 def _job_in_scope(r):
     """Whether a crawled posting belongs on the board.
 
     Country is matched loosely because sources spell it inconsistently — some
-    send "United States", some "US", some nothing at all. A blank country is
-    kept rather than dropped: remote listings often omit it, and discarding
-    them would lose exactly the roles people most want.
+    send "United States", some "US", some nothing at all. A blank country
+    falls back to the location text, and is kept only when that text does not
+    name somewhere outside scope: genuinely remote US listings say "Remote"
+    and stay, while "Remote (Germany)" goes.
     """
     fam = (r.get("category") or "").strip().lower()
     if ALLOWED_FAMILIES and fam and fam not in ALLOWED_FAMILIES:
         return False
     c = (r.get("country") or "").strip().upper()
     if not c:
-        return True
+        loc = (r.get("location") or "")
+        if _US_HINT_RE.search(loc) or _US_ABBR_RE.search(loc):
+            return True
+        return not _NON_US_RE.search(loc)
     if c in ALLOWED_COUNTRIES:
         return True
     aliases = {"UNITED STATES": "US", "USA": "US", "U.S.": "US",
@@ -6521,19 +6636,47 @@ def _board_prompt(topic: str, level: str) -> str:
         "Teach it as a sequence of steps that build on each other, the way a "
         "good teacher works through a board: one idea per step, in order, "
         "nothing assumed that has not already been shown.\n\n"
-        "Where a step is best shown as code, include runnable code. Where it "
-        "is best shown as a picture, include a SIMPLE diagram as boxes and "
-        "arrows — never as SVG or markup.\n\n"
+        # A learner who is shown a Python snippet for a switching topic knows
+        # immediately that nobody has done this job. Teach each skill in the
+        # place the work actually happens, or the whole lesson reads as fake.
+        "TEACH IT WHERE THE WORK HAPPENS. Every skill lives in a real "
+        "environment, and most of them are not Python. Before writing a step, "
+        "decide what a person doing this job would actually be looking at, "
+        "and show THAT: a Cisco IOS console session for switching and "
+        "routing, the AWS or Azure portal and its CLI for cloud, kubectl and "
+        "YAML manifests for Kubernetes, a Wireshark capture for packet "
+        "analysis, a Splunk or Sentinel search for SOC work, a Jenkins or "
+        "GitHub Actions pipeline file for CI/CD, Terraform HCL for "
+        "infrastructure, SQL in a query tool for data, PowerShell for Windows "
+        "administration, a ticket in ServiceNow or Jira for support work. "
+        "Python only when the job really is scripting or data.\n\n"
+        "Show the environment as it looks in front of a working engineer — "
+        "the real prompt, the real command, the real output that comes back, "
+        "including the parts that are noisy or unhelpful. Then explain what "
+        "each part of that output means and what the engineer does next. "
+        "Invented hostnames, IPs and ticket numbers are fine; invented "
+        "commands and invented output formats are not.\n\n"
+        "Ground it in the job: name the situation the skill is used in — the "
+        "outage, the ticket, the migration, the audit finding — so the "
+        "learner sees when this comes up at work, not just what it is.\n\n"
+        "Where a step is best shown as a picture, include a SIMPLE diagram "
+        "as boxes and arrows — never as SVG or markup.\n\n"
         "Respond with ONLY valid JSON, no markdown fences, in exactly this "
         "shape:\n"
         '{"title":"<topic in 2-6 words>",'
         '"steps":[{"t":"<one short paragraph explaining this step>",'
-        '"code":"<runnable code, or empty>",'
-        '"lang":"python|javascript|sql|bash|",'
+        '"where":"<the screen or tool this step happens in, e.g. '
+        '\'Console session on a Catalyst 9200 switch\'>",'
+        '"code":"<exactly what is on that screen — commands AND the output '
+        'they return — or empty>",'
+        '"lang":"cisco|bash|powershell|python|javascript|sql|yaml|hcl|json|'
+        'kql|splunk|text|",'
         '"diagram":{"nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
-        "6 to 12 steps. Omit code or diagram where they do not help — an "
+        "6 to 12 steps. At least half of them carry a real screen in \"code\" "
+        "with the matching \"where\". Omit code or diagram where they truly "
+        "do not help — an "
         "empty string and an empty object are correct. Diagram nodes are "
         "PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
         "using node positions.\n\n"
@@ -6547,6 +6690,14 @@ def _board_prompt(topic: str, level: str) -> str:
         "'best practices'. Each is a standalone teachable topic, 3-9 words, "
         "and must not repeat the topic itself."
     )
+
+
+_BOARD_LANGS = {
+    "cisco", "ios", "junos", "bash", "shell", "powershell", "cmd",
+    "python", "javascript", "typescript", "go", "java", "sql",
+    "yaml", "hcl", "terraform", "json", "xml", "ini", "dockerfile",
+    "kubectl", "kql", "splunk", "spl", "regex", "text", "log",
+}
 
 
 def _clean_board(d, topic):
@@ -6578,8 +6729,16 @@ def _clean_board(d, topic):
         lang = txt(raw.get("lang"), 12).lower()
         steps.append({
             "t": txt(raw.get("t")),
+            # Where this step happens — the console, the portal, the query
+            # tool. Shown as a caption above the screen so nobody has to guess
+            # whether they are looking at a shell or a router.
+            "where": txt(raw.get("where"), 70),
             "code": txt(raw.get("code"), 2000),
-            "lang": lang if lang in ("python", "javascript", "sql", "bash") else "",
+            # This list used to be python/javascript/sql/bash, so a Cisco IOS
+            # session or a Terraform file came back labelled as nothing at
+            # all. The label is a caption, not an execution target: anything
+            # outside the list is dropped, but the list has to cover the work.
+            "lang": lang if lang in _BOARD_LANGS else "",
             "diagram": ({"nodes": nodes, "edges": edges} if len(nodes) >= 2 else None),
         })
     steps = [x for x in steps if x["t"] or x["code"]]
@@ -7994,12 +8153,17 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
     """
     rows = db.query(Job).all()
     keep = _protected_job_ids(db)
+    # Location matters here as much as country: the rows that survived the
+    # last prune are precisely the ones whose country field was empty and
+    # whose location said Hamburg.
     doomed = [j for j in rows
               if j.id not in keep
-              and not _job_in_scope({"category": j.category, "country": j.country})]
+              and not _job_in_scope({"category": j.category, "country": j.country,
+                                     "location": j.location})]
     by_country, by_family = {}, {}
     for j in doomed:
-        by_country[(j.country or "(blank)")] = by_country.get(j.country or "(blank)", 0) + 1
+        label = j.country or (f"(blank) {j.location or '?'}"[:40])
+        by_country[label] = by_country.get(label, 0) + 1
         by_family[(j.category or "(none)")] = by_family.get(j.category or "(none)", 0) + 1
     if not dry:
         for j in doomed:

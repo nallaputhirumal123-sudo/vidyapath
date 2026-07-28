@@ -1832,21 +1832,75 @@ const ASK={subject:"General",level:"Class 6–8",question:"",lesson:null,
   cacheHits:0,justSaved:false,error:"",enabled:null,cancel:false,recog:null};
 const ASK_LINES_PER_SLIDE=5;
 
+/* Voice quality is not a preference, it is whether the explanation is
+   listenable for ten minutes. Every machine ships a different set, and the
+   first English one in the list is usually the worst one installed — the old
+   pick took exactly that. Score them instead, and re-score when the browser
+   loads its remote voices, which it does after the first call returns [].  */
+let VOICE_PICK=null, VOICE_TRIED=false;
+function voiceScore(v){
+  const n=(v.name||"")+" "+(v.voiceURI||"");
+  let s=0;
+  if(/natural|neural|premium|enhanced|wavenet|studio|siri/i.test(n)) s+=60;
+  if(/google/i.test(n)) s+=30;
+  if(/microsoft/i.test(n)) s+=12;
+  if(/aria|jenny|guy|libby|ryan|sonia|emma|brian/i.test(n)) s+=10;
+  if(/espeak|compact|festival|pico/i.test(n)) s-=60;
+  if(/zira|david|hazel/i.test(n)) s-=10;      // the old SAPI5 set, very flat
+  if(v.localService===false) s+=6;            // remote voices are the good ones
+  const lg=(v.lang||"").replace("_","-");
+  if(/^en-(US|GB)/i.test(lg)) s+=8;
+  else if(/^en-IN/i.test(lg)) s+=6;
+  else if(/^en/i.test(lg)) s+=3;
+  else s-=100;                                // lessons are in English
+  return s;
+}
 function askPickVoice(){
+  if(VOICE_PICK) return VOICE_PICK;
   const vs=window.speechSynthesis&&window.speechSynthesis.getVoices?window.speechSynthesis.getVoices():[];
-  return vs.find(v=>/en-IN/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||vs[0]||null;
+  if(!vs.length) return null;
+  const ranked=vs.slice().sort((a,b)=>voiceScore(b)-voiceScore(a));
+  VOICE_PICK=ranked[0]||null; VOICE_TRIED=true;
+  return VOICE_PICK;
+}
+if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged=()=>{ VOICE_PICK=null; askPickVoice(); };
+
+/* Speak a paragraph the way a person would: sentence by sentence, with a
+   breath between them. Chrome also silently truncates long utterances, so
+   chunking is what makes a full explanation actually finish. */
+function speakChunks(text,opts){
+  opts=opts||{};
+  return new Promise(resolve=>{
+    if(!window.speechSynthesis||!String(text||"").trim()) return resolve();
+    const parts=[];
+    String(text).replace(/\s+/g," ").trim()
+      .split(/(?<=[.!?:])\s+/).forEach(s=>{
+        while(s.length>180){                 // long clause, break on a comma
+          let cut=s.lastIndexOf(", ",180); if(cut<60) cut=180;
+          parts.push(s.slice(0,cut)); s=s.slice(cut).replace(/^,\s*/,"");
+        }
+        if(s.trim()) parts.push(s.trim());
+      });
+    const v=askPickVoice();
+    let i=0;
+    const next=()=>{
+      if(opts.cancelled&&opts.cancelled()) return resolve();
+      if(i>=parts.length) return resolve();
+      const u=new SpeechSynthesisUtterance(parts[i++]);
+      if(v) u.voice=v;
+      u.rate=opts.rate||0.95; u.pitch=opts.pitch||1.0; u.volume=1;
+      let done=false; const go=()=>{ if(!done){done=true;setTimeout(next,90);} };
+      u.onend=go; u.onerror=go;
+      setTimeout(go,2000+parts[i-1].length*80);   // never hang on a lost event
+      window.speechSynthesis.speak(u);
+    };
+    next();
+  });
 }
 function askSpeak(text){
-  return new Promise(resolve=>{
-    if(!ASK.voiceOn||!window.speechSynthesis){ setTimeout(resolve,Math.min(2600,700+text.length*45)); return; }
-    const u=new SpeechSynthesisUtterance(text);
-    const v=askPickVoice(); if(v)u.voice=v;
-    u.rate=0.96; u.pitch=1.05;
-    let done=false; const finish=()=>{ if(!done){done=true;resolve();} };
-    u.onend=finish; u.onerror=finish;
-    setTimeout(finish,1500+text.length*75);
-    window.speechSynthesis.speak(u);
-  });
+  if(!ASK.voiceOn||!window.speechSynthesis)
+    return new Promise(r=>setTimeout(r,Math.min(2600,700+text.length*45)));
+  return speakChunks(text,{cancelled:()=>ASK.cancel});
 }
 /* Stop silences the voice and leaves the board exactly where it was. It used
    to reset the highlight to -1, so stopping also threw away your place in the
@@ -1859,7 +1913,7 @@ function askStop(){
 }
 
 /* ---- smart board: one topic, taught a step at a time ---- */
-const SB={topic:"",lesson:null,i:0,busy:false,error:"",trail:[]};
+const SB={topic:"",lesson:null,i:0,busy:false,error:"",trail:[],speaking:false};
 
 /* Drilling down is the whole point: "networking" is not a thing you learn, a
    switch's MAC table is. Each drill keeps the way back, so nobody gets lost
@@ -1883,6 +1937,7 @@ function sbTrailHTML(){
 
 async function sbTeach(topic,keepTrail){
   if(!keepTrail) SB.trail=[];
+  if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
   SB.topic=(topic||"").trim(); SB.lesson=null; SB.i=0; SB.error=""; SB.busy=true;
   renderAsk();
   try{
@@ -1893,6 +1948,8 @@ async function sbTeach(topic,keepTrail){
 }
 function sbGo(d){
   if(!SB.lesson) return;
+  // Leaving a step mid-sentence should stop the sentence.
+  if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
   SB.i=Math.max(0,Math.min(SB.lesson.steps.length-1,SB.i+d));
   renderAsk();
 }
@@ -1965,6 +2022,7 @@ function sbPrint(){
   const nl=String.fromCharCode(10);
   const steps=l.steps.map((st,k)=>
     `<h3>Step ${k+1}</h3><p>${esc(st.t||"")}</p>`+
+    (st.where?`<div class="wh">🖥 ${esc(st.where)}</div>`:"")+
     (st.code?`<pre>${esc(st.code)}</pre>`:"")+
     (st.diagram?`<p><i>[diagram: ${esc((st.diagram.nodes||[]).join(" → "))}]</i></p>`:"")
   ).join(nl);
@@ -1993,6 +2051,7 @@ function sbPrint(){
       pre{background:#f4f4f6;padding:11px 13px;border-radius:7px;overflow:auto;
         font:13px/1.55 SF Mono,Menlo,Consolas,monospace;white-space:pre-wrap;
         page-break-inside:avoid}
+      .wh{font-size:12px;color:#555;margin:10px 0 3px}
       .tk{background:#fff8e5;border-left:3px solid #e0a91b;padding:9px 13px;margin-top:18px}
       .nt{background:#eef6ff;border-left:3px solid #4d9fff;padding:9px 13px;margin-top:14px}
       .ft{margin-top:30px;padding-top:10px;border-top:1px solid #ddd;
@@ -2035,8 +2094,15 @@ function sbBoardHTML(){
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?`<div class="ask-line sb-step"><span>${esc(st.t)}</span></div>`:""}
-    ${st.code?`<div>${st.lang?`<span class="sb-lang">${esc(st.lang)}</span>`:""}
-       <div class="sb-code">${esc(st.code)}</div></div>`:""}
+    ${st.code?`<div>
+       <!-- The screen this happens on. Without it a console session and a
+            shell script look identical, and the lesson stops being credible. -->
+       ${st.where?`<div style="font-size:11.5px;color:#8fe3b0;margin-bottom:4px">
+         🖥 ${esc(st.where)}</div>`:""}
+       ${st.lang?`<span class="sb-lang">${esc(st.lang)}</span>`:""}
+       <div class="sb-code">${esc(st.code)}</div></div>`
+     :(st.where?`<div style="font-size:11.5px;color:#8fe3b0;margin-top:4px">
+        🖥 ${esc(st.where)}</div>`:"")}
     ${sbDiagramHTML(st.diagram)}
     ${SB.i===l.steps.length-1&&l.takeaway
       ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}`;
@@ -2055,6 +2121,10 @@ function sbToolsHTML(){
       ${l.steps.map((_,k)=>`<span class="sb-dot ${k===SB.i?"on":""}"></span>`).join("")}
       <button class="btn ghost sm" data-sb="next"
         ${SB.i>=l.steps.length-1?"disabled":""}>Next →</button>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:8px">
+      <button class="btn ghost sm" data-sbspeak="1">
+        ${SB.speaking?"⏹ Stop":"🔊 Read this step aloud"}</button>
     </div>
 
     <div class="ask-chips" style="margin-top:14px;gap:6px;justify-content:center">
@@ -2091,7 +2161,26 @@ function sbToolsHTML(){
       <button class="btn ghost sm" data-sbexit="1">← Back to Ask Axle</button>
     </div>`;
 }
+/* The board could show an explanation but never say it. Reading the step
+   aloud — the screen it happens on, then the explanation, then the takeaway
+   on the last step — is what makes it a lesson rather than a page. Code is
+   deliberately not read: nobody wants "hash bang slash bin slash bash". */
+async function sbSpeak(){
+  const l=SB.lesson; if(!l) return;
+  if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); return renderAsk(); }
+  const st=l.steps[SB.i]||{};
+  const last=SB.i===l.steps.length-1;
+  const say=[st.where?("On "+st.where+"."):"", st.t||"",
+             (last&&l.takeaway)?("Remember. "+l.takeaway):""]
+            .filter(Boolean).join(" ");
+  if(!say) return;
+  SB.speaking=true; renderAsk();
+  await speakChunks(say,{cancelled:()=>!SB.speaking});
+  SB.speaking=false; renderAsk();
+}
 function sbExit(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  SB.speaking=false;
   SB.lesson=null; SB.topic=""; SB.trail=[]; SB.error=""; SB.busy=false;
   renderAsk();
 }
@@ -3944,11 +4033,10 @@ function jbSectionHTML(){
         <option value="">📂 All job types</option>
         ${(JB.cats||[]).map(c=>`<option value="${esc(c.id)}" ${JB.category===c.id?"selected":""}>${esc(c.label)} (${c.count})</option>`).join("")}
       </select>
-      <select id="jbCountry" class="ask-input" style="flex:1;min-width:140px">
-        <option value="">🌍 All countries</option>
-        ${countries.map(c=>`<option value="${esc(c.country)}" ${JB.country===c.country?"selected":""}>${esc(c.country)} (${c.count})</option>`).join("")}
-      </select>
-      <input id="jbLoc" class="ask-input" style="flex:1;min-width:140px" placeholder="City or state — e.g. Bengaluru" value="${esc(JB.location)}"/>
+      <!-- No country picker: the board carries US postings only, so the
+           control could only ever filter US down to nothing. -->
+      <input id="jbLoc" class="ask-input" style="flex:1;min-width:150px"
+        placeholder="City or state — e.g. Dallas, TX" value="${esc(JB.location)}"/>
       <label style="font-size:13px;color:var(--body);display:flex;align-items:center;gap:5px;white-space:nowrap">
         <input type="checkbox" id="jbRemote" ${JB.remote?"checked":""}/> Remote only</label>
     </div>
@@ -4161,7 +4249,7 @@ function renderCareers(){
      waited for the button — so half the controls behaved one way and half the
      other. In match mode an instant re-run also spent a match per dropdown.
      Now every filter marks the search stale and the button does the work. */
-  ["jbCat","jbCountry","jbType","jbPosted","jbMin","jbRemote","jbLoc"].forEach(id=>{
+  ["jbCat","jbType","jbPosted","jbMin","jbRemote","jbLoc"].forEach(id=>{
     const el=$("#"+id); if(!el) return;
     const mark=()=>jbMarkDirty();
     el.onchange=mark;
@@ -4888,6 +4976,7 @@ document.addEventListener("click",e=>{
   if(b) return sbGo(b.dataset.sb==="next"?1:-1);
   const l=e.target.closest("[data-sblens]");
   if(l) return sbLens(l.dataset.sblens);
+  if(e.target.closest("[data-sbspeak]")) return sbSpeak();
   if(e.target.closest("[data-sbexit]")) return sbExit();
   const dp=e.target.closest("[data-sbdeep]");
   if(dp) return sbDrill(dp.dataset.sbdeep);
