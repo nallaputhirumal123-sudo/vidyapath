@@ -6130,9 +6130,14 @@ def jobs_categories(country: str = "", user: User = Depends(current_user),
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     rows = query.group_by(Job.category).all()
+    # Only families the board is scoped to. Rows crawled before a scope change
+    # keep their old category, so without this the dropdown offers Sales or
+    # Manufacturing and returns a handful of stale postings — a filter that
+    # looks broken because it is showing the truth about dead data.
     return {"categories": [
         {"id": c, "label": CATEGORY_LABELS.get(c, c.title()), "count": n}
-        for c, n in sorted(rows, key=lambda x: -x[1])]}
+        for c, n in sorted(rows, key=lambda x: -x[1])
+        if not ALLOWED_FAMILIES or c in ALLOWED_FAMILIES]}
 
 
 @app.get("/api/jobs/suggest")
@@ -6166,8 +6171,12 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
         Job.is_open == True, Job.country != "").group_by(Job.country).all()  # noqa: E712
     newest = db.query(func.max(Job.last_seen)).scalar()
     return {
+        # Same reason as the categories above: a country dropped from
+        # JOB_COUNTRIES must stop being offered, even while its old rows sit
+        # in the table waiting for the next prune.
         "countries": [{"country": c, "count": n}
-                      for c, n in sorted(rows, key=lambda x: -x[1])],
+                      for c, n in sorted(rows, key=lambda x: -x[1])
+                      if _job_in_scope({"country": c, "category": ""})],
         "open": db.query(func.count(Job.id)).filter(Job.is_open == True).scalar(),  # noqa: E712
         "closed": db.query(func.count(Job.id)).filter(Job.is_open == False).scalar(),  # noqa: E712
         "updated": newest.isoformat() if newest else None,
