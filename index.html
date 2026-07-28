@@ -1026,7 +1026,8 @@ async function boot(){
   S.done = prog.done||{}; S.quiz=prog.quiz||{}; S.notes=prog.notes||{};
   S.code = prog.code||{}; S.path = prog.path||null;
   S.stats = prog.stats||{xp:0,level:1,streak:0,level_progress:0,next_level_at:250};
-  S.view = {page:"home"};
+  // Land an employer on the desk they came for, not a learner home page.
+  S.view = {page: isEmployer() ? "hiring" : "home"};
   showApp(); render();
   paintPro();
   handleCheckoutReturn();
@@ -1126,6 +1127,9 @@ api.get("/api/auth/config").then(c=>{
 
 /* ===================== NAV ===================== */
 const isPro = () => !!USER && USER.plan && USER.plan !== "free";
+/* Approved employers only. Admins are excluded on purpose: they are approved
+   implicitly by being admins, but they still need the whole interface. */
+const isEmployer = () => !!USER && !USER.is_admin && USER.employer_status === "approved";
 const PRO_BADGE = `<span class="propill" title="Axle Pro — thank you">⚡ Axle Pro</span>`;
 
 /* Paints the badge everywhere it appears. Called on load and again the moment
@@ -1165,6 +1169,18 @@ function renderNav(){
     `<button class="navitem ${S.view.page===page?"active":""}" data-nav="${page}"><span class="ic">${icon}</span><span class="nm">${name}</span>${extra}</button>`;
 
   /* Messages lives in the top-right bell, next to the theme toggle — not here. */
+  /* An approved employer is here to hire, not to learn. Showing them tracks,
+     projects and Ask Axle is noise, and worse, it implies the account is
+     something it is not. Admins keep the full sidebar — they need both. */
+  const employerOnly = isEmployer();
+  if(employerOnly){
+    h+=`<div class="navsec">Hiring</div>`
+     + nav("hiring","🏢","Post a role &amp; find candidates")
+     + nav("plans","⚡","Plans &amp; billing");
+    $("#nav").innerHTML=h;
+    return;
+  }
+
   h+=nav("home","🏠","Home")
    + nav("paths","🧭","Choose a path")
    + nav("projects","🛠️","Projects")

@@ -1629,6 +1629,9 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         # Needed on first paint so the opt-in toggle renders in the right
         # state rather than flicking from off to on a moment later.
         "open_to_work": bool(getattr(user, "open_to_work", False)),
+        # Drives the employer-only sidebar. Admins keep the full interface,
+        # so this reports the stored value rather than "approved for admins".
+        "employer_status": getattr(user, "employer_status", "") or "",
         "email_verified": bool(user.email_verified),
         "verification_required": REQUIRE_EMAIL_VERIFICATION,
         "is_admin": user.is_admin, "path": user.path,
