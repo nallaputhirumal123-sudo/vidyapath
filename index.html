@@ -3711,13 +3711,22 @@ function jbCardHTML(j){
     mid:{fg:"#efc266",bg:"rgba(224,176,80,.13)",bd:"rgba(224,176,80,.32)",mk:"!"},
     no :{fg:"#f2907f",bg:"rgba(248,81,73,.11)", bd:"rgba(248,81,73,.28)", mk:"✕"}};
   const why=(j.why&&j.why.length)?`<div class="jb-why">
-    <span class="jb-why-lbl">Why ${typeof j.score==="number"?j.score:"this"}</span>
+    <!-- The score is stated once, above. Repeating it here gave the card two
+         places to disagree with itself, and one of them was wrong. -->
+    <span class="jb-why-lbl">Why this score</span>
     ${j.why.map(w=>{const t=WHY_TONE[w.k]||WHY_TONE.mid;
       return `<span class="jb-why-i" style="color:${t.fg};background:${t.bg};
         border-color:${t.bd}"><b>${t.mk}</b> ${esc(w.t)}</span>`;}).join("")}
   </div>`:"";
-  const score=typeof j.score==="number"?`<div style="text-align:center;min-width:52px">
-      <div style="font-size:19px;font-weight:700;color:${j.score>=60?"#4bbf82":j.score>=35?"#e0b050":"var(--dim)"}">${j.score}</div>
+  /* flex-shrink:0 and nowrap are load-bearing. In a narrow column the flex row
+     squeezed this box below the width of two digits and "66" broke across
+     lines, so the card showed a 6 above the word MATCH while the reason line
+     underneath said 66. A score that disagrees with itself is worse than no
+     score at all. */
+  const score=typeof j.score==="number"?`<div style="text-align:center;min-width:56px;
+      flex:0 0 auto;white-space:nowrap">
+      <div style="font-size:19px;font-weight:700;line-height:1.15;white-space:nowrap;
+        color:${j.score>=60?"#4bbf82":j.score>=35?"#e0b050":"var(--dim)"}">${j.score}</div>
       <div style="font-size:10px;color:var(--dim);letter-spacing:.5px">MATCH</div></div>`:"";
   return `<div class="card" style="margin-bottom:10px;${closed?"opacity:.6":""}">
     <div class="row" style="gap:12px;align-items:flex-start">
