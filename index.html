@@ -142,57 +142,81 @@ body{background:var(--bg);color:var(--text);
    nothing else needs a stacking context. An earlier version raised the real
    elements instead, which set position:relative on #themeFab and #msgFab and
    dropped both out of fixed positioning into the document flow. */
-/* The background is the one surface every screen shares, so it is the
-   cheapest place to not look like every other dark SaaS product. Two warm
-   glows plus a faint engineering grid that fades out below the fold: it
-   reads as a workbench rather than a gradient, and at these opacities it
-   never competes with the content sitting on it. */
-body::before{content:"";position:fixed;inset:-25%;pointer-events:none;z-index:-1;
+/* ---- the background ------------------------------------------------------
+   One surface is shared by every screen in the product, so it is the cheapest
+   place to look like nobody else. Three layers, none of them a grid:
+
+   1. an iridescent sweep — a conic gradient through the brand's saffron into
+      blue and violet, the way light separates through a cracked edge. It
+      rotates once every three minutes.
+   2. warm blooms drifting over it on a different clock, so the two never
+      repeat the same frame together and the colour never sits still.
+   3. a prismatic fracture — the crack in Craxle, drawn once as vector shards
+      and tiled — plus fine grain, which is what stops a flat dark screen from
+      looking like a screenshot.
+
+   Everything is a fixed pseudo-element behind z-index 0: no markup, no
+   script, no paint cost while scrolling, and all motion stops for anyone who
+   asked their system to stop motion. */
+body::before{content:"";position:fixed;inset:-30%;pointer-events:none;z-index:-1;
   background:
-    radial-gradient(900px 520px at 12% 8%, rgba(255,153,51,.085), transparent 70%),
-    radial-gradient(760px 460px at 92% 18%, rgba(90,169,255,.055), transparent 72%),
-    radial-gradient(620px 620px at 74% 92%, rgba(255,120,60,.05), transparent 70%),
-    radial-gradient(700px 520px at 22% 86%, rgba(120,90,255,.04), transparent 72%);
-  /* The colour drifts. Ninety seconds for one pass and never more than a few
-     percent of the viewport, so it is felt rather than watched — the page is
-     alive without anything moving under the text you are reading. */
+    conic-gradient(from 210deg at 30% 22%,
+      rgba(255,153,51,.10), rgba(255,120,60,.06) 18%, rgba(120,90,255,.055) 38%,
+      rgba(90,169,255,.06) 55%, rgba(63,185,80,.035) 72%, rgba(255,153,51,.10)),
+    radial-gradient(900px 520px at 12% 8%, rgba(255,153,51,.075), transparent 70%),
+    radial-gradient(760px 460px at 92% 18%, rgba(90,169,255,.05), transparent 72%);
+  animation:bgsweep 180s linear infinite}
+@keyframes bgsweep{to{transform:rotate(360deg)}}
+/* The blooms drift on their own clock — 90s against the sweep's 180s, so the
+   two layers never land on the same frame twice in a session. They need their
+   own element because both layers animate transform, and one element can only
+   hold one transform. */
+#bgbloom{position:fixed;inset:-25%;pointer-events:none;z-index:-1;
+  background:
+    radial-gradient(620px 620px at 74% 92%, rgba(255,120,60,.055), transparent 70%),
+    radial-gradient(700px 520px at 22% 86%, rgba(120,90,255,.045), transparent 72%);
   animation:bgdrift 90s ease-in-out infinite alternate}
 @keyframes bgdrift{
   0%{transform:translate3d(0,0,0) scale(1)}
   50%{transform:translate3d(2.5%,-2%,0) scale(1.06)}
   100%{transform:translate3d(-2%,2.5%,0) scale(1.03)}}
-@media (prefers-reduced-motion:reduce){body::before{animation:none}}
-/* Not a square grid — every dashboard on earth has one. A staggered dot
-   lattice (two offset layers make it read as hexagonal rather than square)
-   with two long diagonal hairlines cutting across it: closer to a circuit
-   substrate than to graph paper, and unmistakably not the default. */
-/* Not dots and not graph paper: three sets of hairlines crossing at
-   different angles, so the texture reads as drafting lines over the colour
-   rather than a grid under it. */
+@media (prefers-reduced-motion:reduce){
+  body::before,#bgbloom{animation:none}}
+/* The fracture. Straight shards branching from a few points, drawn as vectors
+   rather than repeating gradients so the lines actually meet and terminate the
+   way a real break does — a tiled pattern of parallel rules never does. Over
+   it, fractal grain: three thousandths of an opacity, and the single thing
+   most responsible for a dark screen reading as a surface instead of a void. */
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
   background-image:
-    repeating-linear-gradient(61deg, transparent 0 92px,
-      rgba(255,255,255,.030) 92px 93px, transparent 93px 186px),
-    repeating-linear-gradient(-24deg, transparent 0 134px,
-      rgba(255,153,51,.038) 134px 135px, transparent 135px 268px),
-    repeating-linear-gradient(7deg, transparent 0 210px,
-      rgba(90,169,255,.030) 210px 211px, transparent 211px 420px);
-  -webkit-mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.35) 46%, transparent 78%);
-  mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.35) 46%, transparent 78%)}
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='1100' height='1100' viewBox='0 0 800 800'><g fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='1.15'><path d='M0 512 L182 468 L331 559 L521 470 L699 541 L800 498'/><path d='M182 468 L211 297 L119 118 L64 0'/><path d='M331 559 L358 719 L246 800'/><path d='M521 470 L563 301 L470 121 L516 0'/><path d='M699 541 L757 703 L800 764'/><path d='M211 297 L470 121'/><path d='M563 301 L800 249'/><path d='M119 118 L0 61'/><path d='M358 719 L561 800'/><path d='M0 208 L211 297'/><path d='M470 121 L699 541'/><path d='M246 800 L331 559'/></g><g fill='none' stroke='rgba(255,153,51,0.42)' stroke-width='1.15'><path d='M0 512 L211 297 L521 470 L800 249'/><path d='M182 468 L358 719'/></g></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='170' height='170'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='170' height='170' filter='url(%23g)' opacity='0.4'/></svg>");
+  background-size:1100px 1100px, 170px 170px;
+  background-repeat:repeat, repeat;
+  opacity:.5;
+  /* Fades out before it reaches the content people are actually reading. */
+  -webkit-mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.32) 48%, transparent 80%);
+  mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.32) 48%, transparent 80%)}
+/* Light is the same three layers with the values a white ground needs:
+   stronger colour (it has nothing to glow against) and darker shards. */
 [data-theme="light"] body::before{
   background:
-    radial-gradient(900px 520px at 12% -8%, rgba(255,153,51,.13), transparent 70%),
-    radial-gradient(760px 460px at 92% 2%, rgba(90,169,255,.08), transparent 72%),
-    radial-gradient(620px 620px at 78% 108%, rgba(255,153,51,.07), transparent 70%)}
-/* Ink on paper, not light on glass — the lattice has to darken here, not glow. */
+    conic-gradient(from 210deg at 30% 22%,
+      rgba(255,153,51,.16), rgba(255,120,60,.09) 18%, rgba(120,90,255,.075) 38%,
+      rgba(90,169,255,.09) 55%, rgba(63,185,80,.05) 72%, rgba(255,153,51,.16)),
+    radial-gradient(900px 520px at 12% 8%, rgba(255,153,51,.11), transparent 70%),
+    radial-gradient(760px 460px at 92% 18%, rgba(90,169,255,.07), transparent 72%)}
+[data-theme="light"] #bgbloom{
+  background:
+    radial-gradient(620px 620px at 74% 92%, rgba(255,120,60,.08), transparent 70%),
+    radial-gradient(700px 520px at 22% 86%, rgba(120,90,255,.06), transparent 72%)}
+/* Ink on paper, not light on glass — the shards darken here rather than glow,
+   and the grain comes down: film grain on white reads as a dirty screen. */
 [data-theme="light"] body::after{
   background-image:
-    repeating-linear-gradient(61deg, transparent 0 92px,
-      rgba(22,24,28,.040) 92px 93px, transparent 93px 186px),
-    repeating-linear-gradient(-24deg, transparent 0 134px,
-      rgba(224,125,18,.075) 134px 135px, transparent 135px 268px),
-    repeating-linear-gradient(7deg, transparent 0 210px,
-      rgba(30,95,168,.045) 210px 211px, transparent 211px 420px)}
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='1100' height='1100' viewBox='0 0 800 800'><g fill='none' stroke='rgba(22,24,28,0.42)' stroke-width='1.15'><path d='M0 512 L182 468 L331 559 L521 470 L699 541 L800 498'/><path d='M182 468 L211 297 L119 118 L64 0'/><path d='M331 559 L358 719 L246 800'/><path d='M521 470 L563 301 L470 121 L516 0'/><path d='M699 541 L757 703 L800 764'/><path d='M211 297 L470 121'/><path d='M563 301 L800 249'/><path d='M119 118 L0 61'/><path d='M358 719 L561 800'/><path d='M0 208 L211 297'/><path d='M470 121 L699 541'/><path d='M246 800 L331 559'/></g><g fill='none' stroke='rgba(224,125,18,0.5)' stroke-width='1.15'><path d='M0 512 L211 297 L521 470 L800 249'/><path d='M182 468 L358 719'/></g></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='170' height='170'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='170' height='170' filter='url(%23g)' opacity='0.18'/></svg>");
+  opacity:.42}
 code,pre,textarea.code,.out{font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 a{color:var(--accent2);text-decoration:none}
@@ -642,6 +666,11 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 </style>
 </head>
 <body>
+
+<!-- The second background layer. Purely decorative and inert: no content, no
+     events, and behind everything at z-index -1. See "the background" in the
+     stylesheet for what the three layers are doing. -->
+<div id="bgbloom" aria-hidden="true"></div>
 
 <!-- ================= LOADING ================= -->
 <div class="loading" id="loading" style="display:none" aria-hidden="true"></div>
