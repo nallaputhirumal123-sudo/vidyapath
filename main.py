@@ -6460,22 +6460,36 @@ async def career_path(body: CareerPathIn, user: User = Depends(current_user),
         raise HTTPException(503, "The AI tutor is not switched on")
     role = body.role.strip()
 
+    def _demand():
+        """What employers actually ask for, taken from our own postings rather
+        than from the model's impression of the job."""
+        demand = {}
+        for j in db.query(Job).filter(
+                Job.is_open == True,                            # noqa: E712
+                func.lower(Job.title).like(f"%{role.lower()}%")).limit(400).all():
+            for sk in _job_skills(j):
+                demand[sk] = demand.get(sk, 0) + 1
+        return [k for k, _ in sorted(demand.items(), key=lambda x: -x[1])[:18]]
+
+    def _open_count():
+        return db.query(func.count(Job.id)).filter(
+            Job.is_open == True,                                # noqa: E712
+            func.lower(Job.title).like(f"%{role.lower()}%")).scalar() or 0
+
     qkey = f"career|{_norm_q(role)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
         db.commit()
-        return {"path": json.loads(row.lesson), "cached": True}
+        # The syllabus is worth caching; the demand list and the posting count
+        # are not — they go stale the next time the crawler runs, and a learner
+        # deciding what to study deserves today's numbers.
+        cached = json.loads(row.lesson)
+        cached["in_demand"] = _demand()
+        cached["open_jobs"] = _open_count()
+        return {"path": cached, "cached": True}
 
-    # What employers actually ask for, taken from our own postings rather than
-    # from the model's impression of the job.
-    demand = {}
-    for j in db.query(Job).filter(
-            Job.is_open == True,                                # noqa: E712
-            func.lower(Job.title).like(f"%{role.lower()}%")).limit(400).all():
-        for sk in _job_skills(j):
-            demand[sk] = demand.get(sk, 0) + 1
-    top = [k for k, _ in sorted(demand.items(), key=lambda x: -x[1])[:18]]
+    top = _demand()
 
     _ai_enforce_limit(db, user)
     try:
@@ -6487,9 +6501,7 @@ async def career_path(body: CareerPathIn, user: User = Depends(current_user),
     if not path["stages"]:
         raise HTTPException(502, "That came back empty — try again.")
     path["in_demand"] = top
-    path["open_jobs"] = db.query(func.count(Job.id)).filter(
-        Job.is_open == True,                                    # noqa: E712
-        func.lower(Job.title).like(f"%{role.lower()}%")).scalar() or 0
+    path["open_jobs"] = _open_count()
     _ai_bump(db, user)
     db.add(AskCache(qkey=qkey, subject="career", level="",
                     question=role[:2000], lesson=json.dumps(path), hits=0))
@@ -6519,11 +6531,21 @@ def _board_prompt(topic: str, level: str) -> str:
         '"code":"<runnable code, or empty>",'
         '"lang":"python|javascript|sql|bash|",'
         '"diagram":{"nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
-        '"takeaway":"<one sentence to remember>"}\n\n'
+        '"takeaway":"<one sentence to remember>",'
+        '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
         "6 to 12 steps. Omit code or diagram where they do not help — an "
         "empty string and an empty object are correct. Diagram nodes are "
         "PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
-        "using node positions."
+        "using node positions.\n\n"
+        # No lesson is the last one. "deeper" is what the learner taps next,
+        # and each tap is cached forever, so the tree costs one call per node
+        # no matter how many people walk it.
+        "\"deeper\" is 4 to 7 things INSIDE this topic that a learner would "
+        "next want taught in their own right — concrete and specific, the "
+        "level of 'How a switch builds its MAC address table' or 'TCP "
+        "retransmission and timeouts', never vague like 'advanced topics' or "
+        "'best practices'. Each is a standalone teachable topic, 3-9 words, "
+        "and must not repeat the topic itself."
     )
 
 
@@ -6561,9 +6583,18 @@ def _clean_board(d, topic):
             "diagram": ({"nodes": nodes, "edges": edges} if len(nodes) >= 2 else None),
         })
     steps = [x for x in steps if x["t"] or x["code"]]
+    deeper, seen = [], {_norm_q(topic)}
+    for x in (d.get("deeper") or [])[:9]:
+        t = txt(x, 70)
+        k = _norm_q(t)
+        if not t or k in seen:
+            continue
+        seen.add(k)
+        deeper.append(t)
     return {"title": txt(d.get("title"), 80) or topic[:80],
             "steps": steps,
-            "takeaway": txt(d.get("takeaway"), 300)}
+            "takeaway": txt(d.get("takeaway"), 300),
+            "deeper": deeper[:7]}
 
 
 @app.post("/api/board/lesson")

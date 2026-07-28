@@ -1859,9 +1859,30 @@ function askStop(){
 }
 
 /* ---- smart board: one topic, taught a step at a time ---- */
-const SB={topic:"",lesson:null,i:0,busy:false,error:""};
+const SB={topic:"",lesson:null,i:0,busy:false,error:"",trail:[]};
 
-async function sbTeach(topic){
+/* Drilling down is the whole point: "networking" is not a thing you learn, a
+   switch's MAC table is. Each drill keeps the way back, so nobody gets lost
+   six topics deep with no route home. */
+function sbDrill(topic){
+  if(SB.topic) SB.trail=SB.trail.concat([SB.topic]).slice(-8);
+  sbTeach(topic,true);
+}
+function sbUp(i){
+  const t=SB.trail[i]; if(!t) return;
+  SB.trail=SB.trail.slice(0,i);
+  sbTeach(t,true);
+}
+function sbTrailHTML(){
+  if(!SB.trail.length) return "";
+  return `<div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
+    ${SB.trail.map((t,i)=>`<button class="ask-chip" data-sbup="${i}"
+      style="font-size:11.5px;padding:2px 8px">${esc(t.length>34?t.slice(0,33)+"…":t)}</button>`).join(" › ")}
+    <span style="color:var(--dim)"> › now</span></div>`;
+}
+
+async function sbTeach(topic,keepTrail){
+  if(!keepTrail) SB.trail=[];
   SB.topic=(topic||"").trim(); SB.lesson=null; SB.i=0; SB.error=""; SB.busy=true;
   renderAsk();
   try{
@@ -1950,21 +1971,56 @@ function sbPrint(){
   const note=(S.notes[sbNoteKey()]||"").trim();
   const w=window.open("","_blank");
   if(!w) return toast("Allow pop-ups to save this as a PDF.");
+  const when=new Date().toLocaleDateString(undefined,
+    {year:"numeric",month:"long",day:"numeric"});
   w.document.write(`<html><head><title>${esc(l.title)} — Craxle</title>
-    <style>body{font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;
-      max-width:720px;margin:36px auto;padding:0 20px;color:#111}
-      h1{font-size:24px;margin-bottom:2px}h3{margin:20px 0 4px;font-size:15px}
+    <style>
+      @page{margin:18mm 16mm 20mm;
+        /* Printed pages get separated from where they came from. The running
+           footer keeps the source on every sheet, not just the first. */
+        @bottom-left{content:"Craxle · craxle.com";font-size:9pt;color:#888}
+        @bottom-right{content:"Page " counter(page) " of " counter(pages);
+          font-size:9pt;color:#888}}
+      body{font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;
+        max-width:720px;margin:0 auto;padding:0 4px;color:#111}
+      .hd{display:flex;align-items:center;gap:10px;padding-bottom:10px;
+        border-bottom:2px solid #ff9933;margin-bottom:18px}
+      .hd .mk{width:26px;height:26px;flex:0 0 26px}
+      .hd .nm{font-size:19px;font-weight:800;letter-spacing:-.3px}
+      .hd .nm span{color:#ff9933}
+      .hd .rt{margin-left:auto;font-size:11px;color:#777;text-align:right}
+      h1{font-size:24px;margin:0 0 2px}h3{margin:20px 0 4px;font-size:15px}
       pre{background:#f4f4f6;padding:11px 13px;border-radius:7px;overflow:auto;
-        font:13px/1.55 SF Mono,Menlo,Consolas,monospace;white-space:pre-wrap}
+        font:13px/1.55 SF Mono,Menlo,Consolas,monospace;white-space:pre-wrap;
+        page-break-inside:avoid}
       .tk{background:#fff8e5;border-left:3px solid #e0a91b;padding:9px 13px;margin-top:18px}
       .nt{background:#eef6ff;border-left:3px solid #4d9fff;padding:9px 13px;margin-top:14px}
-      .ft{margin-top:26px;font-size:12px;color:#777}</style></head><body>
+      .ft{margin-top:30px;padding-top:10px;border-top:1px solid #ddd;
+        font-size:11px;color:#777;display:flex;justify-content:space-between}
+      /* Browsers that ignore @page still get a mark on every sheet. */
+      .wm{position:fixed;bottom:8mm;left:0;right:0;text-align:center;
+        font-size:9pt;color:#aaa}
+      @media screen{.wm{display:none}}
+    </style></head><body>
+    <div class="hd">
+      <svg class="mk" viewBox="0 0 100 100" aria-hidden="true">
+        <path d="M78 30 A32 32 0 1 0 78 70" fill="none" stroke="#ff9933"
+          stroke-width="14" stroke-linecap="round"/>
+        <path d="M74 33 L92 15" fill="none" stroke="#ff9933" stroke-width="14"
+          stroke-linecap="round"/>
+      </svg>
+      <div class="nm">Crax<span>le</span></div>
+      <div class="rt">craxle.com<br>${esc(when)}</div>
+    </div>
     <h1>${esc(l.title)}</h1>
-    <div style="color:#666;font-size:13px">Craxle · ${esc(SB.topic||"")}</div>
+    <div style="color:#666;font-size:13px">${esc(SB.topic||"")}</div>
     ${steps}
     ${l.takeaway?`<div class="tk"><b>Takeaway:</b> ${esc(l.takeaway)}</div>`:""}
     ${note?`<div class="nt"><b>My notes:</b><br>${esc(note)}</div>`:""}
-    <div class="ft">craxle.com</div></body></html>`);
+    <div class="ft"><span><b>Craxle</b> · craxle.com</span>
+      <span>Learn the skills real job postings ask for</span></div>
+    <div class="wm">Craxle · craxle.com</div>
+    </body></html>`);
   w.document.close();
   setTimeout(()=>w.print(),300);
 }
@@ -1974,7 +2030,8 @@ function sbBoardHTML(){
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
   const l=SB.lesson; if(!l) return "";
   const st=l.steps[SB.i]||{};
-  return `<h3 class="ask-title">${esc(l.title)}</h3>
+  return `${sbTrailHTML()}
+    <h3 class="ask-title">${esc(l.title)}</h3>
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?`<div class="ask-line sb-step"><span>${esc(st.t)}</span></div>`:""}
@@ -1982,8 +2039,18 @@ function sbBoardHTML(){
        <div class="sb-code">${esc(st.code)}</div></div>`:""}
     ${sbDiagramHTML(st.diagram)}
     ${SB.i===l.steps.length-1&&l.takeaway
-      ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
-    <div class="sb-nav">
+      ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}`;
+}
+
+/* Everything that is not the lesson lives UNDER the board, never on it. A
+   real board carries the explanation; the chalk, the buttons and the
+   questions belong to the room. Crowding the controls onto the writing
+   surface left the explanation fighting for the space it exists for. */
+function sbToolsHTML(){
+  if(SB.busy||SB.error||!SB.lesson) return `<div class="row" style="margin-top:10px">
+    <button class="btn ghost sm" data-sbexit="1">← Back to Ask Axle</button></div>`;
+  const l=SB.lesson;
+  return `<div class="sb-nav" style="margin-top:12px">
       <button class="btn ghost sm" data-sb="prev" ${SB.i===0?"disabled":""}>← Back</button>
       ${l.steps.map((_,k)=>`<span class="sb-dot ${k===SB.i?"on":""}"></span>`).join("")}
       <button class="btn ghost sm" data-sb="next"
@@ -1995,14 +2062,22 @@ function sbBoardHTML(){
         `<button class="ask-chip" data-sblens="${id}">${label}</button>`).join("")}
     </div>
 
-    <div class="row" style="gap:6px;margin-top:10px;align-items:flex-end">
+    ${(l.deeper&&l.deeper.length)?`<div style="margin-top:14px">
+      <div class="eyebrow" style="margin-bottom:6px">
+        Inside this topic — tap to have it taught in full</div>
+      <div class="ask-chips" style="gap:6px;margin:0">
+        ${l.deeper.map(t=>`<button class="ask-chip"
+          data-sbdeep="${esc(t)}">${esc(t)} →</button>`).join("")}
+      </div></div>`:""}
+
+    <div class="row" style="gap:6px;margin-top:12px;align-items:flex-end">
       <input id="sbFollow" class="ask-input" style="flex:1"
         placeholder="Ask a follow-up — anything you did not understand…"/>
       <button class="btn sm" data-sbask="1">Ask</button>
     </div>
 
     <details style="margin-top:12px">
-      <summary style="font-size:12.5px;color:#8fe3b0;cursor:pointer">
+      <summary style="font-size:12.5px;color:var(--accent);cursor:pointer">
         📝 My notes &amp; save as PDF</summary>
       <textarea id="sbNote" class="pj-note" style="width:100%;min-height:90px;margin-top:8px"
         placeholder="Write what you want to remember…">${esc(S.notes[sbNoteKey()]||"")}</textarea>
@@ -2010,7 +2085,15 @@ function sbBoardHTML(){
         <button class="btn ghost sm" data-sbnote="1">Save note</button>
         <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
       </div>
-    </details>`;
+    </details>
+
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost sm" data-sbexit="1">← Back to Ask Axle</button>
+    </div>`;
+}
+function sbExit(){
+  SB.lesson=null; SB.topic=""; SB.trail=[]; SB.error=""; SB.busy=false;
+  renderAsk();
 }
 
 /* Split a long answer into board-sized slides. */
@@ -2302,6 +2385,10 @@ function renderAsk(){
     ? `<div class="ask-note">The AI teacher is not switched on yet. Ask the site owner to add a free <b>GEMINI_API_KEY</b> in the server settings — everything else keeps working.</div>` : "";
   const saved=askSavedList();
   const hasLesson=!!a.lesson;
+  // While the smart board is teaching, the Ask chrome below it is a second
+  // set of the same controls pointed at a different lesson. Hide it rather
+  // than make people guess which Ask box and which arrows belong to what.
+  const sbOn=!!(SB.lesson||SB.busy||SB.error);
   $("#main").innerHTML=`
   <div class="h1">💬 Ask Axle anything</div>
   <p class="sub">Choose a subject and level, then ask any question — by voice or by typing. The whole answer appears on the board and Axle reads it aloud, line by line. Long answers become slides. Save any answer or download it as a PDF.</p>
@@ -2325,8 +2412,9 @@ function renderAsk(){
           ? `\u26a1 <b style="color:var(--accent)">Axle Pro</b> \u00b7 master the skills real job postings ask for \u2014 from scratch to job-ready, with code, examples and practice`
           : `\u26a1 <b style="color:var(--accent)">Axle Pro</b> masters the skills real job postings ask for \u2014 from scratch to job-ready. <a href="#" data-nav="plans" style="color:var(--accent)">See Pro</a>`}
       </div>
-      <div class="ask-frame"><div class="ask-board" id="askBoard">${SB.lesson||SB.busy||SB.error?sbBoardHTML():askBoardHTML()}</div></div>
+      <div class="ask-frame"><div class="ask-board" id="askBoard">${sbOn?sbBoardHTML():askBoardHTML()}</div></div>
       <div class="ask-tray"><span class="ask-chalk"></span><span class="ask-chalk y"></span></div>
+      ${sbOn?sbToolsHTML():""}
       <!-- The smart board draws its own Back/Next inside the board, so the
            Ask slide bar is hidden while it is showing. Two identical pairs of
            arrows on one screen is a guess about which one moves what. -->
@@ -2343,7 +2431,7 @@ function renderAsk(){
     </div>
   </div>
 
-  ${hasLesson?`<div class="ask-actions">
+  ${hasLesson&&!sbOn?`<div class="ask-actions">
     ${a.speaking?"":`<button class="ask-abtn" data-ask="readaloud">🔊 Read aloud</button>`}
     ${a.speaking?"":`<button class="ask-abtn" data-ask="more">🔎 More detail</button>`}
     <button class="ask-abtn ${a.justSaved?"ok":""}" data-ask="save" ${a.justSaved?"disabled":""}>${a.justSaved?"✓ Saved":"⭐ Save for reference"}</button>
@@ -2351,7 +2439,7 @@ function renderAsk(){
     ${a.fromCache?`<span class="ask-saved">💾 from memory · free</span>`:""}
   </div>`:""}
 
-  <div class="ask-box">
+  <div class="ask-box" style="${sbOn?"display:none":""}">
     <div class="ask-inrow">
       <button class="ask-btn ask-mic ${a.listening?"on":""}" data-ask="voice" ${a.loading||a.speaking?"disabled":""} title="Ask by voice">${a.listening?"●":"🎤"}</button>
       <input class="ask-input" id="askInput" placeholder="Type your question about ${esc(a.subject)}…" value="${esc(a.question)}" ${a.loading?"disabled":""}>
@@ -4604,10 +4692,20 @@ function paintCareerRole(){
     <p class="sub">${esc(p.summary||"")}</p>
     <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
       ${p.open_jobs?`<span class="pill ok">${p.open_jobs} open postings</span>`:""}
-      ${(p.in_demand||[]).slice(0,10).map(t=>`<button class="ask-chip"
-        data-learnskill="${esc(t)}" data-forrole="${esc(p.role||"")}"
-        style="font-size:11.5px">${esc(t)} →</button>`).join("")}
     </div>
+    <!-- These are not decoration. They are pulled from the live postings for
+         this role, so each one is a skill an employer is asking for today —
+         and each is one tap from being taught properly. -->
+    ${(p.in_demand||[]).length?`<div class="card" style="margin-bottom:14px">
+      <div class="eyebrow" style="margin-bottom:4px">Skills this role hires for</div>
+      <div style="font-size:12.5px;color:var(--dim);margin-bottom:9px">
+        Taken from the ${p.open_jobs||""} live postings we carry. Tap any skill
+        and Axle Pro teaches it in full — from scratch to job-ready.</div>
+      <div class="ask-chips" style="gap:6px;margin:0">
+        ${p.in_demand.map(t=>`<button class="ask-chip"
+          data-learnskill="${esc(t)}" data-forrole="${esc(p.role||"")}"
+          >${esc(t)} →</button>`).join("")}
+      </div></div>`:""}
     <div class="ask-chips" style="margin-bottom:12px">
       ${p.stages.map((x,i)=>`<button class="ask-chip ${i===CB.stage?"on":""}"
         data-cbstage="${i}">${i+1}. ${esc(x.name)}</button>`).join("")}
@@ -4624,7 +4722,8 @@ function paintCareerRole(){
         style="gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">
         <span style="color:var(--dim);font-size:12px;min-width:18px">${i+1}</span>
         <span style="flex:1;font-size:13.5px;color:var(--body)">${esc(t)}</span>
-        <button class="btn ghost sm" data-cblearn="${esc(t)}">Teach me</button>
+        <button class="btn ghost sm" data-cblearn="${esc(t)}"
+          title="Master this, step by step, with code and practice">✨ Learn</button>
       </div>`).join("")}
       ${st.project?`<div style="margin-top:14px;background:var(--panel2);
         border-radius:9px;padding:11px 13px">
@@ -4789,6 +4888,11 @@ document.addEventListener("click",e=>{
   if(b) return sbGo(b.dataset.sb==="next"?1:-1);
   const l=e.target.closest("[data-sblens]");
   if(l) return sbLens(l.dataset.sblens);
+  if(e.target.closest("[data-sbexit]")) return sbExit();
+  const dp=e.target.closest("[data-sbdeep]");
+  if(dp) return sbDrill(dp.dataset.sbdeep);
+  const up=e.target.closest("[data-sbup]");
+  if(up) return sbUp(+up.dataset.sbup);
   if(e.target.closest("[data-sbask]")) return sbAsk();
   if(e.target.closest("[data-sbnote]")) return sbSaveNote();
   if(e.target.closest("[data-sbpdf]")) return sbPrint();
