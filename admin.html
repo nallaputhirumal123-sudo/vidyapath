@@ -126,6 +126,7 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
       <button class="nv" data-p="students"><span>👥</span> Students</button>
       <button class="nv" data-p="funnel"><span>📉</span> Drop-off</button>
       <button class="nv" data-p="content"><span>📝</span> Content</button>
+      <button class="nv" data-p="employers"><span>🏢</span> Employers</button>
       <button class="nv" data-p="schools"><span>🏫</span> Schools &amp; teachers</button>
       <a class="nv" href="/api/admin/export.csv"><span>⬇️</span> Export CSV</a>
       <a class="nv" href="/"><span>🎓</span> Student view</a>
@@ -193,8 +194,53 @@ function go(p){
   PAGE=p;
   document.querySelectorAll(".nv[data-p]").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
   $("#main").innerHTML='<div class="empty">Loading…</div>';
-  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,schools:renderSchools}[p])();
+  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,employers:renderEmployers,schools:renderSchools}[p])();
   window.scrollTo(0,0);
+}
+
+/* ===================== EMPLOYERS ===================== */
+/* Approving an employer is what lets a stranger see candidate profiles, even
+   anonymised ones. It is a deliberate, manual decision — so this page shows
+   who is asking and what they claim to be, not a one-click bulk action. */
+async function renderEmployers(){
+  let d; try{ d = await api.get("/api/admin/employers"); }
+  catch(e){ $("#main").innerHTML = `<div class="h1">Employers</div><p class="sub">${esc(e.message)}</p>`; return; }
+  const rows = d.employers || [];
+  const pending = rows.filter(r => r.status === "pending");
+  const live = rows.filter(r => r.status === "approved");
+
+  const table = (list, isPending) => list.length ? `<div class="tbl"><table>
+    <tr><th>Company</th><th>Contact</th><th>Site</th><th></th></tr>
+    ${list.map(r => `<tr>
+      <td><b>${esc(r.company || "—")}</b></td>
+      <td>${esc(r.name)}<div style="font-size:12px;color:var(--dim)">${esc(r.email)}</div></td>
+      <td>${r.site ? `<a href="${esc(/^https?:/i.test(r.site) ? r.site : "https://" + r.site)}"
+             target="_blank" rel="noopener">${esc(r.site)}</a>` : "—"}</td>
+      <td style="text-align:right;white-space:nowrap">
+        ${isPending
+          ? `<button class="btn sm" data-emp="${r.id}" data-ok="1">Approve</button>
+             <button class="btn ghost sm" data-emp="${r.id}" data-ok="0">Refuse</button>`
+          : `<button class="btn ghost sm" data-emp="${r.id}" data-ok="0">Revoke</button>`}
+      </td></tr>`).join("")}
+  </table></div>` : `<div class="card" style="color:var(--dim);font-size:13.5px">None.</div>`;
+
+  $("#main").innerHTML = `<div class="h1">Employers</div>
+    <p class="sub">Approving an employer lets them search candidates who opted in.
+      They see an anonymous profile and a match score — never a name or email
+      until the candidate accepts an invitation. Check the company is real
+      before approving.</p>
+    <div class="eyebrow">Waiting for review${pending.length ? ` (${pending.length})` : ""}</div>
+    ${table(pending, true)}
+    <div class="eyebrow">Approved${live.length ? ` (${live.length})` : ""}</div>
+    ${table(live, false)}`;
+
+  document.querySelectorAll("[data-emp]").forEach(b => b.onclick = async () => {
+    const ok = b.dataset.ok === "1";
+    if (!ok && !confirm("Remove this employer's access to candidate profiles?")) return;
+    b.disabled = true;
+    try{ await api.post("/api/admin/employers/" + b.dataset.emp, {approve: ok}); renderEmployers(); }
+    catch(e){ alert(e.message); b.disabled = false; }
+  });
 }
 
 /* ===================== REVENUE & PROFIT ===================== */
