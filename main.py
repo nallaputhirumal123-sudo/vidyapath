@@ -365,6 +365,25 @@ class JobInvite(Base):
                                        name="uq_invite_once"),)
 
 
+class InviteMessage(Base):
+    """One message between an employer and a candidate about one invitation.
+
+    Scoped to the invite, not to the two users: the conversation exists because
+    a specific role was accepted, and it should not become a general channel
+    to someone who agreed to talk about one job.
+    """
+    __tablename__ = "invite_messages"
+    id = Column(Integer, primary_key=True)
+    invite_id = Column(Integer, ForeignKey("job_invites.id"), index=True)
+    from_employer = Column(Boolean, default=False)
+    body = Column(Text, default="")
+    # "text" or "resume". Nullable-safe default so the migration can add it to
+    # a table that already has rows.
+    kind = Column(String(12), default="text")
+    seen = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
 class JobTrack(Base):
     """A job a user saved or applied to, and where it got to.
 
@@ -6398,6 +6417,123 @@ def answer_invite(invite_id: int, body: InviteAnswerIn,
                        "employer for this role only."
                        if body.accept else
                        "Declined. The employer is not told who declined."}
+
+
+def _invite_parties(db, invite_id, user):
+    """Resolve an invite and check this user is one of its two sides.
+
+    Returns (invite, job, is_employer). Anyone else gets a 404 rather than a
+    403 — a stranger should not be able to learn that an invitation exists.
+    """
+    inv = db.get(JobInvite, invite_id)
+    if not inv:
+        raise HTTPException(404, "No such conversation")
+    job = db.get(EmployerJob, inv.employer_job_id)
+    if not job:
+        raise HTTPException(404, "No such conversation")
+    if inv.user_id == user.id:
+        return inv, job, False
+    if job.owner_id == user.id or getattr(user, "is_admin", False):
+        return inv, job, True
+    raise HTTPException(404, "No such conversation")
+
+
+class MessageIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+@app.get("/api/invites/{invite_id}/messages")
+def invite_messages(invite_id: int, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    inv, job, is_emp = _invite_parties(db, invite_id, user)
+    if inv.state != "accepted":
+        raise HTTPException(403, "This conversation opens once the candidate "
+                                 "accepts the invitation.")
+    rows = db.query(InviteMessage).filter(
+        InviteMessage.invite_id == inv.id).order_by(InviteMessage.created_at).all()
+    # Mark the other side's messages read for whoever is looking.
+    for m in rows:
+        if m.from_employer != is_emp and not m.seen:
+            m.seen = True
+    db.commit()
+    who = db.get(User, inv.user_id)
+    return {"invite_id": inv.id,
+            "job": {"title": job.title, "company": job.company},
+            "with": (job.company or "The employer") if not is_emp
+                    else (who.name if who else "Candidate"),
+            "messages": [{"id": m.id, "mine": m.from_employer == is_emp,
+                          "kind": m.kind or "text", "body": m.body,
+                          "when": _aware(m.created_at).isoformat()} for m in rows]}
+
+
+@app.post("/api/invites/{invite_id}/messages")
+def invite_send(invite_id: int, body: MessageIn,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Send one message. Only after acceptance, and only to the other side."""
+    inv, job, is_emp = _invite_parties(db, invite_id, user)
+    if inv.state != "accepted":
+        raise HTTPException(403, "You can message once the invitation is accepted.")
+    msg = InviteMessage(invite_id=inv.id, from_employer=is_emp,
+                        body=body.body.strip()[:4000])
+    db.add(msg)
+
+    # Notify the OTHER side, in the bell they already watch. Without this a
+    # reply sits unread and the conversation dies after one message.
+    if is_emp:
+        db.add(JobAlert(user_id=inv.user_id, kind="invite_msg", icon="💬",
+                        text=f"{job.company or 'An employer'} replied about "
+                             f"{job.title}.",
+                        url="/#invites"))
+    db.commit()
+    db.refresh(msg)
+    return {"ok": True, "id": msg.id,
+            "when": _aware(msg.created_at).isoformat()}
+
+
+@app.post("/api/invites/{invite_id}/resume")
+def invite_send_resume(invite_id: int, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Send your resume into an accepted conversation.
+
+    Candidate-only, and it sends the resume already on file rather than taking
+    an upload: the text is what the employer needs, and accepting a file here
+    would mean storing and serving arbitrary uploads to another user.
+    """
+    inv, job, is_emp = _invite_parties(db, invite_id, user)
+    if is_emp:
+        raise HTTPException(403, "Only the candidate can send a resume.")
+    if inv.state != "accepted":
+        raise HTTPException(403, "Accept the invitation first.")
+    note = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k == "resume_uptext").first()
+    text = ((note.v if note else "") or "").strip()
+    if len(text) < 120:
+        raise HTTPException(400, "Upload a resume on the Careers page first.")
+    db.add(InviteMessage(invite_id=inv.id, from_employer=False, kind="resume",
+                         body=text[:20000]))
+    db.commit()
+    return {"ok": True, "message": "Resume sent."}
+
+
+@app.get("/api/invites/unread")
+def invites_unread(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Unread count across every conversation this user is part of."""
+    mine = {i.id: False for i in
+            db.query(JobInvite).filter(JobInvite.user_id == user.id,
+                                       JobInvite.state == "accepted").all()}
+    for j in db.query(EmployerJob).filter(EmployerJob.owner_id == user.id).all():
+        for i in db.query(JobInvite).filter(JobInvite.employer_job_id == j.id,
+                                            JobInvite.state == "accepted").all():
+            mine[i.id] = True
+    if not mine:
+        return {"unread": 0}
+    n = 0
+    for iid, is_emp in mine.items():
+        n += db.query(func.count(InviteMessage.id)).filter(
+            InviteMessage.invite_id == iid,
+            InviteMessage.from_employer != is_emp,
+            InviteMessage.seen == False).scalar() or 0   # noqa: E712
+    return {"unread": n}
 
 
 class EmployerApplyIn(BaseModel):
