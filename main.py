@@ -4545,9 +4545,22 @@ ADZUNA_APP_KEY = env("ADZUNA_APP_KEY")
 JOOBLE_KEY = env("JOOBLE_KEY")
 
 # Adzuna country codes. Override with ADZUNA_COUNTRIES="in,gb,us".
+# Default to the countries the board actually keeps. Fetching the other
+# fourteen spent free-tier quota on jobs that _job_in_scope discards a
+# moment later — and India was fetched FIRST, so the allowance could be
+# gone before US or Canada were reached. Widen this only alongside
+# JOB_COUNTRIES.
 ADZUNA_COUNTRIES = env("ADZUNA_COUNTRIES",
-                       "in,us,gb,ca,au,de,fr,nl,sg,za,nz,pl,it,es,br,mx").split(",")
-ADZUNA_PAGES = int(env("ADZUNA_PAGES", "3") or 3)     # 50 results per page
+                       "us,ca").split(",")
+# 50 results per page. Adzuna is the only source returning contract and
+# staffing work, so it is worth pulling deeply — but it is rate limited, so
+# the depth has to stay inside the free tier. The arithmetic, at the current
+# JOB_REFRESH_HOURS=6 and JOB_COUNTRIES=us,ca:
+#     2 countries x 10 pages = 20 calls per crawl
+#     4 crawls a day        = 80 calls a day
+# comfortably under Adzuna's free allowance. Adding countries or crawling
+# more often multiplies this, so raise JOB_REFRESH_HOURS before raising here.
+ADZUNA_PAGES = int(env("ADZUNA_PAGES", "10") or 10)
 
 _ADZUNA_CC = {"in": "India", "us": "United States", "gb": "United Kingdom",
               "ca": "Canada", "au": "Australia", "de": "Germany", "fr": "France",
