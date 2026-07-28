@@ -2320,6 +2320,11 @@ function renderAsk(){
 
   <div class="ask-stage">
     <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;color:var(--muted);margin:0 0 8px;text-align:center">
+        ${isPro()
+          ? `\u26a1 <b style="color:var(--accent)">Axle Pro</b> \u00b7 master the skills real job postings ask for \u2014 from scratch to job-ready, with code, examples and practice`
+          : `\u26a1 <b style="color:var(--accent)">Axle Pro</b> masters the skills real job postings ask for \u2014 from scratch to job-ready. <a href="#" data-nav="plans" style="color:var(--accent)">See Pro</a>`}
+      </div>
       <div class="ask-frame"><div class="ask-board" id="askBoard">${SB.lesson||SB.busy||SB.error?sbBoardHTML():askBoardHTML()}</div></div>
       <div class="ask-tray"><span class="ask-chalk"></span><span class="ask-chalk y"></span></div>
       <!-- The smart board draws its own Back/Next inside the board, so the
@@ -2358,10 +2363,10 @@ function renderAsk(){
       ${samples.map(q=>`<button class="ask-samp" data-ask="sample" data-val="${esc(q)}" ${a.loading||a.speaking?"disabled":""}>${esc(q)}</button>`).join("")}
       ${isPro()
         ? `<button class="ask-chip" data-ask="smartboard"
-             title="Teach this topic step by step">✨ Teach me step by step</button>`
+             title="Master this, step by step, with code and practice">✨ Learn with Axle Pro</button>`
         : `<button class="ask-chip" data-ask="smartboardlocked"
-             title="Axle Pro teaches any topic step by step, with code and diagrams"
-             style="opacity:.75">🔒 Teach me step by step · Axle&nbsp;Pro</button>`}
+             title="Axle Pro teaches any skill from scratch to job-ready"
+             style="opacity:.75">🔒 Learn with Axle&nbsp;Pro</button>`}
       <label class="ask-toggle" data-ask="voicetoggle"><span class="ask-sw ${a.voiceOn?"on":""}"><i></i></span> Voice ${a.voiceOn?"on":"off"}</label>
     </div>
     ${a.error?`<div class="ask-err">${esc(a.error)}</div>`:""}
