@@ -3874,6 +3874,43 @@ function jbResultsHTML(){
   const m=JB.meta||{}, from=JB.offset+1, to=JB.offset+JB.jobs.length;
   const head=JB.mode==="match"
     ? `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">Scored ${m.scanned} live postings · <b>${m.total}</b> worth showing${JB.minScore?` at ${JB.minScore}%+`:""} · viewing ${from}–${to}${m.level?` · pitched at <b>${esc(m.level)}</b> level`:""}${m.families&&m.families.length?` · read as <b>${m.families.map(esc).join(", ")}</b>`:""}</div>
+       ${m.ats?(function(){const a=m.ats;
+         const tone=v=>v>=65?"#4bbf82":v>=45?"#e0b050":"#f2907f";
+         const bar=(label,v)=>`<div style="flex:1;min-width:118px">
+           <div style="display:flex;justify-content:space-between;font-size:11px;
+                color:var(--dim);margin-bottom:3px"><span>${label}</span><b
+                style="color:${tone(v)}">${v}%</b></div>
+           <div style="height:5px;border-radius:999px;background:var(--panel2);overflow:hidden">
+             <div style="height:100%;width:${Math.max(2,v)}%;background:${tone(v)}"></div></div>
+         </div>`;
+         /* The first reader of every application is software. Showing what it
+            sees — and what it would reject on — before someone applies is the
+            whole difference between a job board and a job search. */
+         return `<div class="card" style="margin-bottom:12px;padding:14px 16px">
+           <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap">
+             <div style="text-align:center;min-width:62px;flex:0 0 auto;white-space:nowrap">
+               <div style="font-size:24px;font-weight:800;line-height:1.1;
+                    color:${tone(a.score)}">${a.score}</div>
+               <div style="font-size:10px;letter-spacing:.5px;color:var(--dim)">ATS SCORE</div>
+             </div>
+             <div style="min-width:0;flex:1">
+               <div style="font-size:14px;font-weight:700">${esc(a.verdict)}</div>
+               <div style="font-size:12px;color:var(--muted);margin-top:1px">
+                 How your resume reads to the software that screens it before a
+                 person ever sees it.</div>
+             </div>
+           </div>
+           <div class="row" style="gap:14px;margin-top:12px;flex-wrap:wrap">
+             ${bar("Keyword match",a.keyword_match)}
+             ${bar("Parses cleanly",a.parse_quality)}
+             ${bar("Evidence",a.impact_evidence)}
+           </div>
+           <div style="margin-top:11px;display:grid;gap:5px">
+             ${(a.checks||[]).map(c=>`<div style="font-size:12.5px;color:${
+               c.ok?"var(--body)":"var(--muted)"}">
+               <b style="color:${c.ok?"#4bbf82":"#e0b050"}">${c.ok?"✓":"!"}</b>
+               ${esc(c.t)}</div>`).join("")}
+           </div></div>`;})():""}
        ${(m.top_gaps&&m.top_gaps.length)?`<div class="card" style="margin-bottom:12px;padding:14px 16px">
          <!-- One posting's gaps tell you what one employer wanted. The same
               gap across two hundred of them tells you what to study first,

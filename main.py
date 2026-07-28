@@ -6376,6 +6376,67 @@ def resume_ats_check(body: AtsCheckIn, user: User = Depends(current_user)):
     }
 
 
+def _ats_view(rtext: str, scored: list, impact: float, parsing: float) -> dict:
+    """How this resume looks to the software that reads it first.
+
+    A real ATS does three things before a human sees anything: it parses the
+    file into fields, it looks for the keywords the requisition asks for, and
+    it ranks what survives. So this reports those three, measured the same way
+    the board measures them — not a separate opinion invented for a badge.
+
+    Deliberately not a single mysterious number: a 61 tells someone nothing,
+    "your file parses cleanly but you meet 4 of 9 stated requirements" tells
+    them what to do this afternoon.
+    """
+    # The twenty best fits, not two hundred. Nobody applies to the two
+    # hundredth-best match, so averaging over that tail measures a search
+    # nobody runs and reports a number that reads as failure to someone whose
+    # resume is fine.
+    near = [d for d in scored if d["score"] >= 45][:20]
+    # Requirement coverage, averaged over the roles worth applying to. This is
+    # the number a recruiter's filter is really applying.
+    cover = 0.0
+    if near:
+        tot = hit = 0
+        for d in near:
+            miss = len(d.get("missing") or [])
+            got = len(d.get("matched") or [])
+            tot += miss + got
+            hit += got
+        cover = (hit / tot) if tot else 0.0
+
+    low = (rtext or "").lower()
+    checks = []
+    have_sections = sum(1 for w in ("experience", "skills", "education",
+                                    "summary", "project") if w in low)
+    checks.append({"ok": have_sections >= 3,
+                   "t": "Standard sections an ATS can find"
+                        if have_sections >= 3
+                        else "Add clear Experience / Skills / Education headings"})
+    checks.append({"ok": parsing >= 0.6,
+                   "t": "Text extracts cleanly" if parsing >= 0.6
+                        else "Hard to parse — avoid tables, columns and images"})
+    checks.append({"ok": impact >= 0.4,
+                   "t": "Achievements carry numbers" if impact >= 0.4
+                        else "Add figures to your bullets — %, £, users, uptime"})
+    checks.append({"ok": cover >= 0.5,
+                   "t": f"You meet {round(cover * 100)}% of stated requirements"
+                        if cover >= 0.5
+                        else f"You meet {round(cover * 100)}% of stated "
+                             f"requirements on roles you nearly fit"})
+    # Weighted the way an ATS actually weights: keywords first, then whether
+    # the document can be read at all, then evidence.
+    score = round(100 * (0.50 * cover + 0.30 * parsing + 0.20 * impact))
+    return {"score": max(0, min(100, score)),
+            "keyword_match": round(cover * 100),
+            "parse_quality": round(parsing * 100),
+            "impact_evidence": round(impact * 100),
+            "checks": checks,
+            "verdict": ("Passes most filters" if score >= 65 else
+                        "Gets through some filters" if score >= 45 else
+                        "Likely to be screened out")}
+
+
 def match_tier(score: int) -> dict:
     """The band a score falls in, in the language recruiters actually use.
 
@@ -7397,9 +7458,12 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
                             "impact_evidence": 17, "domain": 15, "readability": 8},
                 "your_impact_score": round(impact * 100),
                 "your_readability_score": round(parsing * 100),
-                "tiers": {"S": "85-100 exceptional", "A": "70-84 strong",
-                          "B": "55-69 average", "C": "below 55 weak"},
+                # Kept in step with match_tier — these were still quoting the
+                # old 85/70/55 bands after the scoring was rebalanced.
+                "tiers": {"S": "72-100 exceptional", "A": "60-71 strong",
+                          "B": "45-59 worth applying", "C": "below 45 weak"},
             },
+            "ats": _ats_view(rtext, scored, impact, parsing),
             "offset": off, "limit": lim, "has_more": off + lim < len(scored),
             "level": level, "families": sorted(my_fams),
             "your_skills": sorted(s for s in skills if s not in _WEAK_SKILLS)[:30]}
