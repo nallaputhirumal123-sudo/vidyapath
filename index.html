@@ -3459,6 +3459,17 @@ function jbCardHTML(j){
   const closed=!j.is_open;
   const chips=(j.matched||[]).slice(0,6).map(s=>`<span class="ask-chip" style="pointer-events:none;font-size:11px;padding:2px 8px;background:rgba(75,191,130,.15);border-color:rgba(75,191,130,.4)">${esc(s)}</span>`).join("");
   const gaps=(j.missing||[]).slice(0,4).map(s=>`<span class="ask-chip" style="pointer-events:none;font-size:11px;padding:2px 8px;opacity:.75">${esc(s)}</span>`).join("");
+  /* Every job board shows a percentage and leaves you to work out what it
+     means. This is the same score said in plain words — what you meet, what
+     you do not, whether it is even your field — so a low number is useful
+     instead of insulting, and a high one is believable. */
+  const WHY_STYLE={ok:"#4bbf82",mid:"#e0b050",no:"var(--dim)"};
+  const WHY_MARK={ok:"✓",mid:"~",no:"✕"};
+  const why=(j.why&&j.why.length)?`<div class="row" style="gap:10px;flex-wrap:wrap;
+      margin-top:7px;font-size:11.5px">
+    ${j.why.map(w=>`<span style="color:${WHY_STYLE[w.k]||"var(--dim)"}">
+      ${WHY_MARK[w.k]||"·"} ${esc(w.t)}</span>`).join("")}
+  </div>`:"";
   const score=typeof j.score==="number"?`<div style="text-align:center;min-width:52px">
       <div style="font-size:19px;font-weight:700;color:${j.score>=60?"#4bbf82":j.score>=35?"#e0b050":"var(--dim)"}">${j.score}</div>
       <div style="font-size:10px;color:var(--dim);letter-spacing:.5px">MATCH</div></div>`:"";
@@ -3491,6 +3502,7 @@ function jbCardHTML(j){
              {sponsors:"Sponsors a visa",no_sponsorship:"No sponsorship",
               clearance:"Clearance required"}[j.visa]||j.visa)}</span>`:""}
         </div>`:""}
+        ${why}
         ${chips?`<div class="ask-chips" style="margin-top:8px;gap:5px">${chips}</div>`:""}
         ${(j.missing&&j.missing.length)?`<div style="margin-top:7px">
           <div style="font-size:11.5px;color:var(--dim);margin-bottom:4px">

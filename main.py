@@ -13,6 +13,7 @@ import json
 import secrets
 import datetime as dt
 from pathlib import Path
+from functools import lru_cache
 from typing import Optional, List
 
 import bcrypt
@@ -5250,6 +5251,23 @@ def _job_in_scope(r):
     fam = (r.get("category") or "").strip().lower()
     if ALLOWED_FAMILIES and fam and fam not in ALLOWED_FAMILIES:
         return False
+    # Only when the caller handed us a whole posting. /api/jobs/filters asks
+    # this about a bare country string to decide what to offer in a dropdown,
+    # and judging that as "a job with no skills" emptied the list.
+    if ALLOWED_FAMILIES and not fam and "skills" in r:
+        # No recognised family. Half the board arrived this way — Commercial
+        # Counsel, Credit Risk Analyst, Administrative Business Partner: real
+        # jobs at tech companies that are not tech jobs, sitting on a board
+        # that promises IT roles. An unrecognised title is only kept when the
+        # posting itself is technical, which the parsed skills already say.
+        # That keeps the genuine misses (Android BSP Engineer) and drops the
+        # rest.
+        sk = r.get("skills") or ""
+        got = [x for x in (sk.split(",") if isinstance(sk, str) else sk) if x]
+        # Excel and SQL are on half the postings in every industry, so they
+        # cannot be the evidence that a job is technical.
+        if len([x for x in got if x not in _WEAK_SKILLS]) < 3:
+            return False
     c = (r.get("country") or "").strip().upper()
     if not c:
         loc = (r.get("location") or "")
@@ -5451,14 +5469,14 @@ def _job_alert_sweep():
             skills, keywords = _profile(rtext)
             if not skills:
                 continue
-            my_fams = _families(rtext)
+            my_fams = _resume_families(rtext)
             level = _level_of(rtext)
             impact, parsing = _impact_score(rtext), _parsing_score(rtext)
             titles = _title_words(" ".join(rtext.splitlines()[:6]))
             best = []
             for j in fresh:
-                sc, _hit, _miss = _score_job(j, skills, keywords, level, {},
-                                             my_fams, titles, impact, parsing)
+                sc = _score_job(j, skills, keywords, level, {},
+                                my_fams, titles, impact, parsing)[0]
                 if sc >= 80:
                     best.append((sc, j))
             if best:
@@ -5815,6 +5833,53 @@ def _families(text: str):
             if any(rx.search(low) for rx in rxs)}
 
 
+@lru_cache(maxsize=40000)
+def _title_families(title: str):
+    """_families for a job title, memoised.
+
+    Called once per posting per match — 12,000 titles against 30 families of
+    regexes each — and titles repeat heavily across a board. Uncached it cost
+    ~2.5s on a full match, which is most of the request.
+    """
+    return frozenset(_families(title))
+
+
+def _family_hits(text: str):
+    """How much evidence there is for each family, not merely any."""
+    low = " " + (text or "").lower() + " "
+    out = {}
+    for fam, rxs in _FAMILY_RE.items():
+        n = sum(len(rx.findall(low)) for rx in rxs)
+        if n:
+            out[fam] = n
+    return out
+
+
+def _resume_families(text: str):
+    """The families a RESUME actually belongs to.
+
+    A job ad is short and on-topic, so one mention means something. A resume
+    is not: a network engineer who once supported a hospital, a hotel chain
+    and a retail client reads as healthcare, hospitality and retail under a
+    presence test — and once a resume claims six families, the family gate in
+    scoring matches nearly every posting and stops gating at all. That is why
+    a Sr Network Engineer was being shown Head of AI and FinOps roles at 60+.
+
+    So weigh the evidence: keep what the resume is mostly about, drop what it
+    mentions in passing.
+    """
+    hits = _family_hits(text)
+    if not hits:
+        return set()
+    top = max(hits.values())
+    floor = max(2, top * 0.15)
+    kept = {f for f, n in hits.items() if n >= floor}
+    if not kept:                                   # thin resume, one signal
+        kept = {max(hits, key=lambda f: hits[f])}
+    # Four is already generous for one person's career.
+    return set(sorted(kept, key=lambda f: -hits[f])[:4])
+
+
 def _profile(resume_text: str):
     """Turn a resume into the keyword set we score jobs against."""
     ws = _words(resume_text)
@@ -5836,8 +5901,15 @@ def _profile(resume_text: str):
 
 _SENIOR = ("senior", "sr.", "staff", "principal", "lead", "head", "director",
            "manager", "architect", "vp")
+# Running the function is not the senior version of doing the work. "Head of",
+# "Director" and "VP" sat in _SENIOR, so a senior individual contributor was
+# scored a perfect seniority match for Head of AI Forward Deployed
+# Engineering — a job they cannot get and did not ask for.
+_EXEC = ("head of", "director", "vp ", "vp,", "vice president", "chief ",
+         "cto", "ciso", "cio", "president", "partner,", "general manager")
 _JUNIOR = ("intern", "internship", "graduate", "trainee", "junior", "entry",
-           "fresher", "apprentice", "associate")
+           "fresher", "apprentice", "associate", "working student",
+           "student ", "co-op", "placement", "level 1", "tier 1")
 
 
 # ---- resume-level signals -------------------------------------------------
@@ -6145,21 +6217,34 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     f_skills = 0.55 * req_cover + 0.30 * coverage + 0.15 * depth
 
     # 2. Role fit and seniority (27%) — is this the same job at the same level?
-    job_fams = {job.category} if job.category else set()
+    # The stored category comes from the title alone and is often blank —
+    # "Enterprise Solutions Engineer" matches no family. Re-reading the title
+    # here catches some of those; what is left genuinely unknown scores below
+    # a confirmed same-family match, because "we could not tell" should never
+    # outrank "this is your field", which is what a flat 0.5 did.
+    job_fams = {job.category} if job.category else _title_families(job.title or "")
     if my_fams and job_fams:
         fam = 1.0 if (job_fams & my_fams) else (
             0.55 if job_fams & {f for m in my_fams for f in _ADJACENT.get(m, set())}
             else 0.10)
     else:
-        fam = 0.5                      # unknown family: neither reward nor punish
+        fam = 0.42                     # unknown family: mild doubt, not a veto
     title = (job.title or "").lower()
+    is_exec = any(t in title for t in _EXEC)
     seniority = 0.5
     if level == "senior":
-        seniority = 0.15 if any(t in title for t in _JUNIOR) else (
-            1.0 if any(t in title for t in _SENIOR) else 0.6)
+        if any(t in title for t in _JUNIOR):
+            seniority = 0.15
+        elif is_exec:
+            seniority = 0.35        # a step up in kind, not in grade
+        elif any(t in title for t in _SENIOR):
+            seniority = 1.0
+        else:
+            seniority = 0.6
     elif level == "junior":
-        seniority = 0.15 if any(t in title for t in _SENIOR) else (
-            1.0 if any(t in title for t in _JUNIOR) else 0.6)
+        seniority = 0.10 if is_exec else (
+            0.15 if any(t in title for t in _SENIOR) else (
+                1.0 if any(t in title for t in _JUNIOR) else 0.6))
     f_role = 0.45 * fam + 0.30 * min(title_overlap * 1.5, 1.0) + 0.25 * seniority
 
     # 3. Evidence of impact (17%) and 5. readability (8%) describe the resume,
@@ -6175,14 +6260,53 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     score = 100 * (0.33 * f_skills + 0.27 * f_role + 0.17 * f_impact
                    + 0.15 * f_domain + 0.08 * f_parse)
 
+    # Impact and readability are 25% of the weight and identical for every
+    # posting in a search — they describe the resume, not the fit. On a job in
+    # the wrong field that floor alone floated scores into the sixties, which
+    # is how a network engineer saw Head of AI at 65. Relevance has to be able
+    # to veto: if neither the family nor the title lines up, the whole score
+    # comes down, rather than the mismatch being averaged away.
+    relevance = max(fam, min(title_overlap * 1.5, 1.0))
+    if relevance < 0.5:
+        score *= 0.55 + 0.9 * relevance     # 0.10 → x0.64, 0.5 → x1.0
+
     # A posting too thin to name a few skills cannot support a confident score.
     if len(jskills) < 3:
         score *= 0.7
     if any(s in title for s in skills if s not in _WEAK_SKILLS):
         score += 4
 
+    # Why the number is the number. Every other board shows a percentage and
+    # leaves you to guess; this is the same arithmetic said in words, and it
+    # costs nothing because the arithmetic already happened. Ordered worst
+    # news first — the reason to skip a job is worth more than the reason to
+    # like it.
+    why = []
+    if jreq:
+        why.append(("ok" if req_cover >= 0.6 else "no",
+                    f"{len(req_hit)} of {len(jreq)} requirements met"))
+    if fam >= 1.0:
+        why.append(("ok", "your field"))
+    elif fam >= 0.55:
+        why.append(("mid", "next to your field"))
+    elif fam <= 0.15:
+        why.append(("no", "different field"))
+    if level == "senior":
+        if seniority <= 0.2:
+            why.append(("no", "below your level"))
+        elif is_exec:
+            why.append(("mid", "a leadership role"))
+        elif seniority >= 1.0:
+            why.append(("ok", "your level"))
+    elif level == "junior" and seniority <= 0.2:
+        why.append(("no", "above your level"))
+    if title_overlap >= 0.5:
+        why.append(("ok", "same job title"))
+    if req_miss:
+        why.append(("mid", "missing " + ", ".join(sorted(req_miss)[:3])))
     return (max(0, min(100, round(score))), sorted(hit)[:12],
-            sorted(req_miss)[:8] or sorted(miss)[:8])
+            sorted(req_miss)[:8] or sorted(miss)[:8],
+            [{"k": k, "t": t} for k, t in why[:5]])
 
 
 def _level_of(resume_text: str):
@@ -6193,11 +6317,22 @@ def _level_of(resume_text: str):
     signals labelled experienced people junior and docked their best matches.
     """
     low = (resume_text or "").lower()
-    if any(t in low for t in ("senior ", "sr. ", "lead ", "principal ", "staff ",
-                              "head of ", "manager", "architect")):
+    # "Sr." with the full stop was required, so "Sr Network Engineer" — how
+    # most people actually write it, and how it survives a filename — read as
+    # no level at all, and every seniority comparison fell back to neutral.
+    if re.search(r"(?<![a-z])(senior|sr\.?|lead|principal|staff|head of|"
+                 r"manager|architect)(?![a-z])", low):
+        return "senior"
+    # Failing a title, years of experience say it plainly.
+    yrs = [int(x) for x in re.findall(r"(\d{1,2})\s*\+?\s*years?(?:\s+of)?\s+"
+                                      r"(?:professional\s+|work\s+|total\s+)?experience",
+                                      low)]
+    if yrs and max(yrs) >= 6:
         return "senior"
     if any(t in low for t in ("intern", "fresher", "trainee", "recent graduate",
                               "currently studying", "final year")):
+        return "junior"
+    if yrs and max(yrs) <= 1:
         return "junior"
     return ""
 
@@ -6815,7 +6950,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
             400, "We couldn't find recognisable skills in your resume. Add a "
                  "skills section (languages, tools, frameworks) and try again.")
     level = _level_of(rtext)
-    my_fams = _families(rtext)
+    my_fams = _resume_families(rtext)
     # The titles this person has actually held, plus their stated target role.
     # Matching title-to-title is what stops "shares a toolchain" being treated
     # as "does the same job".
@@ -6849,11 +6984,11 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     # the best-scoring copy and listing the other places it is open.
     best = {}
     for j in rows:
-        score, hit, miss = _score_job(j, skills, keywords, level, idf,
-                                      my_fams, my_titles, impact, parsing)
+        score, hit, miss, why = _score_job(j, skills, keywords, level, idf,
+                                           my_fams, my_titles, impact, parsing)
         key = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
         item = _job_json(j, {"score": score, "matched": hit, "missing": miss,
-                             **match_tier(score)})
+                             "why": why, **match_tier(score)})
         prev = best.get(key)
         if prev is None or score > prev["score"]:
             item["also_in"] = prev["also_in"] + [prev["location"]] if prev else []
@@ -8159,7 +8294,7 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
     doomed = [j for j in rows
               if j.id not in keep
               and not _job_in_scope({"category": j.category, "country": j.country,
-                                     "location": j.location})]
+                                     "location": j.location, "skills": j.skills})]
     by_country, by_family = {}, {}
     for j in doomed:
         label = j.country or (f"(blank) {j.location or '?'}"[:40])
