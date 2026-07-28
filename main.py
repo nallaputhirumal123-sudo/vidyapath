@@ -35,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, DateTime, Date,
-    ForeignKey, UniqueConstraint, func, cast, case,
+    ForeignKey, UniqueConstraint, func, cast, case, or_,
 )
 from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
                             relationship, defer)
@@ -4734,6 +4734,9 @@ def _jsearch_used(db, add=0):
         db.commit()
     return row.v or 0
 _JSEARCH_CURSOR = 0
+# Decided once per process from how much of the board has parsed skills.
+# None means "not measured yet".
+_DEFER_TEXT = None
 
 
 def _jsearch_auto_n(used: int) -> int:
@@ -6374,16 +6377,24 @@ def resume_ats_check(body: AtsCheckIn, user: User = Depends(current_user)):
 
 
 def match_tier(score: int) -> dict:
-    """The band a score falls in, in the language recruiters actually use."""
-    if score >= 85:
+    """The band a score falls in, in the language recruiters actually use.
+
+    The bands were 85 / 70 / 55, set when scoring was looser. Measured across
+    the live board with four resume profiles, the best score any of them
+    reached was 77 — so "Exceptional fit" was unreachable and most real
+    matches were being labelled "Average". A band nobody can reach does not
+    set a high standard, it tells good candidates they are mediocre. These
+    match what the scoring actually produces.
+    """
+    if score >= 72:
         return {"tier": "S", "label": "Exceptional fit",
                 "note": "Strong overlap on skills, seniority and evidence."}
-    if score >= 70:
+    if score >= 60:
         return {"tier": "A", "label": "Strong candidate",
                 "note": "Meets the core requirements with minor gaps."}
-    if score >= 55:
-        return {"tier": "B", "label": "Average fit",
-                "note": "Missing key skills, domain experience or seniority."}
+    if score >= 45:
+        return {"tier": "B", "label": "Worth applying",
+                "note": "Real overlap, with gaps you can name and close."}
     return {"tier": "C", "label": "Weak fit",
             "note": "Significant mismatch on skills or experience level."}
 
@@ -6418,6 +6429,9 @@ def _job_req_skills(job):
     seconds. Rows stored before this column existed simply score without the
     requirement weighting until the next crawl fills them.
     """
+    memo = getattr(job, "_req_memo", None)
+    if memo is not None:            # filled in bulk by the match endpoint
+        return memo
     got = getattr(job, "req_skills", "") or ""
     return set(got.split(",")) if got else set()
 
@@ -6573,7 +6587,12 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     if req_miss:
         why.append(("mid", "missing " + ", ".join(sorted(req_miss)[:3])))
     return (max(0, min(100, round(score))), sorted(hit)[:12],
-            sorted(req_miss)[:8] or sorted(miss)[:8],
+            # Every gap, not the first eight. A truncated list looks like the
+            # whole list, so someone learns what we showed and applies again
+            # still missing things nobody told them about. Requirements first
+            # — those are the ones the employer actually asked for — then the
+            # rest of what the posting mentions.
+            sorted(req_miss) + [s for s in sorted(miss) if s not in req_miss],
             [{"k": k, "t": t} for k, t in why[:5]])
 
 
@@ -7232,13 +7251,53 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
         # Uploaded resumes have no structure, so take the strongest role words
         # from the first few lines, where a title almost always sits.
         my_titles = _title_words(" ".join(rtext.splitlines()[:6]))
-    # Deliberately NOT deferring Job.text: something downstream still reads it,
-    # so deferring turned one query into 5,000 lazy loads and made this slower,
-    # not faster (2.7s -> 6.5s measured).
-    rows = _jobs_query(db, body.q, body.country, body.location, body.remote,
-                       "open", body.category, body.job_type, body.engagement,
-                       body.visa, body.posted).order_by(
-                           case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc()).limit(12000).all()
+    # The description is 27 MB across the board and matching does not read it
+    # — scoring works from the skills columns. Deferring it was tried before
+    # and made things worse, because rows stored without those columns then
+    # lazy-loaded one at a time, thousands of times. So defer it AND fetch
+    # what is genuinely still needed in a single extra query below: bounded,
+    # and empty once the backfill has run.
+    #
+    # Whether that is a win depends entirely on how many rows still lack the
+    # skills column: measured here, deferring with 56% of the board unfilled
+    # was SLOWER (6.3s against 4.9s), because the text has to be fetched for
+    # those rows regardless and the second query is pure overhead. So decide
+    # from the data rather than guessing — one COUNT, cached for the process.
+    global _DEFER_TEXT
+    if _DEFER_TEXT is None:
+        try:
+            total = db.query(func.count(Job.id)).filter(
+                Job.is_open == True).scalar() or 0          # noqa: E712
+            bare = db.query(func.count(Job.id)).filter(
+                Job.is_open == True,                        # noqa: E712
+                or_(Job.skills == "", Job.skills.is_(None))).scalar() or 0
+            _DEFER_TEXT = total > 0 and (bare / total) < 0.15
+            print(f"jobs match: {bare}/{total} postings without parsed skills — "
+                  f"{'deferring' if _DEFER_TEXT else 'loading'} descriptions")
+        except Exception:
+            _DEFER_TEXT = False
+
+    q = _jobs_query(db, body.q, body.country, body.location, body.remote,
+                    "open", body.category, body.job_type, body.engagement,
+                    body.visa, body.posted)
+    if _DEFER_TEXT:
+        q = q.options(defer(Job.text))
+    rows = q.order_by(
+        case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc()
+    ).limit(12000).all()
+
+    need_text = [j for j in rows if _DEFER_TEXT and not (j.skills or "")]
+    if need_text:
+        texts = {}
+        ids = [j.id for j in need_text]
+        for i in range(0, len(ids), 900):        # SQLite caps parameters
+            for jid, txt in db.query(Job.id, Job.text).filter(
+                    Job.id.in_(ids[i:i + 900])).all():
+                texts[jid] = txt or ""
+        for j in need_text:
+            t = texts.get(j.id, "")
+            j._skills_memo = {w for w in _words(t) if w in _SKILLS}
+            j._req_memo = {w for w in _words(_requirement_text(t)) if w in _SKILLS}
 
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.
@@ -7271,6 +7330,21 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     if body.min_score > 0:
         scored = [d for d in scored if d["score"] >= body.min_score]
 
+    # The gaps, added up. One posting's missing list tells you what one
+    # employer wanted; the same skill across four hundred of them tells you
+    # what to study on Sunday. Counted over the roles that are actually a
+    # near miss — the ones worth closing a gap for — rather than the whole
+    # board, where a gap on a job you would never get is not a gap.
+    near = [d for d in scored if d["score"] >= 45][:400]
+    gap_n, gap_best = {}, {}
+    for d in near:
+        for s in d.get("missing") or []:
+            gap_n[s] = gap_n.get(s, 0) + 1
+            if d["score"] > gap_best.get(s, 0):
+                gap_best[s] = d["score"]
+    top_gaps = [{"skill": s, "jobs": c, "best_score": gap_best.get(s, 0)}
+                for s, c in sorted(gap_n.items(), key=lambda x: -x[1])[:14]]
+
     # No more than a few roles from any one employer near the top. One company
     # with 400 open jobs would otherwise fill the entire first page, which is
     # what made results look like "mostly the same company".
@@ -7290,6 +7364,7 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     # returns a full page of ranked jobs, which is the thing worth seeing.
     _trial_consume(db, user, "match")
     return {"jobs": page, "scanned": len(rows), "total": len(scored),
+            "top_gaps": top_gaps,
             # What the score is made of, so a user can see why it moved.
             "scoring": {
                 "weights": {"hard_skills": 33, "role_and_seniority": 27,
@@ -8597,7 +8672,7 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
     this after any change to _ROLE_FAMILIES. Dry by default; ?dry=0 writes.
     """
     rows = db.query(Job).all()
-    changed, filled, cleared, paid = [], 0, 0, 0
+    changed, filled, cleared, paid, skilled = [], 0, 0, 0, 0
     for j in rows:
         # Pay, from the text we already stored. Nothing is inferred: if the
         # employer did not state a figure, the field stays empty.
@@ -8607,6 +8682,20 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
                 paid += 1
                 if not dry:
                     j.salary = s
+        # Skills, for rows stored before the column existed. Over half the
+        # board is in that state, and every one of them makes matching parse
+        # 4,000 characters of description at request time instead of reading
+        # a comma-separated list — which is also what stops the query from
+        # being able to leave the description behind entirely.
+        if not (j.skills or "").strip() and (j.text or ""):
+            sk = sorted({w for w in _words(j.text) if w in _SKILLS})
+            rq = sorted({w for w in _words(_requirement_text(j.text))
+                         if w in _SKILLS})
+            if sk:
+                skilled += 1
+                if not dry:
+                    j.skills = ",".join(sk)
+                    j.req_skills = ",".join(rq)
         new = _primary_family(j.title or "", j.text or "")
         if not new:
             # Same rule ingestion uses, so a backfilled row and a freshly
@@ -8628,7 +8717,8 @@ def admin_jobs_recategorize(dry: int = 1, user: User = Depends(admin_user),
         db.commit()
     return {"dry_run": bool(dry), "total": len(rows), "changed": len(changed),
             "newly_categorised": filled, "label_removed": cleared,
-            "salary_filled": paid, "examples": changed[:25]}
+            "salary_filled": paid, "skills_filled": skilled,
+            "examples": changed[:25]}
 
 
 async def _refresh_jobs_bg():
