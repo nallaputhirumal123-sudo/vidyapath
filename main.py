@@ -5481,13 +5481,32 @@ async def _refresh_jobs_locked():
 
 
 # The score a new posting has to reach before it is worth interrupting
-# someone. 80 is the honest reading of "a strong match" — but scoring was
-# rebalanced in v3.25.0 so that a wrong-field job can no longer ride a
-# well-written resume into the sixties, and everything came down with it. A
-# near-perfect network role against a network resume now lands at 79-89, so
-# 80 fires, but not often. Lower it to 75 if the alerts feel too quiet;
-# raising it above 85 will effectively switch them off.
-JOB_ALERT_MIN = int(env("JOB_ALERT_MIN", "80") or 80)
+# someone.
+#
+# READ THIS BEFORE CHANGING IT. Scoring was rebalanced in v3.25.0 so a
+# wrong-field job can no longer ride a well-written resume into the sixties,
+# and every score came down with it. Measured against the live board, a
+# near-perfect match — a senior network resume against a senior network role
+# naming nine of the same tools — scores 79 to 89. Above 90 is therefore not
+# "a very strong match", it is very close to off: it needs a posting that
+# matches on skills, requirements, field, seniority AND title at once.
+#
+# Measured against the live board — 10,680 postings, four resume profiles
+# (network, backend, SRE, data) — the highest score any of them achieved was
+# 77, and NOTHING reached 80. So a fixed bar at 80 or 90 does not mean "only
+# excellent matches", it means silence.
+#
+# Hence two numbers rather than one. JOB_ALERT_MIN is the bar for an
+# exceptional match, flagged as such. JOB_ALERT_FLOOR is the bar for the best
+# of what actually came in — if nothing clears MIN, the day's strongest
+# matches are still sent, because a job board whose alerts never fire is the
+# same as a job board with no alerts.
+JOB_ALERT_MIN = int(env("JOB_ALERT_MIN", "90") or 90)
+JOB_ALERT_FLOOR = int(env("JOB_ALERT_FLOOR", "70") or 70)
+# How many matches one sweep may put in the bell and the email. Everything
+# above the threshold is sent, not just the best one — this only stops a
+# bumper crawl from burying the list.
+JOB_ALERT_MAX = int(env("JOB_ALERT_MAX", "12") or 12)
 
 
 def _job_alert_sweep():
@@ -5593,19 +5612,39 @@ def _job_alert_sweep():
                     continue
                 sc = _score_job(j, skills, keywords, level, idf,
                                 my_fams, titles, impact, parsing)[0]
-                if sc >= JOB_ALERT_MIN:
+                if sc >= JOB_ALERT_FLOOR:
                     best.append((sc, j))
+            # Everything at or above MIN is exceptional and always goes. If
+            # nothing is, the strongest of what did arrive goes instead —
+            # ranked, so the best is first either way.
+            best.sort(key=lambda x: -x[0])
+            # Mark everything we CONSIDERED, not everything we sent. Marking
+            # only the twelve that went out left the rest unmarked, so the
+            # next sweep an hour later found them again and sent those — the
+            # duplicate bug, back through a side door. A posting is judged
+            # once.
             for _sc, j in best:
                 db.add(Note(user_id=u.id, k=f"alerted_{j.id}", v=str(_sc)))
+            top_tier = [x for x in best if x[0] >= JOB_ALERT_MIN]
+            best = top_tier or best[:JOB_ALERT_MAX]
             if best:
-                best.sort(key=lambda x: -x[0])
-                top = best[0][1]
-                more = f" and {len(best) - 1} more" if len(best) > 1 else ""
-                db.add(JobAlert(
-                    user_id=u.id, kind="newmatch", icon="\u2728",
-                    text=f"New {best[0][0]}% match: {top.title} at {top.company}{more}.",
-                    url=top.url or ""))
-                made += 1
+                # One bell per match, not one bell mentioning a match and
+                # hiding the rest behind "and 4 more". Each alert carries its
+                # own posting and its own link, so every match can be opened
+                # and applied to from the bell. Capped so a bumper crawl
+                # cannot bury the list; the rest are on the board.
+                for sc, jj in best[:JOB_ALERT_MAX]:
+                    db.add(JobAlert(
+                        user_id=u.id, kind="newmatch", icon="\u2728",
+                        text=f"New {sc}% match: {jj.title} at {jj.company}.",
+                        url=jj.url or ""))
+                    made += 1
+                if len(best) > JOB_ALERT_MAX:
+                    db.add(JobAlert(
+                        user_id=u.id, kind="newmatch", icon="\u2728",
+                        text=f"{len(best) - JOB_ALERT_MAX} more new matches are "
+                             f"waiting on the board.", url=""))
+                    made += 1
                 # And by email. An in-app bell only reaches someone who was
                 # coming back anyway; the point of an alert is to reach the
                 # person who was not. Capped at five so it reads as a
@@ -5622,7 +5661,7 @@ def _job_alert_sweep():
                             "  " + str(sc) + "%  " + (jj.title or "") +
                             " - " + (jj.company or "") + nl +
                             "        " + (jj.url or "")
-                            for sc, jj in best[:5])
+                            for sc, jj in best[:JOB_ALERT_MAX])
                         n = len(best)
                         plural = "s" if n > 1 else ""
                         first_name = (u.name or "").split(" ")[0] or "there"
@@ -5632,8 +5671,9 @@ def _job_alert_sweep():
                             str(n) + " new job" + plural +
                             " matching your resume",
                             "Hello " + first_name + "," + nl + nl +
-                            str(n) + " new posting" + plural + " came in that "
-                            "your resume scores 80% or better against:" +
+                            "your " + str(n) + " best new match" + plural +
+                            " came in — scored against your resume, "
+                            "strongest first:" +
                             nl + nl + lines + nl + nl +
                             "See them all, with the reason behind each score:" +
                             nl + base + "/#careers" + nl + nl +
@@ -6024,16 +6064,22 @@ _ADJACENT = {
 # has to match "Platform Engineering Manager", "systems administrator" has to
 # match "Systems Administration", or the title reads as no family at all and
 # the posting falls off a board that crawled for exactly that role.
-_FAMILY_RE = {fam: [_re.compile(rf"(?<![a-z]){_re.escape(k.strip())}(?:s|es|ing)?(?![a-z])")
-                    for k in keys]
-              for fam, keys in _ROLE_FAMILIES.items()}
+# One pattern per family, not one per keyword. Matching ran every keyword's
+# regex separately — about 230 scans of the same short string per title —
+# which was 3s of a match request once the keyword list grew. The regex
+# engine does the alternation far better than a Python loop can: same
+# answers, one pass.
+_FAMILY_RE = {
+    fam: _re.compile(r"(?<![a-z])(?:"
+                     + "|".join(_re.escape(k.strip()) for k in keys)
+                     + r")(?:s|es|ing)?(?![a-z])")
+    for fam, keys in _ROLE_FAMILIES.items()}
 
 
 def _families(text: str):
     """Which role families this text reads as. Empty when nothing is clear."""
     low = " " + (text or "").lower() + " "
-    return {fam for fam, rxs in _FAMILY_RE.items()
-            if any(rx.search(low) for rx in rxs)}
+    return {fam for fam, rx in _FAMILY_RE.items() if rx.search(low)}
 
 
 @lru_cache(maxsize=40000)
@@ -6051,8 +6097,8 @@ def _family_hits(text: str):
     """How much evidence there is for each family, not merely any."""
     low = " " + (text or "").lower() + " "
     out = {}
-    for fam, rxs in _FAMILY_RE.items():
-        n = sum(len(rx.findall(low)) for rx in rxs)
+    for fam, rx in _FAMILY_RE.items():
+        n = len(rx.findall(low))
         if n:
             out[fam] = n
     return out
@@ -6342,10 +6388,22 @@ def _job_skills(job):
     """The job's skills, from the column filled at ingest.
 
     Falls back to parsing the text for rows stored before that column
-    existed, so an older database still matches until the next crawl."""
-    if job.skills:
-        return set(job.skills.split(","))
-    return {w for w in _words(job.text or "") if w in _SKILLS}
+    existed, so an older database still matches until the next crawl.
+
+    Memoised on the instance: a match request asks for the same job's skills
+    twice — once to measure rarity across the board, once to score — and the
+    fallback path is a regex pass over 4,000 characters. At 11,000 postings
+    that second pass was over two seconds of a seven-second request, spent
+    recomputing an answer we already had."""
+    got = getattr(job, "_skills_memo", None)
+    if got is None:
+        got = (set(job.skills.split(",")) if job.skills
+               else {w for w in _words(job.text or "") if w in _SKILLS})
+        try:
+            job._skills_memo = got
+        except Exception:          # not an ORM row; nothing to cache on
+            pass
+    return got
 
 
 def _job_req_skills(job):

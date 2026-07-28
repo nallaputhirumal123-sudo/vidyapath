@@ -178,13 +178,16 @@ try:
 finally:
     db.close()
 
-_min = m.JOB_ALERT_MIN
-m.JOB_ALERT_MIN = 60          # the threshold is not what is under test here
+# Neither threshold is what is under test here — the sweep firing once and
+# only once is. FLOOR is what decides whether a posting is collected at all,
+# so it is the one that has to come down for a seeded job to qualify.
+_min, _floor = m.JOB_ALERT_MIN, m.JOB_ALERT_FLOOR
+m.JOB_ALERT_MIN, m.JOB_ALERT_FLOOR = 60, 40
 try:
     first = m._job_alert_sweep()
     second = m._job_alert_sweep()
 finally:
-    m.JOB_ALERT_MIN = _min
+    m.JOB_ALERT_MIN, m.JOB_ALERT_FLOOR = _min, _floor
 ck("new-match alert fires after a crawl", first["created"] >= 1,
    f"created {first['created']}")
 ck("the same job never alerts twice", second["created"] == 0,
