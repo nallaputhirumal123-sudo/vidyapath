@@ -384,6 +384,24 @@ class InviteMessage(Base):
     created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
+class InviteFile(Base):
+    """A file attached to an invite conversation.
+
+    Bytes live in the row, base64, exactly as Assignment.pdf_data does. No
+    filesystem: nothing to path-traverse into, nothing orphaned when a row is
+    deleted, and it survives a container restart on Railway.
+    """
+    __tablename__ = "invite_files"
+    id = Column(Integer, primary_key=True)
+    invite_id = Column(Integer, ForeignKey("job_invites.id"), index=True)
+    from_employer = Column(Boolean, default=False)
+    filename = Column(String(200), default="")
+    kind = Column(String(8), default="pdf")        # pdf | docx
+    size = Column(Integer, default=0)
+    data = Column(Text, default="")                # base64
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
 class JobTrack(Base):
     """A job a user saved or applied to, and where it got to.
 
@@ -6456,6 +6474,8 @@ def invite_messages(invite_id: int, user: User = Depends(current_user),
         if m.from_employer != is_emp and not m.seen:
             m.seen = True
     db.commit()
+    files = {f.filename: f for f in db.query(InviteFile).filter(
+        InviteFile.invite_id == inv.id).all()}
     who = db.get(User, inv.user_id)
     return {"invite_id": inv.id,
             "job": {"title": job.title, "company": job.company},
@@ -6463,6 +6483,10 @@ def invite_messages(invite_id: int, user: User = Depends(current_user),
                     else (who.name if who else "Candidate"),
             "messages": [{"id": m.id, "mine": m.from_employer == is_emp,
                           "kind": m.kind or "text", "body": m.body,
+                          "file_id": (files[m.body].id
+                                      if m.kind == "file" and m.body in files else None),
+                          "size": (files[m.body].size
+                                   if m.kind == "file" and m.body in files else None),
                           "when": _aware(m.created_at).isoformat()} for m in rows]}
 
 
@@ -6513,6 +6537,79 @@ def invite_send_resume(invite_id: int, user: User = Depends(current_user),
                          body=text[:20000]))
     db.commit()
     return {"ok": True, "message": "Resume sent."}
+
+
+# Only these two, and only when the bytes agree with the extension. Anything
+# a browser might render — SVG, HTML, XML — is refused outright: serving one of
+# those back from our own domain is stored XSS against whoever opens it.
+ATTACH_MAX = 4_000_000
+ATTACH_TYPES = {
+    "pdf":  (b"%PDF", "application/pdf"),
+    "docx": (b"PK",
+             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+}
+
+
+@app.post("/api/invites/{invite_id}/files")
+async def invite_upload(invite_id: int, file: UploadFile = File(...),
+                        user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Attach a PDF or DOCX to an accepted conversation."""
+    inv, job, is_emp = _invite_parties(db, invite_id, user)
+    if inv.state != "accepted":
+        raise HTTPException(403, "You can share files once the invitation is accepted.")
+
+    name = (file.filename or "file")[:200]
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext not in ATTACH_TYPES:
+        raise HTTPException(400, "Only PDF and DOCX files can be shared.")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "That file is empty.")
+    if len(raw) > ATTACH_MAX:
+        raise HTTPException(400, "File too large (max 4 MB)")
+    # The extension is a claim; the first bytes are evidence. Both must agree,
+    # so "resume.pdf" containing HTML is refused rather than stored.
+    magic, _mime = ATTACH_TYPES[ext]
+    if not raw.startswith(magic):
+        raise HTTPException(400, "That file does not look like a real "
+                                 f"{ext.upper()}. Re-export it and try again.")
+
+    row = InviteFile(invite_id=inv.id, from_employer=is_emp, filename=name,
+                     kind=ext, size=len(raw),
+                     data=base64.b64encode(raw).decode())
+    db.add(row)
+    db.add(InviteMessage(invite_id=inv.id, from_employer=is_emp, kind="file",
+                         body=name))
+    if is_emp:
+        db.add(JobAlert(user_id=inv.user_id, kind="invite_msg", icon="📎",
+                        text=f"{job.company or 'An employer'} sent a file about "
+                             f"{job.title}.", url="/#invites"))
+    db.commit()
+    db.refresh(row)
+    return {"ok": True, "id": row.id, "filename": row.filename, "size": row.size}
+
+
+@app.get("/api/invites/{invite_id}/files/{file_id}")
+def invite_download(invite_id: int, file_id: int,
+                    user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Download an attachment. Both parties, nobody else."""
+    inv, _job, _is_emp = _invite_parties(db, invite_id, user)
+    row = db.get(InviteFile, file_id)
+    if not row or row.invite_id != inv.id:
+        raise HTTPException(404, "No such file")
+    _magic, mime = ATTACH_TYPES.get(row.kind or "pdf", ATTACH_TYPES["pdf"])
+    # Always as an attachment, always our own content type — never the one the
+    # uploader claimed, and never inline. An inline render of user-supplied
+    # bytes on our own origin is the whole risk here.
+    safe = _re.sub(r'[^A-Za-z0-9._ -]', "_", row.filename or "file")[:120]
+    return RawResponse(
+        content=base64.b64decode(row.data or ""),
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{safe}"',
+                 "X-Content-Type-Options": "nosniff",
+                 "Content-Security-Policy": "default-src 'none'"})
 
 
 @app.get("/api/invites/unread")
