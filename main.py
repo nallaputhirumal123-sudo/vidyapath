@@ -1038,15 +1038,23 @@ def _migrate_columns():
                 print(f"migrate note ({table.name}.{col.name}): {e}")
 
 
-try:
-    # Also at import, not only at startup. Anything that imports the module and
-    # talks to the database directly — every test file, every admin script —
-    # otherwise queries a table missing the newest column and dies on "no such
-    # column". Skips tables that do not exist yet, so a fresh database is
-    # unaffected.
-    _migrate_columns()
-except Exception as _e:                                   # pragma: no cover
-    print(f"migrate at import skipped: {type(_e).__name__}: {_e}")
+# Local SQLite only, and deliberately so.
+#
+# Test files and admin scripts import this module and query the database
+# directly, without going through startup, so they hit tables missing the
+# newest column and die on "no such column". Running the migration at import
+# fixes that — but on Postgres it means a connection and a round trip per
+# table BEFORE the process can serve anything, and if the database is slow or
+# not yet reachable during a deploy the worker never finishes importing and
+# the health check fails. It did.
+#
+# In production the migration still runs, from seed_if_empty() at startup,
+# where it is allowed to take its time.
+if engine.dialect.name == "sqlite":
+    try:
+        _migrate_columns()
+    except Exception as _e:                               # pragma: no cover
+        print(f"migrate at import skipped: {type(_e).__name__}: {_e}")
 
 
 def seed_if_empty():
