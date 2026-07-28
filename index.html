@@ -147,6 +147,12 @@ input,select{font-family:inherit}
 /* ---------- landing page ---------- */
 .gate{min-height:100vh;overflow-y:auto}
 .land{max-width:1020px;margin:0 auto;padding:0 22px 60px}
+.lquote{font-size:clamp(17px,2.3vw,22px);font-weight:750;letter-spacing:-.02em;
+  margin:22px auto 0;max-width:640px;text-wrap:balance;line-height:1.35}
+.lquote span{background:linear-gradient(90deg,#ffb347,#ff7a18);-webkit-background-clip:text;
+  background-clip:text;color:transparent}
+.lquote small{display:block;font-size:13.5px;font-weight:500;color:var(--muted);
+  letter-spacing:0;margin-top:7px}
 .lbadge{display:inline-block;background:rgba(63,185,80,.14);color:var(--green);border:1px solid rgba(63,185,80,.3);font-size:11px;font-weight:700;padding:5px 14px;border-radius:99px;letter-spacing:.6px}
 .lhero{text-align:center;padding:64px 0 44px}
 .lhero h1{font-size:46px;font-weight:800;letter-spacing:-1.6px;line-height:1.08;margin-top:20px}
@@ -583,6 +589,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
       <p>One continuous path from "what is a computer?" to building real AI systems.
          Every lesson taught in full; Python and SQL exercises run and auto-grade
          right in your browser. Nothing assumed, at any point.</p>
+      <p class="lquote">Learn it. Build it. <span>Get cracked by Craxle.</span>
+        <small>Real skills, real jobs, and a resume that actually gets read.</small></p>
       <div class="row" style="justify-content:center">
         <a class="btn big" href="#join">Start free →</a>
         <button class="btn ghost big" id="tourBtn">▶ Let Axle explain it</button>
@@ -657,6 +665,10 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     </section>
 
     <section class="lsec" id="join">
+      <p class="lquote" style="text-align:center;margin-bottom:22px">
+        Start at zero. Finish with a job. <span>Get cracked by Craxle.</span>
+        <small>Courses, a real career path, live jobs matched to your resume,
+          and employers who come looking for you.</small></p>
       <div class="authcard">
         <div class="tabs">
           <button class="tab on" id="tabLogin">Sign in</button>
