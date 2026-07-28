@@ -2265,7 +2265,12 @@ function renderAsk(){
     </div>
     <div class="ask-tools">
       ${samples.map(q=>`<button class="ask-samp" data-ask="sample" data-val="${esc(q)}" ${a.loading||a.speaking?"disabled":""}>${esc(q)}</button>`).join("")}
-      <button class="ask-chip" data-ask="smartboard" title="Teach this topic step by step">✨ Teach me step by step</button>
+      ${isPro()
+        ? `<button class="ask-chip" data-ask="smartboard"
+             title="Teach this topic step by step">✨ Teach me step by step</button>`
+        : `<button class="ask-chip" data-ask="smartboardlocked"
+             title="Axle Pro teaches any topic step by step, with code and diagrams"
+             style="opacity:.75">🔒 Teach me step by step · Axle&nbsp;Pro</button>`}
       <label class="ask-toggle" data-ask="voicetoggle"><span class="ask-sw ${a.voiceOn?"on":""}"><i></i></span> Voice ${a.voiceOn?"on":"off"}</label>
     </div>
     ${a.error?`<div class="ask-err">${esc(a.error)}</div>`:""}
@@ -2300,6 +2305,10 @@ document.addEventListener("click",e=>{
   else if(kind==="send"){ askSubmit(); }
   else if(kind==="stop"){ askStop(); }
   else if(kind==="voice"){ askVoiceInput(); }
+  else if(kind==="smartboardlocked"){
+    toast("Axle Pro teaches any topic step by step — with runnable code and diagrams.");
+    S.view={page:"plans"}; render();
+  }
   else if(kind==="smartboard"){
     const t=(ASK.question||"").trim()||(document.getElementById("askQ")||{}).value||"";
     if(!t.trim()) return toast("Type what you want to learn first.");
