@@ -6677,7 +6677,18 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
     elif status == "closed":
         query = query.filter(Job.is_open == False)     # noqa: E712
     if category:
-        query = query.filter(Job.category == category.strip().lower())
+        cat = category.strip().lower()
+        if cat == "other":
+            # "Other" is the bucket the category list puts everything
+            # unlabelled into, so selecting it has to return those rows too —
+            # otherwise the dropdown offers a count of five thousand and the
+            # page comes back nearly empty, which is the same "the number
+            # says one thing, the list says another" bug in a new place.
+            query = query.filter(or_(Job.category == "other",
+                                     Job.category == "",
+                                     Job.category.is_(None)))
+        else:
+            query = query.filter(Job.category == cat)
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     if location:
@@ -6761,18 +6772,33 @@ def jobs_categories(country: str = "", user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
     """Categories we actually hold open jobs for, largest first."""
     query = db.query(Job.category, func.count(Job.id)).filter(
-        Job.is_open == True, Job.category != "")            # noqa: E712
+        Job.is_open == True)                                # noqa: E712
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     rows = query.group_by(Job.category).all()
+    # Uncategorised rows used to be dropped here, which is how the headline
+    # could say 10,713 open roles while the category filter accounted for
+    # 4,858 of them: over five thousand postings were on the board and
+    # reachable from nowhere. Anything crawled before the family rules
+    # improved is folded into Other rather than hidden, so the numbers
+    # reconcile and every job has a way in. The backfill moves them into
+    # their real category; this makes sure they are never invisible while
+    # they wait.
+    stray = sum(n for c, n in rows
+                if not c or (ALLOWED_FAMILIES and c not in ALLOWED_FAMILIES))
+    rows = [(c, n) for c, n in rows
+            if c and (not ALLOWED_FAMILIES or c in ALLOWED_FAMILIES)]
+    if stray:
+        merged = dict(rows)
+        merged["other"] = merged.get("other", 0) + stray
+        rows = list(merged.items())
     # Only families the board is scoped to. Rows crawled before a scope change
     # keep their old category, so without this the dropdown offers Sales or
     # Manufacturing and returns a handful of stale postings — a filter that
     # looks broken because it is showing the truth about dead data.
     return {"categories": [
         {"id": c, "label": CATEGORY_LABELS.get(c, c.title()), "count": n}
-        for c, n in sorted(rows, key=lambda x: -x[1])
-        if not ALLOWED_FAMILIES or c in ALLOWED_FAMILIES]}
+        for c, n in sorted(rows, key=lambda x: -x[1])]}
 
 
 @app.get("/api/jobs/suggest")
