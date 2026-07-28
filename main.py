@@ -1031,6 +1031,15 @@ def _migrate_columns():
             try:
                 coltype = col.type.compile(dialect=engine.dialect)
                 with engine.begin() as conn:
+                    # ADD COLUMN needs an exclusive lock, and during a deploy
+                    # the OLD instance is still crawling and writing to jobs.
+                    # Without a timeout the statement queues behind it for as
+                    # long as that takes, holding up everything after it. Fail
+                    # in five seconds instead and let the next boot do it —
+                    # a column that arrives one restart later is nothing, a
+                    # deploy that never becomes healthy is everything.
+                    if engine.dialect.name == "postgresql":
+                        conn.execute(_text("SET LOCAL lock_timeout = '5s'"))
                     conn.execute(_text(
                         f'ALTER TABLE {table.name} ADD COLUMN {col.name} {coltype}'))
                 print(f"migrated: added column {table.name}.{col.name}")
@@ -1148,26 +1157,36 @@ STARTUP_ERROR = None
 
 
 @app.on_event("startup")
-def _startup():
-    """Boot the app. Database problems must NOT prevent startup.
+async def _startup():
+    """Boot the app. Database work must NOT hold up serving.
 
-    If the app fails to start, the platform's healthcheck has nothing to
-    reach and the whole deploy is marked failed — with no way to see the
-    error. Better to start, serve /api/health, and report the problem
-    through /api/status where it can actually be read.
+    This used to be a sync handler, which blocks the event loop: nothing —
+    including /api/health — could be answered until the database work
+    finished. That is fine until an ALTER TABLE waits on a lock the previous
+    instance's crawler is holding, at which point the new container never
+    answers a health check and the deploy is rolled back with the app itself
+    working perfectly. It happened, twice.
+
+    So: print, return, and let the database catch up in a thread. /api/status
+    reports whether it worked, which is where you can actually read it.
     """
-    global STARTUP_ERROR
     print("=" * 56)
     print(f"  Craxle  v{VERSION}  (commit {GIT_SHA})")
     print(f"  started {BUILT_AT}")
     print("=" * 56)
+    import asyncio
+    asyncio.create_task(asyncio.to_thread(_seed_with_retries))
 
-    # Postgres often is not accepting connections the instant we boot.
+
+def _seed_with_retries():
+    """Postgres often is not accepting connections the instant we boot."""
+    global STARTUP_ERROR
     import time
     for attempt in range(1, 6):
         try:
             seed_if_empty()
             STARTUP_ERROR = None
+            print("database ready")
             return
         except Exception as e:
             STARTUP_ERROR = f"{type(e).__name__}: {e}"
@@ -1176,7 +1195,6 @@ def _startup():
             if attempt < 5:
                 print(f"  retrying in {wait}s...")
                 time.sleep(wait)
-
     print("WARNING: database setup did not succeed. The app is running so "
           "you can reach /api/status, but content will be unavailable.")
 
