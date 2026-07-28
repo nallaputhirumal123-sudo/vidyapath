@@ -147,23 +147,36 @@ body{background:var(--bg);color:var(--text);
    glows plus a faint engineering grid that fades out below the fold: it
    reads as a workbench rather than a gradient, and at these opacities it
    never competes with the content sitting on it. */
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+body::before{content:"";position:fixed;inset:-25%;pointer-events:none;z-index:-1;
   background:
-    radial-gradient(900px 520px at 12% -8%, rgba(255,153,51,.075), transparent 70%),
-    radial-gradient(760px 460px at 92% 2%, rgba(90,169,255,.05), transparent 72%),
-    radial-gradient(620px 620px at 78% 108%, rgba(255,153,51,.04), transparent 70%)}
+    radial-gradient(900px 520px at 12% 8%, rgba(255,153,51,.085), transparent 70%),
+    radial-gradient(760px 460px at 92% 18%, rgba(90,169,255,.055), transparent 72%),
+    radial-gradient(620px 620px at 74% 92%, rgba(255,120,60,.05), transparent 70%),
+    radial-gradient(700px 520px at 22% 86%, rgba(120,90,255,.04), transparent 72%);
+  /* The colour drifts. Ninety seconds for one pass and never more than a few
+     percent of the viewport, so it is felt rather than watched — the page is
+     alive without anything moving under the text you are reading. */
+  animation:bgdrift 90s ease-in-out infinite alternate}
+@keyframes bgdrift{
+  0%{transform:translate3d(0,0,0) scale(1)}
+  50%{transform:translate3d(2.5%,-2%,0) scale(1.06)}
+  100%{transform:translate3d(-2%,2.5%,0) scale(1.03)}}
+@media (prefers-reduced-motion:reduce){body::before{animation:none}}
 /* Not a square grid — every dashboard on earth has one. A staggered dot
    lattice (two offset layers make it read as hexagonal rather than square)
    with two long diagonal hairlines cutting across it: closer to a circuit
    substrate than to graph paper, and unmistakably not the default. */
+/* Not dots and not graph paper: three sets of hairlines crossing at
+   different angles, so the texture reads as drafting lines over the colour
+   rather than a grid under it. */
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
   background-image:
-    radial-gradient(rgba(255,255,255,.075) 1.1px, transparent 1.2px),
-    radial-gradient(rgba(255,153,51,.055) 1.1px, transparent 1.2px),
-    repeating-linear-gradient(58deg, transparent 0 118px,
-      rgba(255,255,255,.028) 118px 119px, transparent 119px 240px);
-  background-size:44px 44px, 44px 44px, auto;
-  background-position:0 0, 22px 22px, 0 0;
+    repeating-linear-gradient(61deg, transparent 0 92px,
+      rgba(255,255,255,.030) 92px 93px, transparent 93px 186px),
+    repeating-linear-gradient(-24deg, transparent 0 134px,
+      rgba(255,153,51,.038) 134px 135px, transparent 135px 268px),
+    repeating-linear-gradient(7deg, transparent 0 210px,
+      rgba(90,169,255,.030) 210px 211px, transparent 211px 420px);
   -webkit-mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.35) 46%, transparent 78%);
   mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.35) 46%, transparent 78%)}
 [data-theme="light"] body::before{
@@ -174,10 +187,12 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
 /* Ink on paper, not light on glass — the lattice has to darken here, not glow. */
 [data-theme="light"] body::after{
   background-image:
-    radial-gradient(rgba(22,24,28,.085) 1.1px, transparent 1.2px),
-    radial-gradient(rgba(224,125,18,.10) 1.1px, transparent 1.2px),
-    repeating-linear-gradient(58deg, transparent 0 118px,
-      rgba(22,24,28,.035) 118px 119px, transparent 119px 240px)}
+    repeating-linear-gradient(61deg, transparent 0 92px,
+      rgba(22,24,28,.040) 92px 93px, transparent 93px 186px),
+    repeating-linear-gradient(-24deg, transparent 0 134px,
+      rgba(224,125,18,.075) 134px 135px, transparent 135px 268px),
+    repeating-linear-gradient(7deg, transparent 0 210px,
+      rgba(30,95,168,.045) 210px 211px, transparent 211px 420px)}
 code,pre,textarea.code,.out{font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 a{color:var(--accent2);text-decoration:none}
