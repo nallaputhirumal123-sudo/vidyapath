@@ -44,8 +44,16 @@
   /* Near-neutral slate rather than navy. The old palette leaned blue, which
      fought the saffron accent — every warm element sat on a cool ground and
      looked slightly dirty. */
-  --bg:#0a0c10; --panel:#121620; --panel2:#1a1f2b; --line:#232936;
+  /* Ground goes darker and surfaces come up to meet it. The old ground and
+     panel were four points apart, so a card had to be outlined to be seen at
+     all; separating them lets light and shadow do that work instead, which
+     is what makes a premium dark interface read as layered rather than flat. */
+  --bg:#08090d; --panel:#14171f; --panel2:#1c202b; --line:#262c39;
   --line-soft:rgba(255,255,255,.06);
+  /* Surfaces are a shallow gradient, not a fill: a top edge catching light
+     and a base settling into shadow. */
+  --surface:linear-gradient(178deg,#171b25 0%,#12151d 100%);
+  --surface-hi:linear-gradient(178deg,#1e2330 0%,#171b25 100%);
   --text:#eef2f8; --muted:#939eb0; --dim:#6b7686;
   --body:#c8d1de;
   --glass:rgba(18,22,32,.72);
@@ -77,6 +85,10 @@
   --text:#16181c; --muted:#5e636e; --dim:#8a8f99;
   --body:#3a3d44;
   --glass:rgba(255,255,255,.78);
+  /* The dark theme's surface gradients would render as dark cards on a light
+     page. Light gets its own, barely-there version: paper, not a panel. */
+  --surface:linear-gradient(178deg,#ffffff 0%,#fbfaf8 100%);
+  --surface-hi:linear-gradient(178deg,#ffffff 0%,#f4f3ef 100%);
   --accent2:#1e5fa8; --accent-lo:#d0730c;
   --shadow:0 1px 2px rgba(16,20,28,.06), 0 8px 24px -14px rgba(16,20,28,.18);
   --shadow-lift:0 2px 6px rgba(16,20,28,.08), 0 18px 44px -18px rgba(16,20,28,.24);
@@ -247,13 +259,16 @@ input,select{font-family:inherit}
 .navitem .ct{font-size:11px;color:var(--dim);flex-shrink:0}
 .navitem.done .ct{color:var(--green)}
 
-.h1{font-size:clamp(27px,3.5vw,36px);font-weight:780;letter-spacing:-.035em;
-  line-height:1.12;margin-bottom:var(--s2);text-wrap:balance}
+/* Display type carries the brand on a dark ground: heavier, tighter, larger.
+   A 780 weight at -.035em reads as a heading; 830 at -.045em reads as a
+   statement, and costs nothing but the two numbers. */
+.h1{font-size:clamp(29px,4vw,42px);font-weight:830;letter-spacing:-.045em;
+  line-height:1.06;margin-bottom:var(--s2);text-wrap:balance}
 .h2{font-size:25px;font-weight:700;letter-spacing:-.028em;margin-bottom:6px}
 .sub{color:var(--muted);margin-bottom:26px;max-width:760px}
 .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--dim);font-weight:700;margin:32px 0 12px}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
   padding:var(--s4);box-shadow:var(--shadow),var(--edge);
   transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease}
 .card:hover{box-shadow:var(--shadow-lift),var(--edge);border-color:var(--line)}
@@ -303,7 +318,7 @@ input,select{font-family:inherit}
 .hero h1{font-size:33px;font-weight:800;letter-spacing:-1.2px;line-height:1.15;margin-bottom:11px}
 .hero p{color:var(--muted);max-width:620px;margin-bottom:20px}
 
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   padding:18px;text-align:left;width:100%;display:block;box-shadow:var(--edge);
   transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
 .tile:hover{border-color:rgba(255,153,51,.5);transform:translateY(-3px);
