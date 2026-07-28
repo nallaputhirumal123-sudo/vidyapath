@@ -6384,6 +6384,10 @@ def hire_job_candidates(job_id: int, user: User = Depends(employer_user),
         if not u:
             continue
         row = {"ref": hashlib.sha256(f"cand{u.id}{JWT_SECRET}".encode()).hexdigest()[:16],
+               # The employer needs the invite id to open the conversation.
+               # Harmless on its own: every endpoint that takes it re-checks
+               # that the caller owns the job.
+               "invite_id": inv.id,
                "score": inv.score, "state": inv.state,
                "invited_at": _aware(inv.created_at).isoformat() if inv.created_at else None}
         if inv.state == "accepted":

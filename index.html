@@ -3212,6 +3212,102 @@ function jbChecksHTML(){
   </div>
   </div>`;
 }
+/* ---- the conversation that opens once an invitation is accepted ---- */
+const CHAT={id:null,data:null,busy:false};
+
+async function jbOpenChat(id){
+  CHAT.id=id; CHAT.data=null; jbPaintChat();
+  try{ CHAT.data=await api.get("/api/invites/"+id+"/messages"); }
+  catch(e){ CHAT.data={error:e.message}; }
+  jbPaintChat();
+  const box=document.getElementById("chatScroll");
+  if(box) box.scrollTop=box.scrollHeight;
+}
+function jbCloseChat(){ CHAT.id=null; CHAT.data=null; jbPaintChat(); }
+function jbPaintChat(){
+  const el=document.getElementById("chatWrap");
+  if(el) el.innerHTML=jbChatHTML();
+}
+async function jbSend(){
+  const inp=document.getElementById("chatMsg");
+  const body=(inp&&inp.value||"").trim();
+  if(!body||CHAT.busy) return;
+  CHAT.busy=true;
+  try{
+    await api.post("/api/invites/"+CHAT.id+"/messages",{body});
+    inp.value="";
+    await jbOpenChat(CHAT.id);
+  }catch(e){ toast(e.message); }
+  CHAT.busy=false;
+}
+async function jbSendResumeToChat(){
+  try{
+    const r=await api.post("/api/invites/"+CHAT.id+"/resume",{});
+    toast(r.message||"Resume sent.");
+    jbOpenChat(CHAT.id);
+  }catch(e){ toast(e.message); }
+}
+async function jbAttach(file){
+  if(!file) return;
+  const fd=new FormData(); fd.append("file",file);
+  toast("Sending "+file.name+"…");
+  try{
+    const r=await fetch("/api/invites/"+CHAT.id+"/files",
+      {method:"POST",credentials:"same-origin",body:fd});
+    if(!r.ok){ let d={}; try{d=await r.json()}catch(e){}
+      throw new Error(d.detail||"Could not send that file."); }
+    jbOpenChat(CHAT.id);
+  }catch(e){ toast(e.message); }
+}
+function jbChatHTML(){
+  if(!CHAT.id) return "";
+  const d=CHAT.data;
+  if(!d) return `<div class="card" style="margin-top:10px;color:var(--dim);font-size:13.5px">Opening the conversation…</div>`;
+  if(d.error) return `<div class="card" style="margin-top:10px;color:var(--dim);font-size:13.5px">${esc(d.error)}</div>`;
+  const msgs=(d.messages||[]).map(mm=>{
+    const mine=mm.mine;
+    const bubble=`background:${mine?"rgba(255,153,51,.14)":"var(--panel2)"};
+      border:1px solid ${mine?"rgba(255,153,51,.3)":"var(--line)"};
+      border-radius:12px;padding:9px 12px;max-width:78%;font-size:13.5px;
+      color:var(--body);white-space:pre-wrap;word-break:break-word`;
+    let inner;
+    if(mm.kind==="file"){
+      inner=`📎 <a href="/api/invites/${CHAT.id}/files/${mm.file_id}"
+             style="color:var(--accent)" download>${esc(mm.body)}</a>
+             <span style="color:var(--dim);font-size:11.5px"> ${Math.round((mm.size||0)/1024)} KB</span>`;
+    }else if(mm.kind==="resume"){
+      inner=`<b>📄 Resume</b><div style="margin-top:5px;font-size:12.5px;color:var(--dim);
+             max-height:150px;overflow:auto">${esc(mm.body)}</div>`;
+    }else{
+      inner=esc(mm.body);
+    }
+    return `<div style="display:flex;justify-content:${mine?"flex-end":"flex-start"};margin-bottom:8px">
+      <div style="${bubble}">${inner}
+        <div style="font-size:10.5px;color:var(--dim);margin-top:4px">${esc(jbAgo(mm.when))}</div>
+      </div></div>`;
+  }).join("") || `<div style="color:var(--dim);font-size:13px;text-align:center;padding:18px">
+      No messages yet. Say hello — they agreed to hear from you.</div>`;
+
+  return `<div class="card" style="margin-top:10px;border-color:var(--accent)">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+      <b style="font-size:14px">💬 ${esc(d.with||"Conversation")}</b>
+      <button class="btn ghost sm" data-chatclose="1">Close</button>
+    </div>
+    <div id="chatScroll" style="max-height:340px;overflow:auto;padding:4px 2px">${msgs}</div>
+    <div class="row" style="gap:6px;margin-top:10px;align-items:flex-end">
+      <textarea id="chatMsg" class="pj-note" style="flex:1;min-height:54px;width:auto"
+        placeholder="Write a message…"></textarea>
+      <button class="btn sm" data-chatsend="1">Send</button>
+    </div>
+    <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
+      <label class="btn ghost sm" style="cursor:pointer">📎 Attach PDF/DOCX
+        <input type="file" id="chatFile" accept=".pdf,.docx" style="display:none"></label>
+      ${d.with_is_employer===false?"":`<button class="btn ghost sm" data-chatres="1">📄 Send my resume</button>`}
+      <span style="font-size:11.5px;color:var(--dim);align-self:center">PDF or DOCX, up to 4 MB</span>
+    </div>
+  </div>`;
+}
+
 /* ---- employer invites: opt-in, and the inbox ---- */
 async function jbLoadInvites(){
   try{ JB.invites=await api.get("/api/me/invites"); }catch(e){ JB.invites=null; }
@@ -3279,8 +3375,10 @@ function jbInviteCardHTML(v){
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;min-width:150px">
         ${answered
-          ? `<span class="pill" style="text-align:center;color:${v.state==="accepted"?"#4bbf82":"var(--dim)"}">
-               ${v.state==="accepted"?"✓ Details shared":"Declined"}</span>`
+          ? (v.state==="accepted"
+              ? `<button class="btn sm" data-chatopen="${v.id}">💬 Messages</button>
+                 <span class="pill" style="text-align:center;color:#4bbf82">✓ Details shared</span>`
+              : `<span class="pill" style="text-align:center;color:var(--dim)">Declined</span>`)
           : `<button class="btn sm" data-inv="${v.id}" data-yes="1">Share my details</button>
              <button class="btn ghost sm" data-inv="${v.id}" data-yes="0">Not interested</button>`}
       </div>
@@ -3291,7 +3389,7 @@ function jbInvitesHTML(){
   const d=JB.invites;
   if(!d) return `<div class="card"><div style="color:var(--dim);font-size:13.5px">Loading your invitations…</div></div>`;
   const list=d.invites||[];
-  return jbOpenToWorkHTML() + (list.length
+  return jbOpenToWorkHTML() + `<div id="chatWrap">${jbChatHTML()}</div>` + (list.length
     ? list.map(jbInviteCardHTML).join("")
     : `<div class="card">
          <b>No invitations yet</b>
@@ -3573,6 +3671,11 @@ document.addEventListener("click",e=>{
   /* Prep straight from a tracked application: the moment someone marks a job
      applied, the interview is the next thing that happens to them, so the
      route to it should not be "go find the tab and pick your role again". */
+  const co=e.target.closest("[data-chatopen]");
+  if(co){ jbOpenChat(+co.dataset.chatopen); return; }
+  if(e.target.closest("[data-chatclose]")){ jbCloseChat(); return; }
+  if(e.target.closest("[data-chatsend]")){ jbSend(); return; }
+  if(e.target.closest("[data-chatres]")){ jbSendResumeToChat(); return; }
   const otw=e.target.closest("[data-otw]");
   if(otw){
     const sel=document.getElementById("otwEng");
@@ -4266,6 +4369,7 @@ function paintHiringDesk(){
         You'll see names and emails here as they accept.</div>
       ${r.job_id?`<div style="margin-top:10px"><button class="btn ghost sm" data-hjview="${r.job_id}">See who was invited</button></div>`:""}
     </div>`:""}
+    <div id="chatWrap"></div>
     <div id="hjOut"></div>`;
   const b=$("#hjPost");
   if(b) b.onclick=async()=>{
@@ -4291,13 +4395,17 @@ async function hjViewCandidates(id){
           <b style="font-size:18px;color:${c.score>=80?"#4bbf82":"var(--accent)"}">${c.score}%</b>
           <div style="flex:1;min-width:180px">
             ${c.state==="accepted"
-              ? `<b>${esc(c.name)}</b><div style="font-size:13px;color:var(--body)">${esc(c.email)}</div>`
+              ? `<b>${esc(c.name)}</b><div style="font-size:13px;color:var(--body)">${esc(c.email)}</div>
+                 <button class="btn ghost sm" style="margin-top:6px" data-chatopen="${c.invite_id}">💬 Message</button>`
               : `<span style="color:var(--dim);font-size:13.5px">Candidate ${esc(c.ref.slice(0,6))} — details hidden until they accept</span>`}
           </div>
           <span class="pill ${c.state==="accepted"?"ok":""}">${esc(c.state)}</span>
         </div></div>`).join("")||`<div class="card" style="color:var(--dim)">Nobody invited yet.</div>`}`;
   }catch(e){ el.innerHTML=`<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; }
 }
+document.addEventListener("change",e=>{
+  if(e.target && e.target.id==="chatFile" && e.target.files[0]) jbAttach(e.target.files[0]);
+});
 document.addEventListener("click",e=>{
   const v=e.target.closest("[data-hjview]");
   if(v){ hjViewCandidates(+v.dataset.hjview); }
