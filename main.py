@@ -5239,6 +5239,14 @@ _US_ABBR_RE = re.compile(
     r"|N[CDEHJMVY]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[AT]|W[AIVY])(?:$|[\s,/)\-])")
 
 
+# Title words that make a posting technical on their own. Deliberately not
+# "specialist", "manager" or "consultant" — every industry has those.
+_TECH_TITLE_RE = re.compile(
+    r"(?<![a-z])(engineer|engineering|developer|architect|administrator|"
+    r"programmer|technologist|sre|devops|technician|scientist|"
+    r"sysadmin|dba|analyst)(?:s|ing)?(?![a-z])", re.I)
+
+
 def _job_in_scope(r):
     """Whether a crawled posting belongs on the board.
 
@@ -5266,7 +5274,15 @@ def _job_in_scope(r):
         got = [x for x in (sk.split(",") if isinstance(sk, str) else sk) if x]
         # Excel and SQL are on half the postings in every industry, so they
         # cannot be the evidence that a job is technical.
-        if len([x for x in got if x not in _WEAK_SKILLS]) < 3:
+        strong = len([x for x in got if x not in _WEAK_SKILLS])
+        # "Engineering Manager — Streaming" and "Principal Engineer, Privacy"
+        # name no family we would want to guess at — calling them Backend
+        # would poison the category filter — but they are plainly engineering
+        # jobs, and dropping them was leaving real roles off the board. A
+        # technical job title lowers the bar rather than removing it: the
+        # posting still has to name a real tool.
+        need = 1 if _TECH_TITLE_RE.search(r.get("title") or "") else 3
+        if strong < need:
             return False
     c = (r.get("country") or "").strip().upper()
     if not c:
@@ -5705,6 +5721,7 @@ _ROLE_FAMILIES = {
                  "it administrator", "windows administrator",
                 "systems administrator", "virtualization", "vmware",
                  "it infrastructure", "data center technician",
+                 "systems administration", "system administration",
                  "data center engineer", "data centre", "storage engineer",
                  "storage administrator", "migration specialist",
                  "application support", "incident manager", "service desk",
@@ -5858,7 +5875,11 @@ _ADJACENT = {
 # Word-boundary matched, not substring. Plain `in` reads "cisco" out of "San
 # Francisco" and "writer" out of "Underwriter", which filed account executives
 # under Networking and credit analysts under Writing.
-_FAMILY_RE = {fam: [_re.compile(rf"(?<![a-z]){_re.escape(k.strip())}(?![a-z])")
+# The trailing guard allows the ordinary word endings: "platform engineer"
+# has to match "Platform Engineering Manager", "systems administrator" has to
+# match "Systems Administration", or the title reads as no family at all and
+# the posting falls off a board that crawled for exactly that role.
+_FAMILY_RE = {fam: [_re.compile(rf"(?<![a-z]){_re.escape(k.strip())}(?:s|es|ing)?(?![a-z])")
                     for k in keys]
               for fam, keys in _ROLE_FAMILIES.items()}
 
@@ -8331,7 +8352,8 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
     doomed = [j for j in rows
               if j.id not in keep
               and not _job_in_scope({"category": j.category, "country": j.country,
-                                     "location": j.location, "skills": j.skills})]
+                                     "location": j.location, "skills": j.skills,
+                                     "title": j.title})]
     by_country, by_family = {}, {}
     for j in doomed:
         label = j.country or (f"(blank) {j.location or '?'}"[:40])

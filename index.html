@@ -142,14 +142,42 @@ body{background:var(--bg);color:var(--text);
    nothing else needs a stacking context. An earlier version raised the real
    elements instead, which set position:relative on #themeFab and #msgFab and
    dropped both out of fixed positioning into the document flow. */
+/* The background is the one surface every screen shares, so it is the
+   cheapest place to not look like every other dark SaaS product. Two warm
+   glows plus a faint engineering grid that fades out below the fold: it
+   reads as a workbench rather than a gradient, and at these opacities it
+   never competes with the content sitting on it. */
 body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
   background:
-    radial-gradient(900px 500px at 12% -8%, rgba(255,153,51,.055), transparent 70%),
-    radial-gradient(760px 460px at 92% 4%, rgba(90,169,255,.045), transparent 72%)}
+    radial-gradient(900px 520px at 12% -8%, rgba(255,153,51,.075), transparent 70%),
+    radial-gradient(760px 460px at 92% 2%, rgba(90,169,255,.05), transparent 72%),
+    radial-gradient(620px 620px at 78% 108%, rgba(255,153,51,.04), transparent 70%)}
+/* Not a square grid — every dashboard on earth has one. A staggered dot
+   lattice (two offset layers make it read as hexagonal rather than square)
+   with two long diagonal hairlines cutting across it: closer to a circuit
+   substrate than to graph paper, and unmistakably not the default. */
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background-image:
+    radial-gradient(rgba(255,255,255,.075) 1.1px, transparent 1.2px),
+    radial-gradient(rgba(255,153,51,.055) 1.1px, transparent 1.2px),
+    repeating-linear-gradient(58deg, transparent 0 118px,
+      rgba(255,255,255,.028) 118px 119px, transparent 119px 240px);
+  background-size:44px 44px, 44px 44px, auto;
+  background-position:0 0, 22px 22px, 0 0;
+  -webkit-mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.35) 46%, transparent 78%);
+  mask-image:linear-gradient(to bottom, #000 0%, rgba(0,0,0,.35) 46%, transparent 78%)}
 [data-theme="light"] body::before{
   background:
-    radial-gradient(900px 500px at 12% -8%, rgba(255,153,51,.10), transparent 70%),
-    radial-gradient(760px 460px at 92% 4%, rgba(90,169,255,.07), transparent 72%)}
+    radial-gradient(900px 520px at 12% -8%, rgba(255,153,51,.13), transparent 70%),
+    radial-gradient(760px 460px at 92% 2%, rgba(90,169,255,.08), transparent 72%),
+    radial-gradient(620px 620px at 78% 108%, rgba(255,153,51,.07), transparent 70%)}
+/* Ink on paper, not light on glass — the lattice has to darken here, not glow. */
+[data-theme="light"] body::after{
+  background-image:
+    radial-gradient(rgba(22,24,28,.085) 1.1px, transparent 1.2px),
+    radial-gradient(rgba(224,125,18,.10) 1.1px, transparent 1.2px),
+    repeating-linear-gradient(58deg, transparent 0 118px,
+      rgba(22,24,28,.035) 118px 119px, transparent 119px 240px)}
 code,pre,textarea.code,.out{font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 a{color:var(--accent2);text-decoration:none}
