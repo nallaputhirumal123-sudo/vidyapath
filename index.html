@@ -363,6 +363,40 @@ input,select{font-family:inherit}
   font-weight:750;color:var(--dim);margin-bottom:7px}
 .sb-foot{display:flex;flex-wrap:wrap;gap:7px;align-items:center;
   padding:10px 14px;background:var(--panel2)}
+
+/* The options ARE the product here — every one of them is another way to be
+   taught the thing you did not understand. As plain chips they read as tags,
+   something to look at rather than press. These read as buttons: a real
+   surface, a visible edge, and a lift when the pointer is over them.
+   Sized for a thumb, because most of this is read on a phone. */
+.sb-opt{display:inline-flex;align-items:center;gap:7px;
+  background:var(--surface-hi);border:1px solid var(--line);color:var(--text);
+  font-size:13.5px;font-weight:600;line-height:1.35;padding:10px 14px;
+  border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;
+  box-shadow:var(--edge);
+  transition:transform .13s ease,border-color .18s ease,box-shadow .18s ease}
+.sb-opt:hover{transform:translateY(-1px);border-color:rgba(255,153,51,.5);
+  box-shadow:var(--shadow),var(--edge)}
+.sb-opt:active{transform:translateY(0)}
+.sb-opt .ic{width:22px;height:22px;flex:0 0 22px;border-radius:7px;font-size:12px;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.06);border:1px solid var(--line-soft)}
+/* Drilling deeper is the forward move, so it carries the accent. */
+.sb-opt.go{border-color:rgba(255,153,51,.34)}
+.sb-opt.go .ic{background:linear-gradient(160deg,rgba(255,153,51,.30),rgba(255,153,51,.10));
+  border-color:rgba(255,153,51,.4);color:#ffcf99}
+.sb-opt.go:hover{border-color:var(--accent)}
+/* A gap already closed. Green rather than accent: it is a state, not an
+   invitation, and it should read as settled next to the ones still open. */
+.sb-opt.done{border-color:rgba(75,191,130,.42)}
+.sb-opt.done .ic{background:rgba(75,191,130,.16);border-color:rgba(75,191,130,.4);
+  color:#7ee2a8}
+/* How many roles this one skill would unlock — the number is the argument. */
+.sb-opt-n{margin-left:2px;font-size:11.5px;font-weight:800;color:var(--accent);
+  background:rgba(255,153,51,.12);border-radius:999px;padding:1px 7px}
+.sb-opt.done .sb-opt-n{color:#7ee2a8;background:rgba(75,191,130,.14)}
+.sb-opts{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:520px){.sb-opt{width:100%}}
 @media(max-width:560px){.sb-head-line{display:none}}
 
 .jb-why{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:9px}
@@ -2117,6 +2151,10 @@ function sbDiagramHTML(d){
 /* The follow-ups that make it feel like a tutor rather than a lookup. Each
    re-asks the SAME topic with a different lens, so the board keeps its thread
    instead of starting a new conversation every time. */
+/* A glyph per lens. Six buttons of identical text are read as a wall; six
+   with distinct marks are scanned and picked from. */
+const SB_LENS_ICON={simpler:"◔",deeper:"⌄",example:"▶",why:"?",
+                    mistakes:"!",practice:"✎"};
 const SB_LENSES=[
   ["simpler",  "Explain it simpler",   t=>t+" — explain much more simply, for a beginner"],
   ["deeper",   "Go deeper",            t=>t+" — go deeper, with the details an expert would want"],
@@ -2265,17 +2303,18 @@ function sbToolsHTML(){
            instead of sitting there as an unlabelled row of chips. -->
       <div class="sb-grp">
         <div class="sb-grp-lbl">Not landing? Ask for it another way</div>
-        <div class="ask-chips" style="gap:6px;margin:0">
+        <div class="sb-opts">
           ${SB_LENSES.map(([id,label])=>
-            `<button class="ask-chip" data-sblens="${id}">${label}</button>`).join("")}
+            `<button class="sb-opt" data-sblens="${id}">
+               <span class="ic">${SB_LENS_ICON[id]||"◆"}</span>${label}</button>`).join("")}
         </div>
       </div>
 
       ${(l.deeper&&l.deeper.length)?`<div class="sb-grp">
         <div class="sb-grp-lbl">Go deeper — each one taught in full</div>
-        <div class="ask-chips" style="gap:6px;margin:0">
-          ${l.deeper.map(t=>`<button class="ask-chip"
-            data-sbdeep="${esc(t)}">${esc(t)} →</button>`).join("")}
+        <div class="sb-opts">
+          ${l.deeper.map(t=>`<button class="sb-opt go" data-sbdeep="${esc(t)}">
+            <span class="ic">↳</span>${esc(t)}</button>`).join("")}
         </div></div>`:""}
 
       <div class="sb-grp">
@@ -3836,12 +3875,12 @@ function jbResultsHTML(){
            Axle Pro teaches it from zero.${(function(){
              const d=m.top_gaps.filter(g=>skillState(g.skill)==="done").length;
              return d?` <b style="color:#4bbf82">You have studied ${d} of these.</b>`:"";})()}</div>
-         <div class="ask-chips" style="gap:6px;margin:0">
-           ${m.top_gaps.map(g=>`<button class="ask-chip" data-learnskill="${esc(g.skill)}"
-             style="${skillState(g.skill)==="done"
-               ?"border-color:rgba(75,191,130,.45);background:rgba(75,191,130,.10)":""}"
-             title="Wanted by ${g.jobs} roles you nearly match">${skillBadge(g.skill)}${esc(g.skill)}
-             <b style="color:var(--accent)">${g.jobs}</b></button>`).join("")}
+         <div class="sb-opts">
+           ${m.top_gaps.map(g=>`<button class="sb-opt ${skillState(g.skill)==="done"?"done":"go"}"
+             data-learnskill="${esc(g.skill)}"
+             title="Wanted by ${g.jobs} roles you nearly match">
+             <span class="ic">${skillState(g.skill)==="done"?"✓":"↗"}</span>${esc(g.skill)}
+             <b class="sb-opt-n">${g.jobs}</b></button>`).join("")}
          </div></div>`:""}`
     : `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px"><b>${m.total||JB.jobs.length}</b> matching jobs · viewing ${from}–${to}</div>`;
   return head+JB.jobs.map(jbCardHTML).join("")+jbPagerHTML();
