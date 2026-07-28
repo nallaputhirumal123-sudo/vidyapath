@@ -131,7 +131,30 @@ Set in Railway. None have secrets in code.
 | `JOB_REFRESH_HOURS`, `JOB_RETENTION_DAYS` | Crawl cadence and history |
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `ADZUNA_COUNTRIES`, `ADZUNA_PAGES` | Widen countries only alongside `JOB_COUNTRIES` — fetching a country the board discards wastes quota |
 | `JOOBLE_KEY` | Optional |
+| `JSEARCH_KEY`, `JSEARCH_BASE` | Open Web Ninja, **not** RapidAPI — plain `X-API-Key` header. RapidAPI headers are refused before the call is metered, so the dashboard reads zero while every query errors |
+| `JSEARCH_MONTHLY_CAP` | Hard ceiling on paid requests, set BELOW the plan. Raise it when you buy more and the crawler widens by itself |
+| `JSEARCH_PER_CRAWL` | `auto` (default) spends what is left of the month divided by the crawls left in it. A number pins it instead |
+| `JSEARCH_PAGES`, `JSEARCH_WINDOW` | Pages per query; `date_posted` window, default `month` — a week threw away most of what each request had already paid for |
+| `JOB_ALERT_MIN` / `JOB_ALERT_FLOOR` | 90 / 70. MIN flags an exceptional match; FLOOR is the bar for the best of what actually arrived. Measured on the live board, nothing scores above ~77, so a single bar at 80+ means silence — see v3.32.0 |
+| `JOB_ALERT_MAX` | Matches one sweep may send. Everything above the bar goes, one alert each |
 | `GEMINI_API_KEY` / `GROQ_API_KEY` | AI features; the app runs without them |
+
+## Colour and contrast
+
+Status colours are tokens — `--ok`, `--warn`, `--bad` and their `-bg` / `-bd`
+variants — declared once for dark and again under `[data-theme="light"]`.
+**Never write a status hex inline.** A pale mint reads beautifully on
+near-black and disappears on white, which is exactly what happened: light mode
+inherited greens chosen for the dark theme and the text went to nothing. 33
+hardcoded values were converted in v3.39.0.
+
+The one deliberate exception is the smart board's chalkboard (`#8fe3b0` and
+friends): that surface is dark green in **both** themes, so it needs colours
+picked for dark and must not be tokenised.
+
+Anything a candidate reads to decide whether to apply sits at 12.5px or above.
+Measured against the card in both themes, everything on a match card is past
+4.5:1.
 
 ## Personal data
 
