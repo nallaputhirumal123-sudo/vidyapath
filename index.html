@@ -340,6 +340,31 @@ input,select{font-family:inherit}
    other job board gives you — a number nobody can interrogate is just a
    number. Each reason carries its own tone, so the shape of the row is
    readable before a single word is: green across means apply. */
+/* ---- the smart board: header and controls -------------------------------
+   The board itself carries the lesson and nothing else. Everything that acts
+   on it lives in one panel underneath, in labelled groups, so a learner sees
+   three decisions — move, explore, go deeper — instead of eleven buttons. */
+.sb-head{display:flex;align-items:center;gap:11px;margin:0 0 12px;
+  padding:11px 14px;border-radius:var(--r);background:var(--surface);
+  border:1px solid var(--line);box-shadow:var(--edge)}
+.sb-head-mark{width:34px;height:34px;flex:0 0 34px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+  background:linear-gradient(160deg,rgba(255,153,51,.22),rgba(255,153,51,.07));
+  border:1px solid rgba(255,153,51,.32)}
+.sb-head-name{font-size:15px;font-weight:800;letter-spacing:-.02em}
+.sb-head-tag{font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.9px;color:var(--dim);vertical-align:middle;margin-left:4px}
+.sb-head-line{font-size:12.5px;color:var(--muted);line-height:1.45;margin-top:1px}
+.sb-tools{margin-top:12px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--surface);box-shadow:var(--edge);overflow:hidden}
+.sb-grp{padding:11px 14px;border-bottom:1px solid var(--line)}
+.sb-grp:last-child{border-bottom:0}
+.sb-grp-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.9px;
+  font-weight:750;color:var(--dim);margin-bottom:7px}
+.sb-foot{display:flex;flex-wrap:wrap;gap:7px;align-items:center;
+  padding:10px 14px;background:var(--panel2)}
+@media(max-width:560px){.sb-head-line{display:none}}
+
 .jb-why{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:9px}
 .jb-why-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.9px;
   font-weight:750;color:var(--dim);margin-right:2px}
@@ -2230,38 +2255,52 @@ function sbToolsHTML(){
         ${SB.speaking?"⏹ Stop":"🔊 Read this step aloud"}</button>
     </div>
 
-    <div class="ask-chips" style="margin-top:14px;gap:6px;justify-content:center">
-      ${SB_LENSES.map(([id,label])=>
-        `<button class="ask-chip" data-sblens="${id}">${label}</button>`).join("")}
-    </div>
-
-    ${(l.deeper&&l.deeper.length)?`<div style="margin-top:14px">
-      <div class="eyebrow" style="margin-bottom:6px">
-        Inside this topic — tap to have it taught in full</div>
-      <div class="ask-chips" style="gap:6px;margin:0">
-        ${l.deeper.map(t=>`<button class="ask-chip"
-          data-sbdeep="${esc(t)}">${esc(t)} →</button>`).join("")}
-      </div></div>`:""}
-
-    <div class="row" style="gap:6px;margin-top:12px;align-items:flex-end">
-      <input id="sbFollow" class="ask-input" style="flex:1"
-        placeholder="Ask a follow-up — anything you did not understand…"/>
-      <button class="btn sm" data-sbask="1">Ask</button>
-    </div>
-
-    <details style="margin-top:12px">
-      <summary style="font-size:12.5px;color:var(--accent);cursor:pointer">
-        📝 My notes &amp; save as PDF</summary>
-      <textarea id="sbNote" class="pj-note" style="width:100%;min-height:90px;margin-top:8px"
-        placeholder="Write what you want to remember…">${esc(S.notes[sbNoteKey()]||"")}</textarea>
-      <div class="row" style="gap:6px;margin-top:6px">
-        <button class="btn ghost sm" data-sbnote="1">Save note</button>
-        <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
+    <div class="sb-tools">
+      <!-- Six ways to be taught the same thing again. This is the part that
+           makes it a tutor rather than a lookup, so it is named as such
+           instead of sitting there as an unlabelled row of chips. -->
+      <div class="sb-grp">
+        <div class="sb-grp-lbl">Not landing? Ask for it another way</div>
+        <div class="ask-chips" style="gap:6px;margin:0">
+          ${SB_LENSES.map(([id,label])=>
+            `<button class="ask-chip" data-sblens="${id}">${label}</button>`).join("")}
+        </div>
       </div>
-    </details>
 
-    <div class="row" style="margin-top:12px">
-      <button class="btn ghost sm" data-sbexit="1">← Back to Ask Axle</button>
+      ${(l.deeper&&l.deeper.length)?`<div class="sb-grp">
+        <div class="sb-grp-lbl">Go deeper — each one taught in full</div>
+        <div class="ask-chips" style="gap:6px;margin:0">
+          ${l.deeper.map(t=>`<button class="ask-chip"
+            data-sbdeep="${esc(t)}">${esc(t)} →</button>`).join("")}
+        </div></div>`:""}
+
+      <div class="sb-grp">
+        <div class="sb-grp-lbl">Still stuck? Ask in your own words</div>
+        <div class="row" style="gap:6px;align-items:flex-end">
+          <input id="sbFollow" class="ask-input" style="flex:1"
+            placeholder="Anything you did not understand…"/>
+          <button class="btn sm" data-sbask="1">Ask</button>
+        </div>
+      </div>
+
+      <div class="sb-grp">
+        <details>
+          <summary style="font-size:12.5px;color:var(--accent);cursor:pointer">
+            📝 My notes &amp; save as PDF</summary>
+          <textarea id="sbNote" class="pj-note" style="width:100%;min-height:90px;margin-top:8px"
+            placeholder="Write what you want to remember…">${esc(S.notes[sbNoteKey()]||"")}</textarea>
+          <div class="row" style="gap:6px;margin-top:6px">
+            <button class="btn ghost sm" data-sbnote="1">Save note</button>
+            <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="sb-foot">
+        <button class="btn ghost sm" data-sbexit="1">← Back to Ask Axle</button>
+        <span style="font-size:11.5px;color:var(--dim);margin-left:auto">
+          Every lesson is kept — asking again costs nothing</span>
+      </div>
     </div>`;
 }
 /* The board could show an explanation but never say it. Reading the step
@@ -2602,10 +2641,18 @@ function renderAsk(){
 
   <div class="ask-stage">
     <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;color:var(--muted);margin:0 0 8px;text-align:center">
-        ${isPro()
-          ? `\u26a1 <b style="color:var(--accent)">Axle Pro</b> \u00b7 master the skills real job postings ask for \u2014 from scratch to job-ready, with code, examples and practice`
-          : `\u26a1 <b style="color:var(--accent)">Axle Pro</b> masters the skills real job postings ask for \u2014 from scratch to job-ready. <a href="#" data-nav="plans" style="color:var(--accent)">See Pro</a>`}
+      <!-- One header, not three competing lines. The name, what it is for,
+           and the way in \u2014 in that order, because that is the order someone
+           reads them in. -->
+      <div class="sb-head">
+        <div class="sb-head-mark">\u26a1</div>
+        <div style="min-width:0">
+          <div class="sb-head-name">Axle&nbsp;Pro <span class="sb-head-tag">smart board</span></div>
+          <div class="sb-head-line">Learn how to learn \u2014 any skill a job asks for,
+            taught from zero to hired.</div>
+        </div>
+        ${isPro()?"":`<a href="#" data-nav="plans" class="btn sm"
+           style="margin-left:auto;white-space:nowrap">Unlock</a>`}
       </div>
       <div class="ask-frame"><div class="ask-board" id="askBoard">${sbOn?sbBoardHTML():askBoardHTML()}</div></div>
       <div class="ask-tray"><span class="ask-chalk"></span><span class="ask-chalk y"></span></div>
@@ -2689,8 +2736,15 @@ document.addEventListener("click",e=>{
     S.view={page:"plans"}; render();
   }
   else if(kind==="smartboard"){
-    const t=(ASK.question||"").trim()||(document.getElementById("askQ")||{}).value||"";
-    if(!t.trim()) return toast("Type what you want to learn first.");
+    /* The fallback read #askQ, which does not exist — the input is #askInput.
+       So typing a topic and pressing Learn with Axle Pro did nothing but
+       show "type what you want to learn first", with the thing you wanted to
+       learn sitting in the box in front of you. Read the field itself first:
+       it is the truth, and ASK.question can lag it. */
+    const el=document.getElementById("askInput");
+    const t=((el&&el.value)||ASK.question||"").trim();
+    if(!t) return toast("Type what you want to learn, then press this.");
+    ASK.question=t;
     sbTeach(t);
   }
   else if(kind==="voicetoggle"){

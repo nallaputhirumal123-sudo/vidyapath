@@ -2885,10 +2885,14 @@ PLANS = {
     # rupee price. Kept as a single tier on purpose: two tiers make people stop
     # and compare instead of deciding. Amounts are in cents.
     "pro": {"name": "Pro", "ai_month": None, "kits_month": None,   # unlimited
-            "usd_month": 999,         # $9.99    —  $9.99/mo
-            "usd_quarter": 2699,      # $26.99   —  $9.00/mo, 10% off
-            "usd_half": 4799,         # $47.99   —  $8.00/mo, 20% off
-            "usd_year": 8999},        # $89.99   —  $7.50/mo, 25% off
+            # The longer terms keep the same 10 / 20 / 25% discounts, and the
+            # percentages on the plans page are computed from these numbers
+            # rather than written next to them — so a price change can never
+            # leave the page advertising a saving that is not real.
+            "usd_month": 1599,        # $15.99   — $15.99/mo
+            "usd_quarter": 4299,      # $42.99   — $14.33/mo, 10% off
+            "usd_half": 7699,         # $76.99   — $12.83/mo, 20% off
+            "usd_year": 14399},       # $143.99  — $12.00/mo, 25% off
 }
 PAID_PLANS = ("pro",)
 

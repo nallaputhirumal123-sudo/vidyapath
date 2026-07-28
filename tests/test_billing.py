@@ -63,7 +63,7 @@ ck("calls the checkout sessions endpoint",
 ck("uses the secret key as a bearer token",
    SENT["headers"].get("Authorization") == "Bearer sk_test_fake")
 ck("mode is subscription, not one-off", d.get("mode") == "subscription", str(d.get("mode")))
-ck("charges $9.99", d.get("line_items[0][price_data][unit_amount]") == "999",
+ck("charges the monthly price", d.get("line_items[0][price_data][unit_amount]") == "1599",
    str(d.get("line_items[0][price_data][unit_amount]")))
 ck("currency is usd", d.get("line_items[0][price_data][currency]") == "usd")
 ck("recurs monthly", d.get("line_items[0][price_data][recurring][interval]") == "month",
@@ -78,8 +78,11 @@ ck("returns to the site after paying",
    d.get("success_url", "").endswith("/?upgraded=1"), str(d.get("success_url")))
 
 # ---------- every term on sale ----------
-EXPECT = {"month": ("999", "month", "1"), "quarter": ("2699", "month", "3"),
-          "half": ("4799", "month", "6"), "year": ("8999", "year", "1")}
+# Written out rather than read from PLANS on purpose: reading the same table
+# the code reads would pass whatever the table said, including a typo. These
+# are the prices we intend to charge.
+EXPECT = {"month": ("1599", "month", "1"), "quarter": ("4299", "month", "3"),
+          "half": ("7699", "month", "6"), "year": ("14399", "year", "1")}
 for per, (amt, interval, count) in EXPECT.items():
     r = A.post("/api/billing/checkout", json={"plan": "pro", "period": per})
     ck(f"{per} checkout starts", r.status_code == 200, str(r.status_code))
@@ -96,6 +99,26 @@ for per, (amt, interval, count) in EXPECT.items():
        f"{d.get('line_items[0][price_data][recurring][interval_count]')}")
     ck(f"{per} period recorded on the subscription",
        d.get("subscription_data[metadata][period]") == per)
+
+# ---------- the page must advertise what the card is charged ----------
+# Nothing checked this before: the plans endpoint and the checkout could have
+# drifted apart and every existing test would still have passed, while the
+# page said one price and Stripe took another.
+published = {p["id"]: p for p in A.get("/api/billing/plans").json()["plans"]}
+pro = published.get("pro", {})
+for term in pro.get("periods", []):
+    want = EXPECT.get(term["id"])
+    if not want:
+        continue
+    ck(f"{term['id']} is advertised at the price we charge",
+       term["price"] == f"${int(want[0])/100:,.2f}",
+       f"page says {term['price']}, Stripe is sent {want[0]}")
+# And the discounts on the page are arithmetic, not decoration.
+SAVE = {"month": 0, "quarter": 10, "half": 20, "year": 25}
+for term in pro.get("periods", []):
+    ck(f"{term['id']} saving is stated honestly",
+       term["save_pct"] == SAVE.get(term["id"]),
+       f"page says {term['save_pct']}%, expected {SAVE.get(term['id'])}%")
 
 # ---------- a dashboard Price ID, if one is ever set, takes over ----------
 m.STRIPE_PRICES = {("pro", "month"): "price_dash_123"}
