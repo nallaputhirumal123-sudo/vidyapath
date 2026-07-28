@@ -4690,7 +4690,8 @@ JSEARCH_QUERIES = [q.strip() for q in (env(
     " designer,technical writer,systems analyst,business analyst,"
     "qa automation engineer,"
     "it project manager,help desk technician,it support specialist,appl"
-    "ication support analyst,desktop support engineer,incident manager"
+    "ication support analyst,desktop support engineer,incident manager,"
+    "webmaster,security operations center analyst"
     ) or "").split(",") if q.strip()]
 
 # 53 titles is far more than one crawl should pay for, so each crawl takes
@@ -6346,17 +6347,26 @@ class JobMatchIn(BaseModel):
 # month.
 
 CAREER_GROUPS = [
+    # Order matters: first group whose keyword appears wins. Cybersecurity and
+    # AI & data come before Cloud because "cloud security architect" and "big
+    # data architect" are security and data roles that merely say cloud and
+    # architect. Filing them under infrastructure sends a learner to the wrong
+    # syllabus entirely.
+    ("Cybersecurity", ("cybersecurity", "cyber security", "penetration", "soc ",
+                       "security operations", "identity", "information security",
+                       "security engineer", "security architect", "compliance",
+                       "security analyst")),
+    ("AI & data", ("machine learning", "data scientist", "data engineer",
+                   "big data", "business intelligence", "nlp", "prompt engineer",
+                   "database administrator")),
     ("Cloud & infrastructure", ("cloud", "infrastructure", "architect", "network",
                                 "systems administrator", "virtualization",
                                 "data center", "storage", "migration")),
     ("DevOps & reliability", ("devops", "site reliability", "release", "build",
                               "platform", "kubernetes", "ci cd")),
     ("Software engineering", ("full stack", "backend", "frontend", "mobile",
-                              "api", "embedded", "game", "cms")),
-    ("AI & data", ("machine learning", "ai ", "data scientist", "data engineer",
-                   "database", "big data", "business intelligence", "nlp")),
-    ("Cybersecurity", ("cybersecurity", "penetration", "soc", "identity",
-                       "information security", "security architect", "compliance")),
+                              "api", "embedded", "game", "cms", "webmaster",
+                              "developer", "software engineer")),
     ("Product & delivery", ("product manager", "scrum", "agile", "ui ux",
                             "technical writer", "systems analyst",
                             "business analyst", "qa ", "project manager")),

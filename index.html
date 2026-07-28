@@ -3310,7 +3310,14 @@ function jbCardHTML(j){
               clearance:"Clearance required"}[j.visa]||j.visa)}</span>`:""}
         </div>`:""}
         ${chips?`<div class="ask-chips" style="margin-top:8px;gap:5px">${chips}</div>`:""}
-        ${gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:""}
+        ${(j.missing&&j.missing.length)?`<div style="margin-top:7px">
+          <div style="font-size:11.5px;color:var(--dim);margin-bottom:4px">
+            Missing for this role — tap to learn it</div>
+          <div class="ask-chips" style="gap:5px;margin:0">
+            ${j.missing.slice(0,8).map(sk=>`<button class="ask-chip"
+               data-learnskill="${esc(sk)}" data-forrole="${esc(j.title||"")}"
+               style="font-size:11.5px">${esc(sk)} →</button>`).join("")}
+          </div></div>`:(gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:"")}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
         <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener"
@@ -4592,7 +4599,9 @@ function paintCareerRole(){
     <p class="sub">${esc(p.summary||"")}</p>
     <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
       ${p.open_jobs?`<span class="pill ok">${p.open_jobs} open postings</span>`:""}
-      ${(p.in_demand||[]).slice(0,10).map(t=>`<span class="pill">${esc(t)}</span>`).join("")}
+      ${(p.in_demand||[]).slice(0,10).map(t=>`<button class="ask-chip"
+        data-learnskill="${esc(t)}" data-forrole="${esc(p.role||"")}"
+        style="font-size:11.5px">${esc(t)} →</button>`).join("")}
     </div>
     <div class="ask-chips" style="margin-bottom:12px">
       ${p.stages.map((x,i)=>`<button class="ask-chip ${i===CB.stage?"on":""}"
@@ -4749,6 +4758,21 @@ async function hjViewCandidates(id){
   }catch(e){ el.innerHTML=`<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; }
 }
 document.addEventListener("click",e=>{
+  /* A skill you are missing is the reason you did not get the job. Teaching it
+     is the only useful thing to do with that fact, so it is one tap from
+     wherever the gap is named — the job card or the role's in-demand list. */
+  const ls=e.target.closest("[data-learnskill]");
+  if(ls){
+    const skill=ls.dataset.learnskill, role=ls.dataset.forrole||"";
+    if(!isPro()){
+      toast("Axle Pro teaches any skill step by step, with code and practice.");
+      S.view={page:"plans"}; render(); return;
+    }
+    S.view={page:"ask"}; render();
+    sbTeach(role ? `${skill} — for a ${role} role, from scratch to job-ready`
+                 : `${skill} — from scratch to job-ready`);
+    return;
+  }
   const cr=e.target.closest("[data-cbrole]");
   if(cr) return cbOpen(cr.dataset.cbrole);
   if(e.target.closest("[data-cbback]")) return cbBack();
