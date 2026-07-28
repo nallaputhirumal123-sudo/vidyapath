@@ -1173,7 +1173,8 @@ function renderNav(){
   h+=`<div class="navsec">Get hired</div>`
    + nav("careers","💼","Careers &amp; jobs")
    + nav("resume","📄","Resume builder")
-   + nav("plans","⚡","Plans &amp; billing");
+   + nav("plans","⚡","Plans &amp; billing")
+   + nav("hiring","🏢","Hiring");
 
   const list=activeTracks();
   h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
@@ -4155,6 +4156,125 @@ function planCardHTML(p,cur){
     ${cta}
   </div>`;
 }
+/* ---- employer side: apply, post a role, see who matched ---- */
+const HIRE={status:null,job:null,result:null,busy:false};
+
+async function renderHiring(){
+  $("#main").innerHTML=`<div class="h1">🏢 Hiring</div><p class="sub">Loading…</p>`;
+  try{ HIRE.status=await api.get("/api/employer/me"); }catch(e){ HIRE.status={status:""}; }
+  paintHiring();
+}
+function paintHiring(){
+  const st=(HIRE.status||{}).status||"";
+  if(st!=="approved") return paintHiringApply(st);
+  paintHiringDesk();
+}
+function paintHiringApply(st){
+  $("#main").innerHTML=`<div class="h1">🏢 Hiring</div>
+    <p class="sub">Post a role and reach candidates whose resume actually matches it.</p>
+    ${st==="pending"?`<div class="card" style="border-color:var(--accent)">
+       <b>⏳ Your application is being reviewed</b>
+       <div style="font-size:13.5px;color:var(--body);margin-top:6px">
+         We check every employer by hand before opening candidate profiles.
+         You'll get an email when it's done.</div></div>`
+    :`<div class="card" style="max-width:560px">
+       <b style="font-size:15px">Apply for employer access</b>
+       <div style="font-size:13.5px;color:var(--body);margin:6px 0 14px;line-height:1.6">
+         You'll be able to post a role and see candidates ranked against it —
+         their skills, seniority and match score. <b>Names and contact details
+         stay hidden</b> until a candidate accepts your invitation. We review
+         each company by hand, which is why this isn't instant.
+       </div>
+       <div class="field"><label>Company name</label>
+         <input id="hrCo" placeholder="Acme Inc"/></div>
+       <div class="field"><label>Website (optional)</label>
+         <input id="hrSite" placeholder="acme.com"/></div>
+       <button class="btn" id="hrApply">Apply for access</button>
+     </div>`}`;
+  const b=$("#hrApply");
+  if(b) b.onclick=async()=>{
+    const co=($("#hrCo").value||"").trim();
+    if(co.length<2) return toast("Enter your company name.");
+    b.disabled=true;
+    try{
+      await api.post("/api/employer/apply",{company:co,site:($("#hrSite").value||"").trim()});
+      HIRE.status={status:"pending"}; paintHiring();
+    }catch(e){ toast(e.message); b.disabled=false; }
+  };
+}
+function paintHiringDesk(){
+  const r=HIRE.result;
+  $("#main").innerHTML=`<div class="h1">🏢 Hiring</div>
+    <p class="sub">Describe the role. Candidates who match are invited and see
+      their own score — you see their details only if they accept.</p>
+    <div class="card" style="margin-bottom:16px">
+      <div class="two">
+        <div class="field"><label>Job title</label><input id="hjTitle" placeholder="Senior Backend Engineer"/></div>
+        <div class="field"><label>Company</label><input id="hjCo" placeholder="Acme Inc"/></div>
+      </div>
+      <div class="two">
+        <div class="field"><label>Location</label><input id="hjLoc" placeholder="Austin, TX or Remote"/></div>
+        <div class="field"><label>Engagement</label>
+          <select id="hjEng">
+            <option value="">Any</option><option value="c2c">C2C</option>
+            <option value="w2">W2</option><option value="1099">1099 / contract</option>
+          </select></div>
+      </div>
+      <div class="field"><label>Job description</label>
+        <textarea id="hjJD" class="pj-note" style="min-height:170px;width:100%"
+          placeholder="Paste the full job description — the tools, technologies and seniority you need."></textarea></div>
+      <div class="field"><label>Only invite candidates scoring at least</label>
+        <select id="hjMin">
+          ${[[50,"50% — cast wide"],[60,"60% — recommended"],[75,"75% — strong fits only"],[85,"85% — near-exact"]]
+            .map(([v,t])=>`<option value="${v}" ${v===60?"selected":""}>${t}</option>`).join("")}
+        </select></div>
+      <button class="btn" id="hjPost">${HIRE.busy?"Posting…":"Post role &amp; invite matches"}</button>
+    </div>
+    ${r?`<div class="card" style="border-color:#4bbf82">
+      <b>✅ ${r.invited} candidate${r.invited===1?"":"s"} invited</b>
+      <div style="font-size:13.5px;color:var(--body);margin-top:6px">
+        ${r.matched} matched your description; ${r.invited} were above your threshold and
+        have been notified. They see the role and their own match score.
+        You'll see names and emails here as they accept.</div>
+      ${r.job_id?`<div style="margin-top:10px"><button class="btn ghost sm" data-hjview="${r.job_id}">See who was invited</button></div>`:""}
+    </div>`:""}
+    <div id="hjOut"></div>`;
+  const b=$("#hjPost");
+  if(b) b.onclick=async()=>{
+    const jd=($("#hjJD").value||"").trim(), title=($("#hjTitle").value||"").trim();
+    if(title.length<2) return toast("Give the role a title.");
+    if(jd.length<40) return toast("Paste the job description — at least a few lines.");
+    b.disabled=true; b.textContent="Posting…";
+    try{
+      HIRE.result=await api.post("/api/hire/jobs",{
+        title, company:($("#hjCo").value||"").trim(), location:($("#hjLoc").value||"").trim(),
+        engagement:$("#hjEng").value, jd, invite_above:+$("#hjMin").value});
+      paintHiringDesk();
+    }catch(e){ toast(e.message); b.disabled=false; b.textContent="Post role & invite matches"; }
+  };
+}
+async function hjViewCandidates(id){
+  const el=$("#hjOut"); if(el) el.innerHTML=`<div class="card" style="color:var(--dim)">Loading…</div>`;
+  try{
+    const d=await api.get("/api/hire/jobs/"+id+"/candidates");
+    el.innerHTML=`<div class="eyebrow">${esc(d.job.title)} — ${d.invited} invited, ${d.accepted} accepted</div>
+      ${(d.candidates||[]).map(c=>`<div class="card" style="margin-bottom:8px">
+        <div class="row" style="gap:12px;align-items:center;flex-wrap:wrap">
+          <b style="font-size:18px;color:${c.score>=80?"#4bbf82":"var(--accent)"}">${c.score}%</b>
+          <div style="flex:1;min-width:180px">
+            ${c.state==="accepted"
+              ? `<b>${esc(c.name)}</b><div style="font-size:13px;color:var(--body)">${esc(c.email)}</div>`
+              : `<span style="color:var(--dim);font-size:13.5px">Candidate ${esc(c.ref.slice(0,6))} — details hidden until they accept</span>`}
+          </div>
+          <span class="pill ${c.state==="accepted"?"ok":""}">${esc(c.state)}</span>
+        </div></div>`).join("")||`<div class="card" style="color:var(--dim)">Nobody invited yet.</div>`}`;
+  }catch(e){ el.innerHTML=`<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; }
+}
+document.addEventListener("click",e=>{
+  const v=e.target.closest("[data-hjview]");
+  if(v){ hjViewCandidates(+v.dataset.hjview); }
+});
+
 async function renderPlans(){
   $("#main").innerHTML=`<div class="h1">⚡ Plans</div><p class="sub">Loading…</p>`;
   if(!BILLING) await loadBilling();
@@ -5188,6 +5308,7 @@ function render(){
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
   else if(v.page==="plans")     renderPlans();
+  else if(v.page==="hiring")    renderHiring();
   else if(v.page==="color")     renderColoring();
   else if(v.page==="studio")    renderStudio();
   else if(v.page==="assignment") renderAssignment(v.aid);
@@ -5244,6 +5365,7 @@ document.addEventListener("click",e=>{
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="resume")    S.view={page:"resume"};
   else if(n==="plans")     S.view={page:"plans"};
+  else if(n==="hiring")    S.view={page:"hiring"};
   else if(n==="color")     S.view={page:"color"};
   else if(n==="studio")    S.view={page:"studio"};
   else if(n==="teacher")   S.view={page:"teacher"};
