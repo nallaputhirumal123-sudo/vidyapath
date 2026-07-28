@@ -2038,7 +2038,8 @@ function askStop(){
 }
 
 /* ---- smart board: one topic, taught a step at a time ---- */
-const SB={topic:"",lesson:null,i:0,busy:false,error:"",trail:[],speaking:false};
+const SB={topic:"",lesson:null,i:0,busy:false,error:"",trail:[],speaking:false,
+          skill:""};   // the gap this lesson was opened to close, if any
 
 /* Drilling down is the whole point: "networking" is not a thing you learn, a
    switch's MAC table is. Each drill keeps the way back, so nobody gets lost
@@ -2079,6 +2080,9 @@ function sbGo(d){
   // Leaving a step mid-sentence should stop the sentence.
   if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
   SB.i=Math.max(0,Math.min(SB.lesson.steps.length-1,SB.i+d));
+  // Reached the end of a lesson opened to close a specific gap: that skill
+  // has been studied, and every job card that named it says so from now on.
+  if(SB.skill && SB.i>=SB.lesson.steps.length-1) skillMark(SB.skill,"done");
   renderAsk();
 }
 /* We draw the diagram ourselves from labels and index pairs. The model never
@@ -3531,6 +3535,32 @@ async function jbUpload(file){
     jbRun("match");                      // straight to results, no second click
   }catch(e){ JB.msg=e.message; jbPaint(); }
 }
+/* ---- studied skills -------------------------------------------------------
+   A gap is only closed when someone has actually been through the lesson, so
+   opening one records "started" and reaching the last step records "done".
+   Marking it done on open would be flattering and false — the whole point of
+   the mark is that it can be trusted the next time a job card says you are
+   missing something. Stored per user in the same notes the rest of the app
+   uses, so it survives the browser. */
+function skillKey(s){ return "sk_"+String(s||"").trim().toLowerCase(); }
+function skillState(s){ return S.notes[skillKey(s)]||""; }
+function skillMark(s,state){
+  if(!s) return;
+  const k=skillKey(s);
+  if(S.notes[k]==="done") return;          // never downgrade a finished skill
+  if(S.notes[k]===state) return;
+  S.notes[k]=state;
+  api.post("/api/note",{key:k,value:state}).catch(()=>{});
+  if(state==="done") toast("✓ "+s+" marked as studied.");
+}
+/* The badge a skill carries wherever it appears. */
+function skillBadge(s){
+  const st=skillState(s);
+  return st==="done" ? `<span style="color:#4bbf82" title="You have been through this">✓</span> `
+       : st==="started" ? `<span style="color:var(--accent)" title="You started this">◔</span> `
+       : "";
+}
+
 /* Alerts are on unless the person turned them off — an empty value means
    nobody has expressed a preference, and someone who uploaded a resume to a
    job board wants to hear about matching jobs. */
@@ -3681,14 +3711,19 @@ function jbCardHTML(j){
         </div>`:""}
         ${why}
         ${chips?`<div class="ask-chips" style="margin-top:8px;gap:5px">${chips}</div>`:""}
-        ${(j.missing&&j.missing.length)?`<div style="margin-top:7px">
+        ${(j.missing&&j.missing.length)?(function(){
+          const done=j.missing.filter(s=>skillState(s)==="done").length;
+          return `<div style="margin-top:7px">
           <div style="font-size:11.5px;color:var(--dim);margin-bottom:4px">
-            Missing for this role — tap to learn it</div>
+            Missing for this role — tap to learn it${done?`
+            <b style="color:#4bbf82">· ${done} of ${j.missing.length} studied</b>`:""}</div>
           <div class="ask-chips" style="gap:5px;margin:0">
             ${j.missing.map(sk=>`<button class="ask-chip"
                data-learnskill="${esc(sk)}" data-forrole="${esc(j.title||"")}"
-               style="font-size:11.5px">${esc(sk)} →</button>`).join("")}
-          </div></div>`:(gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:"")}
+               style="font-size:11.5px${skillState(sk)==="done"
+                 ?";border-color:rgba(75,191,130,.45);background:rgba(75,191,130,.10)":""}"
+               >${skillBadge(sk)}${esc(sk)} →</button>`).join("")}
+          </div></div>`;})():(gaps?`<div style="font-size:11.5px;color:var(--dim);margin-top:6px">Gaps: ${gaps}</div>`:"")}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
         <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener"
@@ -3798,10 +3833,14 @@ function jbResultsHTML(){
          <div class="eyebrow" style="margin:0 0 3px">Learn these to unlock the most jobs</div>
          <div style="font-size:12.5px;color:var(--muted);margin-bottom:9px">
            Counted across the roles you already come close on. Tap any skill and
-           Axle Pro teaches it from zero.</div>
+           Axle Pro teaches it from zero.${(function(){
+             const d=m.top_gaps.filter(g=>skillState(g.skill)==="done").length;
+             return d?` <b style="color:#4bbf82">You have studied ${d} of these.</b>`:"";})()}</div>
          <div class="ask-chips" style="gap:6px;margin:0">
            ${m.top_gaps.map(g=>`<button class="ask-chip" data-learnskill="${esc(g.skill)}"
-             title="Wanted by ${g.jobs} roles you nearly match">${esc(g.skill)}
+             style="${skillState(g.skill)==="done"
+               ?"border-color:rgba(75,191,130,.45);background:rgba(75,191,130,.10)":""}"
+             title="Wanted by ${g.jobs} roles you nearly match">${skillBadge(g.skill)}${esc(g.skill)}
              <b style="color:var(--accent)">${g.jobs}</b></button>`).join("")}
          </div></div>`:""}`
     : `<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px"><b>${m.total||JB.jobs.length}</b> matching jobs · viewing ${from}–${to}</div>`;
@@ -5188,6 +5227,10 @@ document.addEventListener("click",e=>{
       S.view={page:"plans"}; render(); return;
     }
     S.view={page:"ask"}; render();
+    // Remember which gap this lesson is closing, so reaching the end of it
+    // can be recorded against that skill rather than against a topic string.
+    SB.skill=skill;
+    skillMark(skill,"started");
     sbTeach(role ? `${skill} — for a ${role} role, from scratch to job-ready`
                  : `${skill} — from scratch to job-ready`);
     return;
