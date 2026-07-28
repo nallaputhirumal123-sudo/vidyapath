@@ -4626,6 +4626,8 @@ async def _fetch_remotive(client, _=None):
 
 
 async def _fetch_arbeitnow(client, _=None):
+    """Not wired in — see _FREE_AGGREGATORS. Kept because the code is correct;
+    the endpoint is what stopped answering."""
     out = []
     for page in range(1, ARBEITNOW_PAGES + 1):
         r = await client.get(f"https://www.arbeitnow.com/api/job-board-api?page={page}")
@@ -4714,7 +4716,9 @@ async def _fetch_themuse(client, _=None):
 # links; every other one returned 200 across the board. A job that cannot be
 # opened is worse than no job, so the fetcher stays but is not wired in.
 _FREE_AGGREGATORS = {
-    "arbeitnow": _fetch_arbeitnow,
+    # arbeitnow removed: it returned HTTPStatusError on every crawl — the
+    # endpoint no longer answers as documented. The fetcher is kept below,
+    # like themuse's, so re-wiring it is one line if they come back.
     "remotive": _fetch_remotive, "remoteok": _fetch_remoteok,
     "jobicy": _fetch_jobicy, "himalayas": _fetch_himalayas,
 }
