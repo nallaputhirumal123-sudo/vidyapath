@@ -402,6 +402,15 @@ class InviteFile(Base):
     created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
+class SysCounter(Base):
+    """A system-wide counter, keyed by name. Notes cannot hold these — their
+    user_id is NOT NULL — and a paid-API budget belongs to the deployment,
+    not to any one person."""
+    __tablename__ = "sys_counters"
+    k = Column(String(60), primary_key=True)
+    v = Column(Integer, default=0)
+
+
 class JobTrack(Base):
     """A job a user saved or applied to, and where it got to.
 
@@ -4215,6 +4224,38 @@ JOB_RETENTION_DAYS = int(env("JOB_RETENTION_DAYS", "30") or 30)
 # moment. Override with JOB_REFRESH_HOURS if the crawl ever gets expensive.
 JOB_REFRESH_HOURS = float(env("JOB_REFRESH_HOURS", "1") or 1)
 
+# Crawl only during working hours, in the business's own timezone. Employers
+# post during the day, so crawling at 3am buys nothing and — with a metered
+# source like JSearch — costs real money for it.
+#   JOB_ACTIVE_START / JOB_ACTIVE_END : local hours, END is exclusive
+#   JOB_TZ_OFFSET                     : hours from UTC (-5 = US Central, CDT)
+# Set JOB_ACTIVE_START == JOB_ACTIVE_END to crawl around the clock.
+JOB_ACTIVE_START = int(env("JOB_ACTIVE_START", "6") or 6)
+JOB_ACTIVE_END = int(env("JOB_ACTIVE_END", "17") or 17)
+JOB_TZ_OFFSET = float(env("JOB_TZ_OFFSET", "-5") or -5)
+
+
+def _crawl_window_wait():
+    """Seconds to wait before the next crawl.
+
+    Returns 0 when we are inside the window — the caller then sleeps its normal
+    interval. Outside it, returns the time until the window opens, so the loop
+    parks instead of waking hourly to do nothing.
+    """
+    if JOB_ACTIVE_START == JOB_ACTIVE_END:
+        return 0.0
+    local = now() + dt.timedelta(hours=JOB_TZ_OFFSET)
+    h = local.hour
+    inside = (JOB_ACTIVE_START <= h < JOB_ACTIVE_END
+              if JOB_ACTIVE_START < JOB_ACTIVE_END
+              else (h >= JOB_ACTIVE_START or h < JOB_ACTIVE_END))  # window over midnight
+    if inside:
+        return 0.0
+    nxt = local.replace(hour=JOB_ACTIVE_START, minute=0, second=0, microsecond=0)
+    if nxt <= local:
+        nxt += dt.timedelta(days=1)
+    return max(60.0, (nxt - local).total_seconds())
+
 # Board tokens. A company that renames or leaves its ATS simply stops
 # returning rows — the fetcher skips it silently and the rest still work.
 # Extend without touching code: JOB_GREENHOUSE="stripe,figma,..." etc.
@@ -4622,6 +4663,26 @@ JSEARCH_QUERIES = [q.strip() for q in (env(
 # posting missed this crawl is picked up four hours later, which for a
 # job board is no difference at all.
 JSEARCH_PER_CRAWL = int(env("JSEARCH_PER_CRAWL", "14") or 14)
+# A hard monthly ceiling on paid requests. The arithmetic today lands around
+# 4,600 a month, well inside a 50,000 plan — but one raised page count or a
+# shortened refresh interval multiplies it, and an overage is discovered on a
+# bill rather than in a log. Counted in the database so a redeploy does not
+# reset it mid-month.
+JSEARCH_MONTHLY_CAP = int(env("JSEARCH_MONTHLY_CAP", "40000") or 40000)
+
+
+def _jsearch_used(db, add=0):
+    """Requests made this calendar month, optionally adding to the count."""
+    k = f"jsearch_{now().strftime('%Y%m')}"
+    row = db.get(SysCounter, k)
+    if row is None:
+        row = SysCounter(k=k, v=0)
+        db.add(row)
+        db.commit()
+    if add:
+        row.v = (row.v or 0) + add
+        db.commit()
+    return row.v or 0
 _JSEARCH_CURSOR = 0
 
 
@@ -4944,13 +5005,30 @@ async def _collect_jobs():
             report["jooble"] = "skipped (no JOOBLE_KEY)"
 
         if JSEARCH_KEY:
-            for cc in [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]:
+            _db = SessionLocal()
+            try:
+                used = _jsearch_used(_db)
+            finally:
+                _db.close()
+            if used >= JSEARCH_MONTHLY_CAP:
+                report["jsearch"] = (f"skipped: monthly cap reached "
+                                     f"({used}/{JSEARCH_MONTHLY_CAP})")
+                JSEARCH_QUERIES_THIS_RUN = []
+            else:
+                JSEARCH_QUERIES_THIS_RUN = None
+            for cc in ([] if used >= JSEARCH_MONTHLY_CAP
+                       else [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]):
                 for q in _jsearch_slice():
                     key = f"jsearch:{cc}:{q}"
                     try:
                         got = [r for r in await _fetch_jsearch(client, q, cc) if r]
                         rows += got
                         report[key] = len(got)
+                        _db = SessionLocal()
+                        try:
+                            _jsearch_used(_db, add=JSEARCH_PAGES)
+                        finally:
+                            _db.close()
                     except Exception as e:
                         report[key] = f"{type(e).__name__}"
                         # A paid plan that has run out returns 429. Stop the
@@ -5300,9 +5378,14 @@ def admin_renewals_run(user: User = Depends(admin_user)):
 
 
 async def _jobs_loop():
-    """Refresh on boot, then once a day. One instance, no extra dependency."""
+    """Crawl on the interval, but only inside the active window."""
     import asyncio
     while True:
+        wait = _crawl_window_wait()
+        if wait:
+            print(f"jobs: outside the crawl window, sleeping {wait/3600:.1f}h")
+            await asyncio.sleep(wait)
+            continue
         try:
             await _refresh_jobs()
         except Exception as e:
