@@ -417,6 +417,18 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   display:flex;gap:10px;align-items:flex-start;animation:askChalk .5s ease both;
   padding:3px 8px;border-radius:7px;transition:background .25s,box-shadow .25s}
 .ask-line b{color:#ffe6a1}
+.sb-code{background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;padding:11px 13px;margin:9px 0;overflow-x:auto;
+  font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13.5px;
+  line-height:1.6;color:#d9f7e6;white-space:pre}
+.sb-lang{display:inline-block;font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:#8fe3b0;margin-bottom:5px}
+.sb-dia{margin:10px 0}
+.sb-step{margin-bottom:6px}
+.sb-nav{display:flex;gap:8px;align-items:center;justify-content:center;
+  margin-top:12px;flex-wrap:wrap}
+.sb-dot{width:7px;height:7px;border-radius:99px;background:rgba(255,255,255,.25)}
+.sb-dot.on{background:#ffe6a1;transform:scale(1.35)}
 .ask-bullet{color:#8fe3b0;font-size:19px}
 .ask-line.spoken,.ask-take.spoken{background:rgba(255,230,161,.16);box-shadow:inset 3px 0 0 #ffe6a1}
 .ask-take{margin-top:15px;font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:20px;color:#ffd98a;
@@ -1845,6 +1857,74 @@ function askStop(){
   renderAsk();
 }
 
+/* ---- smart board: one topic, taught a step at a time ---- */
+const SB={topic:"",lesson:null,i:0,busy:false,error:""};
+
+async function sbTeach(topic){
+  SB.topic=(topic||"").trim(); SB.lesson=null; SB.i=0; SB.error=""; SB.busy=true;
+  renderAsk();
+  try{
+    const r=await api.post("/api/board/lesson",{topic:SB.topic,level:ASK.level||"Intermediate"});
+    SB.lesson=r.lesson; SB.i=0;
+  }catch(e){ SB.error=e.message||"Could not build that lesson."; }
+  SB.busy=false; renderAsk();
+}
+function sbGo(d){
+  if(!SB.lesson) return;
+  SB.i=Math.max(0,Math.min(SB.lesson.steps.length-1,SB.i+d));
+  renderAsk();
+}
+/* We draw the diagram ourselves from labels and index pairs. The model never
+   sends markup — anything it authored going into innerHTML would be a stored
+   XSS hole, and a teaching board is the last place to open one. */
+function sbDiagramHTML(d){
+  if(!d||!d.nodes||d.nodes.length<2) return "";
+  const n=d.nodes.length, W=680, boxW=Math.min(150,Math.floor((W-40)/n)-14),
+        boxH=46, gap=(W-n*boxW)/(n+1), y=26;
+  const boxes=d.nodes.map((label,k)=>{
+    const x=gap+k*(boxW+gap);
+    const short=label.length>18?label.slice(0,17)+"…":label;
+    return `<g><rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="8"
+        fill="rgba(255,255,255,.07)" stroke="#8fe3b0" stroke-width="1.5"/>
+      <text x="${x+boxW/2}" y="${y+boxH/2+4}" text-anchor="middle"
+        font-size="12.5" fill="#eafff2">${esc(short)}</text></g>`;
+  }).join("");
+  const arrows=(d.edges||[]).map(e=>{
+    const ax=gap+e.from*(boxW+gap)+boxW, bx=gap+e.to*(boxW+gap);
+    const mid=(ax+bx)/2, yy=y+boxH/2;
+    if(e.to<e.from) return "";                 // only draw forward flow
+    return `<g><line x1="${ax+4}" y1="${yy}" x2="${bx-9}" y2="${yy}"
+        stroke="#ffe6a1" stroke-width="1.6"/>
+      <polygon points="${bx-9},${yy-4} ${bx-1},${yy} ${bx-9},${yy+4}" fill="#ffe6a1"/>
+      ${e.label?`<text x="${mid}" y="${yy-8}" text-anchor="middle" font-size="11"
+         fill="#ffd98a">${esc(e.label)}</text>`:""}</g>`;
+  }).join("");
+  return `<div class="sb-dia"><svg viewBox="0 0 ${W} ${y+boxH+22}"
+    style="width:100%;height:auto" role="img" aria-label="diagram">
+    ${arrows}${boxes}</svg></div>`;
+}
+function sbBoardHTML(){
+  if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
+  if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
+  const l=SB.lesson; if(!l) return "";
+  const st=l.steps[SB.i]||{};
+  return `<h3 class="ask-title">${esc(l.title)}</h3>
+    <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
+      Step ${SB.i+1} of ${l.steps.length}</div>
+    ${st.t?`<div class="ask-line sb-step"><span>${esc(st.t)}</span></div>`:""}
+    ${st.code?`<div>${st.lang?`<span class="sb-lang">${esc(st.lang)}</span>`:""}
+       <div class="sb-code">${esc(st.code)}</div></div>`:""}
+    ${sbDiagramHTML(st.diagram)}
+    ${SB.i===l.steps.length-1&&l.takeaway
+      ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
+    <div class="sb-nav">
+      <button class="btn ghost sm" data-sb="prev" ${SB.i===0?"disabled":""}>← Back</button>
+      ${l.steps.map((_,k)=>`<span class="sb-dot ${k===SB.i?"on":""}"></span>`).join("")}
+      <button class="btn ghost sm" data-sb="next"
+        ${SB.i>=l.steps.length-1?"disabled":""}>Next →</button>
+    </div>`;
+}
+
 /* Split a long answer into board-sized slides. */
 function askBuildSlides(l){
   const pages=[];
@@ -2152,7 +2232,7 @@ function renderAsk(){
 
   <div class="ask-stage">
     <div style="flex:1;min-width:0">
-      <div class="ask-frame"><div class="ask-board" id="askBoard">${askBoardHTML()}</div></div>
+      <div class="ask-frame"><div class="ask-board" id="askBoard">${SB.lesson||SB.busy||SB.error?sbBoardHTML():askBoardHTML()}</div></div>
       <div class="ask-tray"><span class="ask-chalk"></span><span class="ask-chalk y"></span></div>
       <div class="ask-slidebar" id="askSlideBar" style="display:${hasLesson&&a.slides.length>1?"flex":"none"}">
         <button class="ask-sbtn" data-ask="prevslide" title="Previous slide">‹</button>
@@ -2185,6 +2265,7 @@ function renderAsk(){
     </div>
     <div class="ask-tools">
       ${samples.map(q=>`<button class="ask-samp" data-ask="sample" data-val="${esc(q)}" ${a.loading||a.speaking?"disabled":""}>${esc(q)}</button>`).join("")}
+      <button class="ask-chip" data-ask="smartboard" title="Teach this topic step by step">✨ Teach me step by step</button>
       <label class="ask-toggle" data-ask="voicetoggle"><span class="ask-sw ${a.voiceOn?"on":""}"><i></i></span> Voice ${a.voiceOn?"on":"off"}</label>
     </div>
     ${a.error?`<div class="ask-err">${esc(a.error)}</div>`:""}
@@ -2219,6 +2300,11 @@ document.addEventListener("click",e=>{
   else if(kind==="send"){ askSubmit(); }
   else if(kind==="stop"){ askStop(); }
   else if(kind==="voice"){ askVoiceInput(); }
+  else if(kind==="smartboard"){
+    const t=(ASK.question||"").trim()||(document.getElementById("askQ")||{}).value||"";
+    if(!t.trim()) return toast("Type what you want to learn first.");
+    sbTeach(t);
+  }
   else if(kind==="voicetoggle"){
     ASK.voiceOn=!ASK.voiceOn;
     /* Turning it off has to silence what is ALREADY speaking. Flipping the
@@ -4459,6 +4545,10 @@ async function hjViewCandidates(id){
         </div></div>`).join("")||`<div class="card" style="color:var(--dim)">Nobody invited yet.</div>`}`;
   }catch(e){ el.innerHTML=`<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; }
 }
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-sb]");
+  if(b) sbGo(b.dataset.sb==="next"?1:-1);
+});
 document.addEventListener("change",e=>{
   if(e.target && e.target.id==="chatFile" && e.target.files[0]) jbAttach(e.target.files[0]);
 });

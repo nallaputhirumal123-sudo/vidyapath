@@ -6331,6 +6331,115 @@ class JobMatchIn(BaseModel):
     posted: str = Field(default="", max_length=4)
 
 
+class BoardIn(BaseModel):
+    topic: str = Field(min_length=2, max_length=200)
+    level: str = Field(default="Intermediate", max_length=20)
+
+
+def _board_prompt(topic: str, level: str) -> str:
+    return (
+        f"You are Axle, teaching at a board. Topic: {topic}. Learner level: "
+        f"{level}.\n\n"
+        "Teach it as a sequence of steps that build on each other, the way a "
+        "good teacher works through a board: one idea per step, in order, "
+        "nothing assumed that has not already been shown.\n\n"
+        "Where a step is best shown as code, include runnable code. Where it "
+        "is best shown as a picture, include a SIMPLE diagram as boxes and "
+        "arrows — never as SVG or markup.\n\n"
+        "Respond with ONLY valid JSON, no markdown fences, in exactly this "
+        "shape:\n"
+        '{"title":"<topic in 2-6 words>",'
+        '"steps":[{"t":"<one short paragraph explaining this step>",'
+        '"code":"<runnable code, or empty>",'
+        '"lang":"python|javascript|sql|bash|",'
+        '"diagram":{"nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
+        '"takeaway":"<one sentence to remember>"}\n\n'
+        "6 to 12 steps. Omit code or diagram where they do not help — an "
+        "empty string and an empty object are correct. Diagram nodes are "
+        "PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
+        "using node positions."
+    )
+
+
+def _clean_board(d, topic):
+    """Validate the model's lesson into something safe to render.
+
+    Diagrams arrive as plain labels and index pairs, never as markup: the
+    board renders them itself. A model that returns SVG or HTML here would be
+    handing us a stored-XSS payload to inject into another user's page.
+    """
+    def txt(v, n=1200):
+        return str(v or "").strip()[:n]
+
+    steps = []
+    for raw in (d.get("steps") or [])[:14]:
+        if not isinstance(raw, dict):
+            continue
+        dia = raw.get("diagram") or {}
+        nodes, edges = [], []
+        if isinstance(dia, dict):
+            nodes = [txt(x, 40) for x in (dia.get("nodes") or [])[:6] if txt(x, 40)]
+            for e in (dia.get("edges") or [])[:8]:
+                try:
+                    a, b = int(e[0]), int(e[1])
+                except Exception:
+                    continue
+                if 0 <= a < len(nodes) and 0 <= b < len(nodes) and a != b:
+                    edges.append({"from": a, "to": b,
+                                  "label": txt(e[2] if len(e) > 2 else "", 24)})
+        lang = txt(raw.get("lang"), 12).lower()
+        steps.append({
+            "t": txt(raw.get("t")),
+            "code": txt(raw.get("code"), 2000),
+            "lang": lang if lang in ("python", "javascript", "sql", "bash") else "",
+            "diagram": ({"nodes": nodes, "edges": edges} if len(nodes) >= 2 else None),
+        })
+    steps = [x for x in steps if x["t"] or x["code"]]
+    return {"title": txt(d.get("title"), 80) or topic[:80],
+            "steps": steps,
+            "takeaway": txt(d.get("takeaway"), 300)}
+
+
+@app.post("/api/board/lesson")
+async def board_lesson(body: BoardIn, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """A step-by-step lesson on any topic, for the smart board.
+
+    Paid: it is a per-request model call on an arbitrary topic, which is
+    exactly the kind of cost that cannot be given away.
+    """
+    require_paid(user, "The smart board")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    topic = body.topic.strip()
+    level = body.level.strip() or "Intermediate"
+
+    # Cached like Ask Axle: the same topic at the same level is the same
+    # lesson, and the second person to ask should not cost anything.
+    qkey = f"board|{_norm_q(level)}|{_norm_q(topic)}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"lesson": json.loads(row.lesson), "cached": True}
+
+    _ai_enforce_limit(db, user)
+    try:
+        text = await _ai_text(_board_prompt(topic, level), 2600, json_mode=True)
+        lesson = _clean_board(_ai_json(text), topic)
+    except Exception as e:
+        print(f"Smart board failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not lesson["steps"]:
+        raise HTTPException(502, "That came back empty — try naming the topic "
+                                 "more specifically.")
+    _ai_bump(db, user)
+    db.add(AskCache(qkey=qkey, subject="board", level=level,
+                    question=topic[:2000], lesson=json.dumps(lesson), hits=0))
+    db.commit()
+    return {"lesson": lesson, "cached": False}
+
+
 @app.post("/api/jobs/match")
 def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
                db: Session = Depends(get_db)):
