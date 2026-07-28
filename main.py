@@ -4472,7 +4472,12 @@ async def _fetch_recruitee(client, token):
     return out
 
 
-WORKDAY_PAGES = int(env("WORKDAY_PAGES", "15") or 15)   # 20 postings a page
+# 20 postings a page. Every tenant was returning exactly 300 — the cap, not
+# the real count. Large US employers list far more than that, and Workday is
+# where the non-startup and contract roles are, so this was truncating the
+# most valuable source. The fetcher stops early when a page comes back short,
+# so a small tenant costs nothing extra.
+WORKDAY_PAGES = int(env("WORKDAY_PAGES", "50") or 50)
 
 
 async def _fetch_workday(client, token):
@@ -4543,6 +4548,10 @@ _FETCHERS = {"greenhouse": _fetch_greenhouse, "lever": _fetch_lever,
 ADZUNA_APP_ID = env("ADZUNA_APP_ID")
 ADZUNA_APP_KEY = env("ADZUNA_APP_KEY")
 JOOBLE_KEY = env("JOOBLE_KEY")
+# Jooble returns 20 per page and only ever served page 1, which is why it
+# contributed 20 rows a country. It is one of only two sources that reach
+# staffing and contract work, so it is worth paging properly.
+JOOBLE_PAGES = int(env("JOOBLE_PAGES", "10") or 10)
 
 # Adzuna country codes. Override with ADZUNA_COUNTRIES="in,gb,us".
 # Default to the countries the board actually keeps. Fetching the other
@@ -4712,17 +4721,23 @@ _FREE_AGGREGATORS = {
 
 
 async def _fetch_jooble(client, country):
-    r = await client.post(f"https://jooble.org/api/{JOOBLE_KEY}",
-                          json={"keywords": "", "location": country, "page": "1"})
-    r.raise_for_status()
     out = []
-    for j in (r.json().get("jobs") or []):
-        row = _job_row("jooble", j.get("id") or j.get("link"), j.get("title"),
-                       j.get("company", ""), j.get("location", "") or country,
-                       j.get("link", ""), j.get("snippet", ""), _ts(j.get("updated")))
-        if row:
-            row["country"] = row["country"] or country
-            out.append(row)
+    for page in range(1, JOOBLE_PAGES + 1):
+        r = await client.post(f"https://jooble.org/api/{JOOBLE_KEY}",
+                              json={"keywords": "", "location": country,
+                                    "page": str(page)})
+        r.raise_for_status()
+        jobs = r.json().get("jobs") or []
+        if not jobs:
+            break              # ran out before the page limit
+        for j in jobs:
+            row = _job_row("jooble", j.get("id") or j.get("link"), j.get("title"),
+                           j.get("company", ""), j.get("location", "") or country,
+                           j.get("link", ""), j.get("snippet", ""),
+                           _ts(j.get("updated")))
+            if row:
+                row["country"] = row["country"] or country
+                out.append(row)
     return out
 
 
