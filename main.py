@@ -201,6 +201,12 @@ class User(Base):
     # already has rows, so existing users would silently miss the column.
     # Read it through open_to_work_on(), which treats NULL as off.
     open_to_work = Column(Boolean, default=False)
+    # Employer access is applied for and approved, never self-granted. Anyone
+    # who could tick a box at signup could see candidate profiles, and the
+    # whole promise to candidates rests on who is on the other side.
+    employer_status = Column(String(12), default="")     # "" | pending | approved
+    employer_company = Column(String(200), default="")
+    employer_site = Column(String(300), default="")
     open_to_work_at = Column(DateTime(timezone=True))
     plan_ref = Column(String(120), default="")              # subscription id
     plan_expires = Column(DateTime(timezone=True))
@@ -6104,6 +6110,20 @@ def job_track(body: TrackIn2, user: User = Depends(current_user),
 #      the candidate decides. That protects the user and is worth more to the
 #      employer than a list they could have scraped.
 
+def employer_user(user: User = Depends(current_user)) -> User:
+    """Whoever may search candidates: an approved employer, or an admin.
+
+    Deliberately separate from admin_user — an employer must never inherit
+    admin powers just because both can reach the hiring endpoints.
+    """
+    if getattr(user, "is_admin", False):
+        return user
+    if (getattr(user, "employer_status", "") or "") == "approved":
+        return user
+    raise HTTPException(403, "Employer access is needed for this. Apply from "
+                             "your account and we will review it.")
+
+
 def open_to_work_on(u) -> bool:
     return bool(getattr(u, "open_to_work", False))
 
@@ -6136,7 +6156,7 @@ def _candidate_score(jd_skills, jd_fams, jd_level, r_skills, r_fams, r_level):
 
 
 @app.post("/api/hire/search")
-def hire_search(body: HireSearchIn, user: User = Depends(admin_user),
+def hire_search(body: HireSearchIn, user: User = Depends(employer_user),
                 db: Session = Depends(get_db)):
     """Rank opted-in candidates against a job description.
 
@@ -6231,7 +6251,7 @@ def _match_candidates(db, jd, engagement=""):
 
 
 @app.post("/api/hire/jobs")
-def hire_create_job(body: EmployerJobIn, user: User = Depends(admin_user),
+def hire_create_job(body: EmployerJobIn, user: User = Depends(employer_user),
                     db: Session = Depends(get_db)):
     """Post a role and invite the candidates who match it.
 
@@ -6277,7 +6297,7 @@ def hire_create_job(body: EmployerJobIn, user: User = Depends(admin_user),
 
 
 @app.get("/api/hire/jobs/{job_id}/candidates")
-def hire_job_candidates(job_id: int, user: User = Depends(admin_user),
+def hire_job_candidates(job_id: int, user: User = Depends(employer_user),
                         db: Session = Depends(get_db)):
     """Who was invited, and who said yes. Contact details appear only for
     candidates who accepted — that is the whole bargain."""
@@ -6343,6 +6363,64 @@ def answer_invite(invite_id: int, body: InviteAnswerIn,
                        "employer for this role only."
                        if body.accept else
                        "Declined. The employer is not told who declined."}
+
+
+class EmployerApplyIn(BaseModel):
+    company: str = Field(min_length=2, max_length=200)
+    site: str = Field(default="", max_length=300)
+
+
+@app.post("/api/employer/apply")
+def employer_apply(body: EmployerApplyIn, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    """Ask for employer access. Approval is manual and that is the point."""
+    u = db.get(User, user.id)
+    if (u.employer_status or "") == "approved":
+        return {"ok": True, "status": "approved",
+                "message": "You already have employer access."}
+    u.employer_status = "pending"
+    u.employer_company = body.company.strip()
+    u.employer_site = body.site.strip()
+    db.commit()
+    return {"ok": True, "status": "pending",
+            "message": "Thanks — we review every employer by hand before "
+                       "granting access to candidate profiles. We will email "
+                       "you when it is done."}
+
+
+@app.get("/api/employer/me")
+def employer_me(user: User = Depends(current_user)):
+    return {"status": ("approved" if getattr(user, "is_admin", False)
+                       else (user.employer_status or "")),
+            "company": user.employer_company or "",
+            "site": user.employer_site or ""}
+
+
+@app.get("/api/admin/employers")
+def admin_employers(user: User = Depends(admin_user), db: Session = Depends(get_db)):
+    rows = db.query(User).filter(User.employer_status.in_(("pending", "approved"))).all()
+    return {"employers": [{"id": u.id, "name": u.name, "email": u.email,
+                           "company": u.employer_company or "",
+                           "site": u.employer_site or "",
+                           "status": u.employer_status or ""} for u in rows]}
+
+
+class EmployerDecideIn(BaseModel):
+    approve: bool
+
+
+@app.post("/api/admin/employers/{user_id}")
+def admin_decide_employer(user_id: int, body: EmployerDecideIn,
+                          user: User = Depends(admin_user),
+                          db: Session = Depends(get_db)):
+    """Approve or refuse employer access. Refusing clears it entirely rather
+    than leaving a rejected flag around, so re-applying is possible."""
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "No such user")
+    u.employer_status = "approved" if body.approve else ""
+    db.commit()
+    return {"ok": True, "status": u.employer_status or "none"}
 
 
 class OpenToWorkIn(BaseModel):
