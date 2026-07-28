@@ -4596,9 +4596,45 @@ JSEARCH_KEY = env("JSEARCH_KEY") or env("RAPIDAPI_KEY")
 JSEARCH_PAGES = int(env("JSEARCH_PAGES", "1") or 1)
 JSEARCH_QUERIES = [q.strip() for q in (env(
     "JSEARCH_QUERIES",
-    "software engineer,devops engineer,data engineer,cyber security analyst,"
-    "cloud engineer,network engineer,qa engineer,it support") or "").split(",")
-    if q.strip()]
+    "cloud infrastructure engineer,enterprise architect,cloud solutions"
+    " architect,network security engineer,systems administrator,virtual"
+    "ization engineer,it infrastructure manager,data center technician,"
+    "storage engineer,migration specialist,devops engineer,site reliabi"
+    "lity engineer,release manager,build automation engineer,platform e"
+    "ngineer,kubernetes administrator,ci cd pipeline architect,full sta"
+    "ck developer,backend engineer,frontend developer,mobile developer,"
+    "api integration specialist,embedded systems engineer,game develope"
+    "r,cms developer,machine learning engineer,ai prompt engineer,data "
+    "scientist,data engineer,database administrator,big data architect,"
+    "business intelligence analyst,nlp engineer,cybersecurity analyst,p"
+    "enetration tester,soc analyst,identity access management engineer,"
+    "information security manager,cloud security architect,it complianc"
+    "e auditor,technical product manager,scrum master,agile coach,ui ux"
+    " designer,technical writer,systems analyst,business analyst,"
+    "qa automation engineer,"
+    "it project manager,help desk technician,it support specialist,appl"
+    "ication support analyst,desktop support engineer,incident manager"
+    ) or "").split(",") if q.strip()]
+
+# 53 titles is far more than one crawl should pay for, so each crawl takes
+# the next slice and the list wraps. Every title is still covered every
+# day at JOB_REFRESH_HOURS=6, at a quarter of the request cost — and a
+# posting missed this crawl is picked up four hours later, which for a
+# job board is no difference at all.
+JSEARCH_PER_CRAWL = int(env("JSEARCH_PER_CRAWL", "14") or 14)
+_JSEARCH_CURSOR = 0
+
+
+def _jsearch_slice():
+    """The queries this crawl should run, advancing the cursor."""
+    global _JSEARCH_CURSOR
+    qs = JSEARCH_QUERIES
+    if not qs:
+        return []
+    n = max(1, min(JSEARCH_PER_CRAWL, len(qs)))
+    out = [qs[(_JSEARCH_CURSOR + i) % len(qs)] for i in range(n)]
+    _JSEARCH_CURSOR = (_JSEARCH_CURSOR + n) % len(qs)
+    return out
 # Jooble returns 20 per page and only ever served page 1, which is why it
 # contributed 20 rows a country. It is one of only two sources that reach
 # staffing and contract work, so it is worth paging properly.
@@ -4611,7 +4647,7 @@ JOOBLE_PAGES = int(env("JOOBLE_PAGES", "10") or 10)
 # gone before US or Canada were reached. Widen this only alongside
 # JOB_COUNTRIES.
 ADZUNA_COUNTRIES = env("ADZUNA_COUNTRIES",
-                       "us,ca").split(",")
+                       "us").split(",")
 # 50 results per page. Adzuna is the only source returning contract and
 # staffing work, so it is worth pulling deeply — but it is rate limited, so
 # the depth has to stay inside the free tier. The arithmetic, at the current
@@ -4909,7 +4945,7 @@ async def _collect_jobs():
 
         if JSEARCH_KEY:
             for cc in [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]:
-                for q in JSEARCH_QUERIES:
+                for q in _jsearch_slice():
                     key = f"jsearch:{cc}:{q}"
                     try:
                         got = [r for r in await _fetch_jsearch(client, q, cc) if r]
@@ -4945,7 +4981,7 @@ RETIRED_SOURCES = ("themuse",)
 # and the product, design, support and QA roles around them — not every job in
 # every industry.
 ALLOWED_COUNTRIES = {c.strip().upper() for c in
-                     (env("JOB_COUNTRIES", "US,CA") or "US,CA").split(",") if c.strip()}
+                     (env("JOB_COUNTRIES", "US") or "US").split(",") if c.strip()}
 ALLOWED_FAMILIES = {f.strip().lower() for f in
                     (env("JOB_FAMILIES",
                          "network,security,sysadmin,devops,backend,frontend,"
@@ -5331,7 +5367,8 @@ _ROLE_FAMILIES = {
                 "routing", "switching", "bgp", "ospf", "sd-wan", "f5 ",
                 "load balancer", "juniper", "palo alto", "network security"),
     "security": ("security engineer", "security analyst", "soc analyst",
-                 "penetration test", "penetration testing", "pentest",
+                 "penetration test", "penetration testing", "penetration tester",
+                 "pentest",
                  "pentester", "pen tester", "ethical hack", "red team",
                  "offensive security", "infosec", "appsec", "netsec",
                  "vulnerability", "threat", "cybersecurity", "cyber security",
@@ -5355,7 +5392,9 @@ _ROLE_FAMILIES = {
            "applied scientist"),
     "qa": ("qa engineer", "quality assurance", "test engineer", "sdet",
            "automation engineer", "test automation"),
-    "product": ("product manager", "product owner", "program manager",
+    "product": ("business analyst", "systems analyst",
+                "business systems analyst", "it project manager",
+                "product manager", "product owner", "program manager",
                 "technical program", "product lead"),
     "design": ("designer", "ux ", "ui/ux", "product design", "graphic design"),
     "sales": ("account executive", "account manager", "sales ", "business development",
@@ -5375,7 +5414,10 @@ _ROLE_FAMILIES = {
                    "inventory", "fulfilment", "fulfillment", "dispatch"),
     "admin": ("administrative assistant", "office manager", "executive assistant",
               "receptionist", "data entry", "office administrator", "coordinator"),
-    "consulting": ("consultant", "business analyst", "strategy ", "management associate"),
+    # "business analyst" lives in "product" now, not here. A BA on a technical
+    # team is in scope; leaving the phrase in an out-of-scope family meant
+    # every one of them was fetched and then binned at ingestion.
+    "consulting": ("consultant", "strategy ", "management associate"),
     "healthcare": ("nurse", "physician", "clinical", "pharmacist", "medical ",
                    "healthcare", "therapist", "radiolog", "dental"),
     "education": ("teacher", "lecturer", "professor", "tutor", "instructor",
