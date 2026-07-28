@@ -4666,6 +4666,10 @@ JOOBLE_KEY = env("JOOBLE_KEY")
 # crawl, 64 a day at JOB_REFRESH_HOURS=6. Raise JSEARCH_PAGES only if the plan
 # has room — it multiplies everything.
 JSEARCH_KEY = env("JSEARCH_KEY") or env("RAPIDAPI_KEY")
+# Override if the provider moves or you switch back to the RapidAPI
+# listing, which needs X-RapidAPI-Key / X-RapidAPI-Host instead.
+JSEARCH_BASE = env("JSEARCH_BASE",
+                   "https://api.openwebninja.com/jsearch/search-v2")
 JSEARCH_PAGES = int(env("JSEARCH_PAGES", "1") or 1)
 JSEARCH_QUERIES = [q.strip() for q in (env(
     "JSEARCH_QUERIES",
@@ -4928,13 +4932,16 @@ async def _fetch_jooble(client, country):
 async def _fetch_jsearch(client, query, cc):
     """One query, one country, from JSearch on RapidAPI."""
     out = []
+    # Open Web Ninja serves JSearch directly. It is the same payload shape as
+    # the RapidAPI listing, but a different host and a plain X-API-Key — which
+    # is why the RapidAPI headers produced errors while the dashboard still
+    # read zero requests: the calls were refused before they were ever metered.
     r = await client.get(
-        "https://jsearch.p.rapidapi.com/search",
+        JSEARCH_BASE,
         params={"query": f"{query} in {cc}", "page": "1",
                 "num_pages": str(JSEARCH_PAGES), "country": cc.lower(),
                 "date_posted": "week"},
-        headers={"X-RapidAPI-Key": JSEARCH_KEY,
-                 "X-RapidAPI-Host": "jsearch.p.rapidapi.com"})
+        headers={"X-API-Key": JSEARCH_KEY})
     if r.status_code >= 300:
         # RapidAPI says WHY in the body — wrong key, not subscribed, quota
         # gone — and a bare HTTPStatusError threw that away. 401/403/429 need
