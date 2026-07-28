@@ -4585,6 +4585,20 @@ _FETCHERS = {"greenhouse": _fetch_greenhouse, "lever": _fetch_lever,
 ADZUNA_APP_ID = env("ADZUNA_APP_ID")
 ADZUNA_APP_KEY = env("ADZUNA_APP_KEY")
 JOOBLE_KEY = env("JOOBLE_KEY")
+
+# JSearch (RapidAPI) aggregates Google for Jobs, which reaches the staffing and
+# contract listings company ATS boards never carry. It is PAID and metered per
+# request, so the cost is spelled out here: one request per query per country
+# per page. The defaults are 8 queries x 2 countries x 1 page = 16 requests a
+# crawl, 64 a day at JOB_REFRESH_HOURS=6. Raise JSEARCH_PAGES only if the plan
+# has room — it multiplies everything.
+JSEARCH_KEY = env("JSEARCH_KEY") or env("RAPIDAPI_KEY")
+JSEARCH_PAGES = int(env("JSEARCH_PAGES", "1") or 1)
+JSEARCH_QUERIES = [q.strip() for q in (env(
+    "JSEARCH_QUERIES",
+    "software engineer,devops engineer,data engineer,cyber security analyst,"
+    "cloud engineer,network engineer,qa engineer,it support") or "").split(",")
+    if q.strip()]
 # Jooble returns 20 per page and only ever served page 1, which is why it
 # contributed 20 rows a country. It is one of only two sources that reach
 # staffing and contract work, so it is worth paging properly.
@@ -4782,6 +4796,34 @@ async def _fetch_jooble(client, country):
     return out
 
 
+async def _fetch_jsearch(client, query, cc):
+    """One query, one country, from JSearch on RapidAPI."""
+    out = []
+    r = await client.get(
+        "https://jsearch.p.rapidapi.com/search",
+        params={"query": f"{query} in {cc}", "page": "1",
+                "num_pages": str(JSEARCH_PAGES), "country": cc.lower(),
+                "date_posted": "week"},
+        headers={"X-RapidAPI-Key": JSEARCH_KEY,
+                 "X-RapidAPI-Host": "jsearch.p.rapidapi.com"})
+    r.raise_for_status()
+    for j in (r.json().get("data") or []):
+        loc = ", ".join(x for x in (j.get("job_city"), j.get("job_state")) if x)               or j.get("job_country") or ""
+        row = _job_row("jsearch", j.get("job_id"), j.get("job_title"),
+                       j.get("employer_name", ""), loc,
+                       j.get("job_apply_link", ""),
+                       j.get("job_description", ""),
+                       _ts(j.get("job_posted_at_datetime_utc")))
+        if row:
+            # JSearch reports the country properly, so trust it over whatever
+            # the free-text location parser guesses.
+            row["country"] = j.get("job_country") or row["country"]
+            if j.get("job_is_remote"):
+                row["remote"] = True
+            out.append(row)
+    return out
+
+
 async def _collect_jobs():
     """Hit every configured board once.
 
@@ -4864,6 +4906,28 @@ async def _collect_jobs():
                     report[f"jooble:{cname}"] = f"{type(e).__name__}"
         else:
             report["jooble"] = "skipped (no JOOBLE_KEY)"
+
+        if JSEARCH_KEY:
+            for cc in [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]:
+                for q in JSEARCH_QUERIES:
+                    key = f"jsearch:{cc}:{q}"
+                    try:
+                        got = [r for r in await _fetch_jsearch(client, q, cc) if r]
+                        rows += got
+                        report[key] = len(got)
+                    except Exception as e:
+                        report[key] = f"{type(e).__name__}"
+                        # A paid plan that has run out returns 429. Stop the
+                        # whole source rather than burning the rest of the
+                        # queries against a quota that is already gone.
+                        if "429" in str(e) or "TooManyRequests" in type(e).__name__:
+                            report["jsearch"] = "stopped: rate limited"
+                            break
+                else:
+                    continue
+                break
+        else:
+            report["jsearch"] = "skipped (no JSEARCH_KEY)"
     return rows, report, reached
 
 
