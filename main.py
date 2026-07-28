@@ -6170,6 +6170,21 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
     rows = db.query(Job.country, func.count(Job.id)).filter(
         Job.is_open == True, Job.country != "").group_by(Job.country).all()  # noqa: E712
     newest = db.query(func.max(Job.last_seen)).scalar()
+
+    # The headline count has to be the number of jobs THIS user can open. A
+    # free account sees a delayed, capped slice, so reporting the whole board
+    # promised thousands and then listed fifty — the count and the list have to
+    # come from the same rules or the page is simply lying.
+    free = plan_of(user) == "free" and not getattr(user, "is_admin", False)
+    open_q = db.query(func.count(Job.id)).filter(Job.is_open == True)  # noqa: E712
+    if free:
+        cutoff = now() - dt.timedelta(days=FREE_JOB_DELAY_DAYS)
+        open_q = open_q.filter(
+            case((Job.posted_at.isnot(None), Job.posted_at),
+                 else_=Job.first_seen) <= cutoff)
+    open_n = open_q.scalar() or 0
+    if free:
+        open_n = min(open_n, FREE_JOB_CAP)
     return {
         # Same reason as the categories above: a country dropped from
         # JOB_COUNTRIES must stop being offered, even while its old rows sit
@@ -6177,7 +6192,8 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
         "countries": [{"country": c, "count": n}
                       for c, n in sorted(rows, key=lambda x: -x[1])
                       if _job_in_scope({"country": c, "category": ""})],
-        "open": db.query(func.count(Job.id)).filter(Job.is_open == True).scalar(),  # noqa: E712
+        "open": open_n,
+        "free_limited": free,
         "closed": db.query(func.count(Job.id)).filter(Job.is_open == False).scalar(),  # noqa: E712
         "updated": newest.isoformat() if newest else None,
         "retention_days": JOB_RETENTION_DAYS,
