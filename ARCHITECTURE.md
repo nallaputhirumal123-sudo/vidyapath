@@ -173,6 +173,15 @@ either stops saying so. If you change what employers can see, change the
 documents in the same commit — the code being right does not help if the
 contract the user agreed to says otherwise.
 
+## Further reading
+
+- **`docs/MATCHING.md`** — the scoring model, why each weight and band is the
+  number it is, how categorisation and scope decide what reaches the board, and
+  the field-extraction traps. Read it before changing anything in `_score_job`,
+  `_ROLE_FAMILIES` or `_job_in_scope`.
+- **`docs/ADDING-A-JOB-SOURCE.md`** — adding a board or an aggregator, and the
+  slug verification step that is not optional.
+
 ## Commit history
 
 `git log` is the real documentation. Every non-obvious decision was recorded
