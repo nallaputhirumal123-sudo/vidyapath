@@ -5521,7 +5521,14 @@ def _job_alert_sweep():
                 for s in _job_skills(j):
                     df[s] = df.get(s, 0) + 1
             n = max(n, 1)
-            idf = {s: math.log(n / (1 + c)) + 0.25 for s, c in df.items()}
+            # Floored. A skill on more than about four fifths of postings
+            # takes this expression negative, and a negative weight means
+            # matching a skill scores LOWER than not matching it. The live
+            # board is nowhere near that, but a board on its first day has
+            # few enough postings that everything is "common" — which is
+            # exactly when a new deployment's first alerts would be nonsense.
+            idf = {s: max(0.05, math.log(n / (1 + c)) + 0.25)
+                   for s, c in df.items()}
 
         users = db.query(User).filter(User.is_active == True).all()  # noqa: E712
         for u in users:
@@ -5554,6 +5561,13 @@ def _job_alert_sweep():
             # --- strong new matches, for people who have a resume on file ---
             if plan_of(u) == "free":
                 continue          # matching is a paid feature; do not tease it
+            # Off only if they said so. A blank means nobody has expressed a
+            # preference, and someone who saved a resume to a job board wants
+            # to hear about matching jobs.
+            pref = db.query(Note).filter(Note.user_id == u.id,
+                                         Note.k == "job_alerts").first()
+            if pref is not None and (pref.v or "1") == "0":
+                continue
             note = db.query(Note).filter(Note.user_id == u.id,
                                          Note.k == "resume_uptext").first()
             rtext = (note.v if note else "") or ""
@@ -7170,7 +7184,9 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     for j in rows:
         for s in _job_skills(j):
             df[s] = df.get(s, 0) + 1
-    idf = {s: math.log(n / (1 + c)) + 0.25 for s, c in df.items()}
+    # Floored for the same reason as the alert sweep: a weight below zero
+    # would make a matched skill count against the job.
+    idf = {s: max(0.05, math.log(n / (1 + c)) + 0.25) for s, c in df.items()}
 
     # One role open in three cities is three postings. Show it once, keeping
     # the best-scoring copy and listing the other places it is open.
