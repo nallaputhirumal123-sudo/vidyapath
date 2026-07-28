@@ -4663,12 +4663,12 @@ JSEARCH_QUERIES = [q.strip() for q in (env(
 # posting missed this crawl is picked up four hours later, which for a
 # job board is no difference at all.
 JSEARCH_PER_CRAWL = int(env("JSEARCH_PER_CRAWL", "14") or 14)
-# A hard monthly ceiling on paid requests. The arithmetic today lands around
-# 4,600 a month, well inside a 50,000 plan — but one raised page count or a
-# shortened refresh interval multiplies it, and an overage is discovered on a
-# bill rather than in a log. Counted in the database so a redeploy does not
-# reset it mid-month.
-JSEARCH_MONTHLY_CAP = int(env("JSEARCH_MONTHLY_CAP", "40000") or 40000)
+# A hard monthly ceiling on paid requests, set BELOW the plan so the cap bites
+# before the bill does. The RapidAPI Pro tier is 10,000 a month; at 11 crawls
+# a day and 14 queries each this uses about 4,600, so 9,000 leaves headroom
+# for a manual refresh without ever reaching an overage. Raise it only
+# alongside the plan itself.
+JSEARCH_MONTHLY_CAP = int(env("JSEARCH_MONTHLY_CAP", "9000") or 9000)
 
 
 def _jsearch_used(db, add=0):
