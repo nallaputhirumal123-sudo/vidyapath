@@ -720,6 +720,18 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
         <p style="font-size:11.5px;color:var(--dim);margin-top:15px;text-align:center">
           Progress is saved to your account, so you can continue on any device.
         </p>
+
+        <!-- Recruiters sign in through the same door. Saying so here saves the
+             "is there a separate employer login?" question, which is the first
+             thing a hiring manager looks for and does not find. -->
+        <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+          <b style="font-size:13px">🏢 Hiring? Recruiters use the same sign-in.</b>
+          <div style="font-size:12px;color:var(--muted);margin-top:5px;line-height:1.6">
+            Create an account above, open <b>Hiring</b> in the menu, and apply
+            for employer access. We check each company by hand, then you can
+            post a role and reach candidates whose resume actually matches it.
+          </div>
+        </div>
       </div>
     </section>
 
@@ -4308,13 +4320,23 @@ function paintHiringApply(st){
        <div style="font-size:13.5px;color:var(--body);margin-top:6px">
          We check every employer by hand before opening candidate profiles.
          You'll get an email when it's done.</div></div>`
-    :`<div class="card" style="max-width:560px">
+    :`<div class="card" style="max-width:620px">
        <b style="font-size:15px">Apply for employer access</b>
-       <div style="font-size:13.5px;color:var(--body);margin:6px 0 14px;line-height:1.6">
-         You'll be able to post a role and see candidates ranked against it —
-         their skills, seniority and match score. <b>Names and contact details
-         stay hidden</b> until a candidate accepts your invitation. We review
-         each company by hand, which is why this isn't instant.
+       <div style="font-size:13.5px;color:var(--body);margin:6px 0 12px;line-height:1.6">
+         Post a role and reach the candidates whose resume actually matches it —
+         not everyone who clicked apply.
+       </div>
+       <ol style="font-size:13px;color:var(--body);line-height:1.85;margin:0 0 12px 18px">
+         <li>Apply below. We check each company by hand, so this isn't instant.</li>
+         <li>Once approved, paste a job description and set a match threshold.</li>
+         <li>Candidates above it are invited and shown their own score.</li>
+         <li>If they accept, you get their name, email and a direct message
+             thread — files and resumes included.</li>
+       </ol>
+       <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+         <b>What you never see:</b> anyone who has not opted in, and any name,
+         email or resume before that person accepts. Candidates appear as an
+         anonymous profile — skills, seniority and a score — until then.
        </div>
        <div class="field"><label>Company name</label>
          <input id="hrCo" placeholder="Acme Inc"/></div>
