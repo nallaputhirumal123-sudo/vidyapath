@@ -4290,6 +4290,27 @@ JOB_ACTIVE_END = int(env("JOB_ACTIVE_END", "17") or 17)
 JOB_TZ_OFFSET = float(env("JOB_TZ_OFFSET", "-5") or -5)
 
 
+_CRAWL_MODES = ("window", "always", "off")
+
+
+def _crawl_mode() -> str:
+    """How the crawler should behave: inside its hours, always, or not at all.
+
+    Read from the database on every check rather than cached, so flipping the
+    switch takes effect on the next loop rather than on the next deploy.
+    Falls back to the configured window if anything goes wrong — a broken
+    query should not silently stop the board updating.
+    """
+    db = SessionLocal()
+    try:
+        row = db.get(SysCounter, "crawl_mode_v")
+        return _CRAWL_MODES[row.v] if row and 0 <= (row.v or 0) < 3 else "window"
+    except Exception:
+        return "window"
+    finally:
+        db.close()
+
+
 def _crawl_window_wait():
     """Seconds to wait before the next crawl.
 
@@ -4297,6 +4318,15 @@ def _crawl_window_wait():
     interval. Outside it, returns the time until the window opens, so the loop
     parks instead of waking hourly to do nothing.
     """
+    # Manual override, set from the admin panel and stored in the database so
+    # it survives a restart. Before launch you want to crawl at 8pm because
+    # you are working at 8pm; the window exists to stop the board burning API
+    # quota overnight once real users are on it.
+    mode = _crawl_mode()
+    if mode == "off":
+        return 3600.0                      # check again in an hour
+    if mode == "always":
+        return 0.0
     if JOB_ACTIVE_START == JOB_ACTIVE_END:
         return 0.0
     local = now() + dt.timedelta(hours=JOB_TZ_OFFSET)
@@ -8957,6 +8987,54 @@ async def _refresh_jobs_bg():
         await _refresh_jobs()
     except Exception as e:
         print(f"background crawl failed: {type(e).__name__}: {e}")
+
+
+@app.post("/api/admin/jobs/schedule")
+def admin_jobs_schedule(mode: str = "", start: int = -1, end: int = -1,
+                        user: User = Depends(admin_user),
+                        db: Session = Depends(get_db)):
+    """Turn the crawler on, off, or back onto its hours — and set those hours.
+
+    Before launch you are working at 8pm and want the board to fill now. Once
+    real users are on it, the window is what stops the API quota being spent
+    overnight on postings nobody is reading. Both are right at different
+    times, so this is a switch rather than a redeploy.
+
+    Stored in the database, read on every loop, so a change takes effect
+    within the interval rather than at the next deploy. The hours are process
+    globals — they reset to the environment values on restart, which is why
+    the response says so.
+    """
+    global JOB_ACTIVE_START, JOB_ACTIVE_END
+    changed = []
+    if mode:
+        m = mode.strip().lower()
+        if m not in _CRAWL_MODES:
+            raise HTTPException(400, f"mode must be one of {list(_CRAWL_MODES)}")
+        row = db.get(SysCounter, "crawl_mode_v")
+        if row is None:
+            row = SysCounter(k="crawl_mode_v", v=0)
+            db.add(row)
+        row.v = _CRAWL_MODES.index(m)
+        db.commit()
+        changed.append(f"mode={m}")
+    if 0 <= start <= 23:
+        JOB_ACTIVE_START = start
+        changed.append(f"start={start}")
+    if 0 <= end <= 23:
+        JOB_ACTIVE_END = end
+        changed.append(f"end={end}")
+
+    local = now() + dt.timedelta(hours=JOB_TZ_OFFSET)
+    wait = _crawl_window_wait()
+    return {"mode": _crawl_mode(),
+            "hours": f"{JOB_ACTIVE_START:02d}:00-{JOB_ACTIVE_END:02d}:00 local",
+            "local_time_now": local.strftime("%H:%M"),
+            "crawling_now": wait == 0,
+            "next_crawl_in_minutes": round(wait / 60),
+            "changed": changed or ["nothing — this is the current state"],
+            "note": "mode survives restarts; changed hours do not — set "
+                    "JOB_ACTIVE_START / JOB_ACTIVE_END to make those permanent"}
 
 
 @app.post("/api/admin/jobs/refresh")
