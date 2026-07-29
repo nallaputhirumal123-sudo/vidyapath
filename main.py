@@ -7411,6 +7411,30 @@ def _clean_path(d, role):
             "tools": [txt(t, 40) for t in (d.get("tools") or [])[:16] if txt(t, 40)]}
 
 
+@app.get("/api/career/skills")
+def career_skills(role: str = "", user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """The skills employers ask for in one role, straight from the postings.
+
+    No model call: this counts what the live ads for that title actually
+    name, which is why it can sit in front of the paywall and be pressed
+    freely. The lesson behind each skill is what costs something.
+    """
+    role = (role or "").strip()
+    if len(role) < 2:
+        return {"role": role, "skills": [], "open_jobs": 0}
+    demand, n = {}, 0
+    for j in db.query(Job).filter(
+            Job.is_open == True,                                # noqa: E712
+            func.lower(Job.title).like(f"%{role.lower()}%")).limit(400).all():
+        n += 1
+        for sk in _job_skills(j):
+            demand[sk] = demand.get(sk, 0) + 1
+    top = sorted(demand.items(), key=lambda x: -x[1])[:18]
+    return {"role": role, "open_jobs": n,
+            "skills": [{"skill": k, "jobs": v} for k, v in top]}
+
+
 @app.post("/api/career/path")
 async def career_path(body: CareerPathIn, user: User = Depends(current_user),
                       db: Session = Depends(get_db)):

@@ -2147,6 +2147,73 @@ function sbTrailHTML(){
     <span style="color:var(--dim)"> › now</span></div>`;
 }
 
+/* Choosing what to learn.
+
+   The board could only be opened by typing a topic or tapping a gap on a job
+   card. Someone who wants to learn their way into a role had nowhere to
+   start — the roles and their skills existed, on the career board and inside
+   match results, but not here, where the teaching happens.
+
+   Both lists are free and instant: the roles are the titles we crawl for,
+   the skills are counted from the live postings for that title. Nothing here
+   costs a model call. The lesson behind a skill is what costs. */
+const PICK = {open:false, roles:null, role:"", skills:null, busy:false};
+
+async function sbPickOpen(){
+  PICK.open = !PICK.open;
+  renderAsk();
+  if(PICK.open && !PICK.roles){
+    try{ PICK.roles = (await api.get("/api/career/roles")).groups || []; }
+    catch(e){ PICK.roles = []; }
+    renderAsk();
+  }
+}
+async function sbPickRole(role){
+  PICK.role = role; PICK.skills = null; PICK.busy = true; renderAsk();
+  try{ PICK.skills = (await api.get("/api/career/skills?role="
+        + encodeURIComponent(role))).skills || []; }
+  catch(e){ PICK.skills = []; }
+  PICK.busy = false; renderAsk();
+}
+function sbPickHTML(){
+  if(!PICK.open) return "";
+  if(PICK.role){
+    const sk = PICK.skills;
+    return `<div class="sb-tools" style="margin-top:0;margin-bottom:12px">
+      <div class="sb-grp">
+        <div class="sb-grp-lbl">${esc(PICK.role)} — what employers ask for</div>
+        ${sk===null||PICK.busy
+          ? `<div style="font-size:12.5px;color:var(--muted)">Reading the live postings…</div>`
+          : (sk.length
+            ? `<div class="sb-opts">${sk.map(x=>`<button class="sb-opt go"
+                data-learnskill="${esc(x.skill)}" data-forrole="${esc(PICK.role)}">
+                <span class="ic">↗</span>${esc(x.skill)}
+                <b class="sb-opt-n">${x.jobs}</b></button>`).join("")}</div>`
+            : `<div style="font-size:12.5px;color:var(--muted)">No live postings
+                 for that title today — try another role.</div>`)}
+      </div>
+      <div class="sb-foot">
+        <button class="btn ghost sm" data-sbpickback="1">← All roles</button>
+        <span style="font-size:11.5px;color:var(--dim);margin-left:auto">
+          the number is how many open roles want it</span>
+      </div></div>`;
+  }
+  const g = PICK.roles;
+  return `<div class="sb-tools" style="margin-top:0;margin-bottom:12px">
+    <div class="sb-grp">
+      <div class="sb-grp-lbl">Pick the role you are aiming at</div>
+      ${g===null
+        ? `<div style="font-size:12.5px;color:var(--muted)">Loading roles…</div>`
+        : g.map(grp=>`<div style="margin-bottom:9px">
+            <div style="font-size:11px;color:var(--dim);margin-bottom:5px">${esc(grp.group)}</div>
+            <div class="ask-chips" style="gap:6px;margin:0">
+              ${grp.roles.map(r=>`<button class="ask-chip"
+                data-sbpickrole="${esc(r.role)}">${esc(r.label)}${
+                r.jobs?` <b style="color:var(--ok)">${r.jobs}</b>`:""}</button>`).join("")}
+            </div></div>`).join("")}
+    </div></div>`;
+}
+
 async function sbTeach(topic,keepTrail){
   if(!keepTrail) SB.trail=[];
   if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
@@ -2932,6 +2999,15 @@ function renderAsk(){
         ${isPro()?"":`<a href="#" data-nav="plans" class="btn sm"
            style="margin-left:auto;white-space:nowrap">Unlock</a>`}
       </div>
+      <div class="row" style="gap:7px;margin:0 0 10px;flex-wrap:wrap">
+        <!-- Somewhere to start when you do not already know what to type,
+             and a way out of the board back to plain questions. -->
+        <button class="btn ${PICK.open?"":"ghost"} sm" data-sbpick="1">
+          ${PICK.open?"✕ Close":"🎓 Choose a role & skill"}</button>
+        ${sbOn?`<button class="btn ghost sm" data-sbexit="1">
+          ⏻ Turn the board off</button>`:""}
+      </div>
+      ${sbPickHTML()}
       <div class="ask-frame"><div class="ask-board" id="askBoard">${sbOn?sbBoardHTML():askBoardHTML()}</div></div>
       <div class="ask-tray"><span class="ask-chalk"></span><span class="ask-chalk y"></span></div>
       ${sbOn?sbToolsHTML():""}
@@ -5609,6 +5685,10 @@ document.addEventListener("click",e=>{
   if(b) return sbGo(b.dataset.sb==="next"?1:-1);
   const l=e.target.closest("[data-sblens]");
   if(l) return sbLens(l.dataset.sblens);
+  if(e.target.closest("[data-sbpick]")) return sbPickOpen();
+  const pr=e.target.closest("[data-sbpickrole]");
+  if(pr) return sbPickRole(pr.dataset.sbpickrole);
+  if(e.target.closest("[data-sbpickback]")){ PICK.role=""; PICK.skills=null; return renderAsk(); }
   if(e.target.closest("[data-sbspeak]")) return sbSpeak();
   if(e.target.closest("[data-sbfull]")) return sbFull();
   const ol=e.target.closest("[data-sbstep]");
