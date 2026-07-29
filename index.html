@@ -4209,8 +4209,8 @@ function jbCardHTML(j){
              before applying, which is the opposite of the point. It appears
              once the application is in. -->
         ${(!closed&&(j.tracked==="applied"||j.tracked==="interviewing"||j.tracked==="offer"))
-          ?`<button class="btn ghost sm" data-jbprep="${esc(j.title)}"
-             title="Interview prep for this role">🎤 Interview prep</button>`:""}
+          ?`<button class="btn ghost sm" data-jbprep="${j.id}"
+             title="Prep written from this posting and your resume">🎤 Interview prep</button>`:""}
         ${closed?"":(j.tracked==="applied"||j.tracked==="interviewing"||j.tracked==="offer"
           ?`<span class="pill" style="text-align:center;color:var(--ok);font-size:12.5px">✓ ${esc(TRACK_LABELS[j.tracked]||"Applied")}</span>`
           :j.tracked==="saved"
@@ -4620,19 +4620,79 @@ function jbFamilyFromTitle(title){
   for(const [re,fam] of PREP_FAMILIES) if(re.test(t)) return fam;
   return "";
 }
-let PREP=null, PREP_CAT="";
-async function jbLoadPrep(cat){
+let PREP=null, PREP_CAT="", PREP_JOB=0;
+async function jbLoadPrep(cat, jobId){
+  if(jobId!==undefined) PREP_JOB = jobId || 0;
   PREP=null; if(JB.tab==="prep") renderCareers();
   try{
-    const p=new URLSearchParams(); if(cat) p.set("category",cat);
+    const p=new URLSearchParams();
+    if(cat) p.set("category",cat);
+    // The job id is what turns a category leaflet into prep for the role
+    // being applied to. Without it the server can only send the canned
+    // guide, which is what made this feel random.
+    if(PREP_JOB) p.set("job_id", String(PREP_JOB));
     PREP=await api.get("/api/interview/guide?"+p);
     PREP_CAT=PREP.category||"";
   }catch(e){ PREP={error:e.message}; }
   if(JB.tab==="prep") renderCareers();
 }
 function jbPrepHTML(){
-  if(!PREP) return `<div class="card"><div style="color:var(--dim);font-size:13.5px">Loading interview prep…</div></div>`;
+  if(!PREP) return `<div class="card"><div style="color:var(--dim);font-size:13.5px">Reading the job description against your resume…</div></div>`;
   if(PREP.error) return `<div class="card"><div style="color:#e05a5a">${esc(PREP.error)}</div></div>`;
+
+  /* Prep written for one posting: the rounds it will run, the questions this
+     employer would ask, and for each one what to say — pointing at the
+     candidate's own experience where the resume has it. The canned guide
+     below still answers when there is no job to read. */
+  const g = PREP.guide;
+  if(g && g.rounds && g.rounds.length){
+    return `
+    <div class="card" style="margin-bottom:14px;border-color:var(--accent)">
+      <div class="eyebrow" style="margin:0 0 4px">Prepared for this application</div>
+      <b style="font-size:16px">${esc(g.role||"")}</b>
+      ${g.opening?`<div style="font-size:13.5px;color:var(--body);margin-top:6px;
+        line-height:1.6">${esc(g.opening)}</div>`:""}
+      <div style="font-size:11.5px;color:var(--dim);margin-top:8px">
+        Written from this job description and your resume${PREP.cached?" · saved, so re-reading it is free":""}</div>
+    </div>
+
+    ${g.rounds.map((r,i)=>`<div class="card" style="margin-bottom:12px">
+      <div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap">
+        <span class="pill" style="background:var(--accent);color:#1a1205;font-weight:800">
+          ROUND ${i+1}</span>
+        <b style="font-size:15px">${esc(r.name)}</b>
+        ${r.what_they_test?`<span style="font-size:12.5px;color:var(--muted)">— ${esc(r.what_they_test)}</span>`:""}
+      </div>
+      ${(r.questions||[]).map(q=>`<div style="margin-top:14px;padding-top:12px;
+        border-top:1px solid var(--line)">
+        <div style="font-size:14.5px;font-weight:650;line-height:1.45">${esc(q.q)}</div>
+        ${q.why?`<div style="font-size:12px;color:var(--dim);margin-top:4px">
+          They are checking: ${esc(q.why)}</div>`:""}
+        ${q.answer_with?`<div style="margin-top:8px;background:var(--panel2);
+          border-left:3px solid var(--ok);border-radius:7px;padding:10px 12px;
+          font-size:13.5px;color:var(--body);line-height:1.6">
+          <b style="color:var(--ok)">Say this:</b> ${esc(q.answer_with)}</div>`:""}
+      </div>`).join("")}
+    </div>`).join("")}
+
+    ${(g.gaps||[]).length?`<div class="card" style="margin-bottom:12px">
+      <b>⚠ What you are missing, and how to answer for it</b>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+        Honestly. Inventing experience is how an interview ends early.</div>
+      ${g.gaps.map(x=>`<div style="margin-top:10px">
+        <b style="font-size:13.5px;color:var(--warn)">${esc(x.skill)}</b>
+        <div style="font-size:13.5px;color:var(--body);line-height:1.6">${esc(x.say)}</div>
+        <button class="ask-chip" data-learnskill="${esc(x.skill)}"
+          style="margin-top:6px;font-size:12px">Learn it properly →</button>
+      </div>`).join("")}
+    </div>`:""}
+
+    ${(g.ask_them||[]).length?`<div class="card">
+      <b>🎤 Ask them this</b>
+      <ul style="margin:8px 0 0 18px;font-size:13.5px;color:var(--body);line-height:1.9">
+        ${g.ask_them.map(a=>`<li>${esc(a)}</li>`).join("")}</ul>
+    </div>`:""}`;
+  }
   const chips=(PREP.categories||[]).map(c=>
     `<button class="ask-chip ${PREP_CAT===c.id?"on":""}" data-prepcat="${esc(c.id)}">${esc(c.label)}</button>`).join("");
   const list=(items,cls="")=>`<ul style="margin:6px 0 0 18px;font-size:13.5px;color:var(--body);line-height:1.9" class="${cls}">
@@ -4910,7 +4970,11 @@ document.addEventListener("click",e=>{
   if(pr){
     JB.tab="prep"; JB.suggOpen=false;
     renderCareers();
-    jbLoadPrep(jbFamilyFromTitle(pr.dataset.jbprep));
+    // A number is a job id and gets prep written for that posting; a title
+    // is the tracker's button and still gets the guide for its role family.
+    const v=pr.dataset.jbprep||"";
+    if(/^\d+$/.test(v)) jbLoadPrep("", +v);
+    else jbLoadPrep(jbFamilyFromTitle(v), 0);
     return;
   }
   const dl=e.target.closest("[data-jbdel]");
