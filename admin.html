@@ -318,6 +318,13 @@ async function renderMoney(){
         <button class="btn ghost sm" id="crawlStat">Check crawl status</button>
         <button class="btn ghost sm" id="pruneDry">Check what's out of scope</button>
         <button class="btn ghost sm" id="pruneGo" style="color:#e05a5a">Delete out-of-scope jobs</button>
+        <!-- These were being handed out as curl commands, which meant they
+             were pasted into the browser address bar and never ran. A job
+             only an admin can do belongs on the admin page. -->
+        <button class="btn ghost sm" id="recatDry">Check job labels &amp; pay</button>
+        <button class="btn ghost sm" id="recatGo" style="color:#e0a91b">Fix job labels, pay &amp; years</button>
+        <button class="btn ghost sm" id="cacheDry">Check cached lessons</button>
+        <button class="btn ghost sm" id="cacheGo" style="color:#e05a5a">Re-teach all lessons</button>
       </div>
       <div id="renewOut" style="font-size:12.5px;color:var(--dim);margin-top:6px"></div>
       <div id="crawlOut" style="font-size:12px;color:var(--dim);margin-top:6px;
@@ -397,6 +404,61 @@ async function renderMoney(){
                + "Run the check first if you have not."))
       return;
     runPrune(0, pg, "Delete out-of-scope jobs");
+  };
+
+  /* Re-label stored jobs with today's rules, and fill in what was parsed
+     after they were crawled: salary, skills and the years a posting asks
+     for. A row keeps whatever it was given when it was first seen, so this
+     is the only thing that moves five thousand jobs out of "Other technical
+     roles" and makes the years gate work on old postings. */
+  const runRecat = async (dry, btn, label) => {
+    btn.disabled = true; btn.textContent = "Working…";
+    try{
+      const r = await api.post(`/api/admin/jobs/recategorize?dry=${dry}`, {});
+      $("#crawlOut").textContent =
+        (r.dry_run ? "DRY RUN - nothing written." : "WRITTEN.") + NL
+        + `${r.changed} of ${r.total} jobs relabelled` + NL
+        + `${r.newly_categorised} given a category for the first time` + NL
+        + `${r.salary_filled} had pay filled in` + NL
+        + `${r.skills_filled} had skills parsed` + NL
+        + `${r.years_filled} had the years requirement read` + NL + NL
+        + (r.examples || []).slice(0, 12).join(NL);
+    }catch(e){ $("#crawlOut").textContent = e.message; }
+    btn.disabled = false; btn.textContent = label;
+  };
+  const rd = $("#recatDry");
+  if (rd) rd.onclick = () => runRecat(1, rd, "Check job labels & pay");
+  const rg = $("#recatGo");
+  if (rg) rg.onclick = () => runRecat(0, rg, "Fix job labels, pay & years");
+
+  /* Throw away cached lessons. Every improvement to how the board teaches
+     applies only to lessons written after it, so a topic taught once keeps
+     its old shape for good — which is why the depth and the diagrams look
+     unchanged until this is pressed. Each one is re-taught, and re-charged,
+     the next time somebody asks for it. */
+  const runCache = async (dry, btn, label) => {
+    btn.disabled = true; btn.textContent = "Working…";
+    try{
+      const r = await api.post(`/api/admin/board/cache/clear?kind=all&dry=${dry}`, {});
+      $("#crawlOut").textContent =
+        (r.dry_run ? "DRY RUN - nothing deleted." : "DELETED.") + NL
+        + `${r.cached_lessons} cached lessons` + NL
+        + (r.dry_run ? "" : `${r.deleted} removed - they will be taught again `
+                          + "with today's prompt");
+    }catch(e){ $("#crawlOut").textContent = e.message; }
+    btn.disabled = false; btn.textContent = label;
+  };
+  const cd = $("#cacheDry");
+  if (cd) cd.onclick = () => runCache(1, cd, "Check cached lessons");
+  const cg = $("#cacheGo");
+  if (cg) cg.onclick = () => {
+    if (!confirm("Delete every cached lesson?" + NL + NL
+               + "Each one is taught again by the AI the next time somebody "
+               + "asks for it, so this costs a little money. Do it after "
+               + "changing how the board teaches - which is what makes the "
+               + "longer explanations and the new diagrams appear."))
+      return;
+    runCache(0, cg, "Re-teach all lessons");
   };
 }
 
