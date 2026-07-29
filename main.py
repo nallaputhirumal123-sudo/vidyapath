@@ -5362,7 +5362,11 @@ async def _collect_jobs():
 
         global _CRAWL_TICK
         _CRAWL_TICK += 1
-        jsearch_turn = (_CRAWL_TICK % JSEARCH_EVERY_CRAWLS) == 0
+        # The FIRST crawl after boot always runs JSearch. Counting from zero
+        # meant tick 1 was never its turn, so with EVERY_CRAWLS=4 and a deploy
+        # every hour or two the paid source was skipped every single time and
+        # the board stopped receiving the only contract jobs it has.
+        jsearch_turn = ((_CRAWL_TICK - 1) % JSEARCH_EVERY_CRAWLS) == 0
         if JSEARCH_KEY and not jsearch_turn:
             report["jsearch"] = (f"skipped: runs every {JSEARCH_EVERY_CRAWLS} "
                                  f"crawls (this is {_CRAWL_TICK % JSEARCH_EVERY_CRAWLS}"
