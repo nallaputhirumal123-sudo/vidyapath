@@ -362,6 +362,9 @@ input,select{font-family:inherit}
    The board itself carries the lesson and nothing else. Everything that acts
    on it lives in one panel underneath, in labelled groups, so a learner sees
    three decisions — move, explore, go deeper — instead of eleven buttons. */
+.sb-onboard{display:flex;align-items:center;gap:7px;justify-content:center;
+  flex-wrap:wrap;margin-top:16px;padding-top:12px;
+  border-top:1px solid rgba(143,227,176,.22)}
 .sb-outline{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;
   justify-content:center}
 .sb-ol{display:inline-flex;align-items:center;gap:6px;max-width:230px;
@@ -2228,6 +2231,18 @@ async function sbTeach(topic,keepTrail){
   }
   SB.busy=false; renderAsk();
 }
+/* While full screen, repaint the board in place instead of re-rendering the
+   page. Full screen belongs to one element; rebuild that element and the
+   browser has nothing left to show, so it exits. Pressing Next closed the
+   room, which made the whole feature unusable at exactly the moment it was
+   meant to be useful. */
+function sbPaint(){
+  if(document.fullscreenElement){
+    const b=document.getElementById("askBoard");
+    if(b){ b.innerHTML=sbBoardHTML(); return; }
+  }
+  renderAsk();
+}
 function sbGo(d){
   if(!SB.lesson) return;
   // Leaving a step mid-sentence should stop the sentence.
@@ -2236,7 +2251,7 @@ function sbGo(d){
   // Reached the end of a lesson opened to close a specific gap: that skill
   // has been studied, and every job card that named it says so from now on.
   if(SB.skill && SB.i>=SB.lesson.steps.length-1) skillMark(SB.skill,"done");
-  renderAsk();
+  sbPaint();
 }
 /* We draw the diagram ourselves from labels and index pairs. The model never
    sends markup — anything it authored going into innerHTML would be a stored
@@ -2508,7 +2523,20 @@ function sbBoardHTML(){
         🖥 ${esc(st.where)}</div>`:"")}
     ${sbDiagramHTML(st.diagram)}
     ${SB.i===l.steps.length-1&&l.takeaway
-      ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}`;
+      ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
+    <!-- On the board itself, not below it. Full screen hides everything
+         outside this element, and on a phone the controls under the board
+         were a scroll away — including Stop, which is the one control
+         somebody needs in a hurry. -->
+    <div class="sb-onboard">
+      <button class="btn ghost sm" data-sb="prev" ${SB.i===0?"disabled":""}>←</button>
+      <button class="btn ${SB.speaking?"":"ghost"} sm" data-sbspeak="1">
+        ${SB.speaking?"⏹ Stop":"🔊 Read"}</button>
+      <span style="font-size:11.5px;color:#8fe3b0">${SB.i+1} / ${l.steps.length}</span>
+      <button class="btn ghost sm" data-sbfull="1">⛶</button>
+      <button class="btn ghost sm" data-sb="next"
+        ${SB.i>=l.steps.length-1?"disabled":""}>→</button>
+    </div>`;
 }
 
 /* Everything that is not the lesson lives UNDER the board, never on it. A
@@ -2601,16 +2629,16 @@ function sbToolsHTML(){
    deliberately not read: nobody wants "hash bang slash bin slash bash". */
 async function sbSpeak(){
   const l=SB.lesson; if(!l) return;
-  if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); return renderAsk(); }
+  if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); return sbPaint(); }
   const st=l.steps[SB.i]||{};
   const last=SB.i===l.steps.length-1;
   const say=[st.where?("On "+st.where+"."):"", st.t||"",
              (last&&l.takeaway)?("Remember. "+l.takeaway):""]
             .filter(Boolean).join(" ");
   if(!say) return;
-  SB.speaking=true; renderAsk();
+  SB.speaking=true; sbPaint();
   await speakChunks(say,{cancelled:()=>!SB.speaking});
-  SB.speaking=false; renderAsk();
+  SB.speaking=false; sbPaint();
 }
 /* Slide navigation.
 
