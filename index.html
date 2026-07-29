@@ -385,6 +385,23 @@ input,select{font-family:inherit}
   align-items:center;justify-content:center}
 .ask-frame:fullscreen .ask-board{width:100%;max-width:1100px;min-height:72vh;
   font-size:19px}
+/* Phones get less padding and a smaller step, or the lesson has nowhere to
+   sit once the board's own controls are on it. */
+@media(max-width:640px){
+  .ask-frame:fullscreen{padding:8px}
+  .ask-frame:fullscreen .ask-board{min-height:86vh;font-size:16px;padding:16px}
+  .ask-frame.sb-focus .ask-board{min-height:86vh;font-size:16px;padding:16px}
+}
+/* The same thing without the API. iOS Safari will not put an arbitrary
+   element full screen — only a video — so the button did nothing there.
+   This pins the board over the page instead, which is what full screen was
+   for: one thing on the device. */
+.ask-frame.sb-focus{position:fixed;inset:0;z-index:9000;background:var(--bg);
+  padding:14px;display:flex;align-items:center;justify-content:center;
+  overflow:auto}
+.ask-frame.sb-focus .ask-board{width:100%;max-width:1100px;min-height:78vh;
+  font-size:18px}
+body.sb-focused{overflow:hidden}
 .sb-head{display:flex;align-items:center;gap:11px;margin:0 0 12px;
   padding:11px 14px;border-radius:var(--r);background:var(--surface);
   border:1px solid var(--line);box-shadow:var(--edge)}
@@ -2237,7 +2254,7 @@ async function sbTeach(topic,keepTrail){
    room, which made the whole feature unusable at exactly the moment it was
    meant to be useful. */
 function sbPaint(){
-  if(document.fullscreenElement){
+  if(document.fullscreenElement || document.querySelector(".ask-frame.sb-focus")){
     const b=document.getElementById("askBoard");
     if(b){ b.innerHTML=sbBoardHTML(); return; }
   }
@@ -2749,14 +2766,40 @@ document.addEventListener("click", e => {
   else if (x < r.width * 0.25) sbGo(-1);
 });
 
+function sbFocusOff(){
+  const el=document.querySelector(".ask-frame");
+  if(el) el.classList.remove("sb-focus");
+  document.body.classList.remove("sb-focused");
+}
 function sbFull(){
   const el=document.querySelector(".ask-frame");
   if(!el) return;
-  if(document.fullscreenElement) document.exitFullscreen();
-  else el.requestFullscreen && el.requestFullscreen().catch(()=>
-    toast("This browser would not go full screen."));
+  // Already focused one way or the other: come back out.
+  if(document.fullscreenElement){ document.exitFullscreen(); return; }
+  if(el.classList.contains("sb-focus")){ sbFocusOff(); sbPaint(); return; }
+  // iOS refuses element full screen, and a promise that rejects silently
+  // leaves the button looking broken. Fall back rather than apologise.
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if(req){
+    try{
+      const p = req.call(el);
+      if(p && p.catch) p.catch(()=>{ el.classList.add("sb-focus");
+        document.body.classList.add("sb-focused"); sbPaint(); });
+      return;
+    }catch(e){ /* falls through */ }
+  }
+  el.classList.add("sb-focus");
+  document.body.classList.add("sb-focused");
+  sbPaint();
 }
+// Escape leaves focus mode too, since the browser will not do it for us.
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape" && document.querySelector(".ask-frame.sb-focus")){
+    sbFocusOff(); sbPaint();
+  }
+});
 function sbExit(){
+  sbFocusOff();
   if(window.speechSynthesis) window.speechSynthesis.cancel();
   SB.speaking=false;
   SB.lesson=null; SB.topic=""; SB.trail=[]; SB.error=""; SB.busy=false;
@@ -2902,12 +2945,38 @@ async function askPDF(rec){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:"pt",format:"a4"});
   const M=54, W=doc.internal.pageSize.getWidth()-M*2, H=doc.internal.pageSize.getHeight();
-  let y=64;
+  const when=new Date().toLocaleDateString(undefined,
+    {year:"numeric",month:"long",day:"numeric"});
+  /* A header and footer on EVERY page, not just the first. These get printed,
+     put in a folder and read a week later away from the site, and a page with
+     nothing on it does not say where it came from — the board's PDF has
+     carried this since v3.23.0 and this one never did. */
+  const stamp=()=>{
+    doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.setTextColor("#1a1a1a"); doc.text("Crax",M,38);
+    const w=doc.getTextWidth("Crax");
+    doc.setTextColor("#e07d12"); doc.text("le",M+w,38);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    doc.setTextColor("#8a8f99");
+    doc.text("craxle.com  ·  "+when,M+W,38,{align:"right"});
+    doc.setDrawColor("#e4e2dc"); doc.setLineWidth(0.8);
+    doc.line(M,44,M+W,44);
+    const n=doc.internal.getNumberOfPages();
+    doc.setFontSize(8);
+    doc.text("Craxle · craxle.com",M,H-28);
+    doc.text("Page "+n,M+W,H-28,{align:"right"});
+  };
+  let y=72;
+  stamp();
   const line=(txt,size,bold,color,gap)=>{
     doc.setFont("helvetica",bold?"bold":"normal"); doc.setFontSize(size);
     doc.setTextColor(color||"#1a1a1a");
     const parts=doc.splitTextToSize(pdfSafe(txt),W);
-    parts.forEach(p=>{ if(y>H-60){ doc.addPage(); y=64; } doc.text(p,M,y); y+=size*1.35; });
+    parts.forEach(p=>{
+      if(y>H-60){ doc.addPage(); y=72; stamp();
+        doc.setFont("helvetica",bold?"bold":"normal"); doc.setFontSize(size);
+        doc.setTextColor(color||"#1a1a1a"); }
+      doc.text(p,M,y); y+=size*1.35; });
     y+=gap||0;
   };
   line(rec.title||"Axle's answer",20,true); y+=2;
@@ -2915,7 +2984,6 @@ async function askPDF(rec){
   if(rec.q) line("Question: "+rec.q,11,false,"#555",10);
   (rec.steps||[]).forEach(s=>line("-  "+s.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4));
   if(rec.takeaway){ y+=6; line("Remember: "+rec.takeaway,12,true,"#8a5a00",0); }
-  y+=16; line("Made with Craxle - Ask Axle",9,false,"#aaa",0);
   const name=(rec.title||"vidya-answer").replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,40);
   doc.save(name+".pdf");
 }
