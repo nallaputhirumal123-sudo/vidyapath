@@ -362,6 +362,26 @@ input,select{font-family:inherit}
    The board itself carries the lesson and nothing else. Everything that acts
    on it lives in one panel underneath, in labelled groups, so a learner sees
    three decisions — move, explore, go deeper — instead of eleven buttons. */
+.sb-outline{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;
+  justify-content:center}
+.sb-ol{display:inline-flex;align-items:center;gap:6px;max-width:230px;
+  font:inherit;font-size:11.5px;color:var(--muted);cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+  padding:3px 10px 3px 4px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.sb-ol .n{display:inline-flex;align-items:center;justify-content:center;
+  width:17px;height:17px;border-radius:999px;background:var(--line);
+  font-size:10px;font-weight:700;flex:0 0 17px}
+.sb-ol.done{color:var(--ok)}
+.sb-ol.done .n{background:var(--ok-bg);color:var(--ok)}
+.sb-ol.on{color:var(--text);border-color:var(--accent)}
+.sb-ol.on .n{background:var(--accent);color:#1a1205}
+/* In full screen the board fills the device and everything else gets out of
+   the way — the tools stay reachable underneath by scrolling. */
+.ask-frame:fullscreen{background:var(--bg);padding:26px;display:flex;
+  align-items:center;justify-content:center}
+.ask-frame:fullscreen .ask-board{width:100%;max-width:1100px;min-height:72vh;
+  font-size:19px}
 .sb-head{display:flex;align-items:center;gap:11px;margin:0 0 12px;
   padding:11px 14px;border-radius:var(--r);background:var(--surface);
   border:1px solid var(--line);box-shadow:var(--edge)}
@@ -2324,9 +2344,23 @@ function sbToolsHTML(){
       <button class="btn ghost sm" data-sb="next"
         ${SB.i>=l.steps.length-1?"disabled":""}>Next →</button>
     </div>
-    <div class="row" style="justify-content:center;margin-top:8px">
+    <div class="row" style="justify-content:center;gap:7px;margin-top:8px;flex-wrap:wrap">
       <button class="btn ghost sm" data-sbspeak="1">
         ${SB.speaking?"⏹ Stop":"🔊 Read this step aloud"}</button>
+      <!-- The board at the front of a classroom is the only thing in the
+           room. Full screen makes this one the only thing on the device,
+           which is the difference between reading a web page and being
+           taught at. Arrow keys advance it, like a presenter remote. -->
+      <button class="btn ghost sm" data-sbfull="1">⛶ Full screen</button>
+    </div>
+
+    <!-- The whole lesson, not just the step you are on. A syllabus in the
+         corner of the board is how anyone teaching keeps a room oriented:
+         you can see how much is left and jump to what you came for. -->
+    <div class="sb-outline">
+      ${l.steps.map((st,k)=>`<button class="sb-ol ${k===SB.i?"on":""}${k<SB.i?" done":""}"
+        data-sbstep="${k}" title="${esc((st.t||"").slice(0,90))}">
+        <span class="n">${k+1}</span>${esc((st.where||st.t||"").slice(0,44))}</button>`).join("")}
     </div>
 
     <div class="sb-tools">
@@ -2394,6 +2428,13 @@ async function sbSpeak(){
   SB.speaking=true; renderAsk();
   await speakChunks(say,{cancelled:()=>!SB.speaking});
   SB.speaking=false; renderAsk();
+}
+function sbFull(){
+  const el=document.querySelector(".ask-frame");
+  if(!el) return;
+  if(document.fullscreenElement) document.exitFullscreen();
+  else el.requestFullscreen && el.requestFullscreen().catch(()=>
+    toast("This browser would not go full screen."));
 }
 function sbExit(){
   if(window.speechSynthesis) window.speechSynthesis.cancel();
@@ -5401,6 +5442,9 @@ document.addEventListener("click",e=>{
   const l=e.target.closest("[data-sblens]");
   if(l) return sbLens(l.dataset.sblens);
   if(e.target.closest("[data-sbspeak]")) return sbSpeak();
+  if(e.target.closest("[data-sbfull]")) return sbFull();
+  const ol=e.target.closest("[data-sbstep]");
+  if(ol){ SB.i=+ol.dataset.sbstep; renderAsk(); return; }
   if(e.target.closest("[data-sbexit]")) return sbExit();
   const dp=e.target.closest("[data-sbdeep]");
   if(dp) return sbDrill(dp.dataset.sbdeep);
@@ -5412,6 +5456,12 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("keydown",e=>{
   if(e.target && e.target.id==="sbFollow" && e.key==="Enter"){ e.preventDefault(); sbAsk(); }
+  // Arrow keys move the lesson, the way a presenter remote does — but never
+  // while someone is typing into the follow-up box.
+  if(SB.lesson && S.view.page==="ask" && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName||"")){
+    if(e.key==="ArrowRight"||e.key===" ") { e.preventDefault(); sbGo(1); }
+    if(e.key==="ArrowLeft") { e.preventDefault(); sbGo(-1); }
+  }
 });
 document.addEventListener("change",e=>{
   if(e.target && e.target.id==="chatFile" && e.target.files[0]) jbAttach(e.target.files[0]);
