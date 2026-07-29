@@ -64,7 +64,12 @@
      is exactly what happened: light mode inherited greens chosen for the dark
      theme and the text went to nothing. Each has a light-theme counterpart
      below, so anything using these is legible in both by construction. */
-  --ok:var(--ok); --ok-soft:var(--ok-soft); --ok-bg:rgba(75,191,130,.16); --ok-bd:rgba(75,191,130,.42);
+  /* Literal values, not var() — a token cannot be defined in terms of
+     itself. A find-and-replace that swapped every hardcoded green for
+     var(--ok) rewrote this line too, so --ok resolved to nothing and the
+     dark theme lost every green it had: the ATS bars, the salary, the ticks.
+     Light was unaffected because its overrides were written separately. */
+  --ok:#7ee2a8; --ok-soft:#a9ecc4; --ok-bg:rgba(75,191,130,.16); --ok-bd:rgba(75,191,130,.42);
   --warn:#efc266; --warn-bg:rgba(224,176,80,.13); --warn-bd:rgba(224,176,80,.32);
   --bad:#f2907f; --bad-bg:rgba(248,81,73,.11); --bad-bd:rgba(248,81,73,.28);
   --codebg:#06080c; --codetext:#9ecbff;
@@ -782,7 +787,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
   <div class="land">
 
     <section class="lhero">
-      <span class="lbadge">FREE TO BROWSE · NO ADS · OPEN TO EVERYONE, WORLDWIDE</span>
+      <span class="lbadge">FREE TO BROWSE · OPEN TO EVERYONE, WORLDWIDE</span>
       <h1>Learn to code.<br>Then build with <span>AI</span>.</h1>
       <p>One continuous path from "what is a computer?" to building real AI systems.
          Every lesson taught in full; Python and SQL exercises run and auto-grade
@@ -851,7 +856,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     <section class="lsec faq">
       <h2>Common questions</h2>
       <details><summary>What costs money?</summary>
-        <p>Every lesson, exercise, worksheet and certificate is free, and so is browsing every live job. The paid plan covers the tools that work on your CV — resume matching, the application tracker, the browser extension and the AI apply kits. No ads either way.</p></details>
+        <p>Every lesson, exercise, worksheet and certificate is free, and so is browsing every live job. The paid plan covers the tools that work on your CV — resume matching, the application tracker, the browser extension and the AI apply kits.</p></details>
       <details><summary>I have never written code. Can I do this?</summary>
         <p>You are exactly who Stage 1 was written for. It assumes nothing — not even knowing what a file is. Thousands of words of it exist purely to explain things other courses skip.</p></details>
       <details><summary>What do I need?</summary>
