@@ -4862,8 +4862,9 @@ function jbTrackCardHTML(t){
         </select>
         ${t.url?`<a class="btn ghost sm" href="${esc(t.url)}" target="_blank" rel="noopener">Open ↗</a>`:""}
         ${["applied","interviewing","offer"].includes(t.status)
-          ? `<button class="btn ghost sm" data-jbprep="${esc(t.title)}"
-                     title="Interview prep for this role">🎤 Prep</button>` : ""}
+          ? `<button class="btn ghost sm" data-jbprep="${t.job_id}"
+                     title="Prep written from this posting and your resume"
+             >🎤 Prep</button>` : ""}
         <button class="btn ghost sm" data-jbdel="${t.job_id}" title="Remove from tracker">✕</button>
       </div>
     </div>
