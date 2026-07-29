@@ -1355,6 +1355,12 @@ def signup(body: SignupIn, response: Response, request: Request,
     set_session(response, user, db)
     return {"id": user.id, "name": user.name, "email": user.email,
             "email_verified": bool(user.email_verified),
+            # plan has to be here, not only on /api/auth/me. isPro() reads
+            # USER.plan, so a Pro subscriber who has just signed in had every
+            # paid feature rendered locked until they reloaded the page —
+            # tapping Learn with Axle Pro sent them to the plans page they had
+            # already paid on.
+            "plan": plan_of(user),
             "is_admin": user.is_admin, "is_teacher": role in ("head", "teacher"),
             "role": role}
 
@@ -1423,6 +1429,7 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
     set_session(response, user, db)
     t = teacher_row(user, db)
     return {"id": user.id, "name": user.name, "email": user.email,
+            "plan": plan_of(user),
             "is_admin": user.is_admin, "is_teacher": bool(t) or user.is_admin,
             "is_head": is_head(user, db)}
 
@@ -7579,7 +7586,16 @@ def _clean_board(d, topic):
             # all. The label is a caption, not an execution target: anything
             # outside the list is dropped, but the list has to cover the work.
             "lang": lang if lang in _BOARD_LANGS else "",
-            "diagram": ({"nodes": nodes, "edges": edges} if len(nodes) >= 2 else None),
+            # The shape has to survive the clean, or the five layouts the
+            # board can draw all collapse back to one. Validated against the
+            # list rather than passed through: it goes straight into a CSS
+            # class and an aria-label.
+            "diagram": ({"kind": (txt(dia.get("kind"), 12).lower()
+                                  if txt(dia.get("kind"), 12).lower() in
+                                  ("flow", "stack", "packet", "compare", "sequence")
+                                  else "flow"),
+                         "nodes": nodes, "edges": edges}
+                        if len(nodes) >= 2 else None),
         })
     steps = [x for x in steps if x["t"] or x["code"]]
     deeper, seen = [], {_norm_q(topic)}
