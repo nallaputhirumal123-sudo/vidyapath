@@ -9273,11 +9273,41 @@ def admin_delete_student(uid: int, user: User = Depends(admin_user), db: Session
         raise HTTPException(404, "Student not found")
     if u.id == user.id:
         raise HTTPException(400, "You cannot delete your own account")
-    db.query(Progress).filter(Progress.user_id == uid).delete()
-    db.query(QuizResult).filter(QuizResult.user_id == uid).delete()
-    db.query(Note).filter(Note.user_id == uid).delete()
+    # Everything the account owns, explicitly.
+    #
+    # Five of these tables reference users.id with no ON DELETE CASCADE —
+    # job_tracks, job_alerts, job_invites, employer_jobs, password_resets —
+    # all added after this endpoint was written. Postgres refuses the delete
+    # with a foreign key violation the moment a student has saved a single
+    # job, which is every student. Clearing them here works on both engines
+    # and does not require altering constraints on a live table.
+    #
+    # Anything added later that belongs to a user belongs in this list.
+    inv_ids = [r[0] for r in db.query(JobInvite.id).filter(
+        JobInvite.user_id == uid).all()]
+    if inv_ids:
+        db.query(InviteMessage).filter(
+            InviteMessage.invite_id.in_(inv_ids)).delete(synchronize_session=False)
+        db.query(InviteFile).filter(
+            InviteFile.invite_id.in_(inv_ids)).delete(synchronize_session=False)
+    for model, col in ((Progress, Progress.user_id),
+                       (QuizResult, QuizResult.user_id),
+                       (Note, Note.user_id),
+                       (JobTrack, JobTrack.user_id),
+                       (JobAlert, JobAlert.user_id),
+                       (JobInvite, JobInvite.user_id),
+                       (EmployerJob, EmployerJob.owner_id),
+                       (PasswordReset, PasswordReset.user_id)):
+        db.query(model).filter(col == uid).delete(synchronize_session=False)
     db.delete(u)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        # Surface what actually blocked it rather than a bare 500 — the next
+        # table someone adds will land here and the message names it.
+        raise HTTPException(409, f"Could not delete: {type(e).__name__}: "
+                                 f"{str(e)[:200]}")
     return {"ok": True}
 
 
