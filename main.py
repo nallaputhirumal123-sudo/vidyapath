@@ -4916,6 +4916,9 @@ JSEARCH_MONTHLY_CAP = int(env("JSEARCH_MONTHLY_CAP", "9000") or 9000)
 # 12 crawls x 3 pages and 4 crawls x 9 pages cost about the same, and the
 # second reads nine pages deep instead of three.
 JSEARCH_EVERY_CRAWLS = max(1, int(env("JSEARCH_EVERY_CRAWLS", "1") or 1))
+# Seconds to wait for one JSearch response. The provider fetches every
+# requested page before replying, so the wait grows with JSEARCH_PAGES.
+JSEARCH_TIMEOUT = float(env("JSEARCH_TIMEOUT", "0") or 0) or max(30.0, 12.0 * JSEARCH_PAGES)
 _CRAWL_TICK = 0
 
 
@@ -5213,7 +5216,14 @@ async def _fetch_jsearch(client, query, cc):
                 # the thing this board actually sells. Set JSEARCH_WINDOW=month
                 # to trade freshness for depth again.
                 "date_posted": _jsearch_window()},
-        headers={"X-API-Key": JSEARCH_KEY})
+        headers={"X-API-Key": JSEARCH_KEY},
+        # Its own timeout, well above the client's 25s. num_pages=9 makes the
+        # provider fetch nine pages before answering, which takes far longer
+        # than a single ATS board — at 9 pages half these queries died on
+        # ReadTimeout and the depth we were paying for never arrived. Scales
+        # with the depth asked for, so raising JSEARCH_PAGES cannot silently
+        # reintroduce this.
+        timeout=JSEARCH_TIMEOUT)
     if r.status_code >= 300:
         # RapidAPI says WHY in the body — wrong key, not subscribed, quota
         # gone — and a bare HTTPStatusError threw that away. 401/403/429 need
@@ -5315,8 +5325,14 @@ async def _collect_jobs():
                  for source, fetch in _FETCHERS.items()
                  for token in _job_tokens(source)]
         try:
+            # The ceiling has to clear the slowest source, not the average
+            # one. At nine pages a JSearch query can take a minute and a half,
+            # and sixty-eight of them twelve at a time do not fit in ten
+            # minutes — the stage was being cut off with queries still in
+            # flight, which reads as a dead source rather than a short clock.
+            stage_cap = max(600.0, JSEARCH_TIMEOUT * 6)
             results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True), timeout=600)
+                asyncio.gather(*tasks, return_exceptions=True), timeout=stage_cap)
         except asyncio.TimeoutError:
             print("jobs: board sweep hit the 10 minute cap; using what arrived")
             results = []
