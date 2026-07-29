@@ -4374,7 +4374,11 @@ function jbSectionHTML(){
        said 8 hrs ago while the newest posting was four days old, which reads
        as a promise the board cannot keep. Each card carries the employer's
        own date now, which is the honest version of the same information. */
-    ? `<b>${f.open}</b> open roles${f.closed?` · ${f.closed} recently closed`:""} · ${f.retention_days} days of history`
+    /* Just the number of open roles. "Recently closed" and "days of history"
+       described our storage, not the opportunity — nobody browsing for work
+       cares how long we keep things, and both numbers only ever invited the
+       question of how old the board is. */
+    ? `<b>${f.open}</b> open roles`
     : "Loading live postings…";
   const countries=f&&f.countries?f.countries:[];
   return `
