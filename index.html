@@ -2352,6 +2352,8 @@ function sbToolsHTML(){
            which is the difference between reading a web page and being
            taught at. Arrow keys advance it, like a presenter remote. -->
       <button class="btn ghost sm" data-sbfull="1">⛶ Full screen</button>
+      <span style="font-size:11.5px;color:var(--dim);align-self:center">
+        swipe, tap the edges, or use ← →</span>
     </div>
 
     <!-- The whole lesson, not just the step you are on. A syllabus in the
@@ -2429,6 +2431,52 @@ async function sbSpeak(){
   await speakChunks(say,{cancelled:()=>!SB.speaking});
   SB.speaking=false; renderAsk();
 }
+/* Slide navigation.
+
+   Arrow keys are right for a laptop and useless on the phone this is mostly
+   read on. A lesson in full screen should behave like every presentation
+   anyone has ever sat through: swipe across it, or tap near the edge.
+
+   Bound once, at the document, rather than re-bound on every render — the
+   board is rewritten on each step and per-element handlers would leak one
+   listener per step. Ignores anything starting on a button, a link or an
+   input, so swiping is never confused with pressing. */
+let _sbTouchX = 0, _sbTouchY = 0, _sbTouchT = 0;
+document.addEventListener("touchstart", e => {
+  const b = e.target.closest && e.target.closest("#askBoard");
+  if (!b || !SB.lesson) return;
+  if (e.target.closest("button,a,input,textarea,select")) return;
+  const t = e.changedTouches[0];
+  _sbTouchX = t.clientX; _sbTouchY = t.clientY; _sbTouchT = Date.now();
+}, {passive:true});
+
+document.addEventListener("touchend", e => {
+  if (!_sbTouchT || !SB.lesson) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - _sbTouchX, dy = t.clientY - _sbTouchY;
+  const quick = Date.now() - _sbTouchT < 700;
+  _sbTouchT = 0;
+  // Horizontal, far enough to be deliberate, and more sideways than up and
+  // down — otherwise scrolling a long step would flick to the next one.
+  if (quick && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+    sbGo(dx < 0 ? 1 : -1);
+  }
+}, {passive:true});
+
+/* Tapping the edge, the way a slide deck works. Only in full screen: on the
+   normal page the board sits among other things and a stray tap moving the
+   lesson would feel broken rather than helpful. */
+document.addEventListener("click", e => {
+  if (!document.fullscreenElement || !SB.lesson) return;
+  const b = e.target.closest && e.target.closest("#askBoard");
+  if (!b) return;
+  if (e.target.closest("button,a,input,textarea,select")) return;
+  const r = b.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  if (x > r.width * 0.75) sbGo(1);
+  else if (x < r.width * 0.25) sbGo(-1);
+});
+
 function sbFull(){
   const el=document.querySelector(".ask-frame");
   if(!el) return;

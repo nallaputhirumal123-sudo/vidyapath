@@ -7462,7 +7462,9 @@ def _board_prompt(topic: str, level: str) -> str:
         "Respond with ONLY valid JSON, no markdown fences, in exactly this "
         "shape:\n"
         '{"title":"<topic in 2-6 words>",'
-        '"steps":[{"t":"<one short paragraph explaining this step>",'
+        '"steps":[{"t":"<TEACH this step: 120-220 words. Say what it is, how '
+        'it works underneath, why it is done this way, and what breaks when it '
+        'is done wrong. Never one line, never a definition on its own.>",'
         '"where":"<the screen or tool this step happens in, e.g. '
         '\'Console session on a Catalyst 9200 switch\'>",'
         '"code":"<exactly what is on that screen — commands AND the output '
@@ -7472,11 +7474,8 @@ def _board_prompt(topic: str, level: str) -> str:
         '"diagram":{"nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
-        "6 to 12 steps. At least half of them carry a real screen in \"code\" "
-        "with the matching \"where\". Omit code or diagram where they truly "
-        "do not help — an "
-        "empty string and an empty object are correct. Diagram nodes are "
-        "PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
+        "6 to 12 steps, and every one of them a paragraph a tutor would actually say out loud — 120 to 220 words. A step that reads like a glossary entry has failed: the learner already found the definition before coming here, and what they lack is why it works that way and what goes wrong without it. Use a concrete number, name or scenario in most steps rather than speaking generally.\n\n"
+        "At least half the steps carry a real screen in \"code\" with the matching \"where\". DRAW as often as you can: any step describing something with parts, a flow, a request and a response, or layers gets a diagram. A picture of boxes and arrows next to the words is how anyone teaching at a board explains a system, and it is what makes a screen of text a lesson. Diagram nodes are PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
         "using node positions.\n\n"
         # No lesson is the last one. "deeper" is what the learner taps next,
         # and each tap is cached forever, so the tree costs one call per node
