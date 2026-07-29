@@ -2176,30 +2176,144 @@ function sbGo(d){
    XSS hole, and a teaching board is the last place to open one. */
 function sbDiagramHTML(d){
   if(!d||!d.nodes||d.nodes.length<2) return "";
-  const n=d.nodes.length, W=680, boxW=Math.min(150,Math.floor((W-40)/n)-14),
+  const kind=(d.kind||"flow");
+  const N=d.nodes, E=d.edges||[];
+  const W=680;
+  const wrap=(inner,h)=>`<div class="sb-dia"><svg viewBox="0 0 ${W} ${h}"
+    style="width:100%;height:auto" role="img" aria-label="${esc(kind)} diagram">
+    ${inner}</svg></div>`;
+  const short=(t,n)=>{t=String(t||"");return t.length>n?t.slice(0,n-1)+"…":t;};
+  const box=(x,y,w,h,label,tone)=>{
+    const fill=tone==="hi"?"rgba(255,153,51,.16)":"rgba(255,255,255,.07)";
+    const line=tone==="hi"?"#ffb347":"#8fe3b0";
+    return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"
+      fill="${fill}" stroke="${line}" stroke-width="1.5"/>
+      <text x="${x+w/2}" y="${y+h/2+4}" text-anchor="middle" font-size="12.5"
+        fill="#eafff2">${esc(short(label,Math.floor(w/7.2)))}</text></g>`;
+  };
+
+  /* ---- layers, drawn stacked, because that is what a stack looks like.
+     An OSI model or an application's tiers rendered as a left-to-right chain
+     tells the reader the opposite of the truth about how it is arranged. */
+  if(kind==="stack"){
+    const h=40, gap=8, pad=14;
+    const rows=N.slice(0,6);
+    const H=pad*2+rows.length*(h+gap);
+    let out="";
+    rows.forEach((n,i)=>{
+      const y=pad+i*(h+gap);
+      out+=box(120,y,440,h,n,i===0?"hi":"");
+      if(i<rows.length-1)
+        out+=`<path d="M340 ${y+h} L340 ${y+h+gap}" stroke="#ffe6a1"
+          stroke-width="1.4"/>`;
+    });
+    out+=`<text x="96" y="${pad+16}" text-anchor="end" font-size="10.5"
+      fill="#8fe3b0">top</text>
+      <text x="96" y="${pad+(rows.length-1)*(h+gap)+26}" text-anchor="end"
+      font-size="10.5" fill="#8fe3b0">bottom</text>`;
+    return wrap(out,H);
+  }
+
+  /* ---- a header laid out as fields, the way every networking book draws
+     one. Widths come from the edge list when given, so a 4-bit field is
+     drawn narrower than a 32-bit one. */
+  if(kind==="packet"){
+    const fields=N.slice(0,8);
+    const widths=fields.map((_,i)=>{
+      const e=E.find(x=>x.from===i);
+      const n=e&&parseInt(String(e.label).replace(/[^0-9]/g,""),10);
+      return n&&n>0?n:8;
+    });
+    const total=widths.reduce((a,b)=>a+b,0)||1;
+    const h=46, pad=16;
+    let x=20, out="";
+    fields.forEach((f,i)=>{
+      const w=Math.max(52,(W-40)*widths[i]/total);
+      out+=box(x,pad,w,h,f,"");
+      out+=`<text x="${x+w/2}" y="${pad+h+14}" text-anchor="middle"
+        font-size="10" fill="#8fe3b0">${esc(String(widths[i])+" bits")}</text>`;
+      x+=w;
+    });
+    return wrap(out,pad+h+26);
+  }
+
+  /* ---- two things beside each other. A comparison drawn as a chain reads
+     as a sequence, which is the one thing it is not. */
+  if(kind==="compare"){
+    const mid=Math.ceil(N.length/2);
+    const L=N.slice(0,mid), R=N.slice(mid);
+    const h=34, gap=7, pad=34;
+    const rows=Math.max(L.length,R.length);
+    const H=pad+rows*(h+gap)+8;
+    let out=`<text x="170" y="20" text-anchor="middle" font-size="11.5"
+      fill="#ffb347" font-weight="700">${esc(short(L[0]||"",26))}</text>
+      <text x="510" y="20" text-anchor="middle" font-size="11.5"
+      fill="#8fe3b0" font-weight="700">${esc(short(R[0]||"",26))}</text>
+      <line x1="340" y1="26" x2="340" y2="${H-6}" stroke="#2b3a33"
+      stroke-width="1"/>`;
+    for(let i=1;i<rows;i++){
+      const y=pad+(i-1)*(h+gap);
+      if(L[i]) out+=box(20,y,300,h,L[i],"hi");
+      if(R[i]) out+=box(360,y,300,h,R[i],"");
+    }
+    return wrap(out,H);
+  }
+
+  /* ---- lifelines. A handshake explained without showing who spoke when is
+     not explained at all. */
+  if(kind==="sequence"){
+    const actors=N.slice(0,3);
+    const cols=actors.map((_,i)=>90+i*((W-180)/Math.max(1,actors.length-1)));
+    const top=34, step=38;
+    const msgs=E.slice(0,7);
+    const H=top+Math.max(1,msgs.length)*step+24;
+    let out="";
+    actors.forEach((a,i)=>{
+      out+=`<text x="${cols[i]}" y="18" text-anchor="middle" font-size="11.5"
+        fill="#eafff2" font-weight="700">${esc(short(a,22))}</text>
+        <line x1="${cols[i]}" y1="26" x2="${cols[i]}" y2="${H-14}"
+        stroke="#2b3a33" stroke-width="1.5"/>`;
+    });
+    msgs.forEach((e,i)=>{
+      const a=cols[Math.min(e.from,cols.length-1)], b=cols[Math.min(e.to,cols.length-1)];
+      const y=top+i*step;
+      if(a===b){
+        out+=`<path d="M${a} ${y} q46 12 0 24" fill="none" stroke="#ffe6a1"
+          stroke-width="1.6"/>
+          <text x="${a+52}" y="${y+16}" font-size="10.5" fill="#ffd98a">${
+            esc(short(e.label,20))}</text>`;
+        return;
+      }
+      const dir=b>a?-1:1;
+      out+=`<line x1="${a}" y1="${y}" x2="${b+dir*9}" y2="${y}" stroke="#ffe6a1"
+        stroke-width="1.6"/>
+        <polygon points="${b+dir*9},${y-4} ${b+dir*1},${y} ${b+dir*9},${y+4}"
+        fill="#ffe6a1"/>
+        <text x="${(a+b)/2}" y="${y-7}" text-anchor="middle" font-size="10.5"
+        fill="#ffd98a">${esc(short(e.label,30))}</text>`;
+    });
+    return wrap(out,H);
+  }
+
+  /* ---- the original: a pipeline, left to right. Correct for a pipeline and
+     for nothing else, which is why the other four exist. */
+  const n=N.length, boxW=Math.min(150,Math.floor((W-40)/n)-14),
         boxH=46, gap=(W-n*boxW)/(n+1), y=26;
-  const boxes=d.nodes.map((label,k)=>{
-    const x=gap+k*(boxW+gap);
-    const short=label.length>18?label.slice(0,17)+"…":label;
-    return `<g><rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="8"
-        fill="rgba(255,255,255,.07)" stroke="#8fe3b0" stroke-width="1.5"/>
-      <text x="${x+boxW/2}" y="${y+boxH/2+4}" text-anchor="middle"
-        font-size="12.5" fill="#eafff2">${esc(short)}</text></g>`;
-  }).join("");
-  const arrows=(d.edges||[]).map(e=>{
+  let out="";
+  E.forEach(e=>{
+    if(e.to<e.from) return;
     const ax=gap+e.from*(boxW+gap)+boxW, bx=gap+e.to*(boxW+gap);
     const mid=(ax+bx)/2, yy=y+boxH/2;
-    if(e.to<e.from) return "";                 // only draw forward flow
-    return `<g><line x1="${ax+4}" y1="${yy}" x2="${bx-9}" y2="${yy}"
-        stroke="#ffe6a1" stroke-width="1.6"/>
+    out+=`<line x1="${ax+4}" y1="${yy}" x2="${bx-9}" y2="${yy}"
+      stroke="#ffe6a1" stroke-width="1.6"/>
       <polygon points="${bx-9},${yy-4} ${bx-1},${yy} ${bx-9},${yy+4}" fill="#ffe6a1"/>
       ${e.label?`<text x="${mid}" y="${yy-8}" text-anchor="middle" font-size="11"
-         fill="#ffd98a">${esc(e.label)}</text>`:""}</g>`;
-  }).join("");
-  return `<div class="sb-dia"><svg viewBox="0 0 ${W} ${y+boxH+22}"
-    style="width:100%;height:auto" role="img" aria-label="diagram">
-    ${arrows}${boxes}</svg></div>`;
+        fill="#ffd98a">${esc(e.label)}</text>`:""}`;
+  });
+  N.forEach((label,k)=>{ out+=box(gap+k*(boxW+gap),y,boxW,boxH,label,""); });
+  return wrap(out,y+boxH+22);
 }
+
 /* The follow-ups that make it feel like a tutor rather than a lookup. Each
    re-asks the SAME topic with a different lens, so the board keeps its thread
    instead of starting a new conversation every time. */

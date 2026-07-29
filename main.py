@@ -5542,8 +5542,42 @@ _US_ABBR_RE = re.compile(
 # "specialist", "manager" or "consultant" — every industry has those.
 _TECH_TITLE_RE = re.compile(
     r"(?<![a-z])(engineer|engineering|developer|architect|administrator|"
-    r"programmer|technologist|sre|devops|technician|scientist|"
-    r"sysadmin|dba|analyst)(?:s|ing)?(?![a-z])", re.I)
+    r"programmer|sre|devops|sysadmin|dba)(?:s|ing)?(?![a-z])", re.I)
+
+# Words that make a title technical in one industry and not in another.
+# "Certified Veterinary Technician" put a pet hospital on an IT board, and
+# "technologist", "scientist" and "analyst" do the same for laboratories,
+# hospitals and finance. They only count when the rest of the title agrees.
+_AMBIGUOUS_TITLE_RE = re.compile(
+    r"(?<![a-z])(technician|technologist|scientist|analyst|specialist)"
+    r"(?:s)?(?![a-z])", re.I)
+# ...and these say plainly that it is not our industry, whatever the noun.
+_NOT_TECH_TITLE_RE = re.compile(
+    r"(?<![a-z])(veterinary|vet|dental|nurse|nursing|clinical|medical|"
+    r"pharmacy|pharmacist|radiolog\w*|surgical|patient|phlebotom\w*|"
+    r"laboratory|lab|chemistry|biolog\w*|environmental|hvac|automotive|"
+    r"mechanic\w*|electrical|welding|hospital|physician|therapist|"
+    r"paralegal|legal|payroll|accounting|tax|audit|insurance|claims|"
+    r"culinary|kitchen|retail|warehouse|logistics|driver|maintenance)"
+    r"(?![a-z])", re.I)
+
+
+def _title_is_technical(title: str) -> bool:
+    """Whether a job title, on its own, belongs on an IT board.
+
+    Three tiers, because one list cannot do it. "Engineer" and "developer"
+    are ours outright. "Technician" and "analyst" belong to every industry
+    and only count when nothing else in the title claims them. And a title
+    naming veterinary work, nursing or accounting is not ours no matter what
+    noun follows it — which is how twenty Certified Veterinary Technicians
+    ended up on a board that promises technical roles.
+    """
+    t = title or ""
+    if _NOT_TECH_TITLE_RE.search(t):
+        return False
+    if _TECH_TITLE_RE.search(t):
+        return True
+    return bool(_AMBIGUOUS_TITLE_RE.search(t))
 
 
 def _job_in_scope(r):
@@ -5555,6 +5589,12 @@ def _job_in_scope(r):
     name somewhere outside scope: genuinely remote US listings say "Remote"
     and stay, while "Remote (Germany)" goes.
     """
+    # A title naming another industry is out regardless of what family the
+    # keywords matched. "Certified Veterinary Technician" parses as sysadmin
+    # on the word technician, and no amount of category logic downstream can
+    # undo that — it has to be refused here.
+    if _NOT_TECH_TITLE_RE.search(r.get("title") or ""):
+        return False
     fam = (r.get("category") or "").strip().lower()
     if ALLOWED_FAMILIES and fam and fam not in ALLOWED_FAMILIES:
         return False
@@ -5580,7 +5620,7 @@ def _job_in_scope(r):
         # jobs, and dropping them was leaving real roles off the board. A
         # technical job title lowers the bar rather than removing it: the
         # posting still has to name a real tool.
-        need = 1 if _TECH_TITLE_RE.search(r.get("title") or "") else 3
+        need = 1 if _title_is_technical(r.get("title") or "") else 3
         if strong < need:
             return False
     c = (r.get("country") or "").strip().upper()
@@ -7471,21 +7511,24 @@ def _board_prompt(topic: str, level: str) -> str:
         'they return — or empty>",'
         '"lang":"cisco|bash|powershell|python|javascript|sql|yaml|hcl|json|'
         'kql|splunk|text|",'
-        '"diagram":{"nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
+        '"diagram":{"kind":"flow|stack|packet|compare|sequence","nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
         "6 to 12 steps, and every one of them a paragraph a tutor would actually say out loud — 120 to 220 words. A step that reads like a glossary entry has failed: the learner already found the definition before coming here, and what they lack is why it works that way and what goes wrong without it. Use a concrete number, name or scenario in most steps rather than speaking generally.\n\n"
         "At least half the steps carry a real screen in \"code\" with the matching \"where\". DRAW as often as you can: any step describing something with parts, a flow, a request and a response, or layers gets a diagram. A picture of boxes and arrows next to the words is how anyone teaching at a board explains a system, and it is what makes a screen of text a lesson. Diagram nodes are PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
         "using node positions.\n\n"
-        # No lesson is the last one. "deeper" is what the learner taps next,
-        # and each tap is cached forever, so the tree costs one call per node
-        # no matter how many people walk it.
-        "\"deeper\" is 4 to 7 things INSIDE this topic that a learner would "
-        "next want taught in their own right — concrete and specific, the "
-        "level of 'How a switch builds its MAC address table' or 'TCP "
-        "retransmission and timeouts', never vague like 'advanced topics' or "
-        "'best practices'. Each is a standalone teachable topic, 3-9 words, "
-        "and must not repeat the topic itself."
+        "PICK THE SHAPE THAT MATCHES THE IDEA, and name it in kind: "
+        "stack for layers or tiers, drawn top to bottom. "
+        "packet for the fields of a header - nodes are field names and "
+        "each edge label is that field width in bits. "
+        "compare for two approaches side by side - first half of the "
+        "nodes is the left column, heading first, second half the right. "
+        "sequence for who says what to whom in order - nodes are the two "
+        "or three actors, each edge one message. "
+        "flow for a genuine pipeline, one stage feeding the next.\n\n"
+        "Drawing a comparison as a flow says it is a sequence, and "
+        "drawing layers left to right says they sit beside each other. "
+        "The shape is part of the explanation, not decoration."
     )
 
 
