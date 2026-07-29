@@ -3787,8 +3787,10 @@ function jbCardHTML(j){
           ${j.posted_at
             ? `· posted ${jbAgo(j.posted_at)}`
             : `· added ${jbAgo(j.first_seen)}`}
-          ${j.posted_at&&j.first_seen&&(new Date(j.first_seen)-new Date(j.posted_at))>36e5
-            ? `<span style="color:var(--dim)"> · we saw it ${jbAgo(j.first_seen)}</span>`:""}
+          <!-- No "we saw it N ago". It was meant as transparency and reads as
+               an apology: "posted 4h ago, we saw it 5m ago" tells a candidate
+               about our crawler when they came here about a job. The
+               employer's date is the only one that matters to them. -->
         </div>
         <!-- Pay only when the employer stated it. Most postings do not, and an
              empty line reads better than "Salary not specified" on every card. -->
@@ -5101,17 +5103,18 @@ function planCardHTML(p,cur){
          paying for something they thought they already had. -->
     <ul style="margin:10px 0 12px 17px;font-size:13.5px;color:var(--body);line-height:1.9">
       ${p.id==="free" ? `
+        <li><b>Resume matching &amp; your ATS score</b></li>
+        <li>The skills you are missing, and what they unlock</li>
         <li>All training courses &amp; projects</li>
         <li>Interview preparation</li>
         <li>Job board — older postings, limited list</li>
-        <li style="color:var(--dim)">No resume matching</li>
         <li style="color:var(--dim)">No tracker, apply kits or autofill</li>`
       : `
         <li><b>Every live job, the day it is posted</b></li>
-        <li>Resume matching, scored against each role</li>
-        <li>Application tracker</li>
-        <li>Apply kits &amp; browser autofill</li>
-        <li>All training courses &amp; projects</li>`}
+        <li>AI apply kits — cover note and screening answers</li>
+        <li>Axle Pro: any missing skill taught from scratch</li>
+        <li>Application tracker &amp; browser autofill</li>
+        <li>Email alerts when a strong match appears</li>`}
     </ul>
     ${cta}
   </div>`;

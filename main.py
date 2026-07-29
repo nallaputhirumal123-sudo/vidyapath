@@ -2942,8 +2942,18 @@ PAID_PLANS = ("pro",)
 # The free view of the job board: only postings at least this old, and only
 # this many of them. Being early is what wins an interview, so freshness is
 # the thing Pro actually sells.
-FREE_JOB_DELAY_DAYS = int(env("FREE_JOB_DELAY_DAYS", "7") or 7)
-FREE_JOB_CAP = int(env("FREE_JOB_CAP", "50") or 50)
+# The board is free. All of it, the day it is crawled.
+#
+# It used to be delayed a week and capped at fifty for free accounts,
+# on the theory that being early is what Pro sells. It is not: the
+# postings cost nothing to serve once crawled, and a job board that
+# hides jobs has nothing to be judged on. What Pro sells is the AI that
+# acts on a posting — apply kits, interview prep, the tutor — and a
+# crawl run on demand rather than on the hour.
+#
+# Set either variable above zero to bring the old limits back.
+FREE_JOB_DELAY_DAYS = int(env("FREE_JOB_DELAY_DAYS", "0") or 0)
+FREE_JOB_CAP = int(env("FREE_JOB_CAP", "0") or 0)
 
 # The billing periods on sale. `days` is the access granted on payment and runs
 # a little past the term on purpose — a renewal that lands a day late must not
@@ -3899,8 +3909,8 @@ async def resume_parse(file: UploadFile = File(...),
                        db: Session = Depends(get_db)):
     """Read an existing resume file and let the AI structure it into the
     builder's sections — so the student starts from what they already have."""
-    require_paid_or_trial(db, user, "resume_upload", "Uploading a resume",
-                          spent="one free resume upload")
+    # Free: a paywall between someone and their own CV is a paywall in
+    # front of the thing that makes matching work at all.
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI parser is not switched on")
     raw = await file.read()
@@ -3978,8 +3988,8 @@ async def resume_extract(file: UploadFile = File(...),
     """Read an uploaded resume and return its plain text — used only to score it
     against a job description and to suggest changes. It does not build or edit
     anything."""
-    require_paid_or_trial(db, user, "resume_upload", "Uploading a resume",
-                          spent="one free resume upload")
+    # Free: a paywall between someone and their own CV is a paywall in
+    # front of the thing that makes matching work at all.
     raw = await file.read()
     if len(raw) > 4_000_000:
         raise HTTPException(400, "File too large (max 4 MB)")
@@ -7027,7 +7037,7 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     """
     free = plan_of(user) == "free" and not getattr(user, "is_admin", False)
     query = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted)
-    if free:
+    if free and FREE_JOB_DELAY_DAYS > 0:
         # Anything newer than this is Pro-only. Compared against the employer's
         # posting date where we have it, falling back to when we first saw it.
         cutoff = now() - dt.timedelta(days=FREE_JOB_DELAY_DAYS)
@@ -7046,7 +7056,7 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
         query = query.order_by(case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc())
     off, lim = max(offset, 0), min(max(limit, 1), 50)
     total = query.order_by(None).count()
-    if free:
+    if free and FREE_JOB_CAP > 0:
         # Cap what can be paged to, not just the page size — otherwise the
         # whole board is reachable a page at a time.
         total = min(total, FREE_JOB_CAP)
@@ -7059,7 +7069,7 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     _mark_tracked(db, user, out)
     return {"jobs": out, "total": total,
             "offset": off, "limit": lim, "has_more": off + lim < total,
-            "free_limited": free,
+            "free_limited": bool(free and (FREE_JOB_CAP > 0 or FREE_JOB_DELAY_DAYS > 0)),
             "free_delay_days": FREE_JOB_DELAY_DAYS if free else 0,
             "free_cap": FREE_JOB_CAP if free else 0}
 
@@ -7148,13 +7158,13 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
     # come from the same rules or the page is simply lying.
     free = plan_of(user) == "free" and not getattr(user, "is_admin", False)
     open_q = db.query(func.count(Job.id)).filter(Job.is_open == True)  # noqa: E712
-    if free:
+    if free and FREE_JOB_DELAY_DAYS > 0:
         cutoff = now() - dt.timedelta(days=FREE_JOB_DELAY_DAYS)
         open_q = open_q.filter(
             case((Job.posted_at.isnot(None), Job.posted_at),
                  else_=Job.first_seen) <= cutoff)
     open_n = open_q.scalar() or 0
-    if free:
+    if free and FREE_JOB_CAP > 0:
         open_n = min(open_n, FREE_JOB_CAP)
     return {
         # Same reason as the categories above: a country dropped from
@@ -7164,7 +7174,7 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
                       for c, n in sorted(rows, key=lambda x: -x[1])
                       if _job_in_scope({"country": c, "category": ""})],
         "open": open_n,
-        "free_limited": free,
+        "free_limited": bool(free and (FREE_JOB_CAP > 0 or FREE_JOB_DELAY_DAYS > 0)),
         "closed": db.query(func.count(Job.id)).filter(Job.is_open == False).scalar(),  # noqa: E712
         "updated": newest.isoformat() if newest else None,
         "retention_days": JOB_RETENTION_DAYS,
@@ -7562,8 +7572,20 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     Deliberately AI-free: scoring runs in Python over the stored postings, so
     it is instant, costs nothing, and never touches the daily AI limit."""
     import math
-    require_paid_or_trial(db, user, "match", "Resume matching",
-                          spent="one free match")
+    # Free, for everyone, permanently.
+    #
+    # The two strongest moments in this product — the ATS score and
+    # "python: wanted by 6 roles you nearly match" — used to sit behind
+    # the paywall, so nobody could see it was any good before paying.
+    # Scoring is deterministic Python over stored rows: no AI call, no
+    # third-party request, about two seconds of CPU. It costs little
+    # enough to give away and it is the best argument for the paid
+    # tier, which is the AI that acts on the result — apply kits,
+    # tutoring, the tracker, the extension, alerts.
+    #
+    # Free accounts still match against the delayed, capped view of the
+    # board (see FREE_JOB_DELAY_DAYS). You can see how you score; being
+    # early is what Pro sells.
     rtext = (body.resume_text or "").strip() or _resume_text(body.resume or {})
     if len(rtext.strip()) < 40:
         raise HTTPException(400, "Add some resume details first, or upload a resume.")
@@ -8607,6 +8629,10 @@ def interview_guide(category: str = "", job_id: int = 0,
                     user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
     """Interview prep for a role family, optionally anchored to one posting."""
+    # Paid. It is a per-request AI call that writes questions and model
+    # answers for one specific role — the same class of thing as an
+    # apply kit, and priced with it rather than given away.
+    require_paid(user, "Interview preparation")
     cat = (category or "").strip().lower()
     job = db.get(Job, job_id) if job_id else None
     if job and not cat:

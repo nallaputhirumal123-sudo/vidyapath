@@ -42,12 +42,24 @@ RESUME = ("Jane Doe\njane@example.com\nBackend Engineer\n"
           "reduced latency 40%, led a team of 4 engineers.\n"
           "Skills: Python, FastAPI, SQL, Docker, AWS\n")
 
-# ---------- free: the paid tools are all shut ----------
-ck("resume upload is paid",
+# ---------- free: see how you score, for nothing ----------
+# Matching and reading your own CV are free for everyone. They are
+# deterministic Python over stored rows — no AI call, no third-party request
+# — and they are the best argument for the paid tier, so putting them behind
+# it meant nobody could tell the product was good before paying.
+r = A.post("/api/jobs/match", json={"resume_text": RESUME})
+ck("resume matching is free", r.status_code == 200, str(r.status_code))
+if r.status_code == 200:
+    d = r.json()
+    ck("free match still ranks jobs", len(d.get("jobs", [])) > 0,
+       f"{d.get('total')} shown")
+    ck("free match shows the ATS view", isinstance(d.get("ats"), dict))
+    ck("free match names the gaps", "top_gaps" in d)
+ck("resume upload is free",
    A.post("/api/resume/extract",
-          files={"file": ("resume.txt", RESUME, "text/plain")}).status_code == 402)
-ck("resume matching is paid",
-   A.post("/api/jobs/match", json={"resume_text": RESUME}).status_code == 402)
+          files={"file": ("resume.txt", RESUME, "text/plain")}).status_code != 402)
+
+# ---------- free: acting on the result is what costs ----------
 ck("saving a job is paid",
    A.post("/api/jobs/track", json={"job_id": JOB_A, "status": "saved"}).status_code == 402)
 ck("applying is paid",
@@ -61,36 +73,23 @@ ck("extension pairing is paid",
 # ---------- free: courses stay open ----------
 ck("training courses are free", A.get("/api/curriculum").status_code == 200)
 ck("progress tracking is free", A.get("/api/progress").status_code == 200)
-ck("interview prep is free",
-   A.get("/api/interview/guide?category=software").status_code == 200)
+ck("interview prep is paid",
+   A.get("/api/interview/guide?category=software").status_code == 402)
 
-# ---------- free: a delayed, capped job board ----------
-jb = A.get("/api/jobs?limit=50").json()
-ck("free can still browse jobs", len(jb["jobs"]) > 0, str(len(jb["jobs"])))
-ck("free is flagged as limited", jb.get("free_limited") is True)
-ck("free is capped", jb["total"] <= m.FREE_JOB_CAP, str(jb["total"]))
-ck("free reports the delay", jb.get("free_delay_days") == m.FREE_JOB_DELAY_DAYS,
-   str(jb.get("free_delay_days")))
-
-# nothing fresher than the cutoff may appear
-cutoff = m.now() - m.dt.timedelta(days=m.FREE_JOB_DELAY_DAYS)
-db = m.SessionLocal()
-fresh_leaked = []
-for j in jb["jobs"]:
-    row = db.get(m.Job, j["id"])
-    when = row.posted_at or row.first_seen
-    if when and m._aware(when) > cutoff:
-        fresh_leaked.append(j["id"])
-db.close()
-ck("no fresh postings leak into the free view", not fresh_leaked,
-   f"{len(fresh_leaked)} leaked")
-
-# the cap must hold when paging, not just on the first page
-deep = A.get("/api/jobs?limit=50&offset=5000").json()
-ck("free cannot page past the cap", deep["offset"] < m.FREE_JOB_CAP,
-   f"offset {deep['offset']}")
-ck("free has_more is honest once capped", deep.get("has_more") is False,
-   str(deep.get("has_more")))
+# ---------- free: the whole board ----------
+# It used to be delayed a week and capped at fifty, on the theory that
+# being early is what Pro sells. It is not. Postings cost nothing to serve
+# once crawled, and a job board that hides jobs cannot be judged on
+# anything. Pro sells the AI that acts on a posting.
+jb = A.get('/api/jobs?limit=50&status=open').json()
+ck('free sees the board', len(jb.get('jobs', [])) > 0, str(jb.get('total')))
+ck('free is not flagged limited', jb.get('free_limited') is not True)
+ck('free is not capped', jb.get('total', 0) > 50 or len(jb.get('jobs', [])) > 0,
+   str(jb.get('total')))
+ck('no artificial delay', getattr(m, 'FREE_JOB_DELAY_DAYS', 0) == 0,
+   str(m.FREE_JOB_DELAY_DAYS))
+ck('free can page past fifty',
+   A.get('/api/jobs?limit=20&offset=60&status=open').status_code == 200)
 
 # ---------- paying opens everything ----------
 db = m.SessionLocal()
