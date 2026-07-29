@@ -7535,7 +7535,10 @@ def _board_prompt(topic: str, level: str) -> str:
         "flow for a genuine pipeline, one stage feeding the next.\n\n"
         "Drawing a comparison as a flow says it is a sequence, and "
         "drawing layers left to right says they sit beside each other. "
-        "The shape is part of the explanation, not decoration."
+        "The shape is part of the explanation, not decoration. "
+        "Never repeat a diagram: each one must show something the "
+        "previous ones did not, and a step that would only redraw an "
+        "earlier picture gets no diagram at all."
     )
 
 
@@ -7598,6 +7601,23 @@ def _clean_board(d, topic):
                         if len(nodes) >= 2 else None),
         })
     steps = [x for x in steps if x["t"] or x["code"]]
+    # One drawing, once. Models repeat the same diagram on every step, so a
+    # lesson that earned a single picture showed it eight times and the board
+    # looked like it had one idea. A repeat says nothing the first one did
+    # not, and a picture that never changes teaches the reader to stop
+    # looking at it.
+    seen_dia = set()
+    for st in steps:
+        d = st.get("diagram")
+        if not d:
+            continue
+        sig = (d.get("kind"), tuple(d.get("nodes") or []),
+               tuple((e.get("from"), e.get("to"), e.get("label"))
+                     for e in (d.get("edges") or [])))
+        if sig in seen_dia:
+            st["diagram"] = None
+        else:
+            seen_dia.add(sig)
     deeper, seen = [], {_norm_q(topic)}
     for x in (d.get("deeper") or [])[:9]:
         t = txt(x, 70)
@@ -9151,6 +9171,37 @@ def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
             "by_family": dict(sorted(by_family.items(), key=lambda x: -x[1])[:15]),
             "scope": {"countries": sorted(ALLOWED_COUNTRIES),
                       "families": sorted(ALLOWED_FAMILIES)}}
+
+
+@app.post("/api/admin/board/cache/clear")
+def admin_board_cache_clear(dry: int = 1, kind: str = "board",
+                            user: User = Depends(admin_user),
+                            db: Session = Depends(get_db)):
+    """Throw away cached lessons so they are taught again with today's prompt.
+
+    Lessons are cached forever on purpose — one model call per topic, served
+    free to everyone after. The cost of that is that improving how the board
+    teaches does nothing for any topic already in the table: a lesson written
+    when a step was "one short paragraph" keeps its one line and its pointless
+    two-box diagram for good.
+
+    kind=board clears smart-board lessons, career clears role paths, all
+    clears both. Dry by default, because every row deleted is a model call
+    someone will pay for again.
+    """
+    kinds = {"board": ["board"], "career": ["career"],
+             "all": ["board", "career"]}.get(kind.strip().lower())
+    if not kinds:
+        raise HTTPException(400, "kind must be board, career or all")
+    q = db.query(AskCache).filter(AskCache.subject.in_(kinds))
+    n = q.count()
+    if not dry:
+        q.delete(synchronize_session=False)
+        db.commit()
+    return {"dry_run": bool(dry), "kind": kind, "cached_lessons": n,
+            "deleted": 0 if dry else n,
+            "note": "each one is re-taught, and re-charged, the next time "
+                    "someone asks for it"}
 
 
 @app.post("/api/admin/jobs/recategorize")
