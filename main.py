@@ -7893,7 +7893,7 @@ def hire_search(body: HireSearchIn, user: User = Depends(employer_user),
         out.append({
             # An opaque handle, not the user id: an employer must not be able
             # to enumerate accounts or correlate one across searches.
-            "ref": hashlib.sha256(f"cand{u.id}{JWT_SECRET}".encode()).hexdigest()[:16],
+            "ref": _licence_ref(u.id),
             "score": score,
             "matched_skills": sorted(jd_skills & r_skills)[:12],
             "missing_skills": sorted(jd_skills - r_skills)[:8],
@@ -8427,6 +8427,39 @@ def apply_pair_code(user: User = Depends(current_user),
     return {"code": code, "expires_in": int(PAIR_TTL.total_seconds())}
 
 
+def _licence_ref(uid: int) -> str:
+    """A stable, non-reversible reference for one account.
+
+    The same construction the hiring side already uses for candidate refs:
+    a salted hash, sixteen characters, useless to anyone who intercepts it.
+    Defined once here so the extension and the employer view cannot drift.
+    """
+    return hashlib.sha256(f"cand{uid}{JWT_SECRET}".encode()).hexdigest()[:16]
+
+
+@app.get("/api/apply/licence")
+def apply_licence(ref: str = "", db: Session = Depends(get_db)):
+    """Is this paired extension still entitled to autofill?
+
+    The extension pairs once and then works offline, which is right for
+    privacy — the resume never travels again — but it also meant a lapsed
+    subscriber kept autofill forever. This is the smallest thing that closes
+    that: a reference the extension already holds, in, a yes or no out.
+
+    Deliberately NOT authenticated and deliberately returns no personal data.
+    The reference is the salted hash we already use for candidate refs, so a
+    stolen one reveals nothing and cannot be turned into a session. A missing
+    or unknown reference answers "no" without saying which.
+    """
+    ref = (ref or "").strip()
+    if not ref:
+        return {"ok": False}
+    for u in db.query(User).filter(User.is_active == True).all():   # noqa: E712
+        if _licence_ref(u.id) == ref:
+            return {"ok": plan_of(u) != "free"}
+    return {"ok": False}
+
+
 @app.get("/api/apply/profile")
 def apply_profile(code: str = "", db: Session = Depends(get_db)):
     """Trade a pairing code for the autofill profile. Single use.
@@ -8463,11 +8496,16 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
                 return m.group(0).rstrip(".,;")
         return ""
 
+    # The extension keeps this and asks /api/apply/licence with it every few
+    # days. It is a salted hash of the user id, not the id: it identifies the
+    # licence without identifying the person, and it cannot be used to log in.
+    ref = _licence_ref(user.id)
     exp = (r.get("exp") or [{}])[0] if r.get("exp") else {}
     edu = (r.get("edu") or [{}])[0] if r.get("edu") else {}
     full = str(r.get("name") or user.name or "").strip()
     first, _, last = full.partition(" ")
     return {
+        "licence_ref": ref,
         "first_name": first, "last_name": last.strip(), "full_name": full,
         # Blank on purpose: a resume rarely carries these, and the person
         # fills them once in the extension rather than on every form.

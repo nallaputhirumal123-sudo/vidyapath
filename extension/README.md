@@ -25,7 +25,14 @@ You need an `icon128.png` in this folder before Chrome will accept it — any
 3. Click the extension icon, type the code, press **Connect**.
 
 The extension trades that code once for your profile and stores it in this
-browser. After that it makes no network calls at all.
+browser. After that the only call it ever makes is a licence check — at most
+once a day, when you open the popup — which sends a salted reference and
+receives a yes or no. No resume, no email, no session, and nothing that
+identifies you. If the answer is no, the stored profile is deleted and the
+extension goes back to the pairing screen.
+
+A failed request is not a no: offline, or on a bad connection, it keeps
+working and asks again tomorrow. Only an explicit refusal clears anything.
 
 ## Use it
 

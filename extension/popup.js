@@ -25,6 +25,15 @@ async function getProfile() {
   return profile || null;
 }
 
+// Checked on open, not on every fill: a form gets filled offline, in a hurry,
+// and must never wait on a network call to do it.
+async function getProfileChecked() {
+  const p = await getProfile();
+  if (!p) return null;
+  const ok = await checkLicence(p);
+  return ok ? p : null;
+}
+
 function paint(profile) {
   show($("setup"), !profile);
   show($("ready"), !!profile);
@@ -38,6 +47,50 @@ function paint(profile) {
   $("missing").textContent = gaps.length
     ? "Missing: " + gaps.join(", ") + " — press Edit my details to add them."
     : "";
+}
+
+/* ---------- licence ----------
+   Pairing is paid, but a paired extension used to work forever: it stored the
+   profile locally and never spoke to the server again. Good for privacy,
+   wrong for billing — someone could subscribe for a month and autofill for a
+   year.
+
+   So it asks, at most once a day, whether the account behind it is still
+   paying. The question carries a salted reference, never an id, an email or a
+   session, and the answer is one boolean. If the answer is no, the stored
+   profile is removed: the extension does nothing rather than filling forms
+   for an account that has stopped paying.
+
+   A network failure is NOT a no. Someone offline, or on a flaky train
+   connection, keeps working — only an explicit refusal from the server clears
+   anything, because breaking a paying customer's tool over dropped wifi is
+   worse than a lapsed one getting a few extra days.
+*/
+const LICENCE_EVERY_MS = 24 * 60 * 60 * 1000;
+
+async function checkLicence(profile) {
+  if (!profile || !profile.licence_ref) return true;   // paired before this existed
+  const last = Number(profile.licence_checked_at || 0);
+  if (Date.now() - last < LICENCE_EVERY_MS) return true;
+
+  for (const base of [SITE, FALLBACK_SITE]) {
+    try {
+      const r = await fetch(
+        `${base}/api/apply/licence?ref=${encodeURIComponent(profile.licence_ref)}`);
+      if (!r.ok) continue;
+      const d = await r.json().catch(() => ({}));
+      if (d && d.ok === false) {
+        await chrome.storage.local.remove("profile");
+        return false;
+      }
+      if (d && d.ok === true) {
+        profile.licence_checked_at = Date.now();
+        await chrome.storage.local.set({ profile });
+        return true;
+      }
+    } catch (e) { /* offline: keep working, ask again tomorrow */ }
+  }
+  return true;
 }
 
 /* ---------- pairing ---------- */
@@ -157,4 +210,7 @@ $("fill").onclick = async () => {
   }
 };
 
-getProfile().then(paint);
+// On open: check the licence first, then paint. A refused licence clears the
+// stored profile, so the popup falls back to the pairing screen — which is
+// the honest state for an account that is no longer paying.
+getProfileChecked().then(paint);
