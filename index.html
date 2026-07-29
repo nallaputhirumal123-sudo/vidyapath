@@ -3676,9 +3676,15 @@ function jbReadInputs(){
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
   if(k) JB.category=k.value;
-  const jt=$("#jbType"), pd=$("#jbPosted");
+  const jt=$("#jbType"), pd=$("#jbPosted"),
+        en=$("#jbEng"), vi=$("#jbVisa");
   if(jt) JB.jobType=jt.value;
   if(pd) JB.posted=pd.value;
+  // Read every control that exists. These two were sent to the API on
+  // every request and never populated from the page, so choosing C2C
+  // changed nothing and the results looked unrelated to the filters.
+  if(en) JB.engagement=en.value;
+  if(vi) JB.visa=vi.value;
 }
 /* keepPage: paging through results must not reset you to the first page. */
 /* Flags the results as out of date and turns the search button into an apply
@@ -4450,6 +4456,8 @@ function jbSectionHTML(){
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
       ${sel("jbType","⏱️ Any job type",(f&&f.job_types)||[],JB.jobType)}
       ${sel("jbPosted","🕒 Any time",((f&&f.posted_windows)||[]).map(w=>({id:w.id,label:w.label,count:null})),JB.posted)}
+      ${sel("jbEng","💼 Any engagement",(f&&f.engagements)||[],JB.engagement)}
+      ${sel("jbVisa","🛂 Any work authorisation",(f&&f.visas)||[],JB.visa)}
       ${JB.mode==="match"?`<select id="jbMin" class="ask-input" style="min-width:150px">
         <!-- Bands that exist. 85%+ was on this list and nothing on the board
              ever reaches it, so the filter returned an empty page and read
@@ -4660,7 +4668,7 @@ function renderCareers(){
      waited for the button — so half the controls behaved one way and half the
      other. In match mode an instant re-run also spent a match per dropdown.
      Now every filter marks the search stale and the button does the work. */
-  ["jbCat","jbType","jbPosted","jbMin","jbRemote","jbLoc"].forEach(id=>{
+  ["jbCat","jbType","jbPosted","jbEng","jbVisa","jbMin","jbRemote","jbLoc"].forEach(id=>{
     const el=$("#"+id); if(!el) return;
     const mark=()=>jbMarkDirty();
     el.onchange=mark;
