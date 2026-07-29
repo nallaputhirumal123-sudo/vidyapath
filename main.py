@@ -5127,7 +5127,12 @@ async def _fetch_jsearch(client, query, cc):
         # duplicate.
         params={"query": f"{query} in {cc}", "page": "1",
                 "num_pages": str(JSEARCH_PAGES), "country": cc.lower(),
-                "date_posted": env("JSEARCH_WINDOW", "month") or "month"},
+                # Back to a week. A month was chosen for volume — the request costs
+                # the same either way — but it fills the board with postings
+                # that are technically open and weeks stale, and being early is
+                # the thing this board actually sells. Set JSEARCH_WINDOW=month
+                # to trade freshness for depth again.
+                "date_posted": env("JSEARCH_WINDOW", "week") or "week"},
         headers={"X-API-Key": JSEARCH_KEY})
     if r.status_code >= 300:
         # RapidAPI says WHY in the body — wrong key, not subscribed, quota

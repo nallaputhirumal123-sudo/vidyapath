@@ -3492,7 +3492,13 @@ const REAL_PRACTICE=[
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
         category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
-        jobType:"",engagement:"",visa:"",posted:"",
+        jobType:"",engagement:"",visa:"",
+        /* The board defaults to the past week. Half the postings on it are
+           older than a fortnight — real, still open, but not news — and a
+           first page of month-old roles makes a live board look like an
+           archive. The other windows are one click away, and "Past month"
+           still shows everything we hold. */
+        posted:"7",
         tab:"find",tracks:null,trackTab:"viewed"};
 const TRACK_LABELS={viewed:"Recently viewed",saved:"Saved",applied:"Applied",
                     interviewing:"Interviewing",offer:"Offer received",
@@ -3916,7 +3922,8 @@ function jbResultsHTML(){
   if(!JB.jobs.length) return "";
   const m=JB.meta||{}, from=JB.offset+1, to=JB.offset+JB.jobs.length;
   const head=JB.mode==="match"
-    ? `<div style="font-size:13px;color:var(--muted);margin-bottom:11px">Scored ${m.scanned} live postings · <b>${m.total}</b> worth showing${JB.minScore?` at ${JB.minScore}%+`:""} · viewing ${from}–${to}${m.level?` · pitched at <b>${esc(m.level)}</b> level`:""}${m.families&&m.families.length?` · read as <b>${m.families.map(esc).join(", ")}</b>`:""}</div>
+    ? `<div style="font-size:13px;color:var(--muted);margin-bottom:11px">Scored ${m.scanned} live postings${JB.posted?` posted in the ${
+      ({"1":"past 24 hours","3":"past 3 days","7":"past week","30":"past month"})[JB.posted]||"chosen window"}`:""} · <b>${m.total}</b> worth showing${JB.minScore?` at ${JB.minScore}%+`:""} · viewing ${from}–${to}${m.level?` · pitched at <b>${esc(m.level)}</b> level`:""}${m.families&&m.families.length?` · read as <b>${m.families.map(esc).join(", ")}</b>`:""}</div>
        ${m.ats?(function(){const a=m.ats;
          const tone=v=>v>=65?"var(--ok)":v>=45?"var(--warn)":"var(--bad)";
          const bar=(label,v)=>`<div style="flex:1;min-width:118px">
