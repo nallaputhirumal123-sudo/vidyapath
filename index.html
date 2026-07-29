@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Craxle — Learn to Code, Data & AI</title>
-<meta name="description" content="Hands-on learning platform for students worldwide. Python, JavaScript, SQL, Java, C, Data Science and AI — with runnable labs, videos and references."/>
+<meta name="description" content="Hands-on learning platform for students. Python, JavaScript, SQL, Java, C, Data Science and AI — with runnable labs, videos and references."/>
 
 <!-- Search engines pick the icon from these; without them Google shows a
      generic globe next to the result. 32px is the size it actually renders. -->
@@ -787,7 +787,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
   <div class="land">
 
     <section class="lhero">
-      <span class="lbadge">FREE TO BROWSE · OPEN TO EVERYONE, WORLDWIDE</span>
+      <span class="lbadge">FREE TO BROWSE · OPEN TO EVERYONE</span>
       <h1>Learn to code.<br>Then build with <span>AI</span>.</h1>
       <p>One continuous path from "what is a computer?" to building real AI systems.
          Every lesson taught in full; Python and SQL exercises run and auto-grade
@@ -833,7 +833,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
         <div class="card"><div class="ic">🏫</div><h3>Real classrooms for schools</h3>
           <p>Head teachers run a school, subject teachers set their own assignments (typed or photographed book pages), students hand in work and chat for help.</p></div>
         <div class="card"><div class="ic">💼</div><h3>Careers &amp; real jobs</h3>
-          <p>What each tech role really does, where you use the skills at work, live job links worldwide, and practice that mirrors a paid task.</p></div>
+          <p>What each tech role really does, where you use the skills at work, live job links, and practice that mirrors a paid task.</p></div>
         <div class="card"><div class="ic">🤖</div><h3>Built around AI</h3>
           <p>From "what is AI" in lesson one to building RAG systems and agents — plus an AI helper on every assignment that guides without doing it for you.</p></div>
         <div class="card"><div class="ic">🎨</div><h3>Coloring for young kids</h3>
@@ -939,7 +939,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     </section>
 
     <footer class="lfoot">
-      Craxle · Open learning worldwide · Python &amp; SQL exercises auto-grade in your browser<br>
+      Craxle · Open learning · Python &amp; SQL exercises auto-grade in your browser<br>
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
       <br><span data-version style="opacity:.7"></span>
@@ -3772,7 +3772,17 @@ function jbCardHTML(j){
         <div style="font-size:12.5px;color:var(--muted);margin-top:5px">
           ${closed?`<span style="color:#e05a5a">● Closed ${jbAgo(j.closed_at)}</span>`
                   :`<span style="color:var(--ok)">● Open</span>`}
-          · seen ${jbAgo(j.first_seen)}
+          <!-- The employer's own posting date when the source gives us one,
+               which is 83% of the board. Showing when WE first saw it made a
+               role posted four days ago read as "8 hrs ago" — the board
+               looked fresher than the job was, which is the one thing a job
+               board must not lie about. When there is no date, "added" says
+               plainly that it is our timestamp, not theirs. -->
+          ${j.posted_at
+            ? `· posted ${jbAgo(j.posted_at)}`
+            : `· added ${jbAgo(j.first_seen)}`}
+          ${j.posted_at&&j.first_seen&&(new Date(j.first_seen)-new Date(j.posted_at))>36e5
+            ? `<span style="color:var(--dim)"> · we saw it ${jbAgo(j.first_seen)}</span>`:""}
         </div>
         <!-- Pay only when the employer stated it. Most postings do not, and an
              empty line reads better than "Salary not specified" on every card. -->
@@ -4534,7 +4544,7 @@ document.addEventListener("keydown",e=>{
 function renderCareers(){
   $("#main").innerHTML=`
   <div class="h1">💼 Careers &amp; jobs</div>
-  <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply — worldwide — and practice that mirrors what you'd do on day one.</p>
+  <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply, and practice that mirrors what you'd do on day one.</p>
 
   ${jbTabsHTML()}
   ${JB.tab==="track"?jbTrackerHTML():JB.tab==="prep"?jbPrepHTML():JB.tab==="invites"?jbInvitesHTML():jbSectionHTML()}

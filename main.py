@@ -4649,10 +4649,23 @@ def _ts(v):
         return None
     try:
         if isinstance(v, (int, float)):
-            return dt.datetime.fromtimestamp(v / (1000 if v > 1e11 else 1), dt.timezone.utc)
-        return dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            d = dt.datetime.fromtimestamp(v / (1000 if v > 1e11 else 1), dt.timezone.utc)
+        else:
+            d = dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
     except Exception:
         return None
+    # A date is only useful if it is plausible. Feeds send epoch values in the
+    # wrong unit, placeholder dates and occasional garbage — the board was
+    # carrying a posting dated 4,891 days ago, which is not an old job, it is
+    # a parse failure being displayed as fact. Anything in the future or more
+    # than two years back is discarded, and the card then says "added" with
+    # our own timestamp rather than stating something false.
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)
+    n = now()
+    if d > n + dt.timedelta(days=2) or d < n - dt.timedelta(days=730):
+        return None
+    return d
 
 
 async def _fetch_greenhouse(client, token):
