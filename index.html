@@ -2377,6 +2377,69 @@ function sbDiagramHTML(d){
     return wrap(out,H);
   }
 
+  /* ---- a drawn scene.
+
+     Boxes and arrows explain a protocol stack. They cannot explain sunlight
+     entering an atmosphere, a frame arriving at a switch port, or a signal
+     on a wire — and a student who cannot see the thing is being given a
+     definition, not a lesson.
+
+     The model never sends markup. It names primitives from a fixed
+     vocabulary with coordinates on a 100x100 grid, and this draws them.
+     Anything it invents that is not in the list is skipped, so the worst a
+     bad answer can do is draw less. */
+  if(kind==="scene"){
+    const H=300, S=x=>x*(W/100), T=y=>y*(H/100);
+    const P={sun:"#ffcf66",wave:"#8fe3b0",ray:"#ffe6a1",particle:"#9fd0ff",
+             box:"#8fe3b0",arrow:"#ffe6a1",label:"#eafff2",note:"#ffd98a"};
+    let out="";
+    (d.shapes||[]).slice(0,26).forEach(sh=>{
+      const c=P[sh.color]||P[sh.type]||"#8fe3b0";
+      const x=S(+sh.x||0), y=T(+sh.y||0);
+      if(sh.type==="sun"){
+        out+=`<circle cx="${x}" cy="${y}" r="${S(+sh.r||6)}" fill="${c}"
+          opacity=".92"/>`;
+        for(let i=0;i<8;i++){
+          const a=i*Math.PI/4, r1=S((+sh.r||6)+2), r2=S((+sh.r||6)+6);
+          out+=`<line x1="${x+Math.cos(a)*r1}" y1="${y+Math.sin(a)*r1}"
+            x2="${x+Math.cos(a)*r2}" y2="${y+Math.sin(a)*r2}"
+            stroke="${c}" stroke-width="1.6" opacity=".8"/>`;
+        }
+      }else if(sh.type==="particle"){
+        out+=`<circle cx="${x}" cy="${y}" r="${S(+sh.r||1.6)}" fill="${c}"
+          opacity=".85"/>`;
+      }else if(sh.type==="ray"){
+        out+=`<line x1="${x}" y1="${y}" x2="${S(+sh.x2||0)}" y2="${T(+sh.y2||0)}"
+          stroke="${c}" stroke-width="${+sh.w||1.6}" opacity=".9"/>`;
+      }else if(sh.type==="wave"){
+        const x2=S(+sh.x2||100), amp=T(+sh.amp||4), n=Math.max(2,+sh.cycles||4);
+        let p=`M${x} ${y}`;
+        for(let i=0;i<n;i++){
+          const seg=(x2-x)/n, sx=x+i*seg;
+          p+=` q${seg/4} ${-amp} ${seg/2} 0 q${seg/4} ${amp} ${seg/2} 0`;
+        }
+        out+=`<path d="${p}" fill="none" stroke="${c}" stroke-width="1.8"/>`;
+      }else if(sh.type==="arrow"){
+        const x2=S(+sh.x2||0), y2=T(+sh.y2||0);
+        const a=Math.atan2(y2-y,x2-x), h=7;
+        out+=`<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${c}"
+          stroke-width="1.8"/>
+          <polygon points="${x2},${y2} ${x2-h*Math.cos(a-0.4)},${y2-h*Math.sin(a-0.4)}
+          ${x2-h*Math.cos(a+0.4)},${y2-h*Math.sin(a+0.4)}" fill="${c}"/>`;
+      }else if(sh.type==="box"){
+        out+=`<rect x="${x}" y="${y}" width="${S(+sh.w||20)}" height="${T(+sh.h||12)}"
+          rx="6" fill="rgba(255,255,255,.07)" stroke="${c}" stroke-width="1.5"/>`;
+        if(sh.text) out+=`<text x="${x+S(+sh.w||20)/2}" y="${y+T(+sh.h||12)/2+4}"
+          text-anchor="middle" font-size="11.5" fill="#eafff2">${esc(String(sh.text).slice(0,24))}</text>`;
+      }else if(sh.type==="label"){
+        out+=`<text x="${x}" y="${y}" font-size="11.5" fill="${c}"
+          text-anchor="${sh.align==="end"?"end":sh.align==="middle"?"middle":"start"}"
+          >${esc(String(sh.text||"").slice(0,42))}</text>`;
+      }
+    });
+    return wrap(out,H);
+  }
+
   /* ---- the original: a pipeline, left to right. Correct for a pipeline and
      for nothing else, which is why the other four exist. */
   const n=N.length, boxW=Math.min(150,Math.floor((W-40)/n)-14),

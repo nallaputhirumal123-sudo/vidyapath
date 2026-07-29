@@ -7640,12 +7640,16 @@ def _clean_board(d, topic):
     # looking at it.
     seen_dia = set()
     for st in steps:
-        d = st.get("diagram")
-        if not d:
+        # NOT named d: that is this function's own parameter, and shadowing it
+        # left d as None once a step had no diagram, so the next line —
+        # d.get("deeper") — raised and every lesson whose last step had no
+        # drawing failed with "the AI did not respond".
+        dg = st.get("diagram")
+        if not dg:
             continue
-        sig = (d.get("kind"), tuple(d.get("nodes") or []),
+        sig = (dg.get("kind"), tuple(dg.get("nodes") or []),
                tuple((e.get("from"), e.get("to"), e.get("label"))
-                     for e in (d.get("edges") or [])))
+                     for e in (dg.get("edges") or [])))
         if sig in seen_dia:
             st["diagram"] = None
         else:
