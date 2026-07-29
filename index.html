@@ -4370,7 +4370,11 @@ function jbSectionHTML(){
       ${opts.map(o=>`<option value="${esc(o.id)}" ${cur===o.id?"selected":""}>${esc(o.label)}${o.count==null?"":` (${o.count})`}</option>`).join("")}
     </select>`;
   const fresh=f&&f.updated
-    ? `Updated ${jbAgo(f.updated)} · <b>${f.open}</b> open roles${f.closed?` · ${f.closed} recently closed`:""} · ${f.retention_days} days of history`
+    /* No "updated N ago". It was the crawl's timestamp, not the jobs' — it
+       said 8 hrs ago while the newest posting was four days old, which reads
+       as a promise the board cannot keep. Each card carries the employer's
+       own date now, which is the honest version of the same information. */
+    ? `<b>${f.open}</b> open roles${f.closed?` · ${f.closed} recently closed`:""} · ${f.retention_days} days of history`
     : "Loading live postings…";
   const countries=f&&f.countries?f.countries:[];
   return `
