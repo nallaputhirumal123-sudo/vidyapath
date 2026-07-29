@@ -4856,7 +4856,10 @@ JSEARCH_KEY = env("JSEARCH_KEY") or env("RAPIDAPI_KEY")
 # listing, which needs X-RapidAPI-Key / X-RapidAPI-Host instead.
 JSEARCH_BASE = env("JSEARCH_BASE",
                    "https://api.openwebninja.com/jsearch/search-v2")
-JSEARCH_PAGES = int(env("JSEARCH_PAGES", "1") or 1)
+# 1-20: the provider's own ceiling. Asking for more is not an error you can
+# see — the request simply comes back with what it feels like returning, so a
+# typo of 90 quietly costs the same as 20 and looks like a bad day.
+JSEARCH_PAGES = max(1, min(20, int(env("JSEARCH_PAGES", "1") or 1)))
 JSEARCH_QUERIES = [q.strip() for q in (env(
     "JSEARCH_QUERIES",
     "cloud infrastructure engineer,enterprise architect,cloud solutions"
