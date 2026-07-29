@@ -4692,8 +4692,58 @@ function jbFamilyFromTitle(title){
   return "";
 }
 let PREP=null, PREP_CAT="", PREP_JOB=0;
+/* One round, generated when it is opened. A separate call and a separate
+   cache entry per round: somebody opening the technical round wants the
+   whole 45 minutes, not a third of a summary. Guarded so a double tap does
+   not pay twice. */
+let ROUND=null, ROUND_NAME="", ROUND_BUSY=false;
+async function jbLoadRound(name){
+  if(ROUND_BUSY) return;
+  if(ROUND_NAME===name && ROUND){ ROUND=null; ROUND_NAME=""; return renderCareers(); }
+  ROUND_NAME=name; ROUND=null; ROUND_BUSY=true; renderCareers();
+  try{
+    const p=new URLSearchParams({job_id:String(PREP_JOB), round:name});
+    ROUND=(await api.get("/api/interview/guide?"+p)).round||null;
+  }catch(e){ ROUND={error:e.message}; }
+  ROUND_BUSY=false; renderCareers();
+}
+function jbRoundHTML(){
+  if(ROUND_BUSY) return `<div style="font-size:13px;color:var(--muted);
+    padding:12px 0">Writing your ${esc(ROUND_NAME)} round…</div>`;
+  if(!ROUND) return "";
+  if(ROUND.error) return `<div style="color:#e05a5a;font-size:13px;padding:10px 0">${esc(ROUND.error)}</div>`;
+  const r=ROUND;
+  return `<div style="margin-top:14px;padding-top:14px;border-top:2px solid var(--accent)">
+    ${r.who?`<div style="font-size:13.5px;color:var(--body);line-height:1.6">
+      <b style="color:var(--accent)">Who is in the room:</b> ${esc(r.who)}</div>`:""}
+    ${r.shape?`<div style="font-size:13.5px;color:var(--body);margin-top:6px;line-height:1.6">
+      <b style="color:var(--accent)">How it runs:</b> ${esc(r.shape)}</div>`:""}
+    ${(r.prepare||[]).length?`<div style="margin-top:10px">
+      <div class="eyebrow" style="margin:0 0 4px">Do this before the call</div>
+      <ul style="margin:0 0 0 18px;font-size:13.5px;color:var(--body);line-height:1.8">
+        ${r.prepare.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:""}
+    ${(r.questions||[]).map((q,i)=>`<div style="margin-top:14px;padding-top:12px;
+      border-top:1px solid var(--line)">
+      <div style="font-size:14.5px;font-weight:650;line-height:1.45">${i+1}. ${esc(q.q)}</div>
+      ${q.why?`<div style="font-size:12px;color:var(--dim);margin-top:4px">
+        They are testing: ${esc(q.why)}</div>`:""}
+      ${q.answer?`<div style="margin-top:8px;background:var(--panel2);
+        border-left:3px solid var(--ok);border-radius:7px;padding:11px 13px;
+        font-size:13.5px;color:var(--body);line-height:1.65">${esc(q.answer)}</div>`:""}
+      ${q.followup?`<div style="font-size:12.5px;color:var(--muted);margin-top:6px">
+        <b>Then they will ask:</b> ${esc(q.followup)}</div>`:""}
+    </div>`).join("")}
+    ${(r.red_flags||[]).length?`<div style="margin-top:14px">
+      <div class="eyebrow" style="margin:0 0 4px">What loses this round</div>
+      <ul style="margin:0 0 0 18px;font-size:13.5px;color:var(--warn);line-height:1.8">
+        ${r.red_flags.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:""}
+    ${r.closing?`<div style="margin-top:12px;font-size:13.5px;color:var(--body)">
+      <b style="color:var(--ok)">Last two minutes:</b> ${esc(r.closing)}</div>`:""}
+  </div>`;
+}
 async function jbLoadPrep(cat, jobId){
   if(jobId!==undefined) PREP_JOB = jobId || 0;
+  ROUND=null; ROUND_NAME=""; ROUND_BUSY=false;
   PREP=null; if(JB.tab==="prep") renderCareers();
   try{
     const p=new URLSearchParams();
@@ -4733,7 +4783,11 @@ function jbPrepHTML(){
           ROUND ${i+1}</span>
         <b style="font-size:15px">${esc(r.name)}</b>
         ${r.what_they_test?`<span style="font-size:12.5px;color:var(--muted)">— ${esc(r.what_they_test)}</span>`:""}
+        <button class="btn ${ROUND_NAME===r.name&&ROUND?"":"ghost"} sm"
+          data-jbround="${esc(r.name)}" style="margin-left:auto">
+          ${ROUND_NAME===r.name&&ROUND?"Hide the detail":"Prepare this round →"}</button>
       </div>
+      ${ROUND_NAME===r.name?jbRoundHTML():""}
       ${(r.questions||[]).map(q=>`<div style="margin-top:14px;padding-top:12px;
         border-top:1px solid var(--line)">
         <div style="font-size:14.5px;font-weight:650;line-height:1.45">${esc(q.q)}</div>
@@ -5038,6 +5092,8 @@ document.addEventListener("click",e=>{
     jbAnswerInvite(+iv.dataset.inv, iv.dataset.yes==="1");
     return;
   }
+  const rd=e.target.closest("[data-jbround]");
+  if(rd){ jbLoadRound(rd.dataset.jbround); return; }
   const pr=e.target.closest("[data-jbprep]");
   if(pr){
     JB.tab="prep"; JB.suggOpen=false;

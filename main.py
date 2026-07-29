@@ -8825,6 +8825,57 @@ INTERVIEW_GENERIC = {
 }
 
 
+def _round_prompt(job, rtext, round_name, missing):
+    """Everything about one round of one interview."""
+    return (
+        f"You are coaching a candidate through the {round_name} round of a "
+        f"specific interview. Depth, not breadth — this is the only round "
+        f"you are covering.\n\n"
+        f"POSTING: {job.title} at {job.company}\n{(job.text or '')[:2400]}\n\n"
+        f"RESUME:\n{(rtext or '')[:2000]}\n\n"
+        f"THEY WANT, THE RESUME DOES NOT SHOW: {', '.join(missing[:8]) or 'nothing obvious'}\n\n"
+        "Respond with ONLY valid JSON, no markdown fences:\n"
+        '{"round":"<the round>",'
+        '"who":"<who is in the room and what they personally care about>",'
+        '"shape":"<how the 30-45 minutes usually run, in order>",'
+        '"prepare":["<something to do BEFORE this round - look up, rehearse, '
+        'bring>"],'
+        '"questions":[{"q":"<a question>",'
+        '"why":"<what they are really testing>",'
+        '"answer":"<a full answer in the candidate\'s own voice, 60-110 words, '
+        'using their real projects and numbers from the resume>",'
+        '"followup":"<the follow-up they will ask, and the one line that '
+        'answers it>"}],'
+        '"red_flags":["<something that loses this round>"],'
+        '"closing":"<what to say in the last two minutes of this round>"}\n\n'
+        "6 to 9 questions, all specific to this posting — if it names "
+        "Terraform, on-call and a migration, ask about those. The answers are "
+        "written out in full, not described: the candidate should be able to "
+        "read one aloud and have it be true, which means using what the "
+        "resume actually says and never inventing a project. Where they lack "
+        "the experience, write the honest answer that still keeps the room."
+    )
+
+
+def _clean_round(d, name):
+    """Validate one round. Text only, same rule as everywhere else."""
+    def txt(v, n=1200):
+        return str(v or "").strip()[:n]
+
+    qs = []
+    for q in (d.get("questions") or [])[:10]:
+        if isinstance(q, dict) and txt(q.get("q"), 300):
+            qs.append({"q": txt(q.get("q"), 300), "why": txt(q.get("why"), 300),
+                       "answer": txt(q.get("answer"), 1400),
+                       "followup": txt(q.get("followup"), 600)})
+    return {"round": txt(d.get("round"), 60) or name[:60],
+            "who": txt(d.get("who"), 400), "shape": txt(d.get("shape"), 700),
+            "prepare": [txt(x, 300) for x in (d.get("prepare") or [])[:8] if txt(x, 300)],
+            "questions": qs,
+            "red_flags": [txt(x, 300) for x in (d.get("red_flags") or [])[:6] if txt(x, 300)],
+            "closing": txt(d.get("closing"), 600)}
+
+
 def _interview_prompt(job, rtext, missing):
     """Prep for one posting, read against one resume."""
     jd = (job.text or "")[:2600]
@@ -8896,6 +8947,7 @@ def _clean_interview(d, role):
 
 @app.get("/api/interview/guide")
 async def interview_guide(category: str = "", job_id: int = 0,
+                          round: str = "",
                     user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
     """Interview prep for a role family, optionally anchored to one posting."""
@@ -8914,6 +8966,46 @@ async def interview_guide(category: str = "", job_id: int = 0,
     # it reads as random: it never mentions the job. When we have a posting
     # and a resume we can do the thing a coach actually does — ask what this
     # employer will ask, and point at the candidate's own evidence.
+    if job is not None and round and ASK_ENABLED:
+        # One round, in depth. A separate call and a separate cache entry:
+        # somebody opening the technical round is asking a different question
+        # from somebody skimming the whole process, and answering both from
+        # one generation is how you get four shallow rounds instead of one
+        # useful one.
+        require_paid(user, "Interview prep for a specific job")
+        note = db.query(Note).filter(Note.user_id == user.id,
+                                     Note.k == "resume_uptext").first()
+        rtext = (note.v if note else "") or ""
+        if len(rtext.strip()) >= 120:
+            rn = round.strip()[:60]
+            key = ("ivr|" + str(job.id) + "|"
+                   + hashlib.sha256(rtext.encode("utf-8", "ignore")).hexdigest()[:12]
+                   + "|" + _norm_q(rn))
+            row = db.query(AskCache).filter(AskCache.qkey == key).first()
+            if row:
+                row.hits = (row.hits or 0) + 1
+                db.commit()
+                return {"round": json.loads(row.lesson), "cached": True}
+            skills, _kw = _profile(rtext)
+            missing = sorted(_job_req_skills(job) - skills) or \
+                sorted(_job_skills(job) - skills)
+            _ai_enforce_limit(db, user)
+            try:
+                text = await _ai_text(_round_prompt(job, rtext, rn, missing),
+                                      2800, json_mode=True)
+                deep = _clean_round(_ai_json(text), rn)
+            except Exception as e:
+                print(f"Round prep failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+                raise HTTPException(503, _ai_error_message(e))
+            if not deep["questions"]:
+                raise HTTPException(502, "That came back empty — try again.")
+            _ai_bump(db, user)
+            db.add(AskCache(qkey=key, subject="interview", level="",
+                            question=(rn + " · " + (job.title or ""))[:2000],
+                            lesson=json.dumps(deep), hits=0))
+            db.commit()
+            return {"round": deep, "cached": False}
+
     if job is not None and ASK_ENABLED:
         note = db.query(Note).filter(Note.user_id == user.id,
                                      Note.k == "resume_uptext").first()
