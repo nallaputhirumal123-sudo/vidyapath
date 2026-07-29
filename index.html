@@ -1441,9 +1441,12 @@ function renderNav(){
      something it is not. Admins keep the full sidebar — they need both. */
   const employerOnly = isEmployer();
   if(employerOnly){
+    // No billing for an employer account. Hiring is free — posting a role,
+    // matching candidates, inviting and chatting all are — so a Plans &
+    // billing link offers them a subscription for features they do not have
+    // and do not need, which reads as a bill on its way.
     h+=`<div class="navsec">Hiring</div>`
-     + nav("hiring","🏢","Post a role &amp; find candidates")
-     + nav("plans","⚡","Plans &amp; billing");
+     + nav("hiring","🏢","Post a role &amp; find candidates");
     $("#nav").innerHTML=h;
     return;
   }
