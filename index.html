@@ -3918,7 +3918,7 @@ async function jbRun(mode,keepPage){
     if(JB.mode==="match"){
       rzLoad(); jbRestoreUpload();
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
-        q:JB.q,country:JB.country,location:JB.location,remote:JB.remote,
+        q:"",country:JB.country,location:JB.location,remote:JB.remote,
         limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,category:JB.category,
         job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted});
       JB.jobs=res.jobs; JB.meta=res;
@@ -4640,7 +4640,13 @@ function jbSectionHTML(){
         </div>
       </div>`;})():""}
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
-      <div id="jbSuggWrap" style="position:relative;flex:2;min-width:190px">
+      <!-- No job-title box while matching. The resume already says what the
+           person does, and a title typed on top of it only removes roles
+           they would have matched — someone searching "network engineer"
+           never sees the Infrastructure Engineer job that scored 82. It is
+           there in Search all jobs, where typing a title is the point. -->
+      <div id="jbSuggWrap" style="position:relative;flex:2;min-width:190px;${
+        JB.mode==="match"?"display:none":""}">
         <input id="jbQ" class="ask-input" style="width:100%" autocomplete="off"
           placeholder="Job title or keyword — start typing…" value="${esc(JB.q)}"/>
         <div id="jbSuggBox">${jbSuggHTML()}</div>
