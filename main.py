@@ -7351,7 +7351,15 @@ def career_roles(user: User = Depends(current_user), db: Session = Depends(get_d
     see that before spending a month.
     """
     out = {}
+    # The crawl queries are not roles. "Corp To Corp Devops Engineer" and
+    # "Contract Qa Engineer" exist to aim the paid API at the staffing
+    # market; offering them to a learner as things to become is nonsense —
+    # the role is DevOps Engineer, and the engagement is a filter on the job
+    # board, not a career.
+    _sourcing = re.compile(r"^(c2c|corp to corp|contract|w2)\b", re.I)
     for title in JSEARCH_QUERIES:
+        if _sourcing.search(title):
+            continue
         n = db.query(func.count(Job.id)).filter(
             Job.is_open == True,                                # noqa: E712
             func.lower(Job.title).like(f"%{title.lower()}%")).scalar() or 0
