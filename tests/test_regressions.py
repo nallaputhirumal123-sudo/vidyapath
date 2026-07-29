@@ -127,8 +127,10 @@ ck("extension is paid",
 ck("free still browses jobs", G.get("/api/jobs?limit=3").status_code == 200)
 ck("free sees the whole board now",
    G.get("/api/jobs?limit=50").json().get("free_limited") is not True)
-ck("interview prep is paid",
-   G.get("/api/interview/guide?category=network").status_code == 402)
+ck("general interview prep is free",
+   G.get("/api/interview/guide?category=network").status_code == 200)
+ck("prep for a specific job is paid",
+   G.get("/api/interview/guide?job_id=1").status_code == 402)
 
 # admin bypasses the gate
 db = m.SessionLocal()

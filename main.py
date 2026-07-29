@@ -8825,17 +8825,125 @@ INTERVIEW_GENERIC = {
 }
 
 
+def _interview_prompt(job, rtext, missing):
+    """Prep for one posting, read against one resume."""
+    jd = (job.text or "")[:2600]
+    return (
+        "You are preparing a candidate for a specific interview. Use ONLY "
+        "what the posting and the resume say — no generic advice.\n\n"
+        f"POSTING: {job.title} at {job.company}\n{jd}\n\n"
+        f"RESUME:\n{(rtext or '')[:2200]}\n\n"
+        f"SKILLS THE POSTING WANTS AND THE RESUME DOES NOT SHOW: "
+        f"{', '.join(missing[:10]) or 'none obvious'}\n\n"
+        "Respond with ONLY valid JSON, no markdown fences:\n"
+        '{"role":"<the role in 2-5 words>",'
+        '"opening":"<2 sentences: what this employer is really hiring for, '
+        'read from the posting>",'
+        '"rounds":[{"name":"<round, e.g. Recruiter screen / Technical / '
+        'System design / Manager>",'
+        '"what_they_test":"<one sentence>",'
+        '"questions":[{"q":"<a question THIS employer would ask, drawn from '
+        'the posting>",'
+        '"why":"<what they are checking>",'
+        '"answer_with":"<what to say, naming the candidate\'s OWN experience '
+        'from the resume where it fits — a project, a number, a tool they '
+        'have actually used>"}]}],'
+        '"gaps":[{"skill":"<a skill they are missing>",'
+        '"say":"<how to answer honestly about it without losing the room>"}],'
+        '"ask_them":["<a question worth asking the interviewer, specific to '
+        'this company or posting>"]}\n\n'
+        "3 to 4 rounds, 3 to 5 questions each. Every question must be "
+        "answerable from the posting — if the posting says Terraform and "
+        "on-call, ask about Terraform and on-call. A question that would fit "
+        "any job in the industry is a failure. Where the resume already has "
+        "the evidence, say which line to use; where it does not, say so "
+        "plainly rather than inventing experience."
+    )
+
+
+def _clean_interview(d, role):
+    """Validate the generated prep. Text only — nothing here is rendered as
+    markup, and the board's rule applies equally: what a model wrote never
+    reaches another user's page as HTML."""
+    def txt(v, n=700):
+        return str(v or "").strip()[:n]
+
+    rounds = []
+    for r in (d.get("rounds") or [])[:5]:
+        if not isinstance(r, dict):
+            continue
+        qs = []
+        for q in (r.get("questions") or [])[:6]:
+            if not isinstance(q, dict):
+                continue
+            if txt(q.get("q"), 300):
+                qs.append({"q": txt(q.get("q"), 300),
+                           "why": txt(q.get("why"), 300),
+                           "answer_with": txt(q.get("answer_with"), 900)})
+        if qs:
+            rounds.append({"name": txt(r.get("name"), 60) or "Interview",
+                           "what_they_test": txt(r.get("what_they_test"), 300),
+                           "questions": qs})
+    gaps = [{"skill": txt(g.get("skill"), 40), "say": txt(g.get("say"), 600)}
+            for g in (d.get("gaps") or [])[:6]
+            if isinstance(g, dict) and txt(g.get("skill"), 40)]
+    return {"role": txt(d.get("role"), 80) or role[:80],
+            "opening": txt(d.get("opening"), 600),
+            "rounds": rounds, "gaps": gaps,
+            "ask_them": [txt(a, 220) for a in (d.get("ask_them") or [])[:5] if txt(a, 220)],
+            "tailored": True}
+
+
 @app.get("/api/interview/guide")
-def interview_guide(category: str = "", job_id: int = 0,
+async def interview_guide(category: str = "", job_id: int = 0,
                     user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
     """Interview prep for a role family, optionally anchored to one posting."""
-    # Paid. It is a per-request AI call that writes questions and model
-    # answers for one specific role — the same class of thing as an
-    # apply kit, and priced with it rather than given away.
-    require_paid(user, "Interview preparation")
+    # General prep is free: the canned guide per role family costs nothing to
+    # serve and helps anyone. Prep for a SPECIFIC posting is not — it reads
+    # the job description against the resume and writes questions this
+    # employer would ask, which is a model call per application and the
+    # thing worth paying for.
+    if job_id:
+        require_paid(user, "Interview prep for a specific job")
     cat = (category or "").strip().lower()
     job = db.get(Job, job_id) if job_id else None
+
+    # Prep for THIS posting, read against THIS resume. The canned guide below
+    # is the same twelve questions for everyone in a category, which is why
+    # it reads as random: it never mentions the job. When we have a posting
+    # and a resume we can do the thing a coach actually does — ask what this
+    # employer will ask, and point at the candidate's own evidence.
+    if job is not None and ASK_ENABLED:
+        note = db.query(Note).filter(Note.user_id == user.id,
+                                     Note.k == "resume_uptext").first()
+        rtext = (note.v if note else "") or ""
+        if len(rtext.strip()) >= 120:
+            key = ("iv|" + str(job.id) + "|"
+                   + hashlib.sha256(rtext.encode("utf-8", "ignore")).hexdigest()[:16])
+            row = db.query(AskCache).filter(AskCache.qkey == key).first()
+            if row:
+                row.hits = (row.hits or 0) + 1
+                db.commit()
+                return {"guide": json.loads(row.lesson), "cached": True}
+            skills, _kw = _profile(rtext)
+            missing = sorted(_job_req_skills(job) - skills) or \
+                sorted(_job_skills(job) - skills)
+            _ai_enforce_limit(db, user)
+            try:
+                text = await _ai_text(_interview_prompt(job, rtext, missing),
+                                      2600, json_mode=True)
+                guide = _clean_interview(_ai_json(text), job.title or "")
+            except Exception as e:
+                print(f"Interview prep failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+                guide = None
+            if guide and guide["rounds"]:
+                _ai_bump(db, user)
+                db.add(AskCache(qkey=key, subject="interview", level="",
+                                question=(job.title or "")[:2000],
+                                lesson=json.dumps(guide), hits=0))
+                db.commit()
+                return {"guide": guide, "cached": False}
     if job and not cat:
         cat = job.category or ""
     guide = INTERVIEW_GUIDES.get(cat) or INTERVIEW_GENERIC

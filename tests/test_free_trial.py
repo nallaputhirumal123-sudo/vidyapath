@@ -73,8 +73,8 @@ ck("extension pairing is paid",
 # ---------- free: courses stay open ----------
 ck("training courses are free", A.get("/api/curriculum").status_code == 200)
 ck("progress tracking is free", A.get("/api/progress").status_code == 200)
-ck("interview prep is paid",
-   A.get("/api/interview/guide?category=software").status_code == 402)
+ck("general interview prep is free",
+   A.get("/api/interview/guide?category=software").status_code == 200)
 
 # ---------- free: the whole board ----------
 # It used to be delayed a week and capped at fifty, on the theory that
