@@ -4560,7 +4560,7 @@ _SALARY_RES = [
     # "$120,000 - $150,000 a year" / "$120k-$150k"
     _re.compile(r"\$\s?\d{2,3}(?:,\d{3})?(?:\.\d+)?\s?[kK]?\s?(?:-|–|to)\s?"
                 r"\$?\s?\d{2,3}(?:,\d{3})?(?:\.\d+)?\s?[kK]?"
-                r"(?:\s?(?:per|a|/)\s?(?:year|yr|annum|hour|hr))?", _re.I),
+                r"(?:\s?(?:per|an|a|/)\s?(?:year|yr|annum|hour|hr))?", _re.I),
     # "$65 per hour" / "$65/hr"
     _re.compile(r"\$\s?\d{2,3}(?:\.\d+)?\s?(?:per\s?hour|/\s?hr|/\s?hour|an hour)", _re.I),
     # "$120,000 per year"
@@ -4612,9 +4612,37 @@ def _salary_from(text):
     """
     t = (text or "")[:6000]
     for rx in _SALARY_RES:
-        m = rx.search(t)
-        if m:
-            return _re.sub(r"\s+", " ", m.group(0)).strip()[:120]
+        for m in rx.finditer(t):
+            got = _re.sub(r"\s+", " ", m.group(0)).strip()[:120]
+            # A dollar sign is not a wage. Job ads are full of money that is
+            # not pay — sign-on bonuses, equity grants, relocation, 401k
+            # matching, and the company's own funding round. "$10,000 signing
+            # bonus" was being shown as the salary.
+            before = t[max(0, m.start() - 34):m.start()].lower()
+            if _re.search(r"(salary|base pay|base compensation|pay range|"
+                          r"compensation range|rate of|pay rate|hourly rate)",
+                          before):
+                return got                      # the ad says what this is
+            around = t[max(0, m.start() - 34):m.end() + 26].lower()
+            if _re.search(r"(bonus|equity|rsu|stock|option|grant|relocation|"
+                          r"401\s?k|match(ing)?|raised|funding|valuation|"
+                          r"revenue|budget|scholarship|prize|tuition|"
+                          r"reimburse|stipend|allowance)", around):
+                continue
+            # "$10,000,000 in funding" matched as "$10,000" because the regex
+            # stopped at the first group. If digits or another comma follow,
+            # we read only part of a larger number.
+            tail = t[m.end():m.end() + 2]
+            if _re.match(r"[,\d]", tail):
+                continue
+            # A yearly figure below $20,000 is not a US technical salary, so
+            # it is a bonus, a fee or a typo. Hourly and ranges are exempt —
+            # "$65 per hour" and "$60 - $70" are both plainly rates.
+            if not _re.search(r"(hour|hr|/\s?h|-|\u2013|to)", got.lower()):
+                digits = _re.sub(r"[^0-9]", "", got.split("-")[0])
+                if digits and int(digits) < 20000:
+                    continue
+            return got
     return ""
 
 
@@ -4839,7 +4867,19 @@ JSEARCH_QUERIES = [q.strip() for q in (env(
     "qa automation engineer,"
     "it project manager,help desk technician,it support specialist,appl"
     "ication support analyst,desktop support engineer,incident manager,"
-    "webmaster,security operations center analyst"
+    "webmaster,security operations center analyst,"
+    # The paid API earns its money on what the free scrapers cannot
+    # reach. Stripe, Databricks and OpenAI post permanent staff roles on
+    # Greenhouse and Ashby and never post corp-to-corp work at all, so
+    # repeating those titles here buys listings we already hold. These go
+    # after the staffing market — the half of the board nothing else
+    # reaches, and the half this product is for.
+    "network engineer contract,c2c network engineer,"
+    "corp to corp devops engineer,contract cloud engineer,"
+    "c2c data engineer,contract security engineer,"
+    "w2 contract systems engineer,contract python developer,"
+    "c2c java developer,contract to hire network administrator,"
+    "c2c business analyst,contract qa engineer"
     ) or "").split(",") if q.strip()]
 
 # 53 titles is far more than one crawl should pay for, so each crawl takes
@@ -5119,6 +5159,21 @@ async def _fetch_jooble(client, country):
     return out
 
 
+def _jsearch_window() -> str:
+    """The date range to ask for, paired with how deep we page.
+
+    "today" stops us paying to re-download jobs already stored, but
+    there are not ninety roles posted today for one title — asking for
+    nine pages of "today" buys seven empty ones. So the window follows
+    the depth: shallow means today, deep means the week. Setting
+    JSEARCH_WINDOW pins it either way.
+    """
+    pinned = env("JSEARCH_WINDOW", "").strip().lower()
+    if pinned:
+        return pinned
+    return "today" if JSEARCH_PAGES <= 2 else "week"
+
+
 async def _fetch_jsearch(client, query, cc):
     """One query, one country, from JSearch on RapidAPI."""
     out = []
@@ -5140,7 +5195,7 @@ async def _fetch_jsearch(client, query, cc):
                 # that are technically open and weeks stale, and being early is
                 # the thing this board actually sells. Set JSEARCH_WINDOW=month
                 # to trade freshness for depth again.
-                "date_posted": env("JSEARCH_WINDOW", "week") or "week"},
+                "date_posted": _jsearch_window()},
         headers={"X-API-Key": JSEARCH_KEY})
     if r.status_code >= 300:
         # RapidAPI says WHY in the body — wrong key, not subscribed, quota
