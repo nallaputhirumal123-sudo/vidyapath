@@ -4859,6 +4859,14 @@ JSEARCH_PER_CRAWL = (0 if JSEARCH_PER_CRAWL_RAW in ("auto", "")
 # for a manual refresh without ever reaching an overage. Raise it only
 # alongside the plan itself.
 JSEARCH_MONTHLY_CAP = int(env("JSEARCH_MONTHLY_CAP", "9000") or 9000)
+# JSearch runs on every Nth crawl, not every one. The free ATS boards are
+# worth reading hourly because they cost nothing; JSearch is metered, and
+# page 1 returns the same ten jobs an hour later. Spending the same budget on
+# fewer, deeper visits reaches roles that shallow hourly paging never sees:
+# 12 crawls x 3 pages and 4 crawls x 9 pages cost about the same, and the
+# second reads nine pages deep instead of three.
+JSEARCH_EVERY_CRAWLS = max(1, int(env("JSEARCH_EVERY_CRAWLS", "1") or 1))
+_CRAWL_TICK = 0
 
 
 def _jsearch_used(db, add=0):
@@ -5287,7 +5295,14 @@ async def _collect_jobs():
         else:
             report["jooble"] = "skipped (no JOOBLE_KEY)"
 
-        if JSEARCH_KEY:
+        global _CRAWL_TICK
+        _CRAWL_TICK += 1
+        jsearch_turn = (_CRAWL_TICK % JSEARCH_EVERY_CRAWLS) == 0
+        if JSEARCH_KEY and not jsearch_turn:
+            report["jsearch"] = (f"skipped: runs every {JSEARCH_EVERY_CRAWLS} "
+                                 f"crawls (this is {_CRAWL_TICK % JSEARCH_EVERY_CRAWLS}"
+                                 f" of {JSEARCH_EVERY_CRAWLS})")
+        elif JSEARCH_KEY:
             _db = SessionLocal()
             try:
                 used = _jsearch_used(_db)
