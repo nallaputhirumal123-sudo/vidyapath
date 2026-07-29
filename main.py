@@ -5561,6 +5561,9 @@ _AMBIGUOUS_TITLE_RE = re.compile(
 # ...and these say plainly that it is not our industry, whatever the noun.
 _NOT_TECH_TITLE_RE = re.compile(
     r"(?<![a-z])(veterinary|vet|dental|nurse|nursing|clinical|medical|"
+    r"medicine|sonograph\w*|imaging|oncolog\w*|cardiac|respiratory|"
+    r"steuerberater|wirtschaftspr\w*|rechtsanwalt|kaufmann|kauffrau|"
+    r"mitarbeiter|gesucht|vertrieb|buchhalt\w*|"
     r"pharmacy|pharmacist|radiolog\w*|surgical|patient|phlebotom\w*|"
     r"laboratory|lab|chemistry|biolog\w*|environmental|hvac|automotive|"
     r"mechanic\w*|electrical|welding|hospital|physician|therapist|"
@@ -6150,12 +6153,14 @@ def _words(text: str):
 # from a compliance product manager — both mention "security" and "automation".
 # The role family can, and it is the difference between a useful list and noise.
 _ROLE_FAMILIES = {
-    "network": ("network engineer", "network administrator", "noc ", "cisco",
+    "network": (
+                "network automation", "telecom", "noc engineer", "network operations","network engineer", "network administrator", "noc ", "cisco",
                 "routing", "switching", "bgp", "ospf", "sd-wan", "f5 ",
                 "load balancer", "juniper", "palo alto", "network security",
                 "network operations", "lan", "wan", "wireless engineer",
                 "voip", "telecom engineer"),
-    "security": ("security engineer", "security analyst", "soc analyst",
+    "security": (
+                "soc analyst", "security analyst", "security operations centre","security engineer", "security analyst", "soc analyst",
                  "penetration test", "penetration testing", "penetration tester",
                  "pentest",
                  "pentester", "pen tester", "ethical hack", "red team",
@@ -6169,7 +6174,8 @@ _ROLE_FAMILIES = {
                  "identity access management", "access management engineer",
                  "compliance auditor", "it compliance", "security manager",
                  "security consultant", "security operations"),
-    "sysadmin": ("system administrator", "sysadmin", "it engineer",
+    "sysadmin": (
+                "citrix", "vmware horizon", "it manager", "endpoint", "desktop engineer","system administrator", "sysadmin", "it engineer",
                  "it support", "help desk", "helpdesk", "desktop support",
                  "it administrator", "windows administrator",
                 "systems administrator", "virtualization", "vmware",
@@ -6186,7 +6192,8 @@ _ROLE_FAMILIES = {
                "kubernetes engineer", "ci/cd", "ci cd", "pipeline architect",
                "release manager", "build engineer", "build and automation",
                "systems engineer", "linux engineer"),
-    "backend": ("backend", "back-end", "software engineer", "full stack",
+    "backend": (
+                "software development", "software engineering", "sde", "development engineer", "engineering manager", "research engineer", "forward deployed", "technical architect", "design engineer", "principal engineer", "staff engineer", "member of technical staff","backend", "back-end", "software engineer", "full stack",
                 "fullstack", "api engineer", "server engineer", "golang engineer",
                 "api integration", "integration engineer",
                 "integration specialist", "embedded systems", "embedded software",
@@ -6214,7 +6221,8 @@ _ROLE_FAMILIES = {
     "qa": ("qa engineer", "quality assurance", "test engineer", "sdet",
            "automation engineer", "test automation",
                 "qa analyst", "quality engineer", "performance test"),
-    "product": ("business analyst", "systems analyst",
+    "product": (
+                "product management", "technical program manager", "program management", "solutions architect","business analyst", "systems analyst",
                 "business systems analyst", "it project manager",
                 "product manager", "product owner", "program manager",
                 "technical program", "product lead",
@@ -6226,7 +6234,8 @@ _ROLE_FAMILIES = {
               "sales development", "solutions consultant", "revenue"),
     "marketing": ("marketing", "growth manager", "seo ", "content strategist",
                   "brand ", "demand generation"),
-    "support": ("support engineer", "customer support", "technical support",
+    "support": (
+                "reliability engineer", "customer reliability", "field engineer", "implementation engineer", "solutions engineer", "technical account","support engineer", "customer support", "technical support",
                 "customer success", "solutions architect"),
     "finance": ("financial analyst", "accountant", "accounting", "controller",
                 "fp&a", "auditor", "treasury"),
@@ -6390,7 +6399,17 @@ _FAMILY_RE = {
 def _families(text: str):
     """Which role families this text reads as. Empty when nothing is clear."""
     low = " " + (text or "").lower() + " "
-    return {fam for fam, rx in _FAMILY_RE.items() if rx.search(low)}
+    hit = {fam for fam, rx in _FAMILY_RE.items() if rx.search(low)}
+    if hit:
+        return hit
+    # Nothing matched: try again with brackets, slashes and dashes turned
+    # into spaces. Employers write "Security (SOC) Analyst" and "Network
+    # Automation / Python Engineer", and both were filed as Other for the
+    # sake of a bracket.
+    flat = " " + _re.sub(r"[^a-z0-9+#]+", " ", (text or "").lower()).strip() + " "
+    if flat != low:
+        return {fam for fam, rx in _FAMILY_RE.items() if rx.search(flat)}
+    return hit
 
 
 @lru_cache(maxsize=40000)
