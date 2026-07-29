@@ -5179,8 +5179,15 @@ def _jsearch_window() -> str:
     JSEARCH_WINDOW pins it either way.
     """
     pinned = env("JSEARCH_WINDOW", "").strip().lower()
-    if pinned:
+    # Only what the API actually accepts. A typo here — "weak" for "week" —
+    # is not rejected loudly: the request goes out with a value the provider
+    # does not understand and comes back with nothing useful, so the source
+    # looks broken rather than misconfigured. Fall back and say so.
+    ok = ("all", "today", "3days", "week", "month")
+    if pinned in ok:
         return pinned
+    if pinned:
+        print(f"JSEARCH_WINDOW={pinned!r} is not one of {ok} - ignoring it")
     return "today" if JSEARCH_PAGES <= 2 else "week"
 
 
