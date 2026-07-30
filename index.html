@@ -683,6 +683,15 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .ctab tbody tr:last-child td{border-bottom:none}
 .ctab tr.click{cursor:pointer}
 .ctab tr.click:hover td{background:var(--panel2)}
+/* One line per thing we have, on the landing page. Rows rather than cards:
+   a card invites a paragraph, and paragraphs are what made the sign-in page
+   something to scroll past. */
+.lline{display:flex;gap:9px;align-items:baseline;padding:9px 2px;
+  border-bottom:1px solid var(--line);font-size:14px;color:var(--muted);
+  line-height:1.55}
+.lline b{color:var(--body);font-weight:700}
+.lline:last-child{border-bottom:0}
+
 /* coloring */
 .clr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
 .clr-thumb{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 10px 6px;cursor:pointer;transition:.15s}
@@ -828,90 +837,45 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
     <section class="lhero">
       <span class="lbadge">FREE TO BROWSE · OPEN TO EVERYONE</span>
-      <h1>Learn to code.<br>Then build with <span>AI</span>.</h1>
-      <p>One continuous path from "what is a computer?" to building real AI systems.
-         Every lesson taught in full; Python and SQL exercises run and auto-grade
-         right in your browser. Nothing assumed, at any point.</p>
-      <p class="lquote">Learn it. Build it. <span>Get cracked by Craxle.</span>
-        <small>Real skills, real jobs, and a resume that actually gets read.</small></p>
+      <h1>Find the job.<br>Learn what it <span>asks for</span>.</h1>
+      <p>Live US postings, scored against your resume, with the skills you are
+         missing taught on the spot.</p>
       <div class="row" style="justify-content:center">
         <a class="btn big" href="#join">Start free →</a>
         <button class="btn ghost big" id="tourBtn">▶ Let Axle explain it</button>
       </div>
-      <div class="lstats">
-        <div><b>15</b><span>Tracks</span></div>
-        <div><b>56</b><span>Lessons</span></div>
-        <div><b>319</b><span>Coding exercises</span></div>
-        <div><b>360</b><span>Worksheet questions</span></div>
-        <div><b>~9</b><span>Months to job-ready</span></div>
-      </div>
-    </section>
-
-    <section class="lsec" id="how">
-      <h2>Why students actually finish this course</h2>
-      <div class="lfeat">
-        <div class="card"><div class="ic">🌱</div><h3>Starts from absolute zero</h3>
-          <p>Written for class 8 upwards and for adults who never coded. The first lesson explains what a program even is — with a tea recipe.</p></div>
-        <div class="card"><div class="ic">▶️</div><h3>Real code, in your browser</h3>
-          <p>Python and SQL genuinely execute and auto-grade as you type. No installing anything to begin.</p></div>
-        <div class="card"><div class="ic">🗣️</div><h3>Axle, your voice guide</h3>
-          <p>An on-screen tutor who explains each lesson, reads notes aloud, and helps when an exercise fails.</p></div>
-        <div class="card"><div class="ic">⚡</div><h3>XP, levels and streaks</h3>
-          <p>Every exercise earns XP. Daily practice builds a streak. Progress you can see keeps you going.</p></div>
-        <div class="card"><div class="ic">🎓</div><h3>Certificates per stage</h3>
-          <p>Complete every lesson in a stage and print your certificate — earned by passing real auto-graded work, not by watching videos.</p></div>
-        <div class="card"><div class="ic">🖨️</div><h3>Printable worksheets</h3>
-          <p>Every lesson has a paper worksheet with an answer key — for classrooms, or study without a screen.</p></div>
-      </div>
     </section>
 
     <section class="lsec">
-      <h2>Everything inside</h2>
-      <div class="lfeat">
-        <div class="card"><div class="ic">💬</div><h3>Ask Axle anything</h3>
-          <p>An AI teacher at a blackboard. Ask any question in any subject, at any level — it writes the answer out and reads it aloud, then saves it.</p></div>
-        <div class="card"><div class="ic">🏫</div><h3>Real classrooms for schools</h3>
-          <p>Head teachers run a school, subject teachers set their own assignments (typed or photographed book pages), students hand in work and chat for help.</p></div>
-        <div class="card"><div class="ic">💼</div><h3>Careers &amp; real jobs</h3>
-          <p>What each tech role really does, where you use the skills at work, live job links, and practice that mirrors a paid task.</p></div>
-        <div class="card"><div class="ic">🤖</div><h3>Built around AI</h3>
-          <p>From "what is AI" in lesson one to building RAG systems and agents — plus an AI helper on every assignment that guides without doing it for you.</p></div>
-        <div class="card"><div class="ic">🎨</div><h3>Coloring for young kids</h3>
-          <p>Tap-to-colour pictures for the youngest learners, so a whole school — every age — has something here.</p></div>
-        <div class="card"><div class="ic">🔔</div><h3>Messages &amp; notifications</h3>
-          <p>Teacher replies, new assignments and requests all land in one inbox, so nobody misses an update.</p></div>
-      </div>
-    </section>
-
-    <section class="lsec">
-      <h2>The six stages</h2>
-      <div class="lstep"><span class="n">1</span><div><b>🌱 Absolute beginner</b><small> — what a program is, variables, decisions, loops, lists, functions, and what AI really is</small></div></div>
-      <div class="lstep"><span class="n">2</span><div><b>📘 Getting fluent in Python</b><small> — real text handling, dictionaries, writing code like a professional</small></div></div>
-      <div class="lstep"><span class="n">3</span><div><b>🗄️ Databases &amp; SQL</b><small> — real queries on a real database. This skill alone gets data analyst interviews</small></div></div>
-      <div class="lstep"><span class="n">4</span><div><b>📊 Data analysis</b><small> — clean messy real data and report it honestly</small></div></div>
-      <div class="lstep"><span class="n">5</span><div><b>📈 Machine learning &amp; AI engineering</b><small> — build the learning loop by hand, then RAG, agents and cost control</small></div></div>
-      <div class="lstep"><span class="n">6</span><div><b>🧰 Languages &amp; career</b><small> — JavaScript, Java/C and CS core, portfolio projects, real job interviews</small></div></div>
+      <h2>What you get</h2>
+      <div class="lline">💼 <b>Live US jobs</b> — every open role we can reach, refreshed through the day. Free.</div>
+      <div class="lline">🎯 <b>Resume match</b> — a score against any posting, with the exact skills you are short. Free.</div>
+      <div class="lline">📄 <b>The posting in full</b> — read the job here before you decide to apply. Free.</div>
+      <div class="lline">💬 <b>Ask Axle</b> — any question, any subject, written out on a board and read aloud. Free.</div>
+      <div class="lline">✨ <b>Apply kit</b> — a tailored resume and cover letter for one specific job. Pro.</div>
+      <div class="lline">🎤 <b>Interview prep</b> — written for that job description and your resume, per round. Pro.</div>
+      <div class="lline">⚡ <b>Axle Pro board</b> — any skill a job asks for, taught in the tool the work happens in. Pro.</div>
+      <div class="lline">📋 <b>Tracker and alerts</b> — applications in one place, and an email when a strong match opens. Pro.</div>
+      <div class="lline">🧩 <b>Browser extension</b> — save a job from any careers page as you find it. Pro.</div>
+      <div class="lline">🏢 <b>Hiring</b> — post a role and see candidates whose resume actually matches. Free.</div>
     </section>
 
     <section class="lsec faq">
       <h2>Common questions</h2>
       <details><summary>What costs money?</summary>
-        <p>Every lesson, exercise, worksheet and certificate is free, and so is browsing every live job. The paid plan covers the tools that work on your CV — resume matching, the application tracker, the browser extension and the AI apply kits.</p></details>
-      <details><summary>I have never written code. Can I do this?</summary>
-        <p>You are exactly who Stage 1 was written for. It assumes nothing — not even knowing what a file is. Thousands of words of it exist purely to explain things other courses skip.</p></details>
-      <details><summary>What do I need?</summary>
-        <p>Any browser, on a phone or computer. Python runs inside the page. Later lessons show you how to set up real tools on a computer, when you are ready.</p></details>
-      <details><summary>Will this get me a job?</summary>
-        <p>Honest answer: the course takes you to genuinely employable skills — Python, SQL, data analysis and AI engineering are what real job listings ask for. But finishing lessons alone hires nobody; the course ends with four portfolio projects, and those plus interview preparation are what convert learning into offers.</p></details>
-      <details><summary>Can I build something like ChatGPT after this?</summary>
-        <p>You will understand how it works and be able to build real applications on top of models like it — which is what AI jobs actually are. Building a foundation model from scratch needs a research lab and tens of millions of dollars; any course claiming to teach that is selling something.</p></details>
+        <p>Jobs, matching, reading the posting and Ask Axle are free; $9.99 a month covers the apply kit, per-job interview prep, the Axle Pro board, the tracker, alerts and the extension.</p></details>
+      <details><summary>Do you apply for me?</summary>
+        <p>No — we prepare the application and you submit it yourself on the employer's own site.</p></details>
+      <details><summary>Where do the jobs come from?</summary>
+        <p>Company boards and job aggregators directly, US roles only, crawled through the day.</p></details>
+      <details><summary>Is the match score honest?</summary>
+        <p>It is arithmetic, not a guess — it names the skills you have, the ones you are missing, and the years and visa lines it found.</p></details>
     </section>
 
     <section class="lsec" id="join">
       <p class="lquote" style="text-align:center;margin-bottom:22px">
-        Start at zero. Finish with a job. <span>Get cracked by Craxle.</span>
-        <small>Courses, a real career path, live jobs matched to your resume,
-          and employers who come looking for you.</small></p>
+        <span>Get cracked by Craxle.</span>
+        <small>Free to browse every job and match your resume.</small></p>
       <div class="authcard">
         <div class="tabs">
           <button class="tab on" id="tabLogin">Sign in</button>
@@ -979,7 +943,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     </section>
 
     <footer class="lfoot">
-      Craxle · Open learning · Python &amp; SQL exercises auto-grade in your browser<br>
+      Craxle · Live US jobs, matched to your resume · Free to browse<br>
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
       <br><span data-version style="opacity:.7"></span>
