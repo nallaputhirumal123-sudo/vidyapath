@@ -686,9 +686,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 /* One line per thing we have, on the landing page. Rows rather than cards:
    a card invites a paragraph, and paragraphs are what made the sign-in page
    something to scroll past. */
-.lline{display:flex;gap:9px;align-items:baseline;padding:9px 2px;
-  border-bottom:1px solid var(--line);font-size:14px;color:var(--muted);
-  line-height:1.55}
+.lline{padding:9px 2px;border-bottom:1px solid var(--line);font-size:14px;
+  color:var(--muted);line-height:1.6}
 .lline b{color:var(--body);font-weight:700}
 .lline:last-child{border-bottom:0}
 
@@ -828,32 +827,6 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
       </div>
     </section>
 
-    <section class="lsec">
-      <h2>What you get</h2>
-      <div class="lline">💼 <b>Live US jobs</b> — every open role we can reach, refreshed through the day. Free.</div>
-      <div class="lline">🎯 <b>Resume match</b> — a score against any posting, with the exact skills you are short. Free.</div>
-      <div class="lline">📄 <b>The posting in full</b> — read the job here before you decide to apply. Free.</div>
-      <div class="lline">💬 <b>Ask Axle</b> — any question, any subject, written out on a board and read aloud. Free.</div>
-      <div class="lline">✨ <b>Apply kit</b> — a tailored resume and cover letter for one specific job. Pro.</div>
-      <div class="lline">🎤 <b>Interview prep</b> — written for that job description and your resume, per round. Pro.</div>
-      <div class="lline">⚡ <b>Axle Pro board</b> — any skill a job asks for, taught in the tool the work happens in. Pro.</div>
-      <div class="lline">📋 <b>Tracker and alerts</b> — applications in one place, and an email when a strong match opens. Pro.</div>
-      <div class="lline">🧩 <b>Browser extension</b> — save a job from any careers page as you find it. Pro.</div>
-      <div class="lline">🏢 <b>Hiring</b> — post a role and see candidates whose resume actually matches. Free.</div>
-    </section>
-
-    <section class="lsec faq">
-      <h2>Common questions</h2>
-      <details><summary>What costs money?</summary>
-        <p>Jobs, matching, reading the posting and Ask Axle are free; $9.99 a month covers the apply kit, per-job interview prep, the Axle Pro board, the tracker, alerts and the extension.</p></details>
-      <details><summary>Do you apply for me?</summary>
-        <p>No — we prepare the application and you submit it yourself on the employer's own site.</p></details>
-      <details><summary>Where do the jobs come from?</summary>
-        <p>Company boards and job aggregators directly, US roles only, crawled through the day.</p></details>
-      <details><summary>Is the match score honest?</summary>
-        <p>It is arithmetic, not a guess — it names the skills you have, the ones you are missing, and the years and visa lines it found.</p></details>
-    </section>
-
     <section class="lsec" id="join">
       <p class="lquote" style="text-align:center;margin-bottom:22px">
         <span>Get cracked by Craxle.</span>
@@ -924,8 +897,40 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
       </div>
     </section>
 
+    <section class="lsec" id="support" style="display:none">
+      <h2>Support</h2>
+      <div class="eyebrow" style="margin-top:0">What you get</div>
+      <div class="lline">💼 <b>Live US jobs</b> — every open role we can reach, refreshed through the day. Free.</div>
+      <div class="lline">🎯 <b>Resume match</b> — a score against any posting, with the exact skills you are short. Free.</div>
+      <div class="lline">📄 <b>The posting in full</b> — read the job here before you decide to apply. Free.</div>
+      <div class="lline">💬 <b>Ask Axle</b> — any question, any subject, written out on a board and read aloud. Free.</div>
+      <div class="lline">✨ <b>Apply kit</b> — a tailored resume and cover letter for one specific job. Pro.</div>
+      <div class="lline">🎤 <b>Interview prep</b> — written for that job description and your resume, per round. Pro.</div>
+      <div class="lline">⚡ <b>Axle Pro board</b> — any skill a job asks for, taught in the tool the work happens in. Pro.</div>
+      <div class="lline">📋 <b>Tracker and alerts</b> — applications in one place, and an email when a strong match opens. Pro.</div>
+      <div class="lline">🧩 <b>Browser extension</b> — save a job from any careers page as you find it. Pro.</div>
+      <div class="lline">🏢 <b>Hiring</b> — post a role and see candidates whose resume actually matches. Free.</div>
+
+      <div class="eyebrow" style="margin-top:22px">Common questions</div>
+      <details><summary>What costs money?</summary>
+        <p>Jobs, matching, reading the posting and Ask Axle are free; $9.99 a month covers the apply kit, per-job interview prep, the Axle Pro board, the tracker, alerts and the extension.</p></details>
+      <details><summary>Do you apply for me?</summary>
+        <p>No — we prepare the application and you submit it yourself on the employer's own site.</p></details>
+      <details><summary>Where do the jobs come from?</summary>
+        <p>Company boards and job aggregators directly, US roles only, crawled through the day.</p></details>
+      <details><summary>Is the match score honest?</summary>
+        <p>It is arithmetic, not a guess — it names the skills you have, the ones you are missing, and the years and visa lines it found.</p></details>
+      <details><summary>I cannot sign in.</summary>
+        <p>Use "Forgot your password?" above, and if that does not reach you, email <a href="mailto:support@craxle.com" style="color:var(--accent)">support@craxle.com</a> from the address you signed up with.</p></details>
+
+      <div style="font-size:13px;color:var(--muted);margin-top:18px">
+        Anything else: <a href="mailto:support@craxle.com" style="color:var(--accent)">support@craxle.com</a>
+      </div>
+    </section>
+
     <footer class="lfoot">
       Craxle · Live US jobs, matched to your resume · Free to browse<br>
+      <a href="#support" id="supportLink" style="color:var(--dim)">Support</a> ·
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
       <br><span data-version style="opacity:.7"></span>
@@ -1148,6 +1153,17 @@ function closeDrawer(){
 function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#topbar").style.display="none"; $("#gate").style.display="block"; const b=$("#msgFab"); if(b)b.style.display="none"; }
 function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); if(typeof paintMsgFab==="function") paintMsgFab(); }
 function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
+
+/* ---- support, on the sign-in page ----
+   Opened in place rather than on its own page: somebody who cannot sign in
+   cannot be sent anywhere that needs signing in, and a new tab loses the
+   email they had already typed. */
+const _sl=$("#supportLink"); if(_sl) _sl.onclick=e=>{ e.preventDefault();
+  const box=$("#support"); if(!box) return;
+  const open=box.style.display!=="none";
+  box.style.display=open?"none":"block";
+  if(!open) box.scrollIntoView({behavior:"smooth",block:"start"});
+};
 
 /* ---- forgot password ---- */
 const _fl=$("#forgotLink"); if(_fl) _fl.onclick=async e=>{ e.preventDefault();
