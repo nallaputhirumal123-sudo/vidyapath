@@ -1602,6 +1602,56 @@ function renderHome(){
     </div>
   </div>
 
+  <!-- What this account is actually for, before the syllabus.
+       Home used to open on lessons and nothing else, which said the product
+       was a course. It is a job search with a tutor attached: free accounts
+       lead with Ask Axle and the board, Pro leads with the tutor, the career
+       path and the tools that act on an application. The tracks are still
+       here, below, where somebody who came to learn will find them. -->
+  <div class="grid g2" style="margin-bottom:22px">
+    ${isPro() ? `
+      <button class="tile" data-nav="ask" style="border-color:var(--accent)">
+        <div style="font-size:15px;font-weight:750">⚡ Axle Pro smart board</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+          Any skill a job asks for, taught from zero to hired — with a role
+          and skill chooser.</div></button>
+      <button class="tile" data-nav="career">
+        <div style="font-size:15px;font-weight:750">🎓 Career board</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+          A full path for every role we carry, weighted by what the live
+          postings ask for.</div></button>
+    ` : `
+      <button class="tile" data-nav="ask" style="border-color:var(--accent)">
+        <div style="font-size:15px;font-weight:750">💬 Ask Axle anything</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+          Any question, any subject, explained on the board and read aloud.
+          Free, always.</div></button>
+      <button class="tile" data-nav="careers">
+        <div style="font-size:15px;font-weight:750">🎯 Match my resume</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+          Score yourself against every live posting and see the exact skills
+          you are missing. Free.</div></button>
+    `}
+  </div>
+
+  <div class="eyebrow" style="margin-top:0">Get hired</div>
+  <div class="grid g4" style="margin-bottom:26px">
+    <button class="tile" data-nav="careers">
+      <div style="font-size:14px;font-weight:700">💼 Jobs</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">live US roles, matched</div></button>
+    <button class="tile" data-nav="resume">
+      <div style="font-size:14px;font-weight:700">📄 Resume</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">build it, score it</div></button>
+    <button class="tile" data-nav="careers">
+      <div style="font-size:14px;font-weight:700">🎤 Interview prep</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${
+        isPro()?"written per application":"by role family, free"}</div></button>
+    <button class="tile" data-nav="hiring">
+      <div style="font-size:14px;font-weight:700">🏢 Hiring</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">post a role, free</div></button>
+  </div>
+
+  <div class="eyebrow" style="margin-top:0">Your learning</div>
   <div class="grid g4" style="margin-bottom:26px">
     <div class="card"><div class="statlbl">Progress</div><div class="stat">${pct}%</div><div class="bar" style="margin-top:9px"><i style="width:${pct}%"></i></div></div>
     <div class="card"><div class="statlbl">Lessons</div><div class="stat">${totalDone()}<span style="font-size:15px;color:var(--dim)">/${totalLessons()}</span></div></div>
