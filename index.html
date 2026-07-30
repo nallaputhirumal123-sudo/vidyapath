@@ -3983,7 +3983,7 @@ const REAL_PRACTICE=[
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
         category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
-        jobType:"",engagement:"",visa:"",
+        jobType:"",engagement:"",visa:"",jobFor:null,jobDetail:null,
         /* The board defaults to the past week. Half the postings on it are
            older than a fortnight — real, still open, but not news — and a
            first page of month-old roles makes a live board look like an
@@ -4324,6 +4324,8 @@ function jbCardHTML(j){
       <div class="jb-acts" style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
         <a class="btn sm ${closed?"ghost":""}" href="${esc(j.url)}" target="_blank" rel="noopener"
            data-jbapplied="${j.id}">${closed?"View ↗":"Apply ↗"}</a>
+        <button class="btn ghost sm" data-jbopen="${j.id}">${
+          JB.jobFor===j.id?"✕ Close":"📄 Read the job"}</button>
         ${closed?"":`<button class="btn ghost sm" data-jbkit="${j.id}">✨ Apply kit</button>`}
         <!-- Interview prep is for people who have an interview coming. Offering
              it beside every Apply button made it look like another thing to do
@@ -4339,8 +4341,46 @@ function jbCardHTML(j){
             :`<button class="btn ghost sm" data-jbsave="${j.id}">♡ Save</button>`)}
       </div>
     </div>
-    ${JB.kitFor===j.id?jbKitHTML():""}</div>`;
+    ${jbDetailHTML(j)}${JB.kitFor===j.id?jbKitHTML():""}</div>`;
 }
+/* The posting itself, read here.
+   Sending somebody to a careers site to find out what the job is means they
+   leave, read, and mostly do not come back — and every apply-kit and prep
+   decision depends on having read it. Free: a job board that will not show
+   you the job is not a job board. */
+async function jbOpenJob(id){
+  if(JB.jobFor===id){ JB.jobFor=null; JB.jobDetail=null; return jbPaint(); }
+  JB.jobFor=id; JB.jobDetail=null; jbPaint();
+  try{ JB.jobDetail=await api.get("/api/jobs/"+id); }
+  catch(e){ JB.jobDetail={error:e.message}; }
+  jbPaint();
+}
+function jbDetailHTML(j){
+  if(JB.jobFor!==j.id) return "";
+  const d=JB.jobDetail;
+  if(!d) return `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--muted)">Opening the posting…</div>`;
+  if(d.error) return `<div style="margin-top:12px;color:#e05a5a;font-size:13px">${esc(d.error)}</div>`;
+  return `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      ${d.min_years?`<span class="pill">${d.min_years}+ years asked</span>`:""}
+      ${(d.also_at||[]).length?`<span class="pill">also open in ${
+        d.also_at.slice(0,3).map(esc).join(", ")}</span>`:""}
+    </div>
+    ${(d.requirements||[]).length?`<div style="margin-bottom:8px">
+      <div class="eyebrow" style="margin:0 0 4px">Listed as requirements</div>
+      <div class="ask-chips" style="gap:5px;margin:0">${d.requirements.map(x=>
+        `<span class="ask-chip" style="pointer-events:none;font-size:12px">${esc(x)}</span>`).join("")}</div>
+    </div>`:""}
+    <div class="eyebrow" style="margin:10px 0 4px">The posting</div>
+    <div style="font-size:13.5px;color:var(--body);line-height:1.7;white-space:pre-wrap;
+      max-height:420px;overflow:auto;background:var(--panel2);border-radius:9px;
+      padding:12px 14px">${esc(d.description||"No description was published.")}</div>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
+      As published by ${esc(d.company||"the employer")}. Apply on their site — we never submit for you.</div>
+  </div>`;
+}
+
 /* The kit prepares the application; the person still submits it themselves on
    the employer's site. Nothing is ever sent on their behalf. */
 async function jbApplyKit(id){
@@ -5144,6 +5184,8 @@ document.addEventListener("click",e=>{
   }
   const rd=e.target.closest("[data-jbround]");
   if(rd){ jbLoadRound(rd.dataset.jbround); return; }
+  const oj=e.target.closest("[data-jbopen]");
+  if(oj){ jbOpenJob(+oj.dataset.jbopen); return; }
   const pr=e.target.closest("[data-jbprep]");
   if(pr){
     JB.tab="prep"; JB.suggOpen=false;

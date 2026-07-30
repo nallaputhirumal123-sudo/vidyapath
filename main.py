@@ -477,6 +477,11 @@ class Job(Base):
     # thousands of rows one at a time. Nullable: existing rows fill on the
     # next crawl or from the backfill endpoint.
     min_years = Column(Integer, default=0)
+    # The posting as the employer wrote it. Job.text is lowercased and
+    # collapsed for matching, which is correct for an index and unreadable
+    # for a human, so the readable copy is kept separately. Nullable: rows
+    # crawled before this column existed fill on their next crawl.
+    description = Column(Text, default="")
     engagement = Column(String(10), default="", index=True)  # w2 / c2c / 1099
     visa = Column(String(20), default="", index=True)        # sponsors/no/clearance
     url = Column(Text, default="")
@@ -4685,6 +4690,10 @@ def _job_row(source, ext_id, title, company, location, url, desc="", posted=None
         "job_type": _job_type_of(blob), "engagement": _engagement_of(blob),
         "salary": _salary_from(desc) or _salary_from(title),
         "min_years": _years_required(blob),
+        # Kept as written, only stripped of markup and capped — an employer's
+        # own words are what somebody needs to decide whether to apply.
+        "description": _re.sub(r"\n{3,}", "\n\n",
+                               _strip_html(desc or "")).strip()[:9000],
         "visa": _visa_of(blob),
         "skills": ",".join(sorted({w for w in _words(blob) if w in _SKILLS})),
         "req_skills": ",".join(sorted(
@@ -5706,6 +5715,7 @@ def _store_jobs(db, rows, reached):
             # a rate we read last week.
             row.salary = r["salary"] or row.salary
             row.min_years = r.get("min_years") or row.min_years
+            row.description = r.get("description") or row.description
             row.posted_at = r.get("posted_at") or row.posted_at
             row.last_seen, row.is_open, row.closed_at = now(), True, None
             updated += 1
@@ -7320,6 +7330,34 @@ def jobs_suggest(q: str = "", country: str = "", limit: int = 10,
     out = [{"title": t, "count": n} for t, n in rows if t]
     out.sort(key=lambda d: (0 if d["title"].lower().startswith(term) else 1, -d["count"]))
     return {"suggestions": out}
+
+
+@app.get("/api/jobs/{job_id}")
+def job_detail(job_id: int, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """One posting, in full, so it can be read without leaving the site.
+
+    Free: a job board that will not show you the job is not a job board. The
+    apply kit and the tailored prep are what cost.
+    """
+    j = db.get(Job, job_id)
+    if j is None:
+        raise HTTPException(404, "That posting is no longer listed")
+    d = _job_json(j)
+    # Falls back to the matching blob for rows crawled before the readable
+    # copy existed — lowercase, but a lowercase description beats none.
+    d["description"] = (j.description or "").strip() or (j.text or "")[:4000]
+    d["skills"] = sorted(_job_skills(j))[:24]
+    d["requirements"] = sorted(_job_req_skills(j))[:24]
+    d["min_years"] = j.min_years or 0
+    # Other places the same role is open, which is what the duplicates the
+    # list collapses were actually telling us.
+    d["also_at"] = [x[0] for x in db.query(Job.location).filter(
+        func.lower(Job.title) == (j.title or "").lower(),
+        func.lower(Job.company) == (j.company or "").lower(),
+        Job.is_open == True,                                    # noqa: E712
+        Job.id != j.id).distinct().limit(6).all() if x[0]]
+    return d
 
 
 @app.get("/api/jobs/filters")
