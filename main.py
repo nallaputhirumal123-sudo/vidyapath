@@ -7332,34 +7332,6 @@ def jobs_suggest(q: str = "", country: str = "", limit: int = 10,
     return {"suggestions": out}
 
 
-@app.get("/api/jobs/{job_id}")
-def job_detail(job_id: int, user: User = Depends(current_user),
-               db: Session = Depends(get_db)):
-    """One posting, in full, so it can be read without leaving the site.
-
-    Free: a job board that will not show you the job is not a job board. The
-    apply kit and the tailored prep are what cost.
-    """
-    j = db.get(Job, job_id)
-    if j is None:
-        raise HTTPException(404, "That posting is no longer listed")
-    d = _job_json(j)
-    # Falls back to the matching blob for rows crawled before the readable
-    # copy existed — lowercase, but a lowercase description beats none.
-    d["description"] = (j.description or "").strip() or (j.text or "")[:4000]
-    d["skills"] = sorted(_job_skills(j))[:24]
-    d["requirements"] = sorted(_job_req_skills(j))[:24]
-    d["min_years"] = j.min_years or 0
-    # Other places the same role is open, which is what the duplicates the
-    # list collapses were actually telling us.
-    d["also_at"] = [x[0] for x in db.query(Job.location).filter(
-        func.lower(Job.title) == (j.title or "").lower(),
-        func.lower(Job.company) == (j.company or "").lower(),
-        Job.is_open == True,                                    # noqa: E712
-        Job.id != j.id).distinct().limit(6).all() if x[0]]
-    return d
-
-
 @app.get("/api/jobs/filters")
 def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Countries we actually hold jobs for, so the filter never offers a dead
@@ -7845,6 +7817,39 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
                     question=topic[:2000], lesson=json.dumps(lesson), hits=0))
     db.commit()
     return {"lesson": lesson, "cached": False}
+
+
+# /detail/ and not /api/jobs/{job_id}: FastAPI matches in definition
+# order, so a bare id segment swallows every static /api/jobs/<word>
+# route declared below it — "filters" and "tracked" were being read as
+# job ids and those endpoints stopped existing. Ordering would fix it
+# today and break again the next time somebody adds a route here.
+@app.get("/api/jobs/detail/{job_id}")
+def job_detail(job_id: int, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """One posting, in full, so it can be read without leaving the site.
+
+    Free: a job board that will not show you the job is not a job board. The
+    apply kit and the tailored prep are what cost.
+    """
+    j = db.get(Job, job_id)
+    if j is None:
+        raise HTTPException(404, "That posting is no longer listed")
+    d = _job_json(j)
+    # Falls back to the matching blob for rows crawled before the readable
+    # copy existed — lowercase, but a lowercase description beats none.
+    d["description"] = (j.description or "").strip() or (j.text or "")[:4000]
+    d["skills"] = sorted(_job_skills(j))[:24]
+    d["requirements"] = sorted(_job_req_skills(j))[:24]
+    d["min_years"] = j.min_years or 0
+    # Other places the same role is open, which is what the duplicates the
+    # list collapses were actually telling us.
+    d["also_at"] = [x[0] for x in db.query(Job.location).filter(
+        func.lower(Job.title) == (j.title or "").lower(),
+        func.lower(Job.company) == (j.company or "").lower(),
+        Job.is_open == True,                                    # noqa: E712
+        Job.id != j.id).distinct().limit(6).all() if x[0]]
+    return d
 
 
 @app.post("/api/jobs/match")

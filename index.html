@@ -4351,7 +4351,7 @@ function jbCardHTML(j){
 async function jbOpenJob(id){
   if(JB.jobFor===id){ JB.jobFor=null; JB.jobDetail=null; return jbPaint(); }
   JB.jobFor=id; JB.jobDetail=null; jbPaint();
-  try{ JB.jobDetail=await api.get("/api/jobs/"+id); }
+  try{ JB.jobDetail=await api.get("/api/jobs/detail/"+id); }
   catch(e){ JB.jobDetail={error:e.message}; }
   jbPaint();
 }
