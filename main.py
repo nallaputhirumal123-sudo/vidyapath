@@ -7482,54 +7482,6 @@ def career_roles(user: User = Depends(current_user), db: Session = Depends(get_d
     return {"groups": groups, "total_roles": len(JSEARCH_QUERIES)}
 
 
-class CareerPathIn(BaseModel):
-    role: str = Field(min_length=2, max_length=120)
-
-
-def _career_prompt(role, demand_skills):
-    have = (", ".join(demand_skills[:18]) if demand_skills else "")
-    return (
-        f"You are the head of a coaching institute writing the syllabus for "
-        f"'{role}'. It must take someone from zero to employable, then to "
-        f"expert.\n\n"
-        + (f"Real postings for this role most often ask for: {have}. Weight the "
-           f"syllabus toward these — they are what employers are actually "
-           f"hiring for.\n\n" if have else "")
-        + "Four stages: Foundations, Core skills, Professional, Expert. For "
-          "each, say what the learner can DO by the end, the topics to study "
-          "in order, and one project that proves it.\n\n"
-        "Respond with ONLY valid JSON, no markdown fences:\n"
-        '{"role":"<role>","summary":"<two sentences: what this job actually is>",'
-        '"stages":[{"name":"Foundations","weeks":"<e.g. 3-4 weeks>",'
-        '"outcome":"<what they can do by the end>",'
-        '"topics":["<topic 1>","<topic 2>"],'
-        '"project":"<one project that proves the stage>"}],'
-        '"tools":["<tool or technology an employer expects>"]}\n\n'
-        "6 to 9 topics per stage, concrete and teachable, in study order."
-    )
-
-
-def _clean_path(d, role):
-    def txt(v, n=400):
-        return str(v or "").strip()[:n]
-    stages = []
-    for raw in (d.get("stages") or [])[:4]:
-        if not isinstance(raw, dict):
-            continue
-        topics = [txt(t, 120) for t in (raw.get("topics") or [])[:10] if txt(t, 120)]
-        if not topics:
-            continue
-        stages.append({"name": txt(raw.get("name"), 40) or "Stage",
-                       "weeks": txt(raw.get("weeks"), 30),
-                       "outcome": txt(raw.get("outcome"), 300),
-                       "topics": topics,
-                       "project": txt(raw.get("project"), 300)})
-    return {"role": txt(d.get("role"), 120) or role,
-            "summary": txt(d.get("summary"), 500),
-            "stages": stages,
-            "tools": [txt(t, 40) for t in (d.get("tools") or [])[:16] if txt(t, 40)]}
-
-
 @app.get("/api/career/skills")
 def career_skills(role: str = "", user: User = Depends(current_user),
                   db: Session = Depends(get_db)):
@@ -7552,64 +7504,6 @@ def career_skills(role: str = "", user: User = Depends(current_user),
     top = sorted(demand.items(), key=lambda x: -x[1])[:18]
     return {"role": role, "open_jobs": n,
             "skills": [{"skill": k, "jobs": v} for k, v in top]}
-
-
-@app.post("/api/career/path")
-async def career_path(body: CareerPathIn, user: User = Depends(current_user),
-                      db: Session = Depends(get_db)):
-    """The staged syllabus for one role, weighted by what postings ask for."""
-    require_paid(user, "The career board")
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The AI tutor is not switched on")
-    role = body.role.strip()
-
-    def _demand():
-        """What employers actually ask for, taken from our own postings rather
-        than from the model's impression of the job."""
-        demand = {}
-        for j in db.query(Job).filter(
-                Job.is_open == True,                            # noqa: E712
-                func.lower(Job.title).like(f"%{role.lower()}%")).limit(400).all():
-            for sk in _job_skills(j):
-                demand[sk] = demand.get(sk, 0) + 1
-        return [k for k, _ in sorted(demand.items(), key=lambda x: -x[1])[:18]]
-
-    def _open_count():
-        return db.query(func.count(Job.id)).filter(
-            Job.is_open == True,                                # noqa: E712
-            func.lower(Job.title).like(f"%{role.lower()}%")).scalar() or 0
-
-    qkey = f"career|{_norm_q(role)}"[:500]
-    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
-    if row:
-        row.hits = (row.hits or 0) + 1
-        db.commit()
-        # The syllabus is worth caching; the demand list and the posting count
-        # are not — they go stale the next time the crawler runs, and a learner
-        # deciding what to study deserves today's numbers.
-        cached = json.loads(row.lesson)
-        cached["in_demand"] = _demand()
-        cached["open_jobs"] = _open_count()
-        return {"path": cached, "cached": True}
-
-    top = _demand()
-
-    _ai_enforce_limit(db, user)
-    try:
-        text = await _ai_text(_career_prompt(role, top), 2600, json_mode=True)
-        path = _clean_path(_ai_json(text), role)
-    except Exception as e:
-        print(f"Career path failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
-        raise HTTPException(503, _ai_error_message(e))
-    if not path["stages"]:
-        raise HTTPException(502, "That came back empty — try again.")
-    path["in_demand"] = top
-    path["open_jobs"] = _open_count()
-    _ai_bump(db, user)
-    db.add(AskCache(qkey=qkey, subject="career", level="",
-                    question=role[:2000], lesson=json.dumps(path), hits=0))
-    db.commit()
-    return {"path": path, "cached": False}
 
 
 class BoardIn(BaseModel):

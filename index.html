@@ -1457,10 +1457,9 @@ function renderNav(){
    + nav("ask","💬","Ask Axle anything");
 
   h+=`<div class="navsec">Get hired</div>`
-   + nav("careers","💼","Careers &amp; jobs")
+   + nav("careers","🎓","Career board")
    + nav("resume","📄","Resume builder")
    + nav("plans","⚡","Plans &amp; billing")
-   + nav("career","🎓","Career board")
    + nav("hiring","🏢","Hiring");
 
   const list=activeTracks();
@@ -1615,11 +1614,11 @@ function renderHome(){
         <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
           Any skill a job asks for, taught from zero to hired — with a role
           and skill chooser.</div></button>
-      <button class="tile" data-nav="career">
+      <button class="tile" data-nav="careers">
         <div style="font-size:15px;font-weight:750">🎓 Career board</div>
         <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
-          A full path for every role we carry, weighted by what the live
-          postings ask for.</div></button>
+          Every live US role, scored against your resume, with the apply kit
+          and the prep for each one.</div></button>
     ` : `
       <button class="tile" data-nav="ask" style="border-color:var(--accent)">
         <div style="font-size:15px;font-weight:750">💬 Ask Axle anything</div>
@@ -5228,7 +5227,7 @@ document.addEventListener("keydown",e=>{
 
 function renderCareers(){
   $("#main").innerHTML=`
-  <div class="h1">💼 Careers &amp; jobs</div>
+  <div class="h1">🎓 Career board</div>
   <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply, and practice that mirrors what you'd do on day one.</p>
 
   ${jbTabsHTML()}
@@ -5790,122 +5789,6 @@ function planCardHTML(p,cur){
 /* ---- employer side: apply, post a role, see who matched ---- */
 const HIRE={status:null,job:null,result:null,busy:false};
 
-/* ---- career board: the roles we carry, taught zero to expert ----
-   Separate from the free-topic smart board on purpose. That one answers a
-   question; this one is a syllabus for a job you could actually be hired for,
-   which is why every role here carries its live posting count. */
-const CB={roles:null,role:"",path:null,stage:0,busy:false,error:""};
-
-async function renderCareerBoard(){
-  $("#main").innerHTML=`<div class="h1">🎓 Career board</div><p class="sub">Loading…</p>`;
-  if(!CB.roles){
-    try{ CB.roles=await api.get("/api/career/roles"); }
-    catch(e){ CB.roles={groups:[],error:e.message}; }
-  }
-  paintCareer();
-}
-async function cbOpen(role){
-  CB.role=role; CB.path=null; CB.stage=0; CB.error=""; CB.busy=true; paintCareer();
-  try{ CB.path=(await api.post("/api/career/path",{role})).path; }
-  catch(e){ CB.error=e.message||"Could not build that path."; }
-  CB.busy=false; paintCareer();
-}
-function cbBack(){ CB.role=""; CB.path=null; CB.error=""; paintCareer(); }
-function cbStage(i){ CB.stage=i; paintCareer(); }
-/* A topic hands straight to the smart board, which already teaches one thing
-   step by step. No second teaching engine. */
-function cbLearn(topic){
-  S.view={page:"ask"}; render();
-  sbTeach(CB.role+": "+topic);
-}
-function paintCareer(){
-  if(!isPro()) return $("#main").innerHTML=`<div class="h1">🎓 Career board</div>
-    <p class="sub">Learn any role we are hiring for, from zero to expert.</p>
-    <div class="card" style="max-width:560px">
-      <b style="font-size:15px">🔒 Axle Pro</b>
-      <div style="font-size:13.5px;color:var(--body);margin:6px 0 12px;line-height:1.6">
-        A full syllabus for every role on the board — foundations to expert,
-        weighted by what real postings actually ask for, with a project at each
-        stage and every topic taught step by step.
-      </div>
-      <button class="btn" data-nav="plans">See Axle Pro</button>
-    </div>`;
-
-  if(CB.role) return paintCareerRole();
-  const g=(CB.roles&&CB.roles.groups)||[];
-  $("#main").innerHTML=`<div class="h1">🎓 Career board</div>
-    <p class="sub">Pick a role. Every one here is a job Craxle is pulling live
-      postings for — the number beside it is how many are open right now.</p>
-    ${(CB.roles&&CB.roles.error)?`<div class="card" style="color:var(--dim)">${esc(CB.roles.error)}</div>`:""}
-    ${g.map(grp=>`<div class="eyebrow">${esc(grp.group)}</div>
-      <div class="grid g2" style="margin-bottom:6px">
-        ${grp.roles.map(r=>`<button class="tile" data-cbrole="${esc(r.role)}">
-          <div style="font-weight:700;font-size:14.5px">${esc(r.label)}</div>
-          <div style="font-size:12px;color:${r.jobs?"var(--ok)":"var(--dim)"};margin-top:3px">
-            ${r.jobs?`${r.jobs} open now`:"none open today"}</div>
-        </button>`).join("")}
-      </div>`).join("")}`;
-}
-function paintCareerRole(){
-  if(CB.busy) return $("#main").innerHTML=`<div class="h1">🎓 ${esc(CB.role)}</div>
-    <p class="sub">Building your path…</p>`;
-  if(CB.error) return $("#main").innerHTML=`<div class="h1">🎓 ${esc(CB.role)}</div>
-    <div class="card" style="color:var(--dim)">${esc(CB.error)}</div>
-    <div style="margin-top:10px"><button class="btn ghost sm" data-cbback="1">← All roles</button></div>`;
-  const p=CB.path; if(!p) return;
-  const st=p.stages[CB.stage]||{};
-  $("#main").innerHTML=`
-    <button class="btn ghost sm" data-cbback="1">← All roles</button>
-    <div class="h1" style="margin-top:10px">🎓 ${esc(p.role)}</div>
-    <p class="sub">${esc(p.summary||"")}</p>
-    <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      ${p.open_jobs?`<span class="pill ok">${p.open_jobs} open postings</span>`:""}
-    </div>
-    <!-- These are not decoration. They are pulled from the live postings for
-         this role, so each one is a skill an employer is asking for today —
-         and each is one tap from being taught properly. -->
-    ${(p.in_demand||[]).length?`<div class="card" style="margin-bottom:14px">
-      <div class="eyebrow" style="margin-bottom:4px">Skills this role hires for</div>
-      <div style="font-size:12.5px;color:var(--dim);margin-bottom:9px">
-        Taken from the ${p.open_jobs||""} live postings we carry. Tap any skill
-        and Axle Pro teaches it in full — from scratch to job-ready.</div>
-      <div class="ask-chips" style="gap:6px;margin:0">
-        ${p.in_demand.map(t=>`<button class="ask-chip"
-          data-learnskill="${esc(t)}" data-forrole="${esc(p.role||"")}"
-          >${esc(t)} →</button>`).join("")}
-      </div></div>`:""}
-    <div class="ask-chips" style="margin-bottom:12px">
-      ${p.stages.map((x,i)=>`<button class="ask-chip ${i===CB.stage?"on":""}"
-        data-cbstage="${i}">${i+1}. ${esc(x.name)}</button>`).join("")}
-    </div>
-    <div class="card">
-      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <b style="font-size:16px">${esc(st.name||"")}</b>
-        ${st.weeks?`<span class="pill">${esc(st.weeks)}</span>`:""}
-      </div>
-      ${st.outcome?`<div style="font-size:13.5px;color:var(--body);margin-top:7px">
-        <b>By the end:</b> ${esc(st.outcome)}</div>`:""}
-      <div class="eyebrow" style="margin:14px 0 8px">Study in this order</div>
-      ${(st.topics||[]).map((t,i)=>`<div class="row"
-        style="gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">
-        <span style="color:var(--dim);font-size:12px;min-width:18px">${i+1}</span>
-        <span style="flex:1;font-size:13.5px;color:var(--body)">${esc(t)}</span>
-        <button class="btn ghost sm" data-cblearn="${esc(t)}"
-          title="Master this, step by step, with code and practice">✨ Learn</button>
-      </div>`).join("")}
-      ${st.project?`<div style="margin-top:14px;background:var(--panel2);
-        border-radius:9px;padding:11px 13px">
-        <b style="font-size:13px">🛠️ Prove it</b>
-        <div style="font-size:13.5px;color:var(--body);margin-top:4px">${esc(st.project)}</div>
-      </div>`:""}
-    </div>
-    ${(p.tools||[]).length?`<div class="eyebrow" style="margin-top:20px">
-      What employers expect you to know</div>
-      <div class="row" style="gap:6px;flex-wrap:wrap">
-        ${p.tools.map(t=>`<span class="pill">${esc(t)}</span>`).join("")}
-      </div>`:""}`;
-}
-
 async function renderHiring(){
   $("#main").innerHTML=`<div class="h1">🏢 Hiring</div><p class="sub">Loading…</p>`;
   try{ HIRE.status=await api.get("/api/employer/me"); }catch(e){ HIRE.status={status:""}; }
@@ -6049,13 +5932,6 @@ document.addEventListener("click",e=>{
                  : `${skill} — from scratch to job-ready`);
     return;
   }
-  const cr=e.target.closest("[data-cbrole]");
-  if(cr) return cbOpen(cr.dataset.cbrole);
-  if(e.target.closest("[data-cbback]")) return cbBack();
-  const cs=e.target.closest("[data-cbstage]");
-  if(cs) return cbStage(+cs.dataset.cbstage);
-  const cl=e.target.closest("[data-cblearn]");
-  if(cl) return cbLearn(cl.dataset.cblearn);
   const b=e.target.closest("[data-sb]");
   if(b) return sbGo(b.dataset.sb==="next"?1:-1);
   const l=e.target.closest("[data-sblens]");
@@ -6717,7 +6593,7 @@ function renderResume(){
     <div style="display:flex;justify-content:space-between;gap:18px;align-items:flex-start;flex-wrap:wrap">
       <div style="flex:1;min-width:250px">
         <b>Your resume</b>
-        <div style="font-size:12.5px;color:var(--dim);margin:3px 0 9px">Build a clean ATS resume below. The live preview equals the download. To score it against a job or check the grammar, go to <a href="#" data-jbnav="careers" style="color:var(--accent)">Careers &amp; jobs</a>.</div>
+        <div style="font-size:12.5px;color:var(--dim);margin:3px 0 9px">Build a clean ATS resume below. The live preview equals the download. To score it against a job or check the grammar, go to <a href="#" data-jbnav="careers" style="color:var(--accent)">Career board</a>.</div>
         <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn ghost sm" data-rz-act="saveas">💾 Save</button>
           <button class="btn ghost sm" data-rz-act="newres">＋ New blank</button>
@@ -7127,7 +7003,6 @@ function render(){
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
   else if(v.page==="plans")     renderPlans();
-  else if(v.page==="career")    renderCareerBoard();
   else if(v.page==="hiring")    renderHiring();
   else if(v.page==="color")     renderColoring();
   else if(v.page==="studio")    renderStudio();
@@ -7185,7 +7060,6 @@ document.addEventListener("click",e=>{
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="resume")    S.view={page:"resume"};
   else if(n==="plans")     S.view={page:"plans"};
-  else if(n==="career")    S.view={page:"career"};
   else if(n==="hiring")    S.view={page:"hiring"};
   else if(n==="color")     S.view={page:"color"};
   else if(n==="studio")    S.view={page:"studio"};
