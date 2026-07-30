@@ -4941,6 +4941,20 @@ JSEARCH_MONTHLY_CAP = int(env("JSEARCH_MONTHLY_CAP", "9000") or 9000)
 # 12 crawls x 3 pages and 4 crawls x 9 pages cost about the same, and the
 # second reads nine pages deep instead of three.
 JSEARCH_EVERY_CRAWLS = max(1, int(env("JSEARCH_EVERY_CRAWLS", "1") or 1))
+
+# How deep each query walks before starting over.
+#
+# The page number used to be hardcoded to 1, so every crawl bought the same
+# first ten results for a role, forever. Results 11 and beyond were never
+# reached and the board plateaued around three hundred JSearch rows no matter
+# how much of the plan was spent — the requests went out, were paid for, and
+# came back with rows already stored.
+#
+# Now each query remembers where it got to and resumes there next crawl,
+# wrapping back to page 1 at the end so genuinely new postings still get
+# caught. Depth costs nothing extra: one request is one page either way, so
+# this reaches ten times as many distinct jobs for the same monthly spend.
+JSEARCH_DEPTH = max(1, min(20, int(env("JSEARCH_DEPTH", "10") or 10)))
 # Seconds to wait for one JSearch response. The provider fetches every
 # requested page before replying, so the wait grows with JSEARCH_PAGES.
 JSEARCH_TIMEOUT = float(env("JSEARCH_TIMEOUT", "0") or 0) or max(30.0, 12.0 * JSEARCH_PAGES)
@@ -4987,6 +5001,27 @@ def _jsearch_auto_n(used: int) -> int:
         + (days_in_month - n.day) * per_day
     budget = left // crawls_left
     return max(1, budget // max(1, JSEARCH_PAGES))
+
+
+def _jsearch_page(db, query: str) -> int:
+    """Where this query got to last time, then move it on one page.
+
+    Per query rather than one global counter: the queries a crawl runs are a
+    rotating slice, so a shared counter would give "devops engineer" page 3
+    and "soc analyst" page 7 by accident and never cover either properly.
+
+    Stored, because an in-process counter resets on every deploy — which is
+    how paging can look implemented and still only ever fetch page 1.
+    """
+    k = f"jspage:{query[:80]}"
+    row = db.get(SysCounter, k)
+    if row is None:
+        row = SysCounter(k=k, v=0)
+        db.add(row)
+    page = (row.v or 0) % JSEARCH_DEPTH + 1
+    row.v = page
+    db.commit()
+    return page
 
 
 def _jsearch_slice(used: int = 0):
@@ -5197,7 +5232,7 @@ async def _fetch_jooble(client, country):
     return out
 
 
-def _jsearch_window() -> str:
+def _jsearch_window(page: int = 1) -> str:
     """The date range to ask for, paired with how deep we page.
 
     "today" stops us paying to re-download jobs already stored, but
@@ -5216,11 +5251,11 @@ def _jsearch_window() -> str:
         return pinned
     if pinned:
         print(f"JSEARCH_WINDOW={pinned!r} is not one of {ok} - ignoring it")
-    return "today" if JSEARCH_PAGES <= 2 else "week"
+    return "today" if page <= 1 and JSEARCH_PAGES <= 2 else "week"
 
 
-async def _fetch_jsearch(client, query, cc):
-    """One query, one country, from JSearch on RapidAPI."""
+async def _fetch_jsearch(client, query, cc, page=1):
+    """One query, one country, one page of results, from JSearch."""
     out = []
     # Open Web Ninja serves JSearch directly. It is the same payload shape as
     # the RapidAPI listing, but a different host and a plain X-API-Key — which
@@ -5233,14 +5268,14 @@ async def _fetch_jsearch(client, query, cc):
         # had already paid for — postings stay open far longer than seven
         # days, and anything already stored is a cheap update rather than a
         # duplicate.
-        params={"query": f"{query} in {cc}", "page": "1",
+        params={"query": f"{query} in {cc}", "page": str(page),
                 "num_pages": str(JSEARCH_PAGES), "country": cc.lower(),
                 # Back to a week. A month was chosen for volume — the request costs
                 # the same either way — but it fills the board with postings
                 # that are technically open and weeks stale, and being early is
                 # the thing this board actually sells. Set JSEARCH_WINDOW=month
                 # to trade freshness for depth again.
-                "date_posted": _jsearch_window()},
+                "date_posted": _jsearch_window(page)},
         headers={"X-API-Key": JSEARCH_KEY},
         # Its own timeout, well above the client's 25s. num_pages=9 makes the
         # provider fetch nine pages before answering, which takes far longer
@@ -5434,9 +5469,14 @@ async def _collect_jobs():
             for cc in ([] if used >= JSEARCH_MONTHLY_CAP
                        else [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]):
                 for q in _jsearch_slice(used):
-                    key = f"jsearch:{cc}:{q}"
+                    _db = SessionLocal()
                     try:
-                        got = [r for r in await _fetch_jsearch(client, q, cc) if r]
+                        page = _jsearch_page(_db, q)
+                    finally:
+                        _db.close()
+                    key = f"jsearch:{cc}:{q} p{page}"
+                    try:
+                        got = [r for r in await _fetch_jsearch(client, q, cc, page) if r]
                         rows += got
                         report[key] = len(got)
                         _db = SessionLocal()
