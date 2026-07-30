@@ -7067,7 +7067,8 @@ POSTED_WINDOWS = [{"id": "1", "label": "Past 24 hours", "days": 1},
 
 
 def _jobs_query(db, q="", country="", location="", remote=False, status="open",
-                category="", job_type="", engagement="", visa="", posted=""):
+                category="", job_type="", engagement="", visa="", posted="",
+                wide=False):
     query = db.query(Job)
     if posted:
         try:
@@ -7112,10 +7113,32 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
     if remote:
         query = query.filter(Job.remote == True)       # noqa: E712
     if q:
-        like = f"%{q.strip().lower()}%"
-        query = query.filter(func.lower(Job.title).like(like)
-                             | func.lower(Job.company).like(like)
-                             | func.lower(Job.text).like(like))
+        # Every word, not the whole phrase, and never the description.
+        #
+        # One "%network engineer%" over title, company AND the 4,000-character
+        # body did two bad things at once. It missed "Engineer, Network
+        # Operations", because the words are not adjacent in that order. And
+        # it returned every posting whose body mentions python when someone
+        # searched python — a sales role that says "works with our Python
+        # team" ranked beside a Python job. That is the noise.
+        #
+        # Now: split into words, every word must appear, and each may appear
+        # in the title, the company or the parsed skills. Skills is what makes
+        # a bare "terraform" work without dragging the body in — it is a list
+        # of tools the posting actually asks for, not prose about them.
+        words = [w for w in _re.split(r"[^a-z0-9+#.]+", q.strip().lower()) if w][:6]
+        for w in words:
+            like = f"%{w}%"
+            cond = (func.lower(Job.title).like(like)
+                    | func.lower(Job.company).like(like)
+                    | func.lower(Job.skills).like(like))
+            # Widened only when the precise search found nothing. Someone
+            # searching Citrix or ServiceNow is looking for a real thing we
+            # simply do not have in the skills vocabulary, and an empty page
+            # is a worse answer than a slightly noisy one.
+            if wide:
+                cond = cond | func.lower(Job.text).like(like)
+            query = query.filter(cond)
     return query
 
 
@@ -7133,6 +7156,15 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     """
     free = plan_of(user) == "free" and not getattr(user, "is_admin", False)
     query = _jobs_query(db, q, country, location, remote, status, category, job_type, engagement, visa, posted)
+    # If a precise search finds nothing, look in the descriptions before
+    # giving up. Tools we do not know by name — Citrix, ServiceNow, NetSuite —
+    # exist only in the body text, and "no results" for a word that is
+    # plainly in the postings reads as a broken search.
+    widened = False
+    if q and query.order_by(None).count() == 0:
+        query = _jobs_query(db, q, country, location, remote, status, category,
+                            job_type, engagement, visa, posted, wide=True)
+        widened = True
     if free and FREE_JOB_DELAY_DAYS > 0:
         # Anything newer than this is Pro-only. Compared against the employer's
         # posting date where we have it, falling back to when we first saw it.
@@ -7142,8 +7174,13 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
     if q:
         # Searching "engineer" must not put a sales role that merely mentions
         # engineers above an actual engineering job. Title hits rank first.
+        # Title hits first, then the rest, newest inside each group. Searching
+        # "python" should lead with Python Developer, not with a job that
+        # happens to list python among nine tools.
+        first = (q.strip().lower().split() or [""])[0]
         query = query.order_by(
-            case((func.lower(Job.title).like(f"%{q.strip().lower()}%"), 0), else_=1),
+            case((func.lower(Job.title).like(f"%{q.strip().lower()}%"), 0),
+                 (func.lower(Job.title).like(f"%{first}%"), 1), else_=2),
             case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc())
     else:
         # Order by when the employer posted it, not when we happened to crawl
