@@ -7177,10 +7177,26 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
         # Title hits first, then the rest, newest inside each group. Searching
         # "python" should lead with Python Developer, not with a job that
         # happens to list python among nine tools.
-        first = (q.strip().lower().split() or [""])[0]
+        # Four tiers, because "network engineer" should return every network
+        # engineer — junior, senior and plain — before it returns a software
+        # engineer who touches networking.
+        #   0  the exact phrase in the title      Senior Network Engineer
+        #   1  every word in the title, any order  Engineer, Network Operations
+        #   2  the first word in the title         Network Reliability Engineer
+        #   3  matched on skills or company only   anything else
+        ql = q.strip().lower()
+        words = [w for w in _re.split(r"[^a-z0-9+#.]+", ql) if w][:6]
+        all_in_title = None
+        for w in words:
+            c = func.lower(Job.title).like(f"%{w}%")
+            all_in_title = c if all_in_title is None else (all_in_title & c)
+        tiers = [(func.lower(Job.title).like(f"%{ql}%"), 0)]
+        if all_in_title is not None:
+            tiers.append((all_in_title, 1))
+        if words:
+            tiers.append((func.lower(Job.title).like(f"%{words[0]}%"), 2))
         query = query.order_by(
-            case((func.lower(Job.title).like(f"%{q.strip().lower()}%"), 0),
-                 (func.lower(Job.title).like(f"%{first}%"), 1), else_=2),
+            case(*tiers, else_=3),
             case((Job.posted_at.isnot(None), Job.posted_at), else_=Job.first_seen).desc())
     else:
         # Order by when the employer posted it, not when we happened to crawl
