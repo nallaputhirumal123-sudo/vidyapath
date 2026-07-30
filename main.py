@@ -4361,7 +4361,13 @@ def _crawl_window_wait():
 # Board tokens. A company that renames or leaves its ATS simply stops
 # returning rows — the fetcher skips it silently and the rest still work.
 # Extend without touching code: JOB_GREENHOUSE="stripe,figma,..." etc.
-_GREENHOUSE = ("stripe,figma,databricks,cloudflare,coinbase,robinhood,"
+# Every token below was curl-verified against boards-api.greenhouse.io
+# before it was added, with the job count it returned. Guessing slugs once
+# put 153 dead tokens in this list, so nothing goes in unanswered.
+_GREENHOUSE = ("anthropic,block,zscaler,purestorage,netskope,"
+               "abnormalsecurity,hightouch,newrelic,fastly,pagerduty,"
+               "yugabyte,dremio,netlify,"
+               "stripe,figma,databricks,cloudflare,coinbase,robinhood,"
                "dropbox,reddit,discord,brex,instacart,lyft,pinterest,twilio,"
                "asana,samsara,affirm,chime,flexport,gitlab,airtable,"
                "amplitude,mixpanel,vercel,scaleai,duolingo,gusto,carta,"
