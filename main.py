@@ -7219,7 +7219,30 @@ def jobs_search(q: str = "", country: str = "", location: str = "",
         if off >= FREE_JOB_CAP:
             off = max(0, FREE_JOB_CAP - lim)
         lim = min(lim, max(0, FREE_JOB_CAP - off))
-    rows = query.offset(off).limit(lim).all() if lim else []
+    # Collapse the same posting appearing many times.
+    #
+    # JSearch returns one role once per board it found it on, each with its
+    # own id, so "Security (SOC) Analyst Jobs" at UltraViolet Cyber filled six
+    # consecutive slots on the page. The match endpoint has always collapsed
+    # these by title and company; browsing never did, and browsing is where
+    # it looks worst.
+    #
+    # Over-fetch, collapse, then take the page. The extra rows are the cost of
+    # not knowing how many duplicates are in a window before reading it.
+    seen_key, out = set(), []
+    if lim:
+        want = off + lim
+        for j in query.limit(max(want * 4, 120)).all():
+            k = ((j.title or "").strip().lower(), (j.company or "").strip().lower())
+            if k in seen_key:
+                continue
+            seen_key.add(k)
+            out.append(j)
+            if len(out) >= want:
+                break
+        rows = out[off:off + lim]
+    else:
+        rows = []
     out = [_job_json(j) for j in rows]
     _mark_tracked(db, user, out)
     return {"jobs": out, "total": total,
