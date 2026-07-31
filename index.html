@@ -3939,7 +3939,7 @@ const REAL_PRACTICE=[
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
         sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
-        jobType:"",engagement:"",visa:"",
+        jobType:"",engagement:"",
         /* The board defaults to the past week. Half the postings on it are
            older than a fortnight — real, still open, but not news — and a
            first page of month-old roles makes a live board look like an
@@ -4121,15 +4121,13 @@ function jbReadInputs(){
   if(l) JB.location=l.value.trim();
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
-  const jt=$("#jbType"), pd=$("#jbPosted"),
-        en=$("#jbEng"), vi=$("#jbVisa");
+  const jt=$("#jbType"), pd=$("#jbPosted"), en=$("#jbEng");
   if(jt) JB.jobType=jt.value;
   if(pd) JB.posted=pd.value;
   // Read every control that exists. These two were sent to the API on
   // every request and never populated from the page, so choosing C2C
   // changed nothing and the results looked unrelated to the filters.
   if(en) JB.engagement=en.value;
-  if(vi) JB.visa=vi.value;
 }
 /* keepPage: paging through results must not reset you to the first page. */
 /* Flags the results as out of date and turns the search button into an apply
@@ -4162,12 +4160,12 @@ async function jbRun(mode,keepPage){
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
         q:"",country:JB.country,location:JB.location,remote:JB.remote,
         limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,
-        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted});
+        job_type:JB.jobType,engagement:JB.engagement,posted:JB.posted});
       JB.jobs=res.jobs; JB.meta=res;
     }else{
       const p=new URLSearchParams({q:JB.q,country:JB.country,location:JB.location,
         remote:JB.remote?"true":"false",status:"open",
-        job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted,
+        job_type:JB.jobType,engagement:JB.engagement,posted:JB.posted,
         limit:String(JB.perPage),offset:String(JB.offset)});
       const res=await api.get("/api/jobs?"+p);
       JB.jobs=res.jobs; JB.meta=res;
@@ -5025,7 +5023,12 @@ function jbSectionHTML(){
       ${sel("jbType","⏱️ Any job type",(f&&f.job_types)||[],JB.jobType)}
       ${sel("jbPosted","🕒 Any time",((f&&f.posted_windows)||[]).map(w=>({id:w.id,label:w.label,count:null})),JB.posted)}
       ${sel("jbEng","💼 Any engagement",(f&&f.engagements)||[],JB.engagement)}
-      ${sel("jbVisa","🛂 Any work authorisation",(f&&f.visas)||[],JB.visa)}
+      <!-- No work-authorisation filter. What a posting says about visas is
+           the employer's wording, read out of the body text, and it is
+           missing from most of them — so filtering on it drops every job
+           that simply did not mention it, which is most of the board. The
+           requirement is still shown on the card when it is stated, which
+           is the part that actually helps somebody decide. -->
       ${JB.mode==="match"?`<select id="jbMin" class="ask-input" style="min-width:150px">
         <!-- Bands that exist. 85%+ was on this list and nothing on the board
              ever reaches it, so the filter returned an empty page and read
@@ -5242,7 +5245,7 @@ function renderCareers(){
      waited for the button — so half the controls behaved one way and half the
      other. In match mode an instant re-run also spent a match per dropdown.
      Now every filter marks the search stale and the button does the work. */
-  ["jbType","jbPosted","jbEng","jbVisa","jbMin","jbRemote","jbLoc"].forEach(id=>{
+  ["jbType","jbPosted","jbEng","jbMin","jbRemote","jbLoc"].forEach(id=>{
     const el=$("#"+id); if(!el) return;
     const mark=()=>jbMarkDirty();
     el.onchange=mark;
