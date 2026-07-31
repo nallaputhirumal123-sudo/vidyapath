@@ -780,10 +780,10 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
    ("Sales & business development (1760)"); at 140-165px the text is simply
    clipped, so on narrow screens each control takes a full row instead. */
 @media (max-width:560px){
-  #jbQ,#jbCat,#jbType,#jbPosted,#jbCountry,#jbLoc,#jbMin,#jbSuggWrap{
+  #jbQ,#jbType,#jbPosted,#jbCountry,#jbLoc,#jbMin,#jbSuggWrap{
     flex:1 1 100%!important; min-width:0!important; width:100%!important;
   }
-  #jbCat,#jbType,#jbPosted,#jbCountry,#jbMin{
+  #jbType,#jbPosted,#jbCountry,#jbMin{
     text-overflow:ellipsis;                /* if it still cannot fit, say so */
     padding-right:30px;                    /* room for the native arrow */
   }
@@ -3938,7 +3938,7 @@ const REAL_PRACTICE=[
 /* ---- live jobs: real postings pulled daily from company career sites ---- */
 let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:false,
         q:"",country:"",location:"",remote:false,offset:0,perPage:20,minScore:0,
-        category:"",cats:null,sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
+        sugg:[],suggOpen:false,kit:null,kitFor:null,kitBusy:false,
         jobType:"",engagement:"",visa:"",
         /* The board defaults to the past week. Half the postings on it are
            older than a fortnight — real, still open, but not news — and a
@@ -3996,7 +3996,6 @@ function jbAgo(iso){
 }
 async function jbFilters(){
   try{ JB.filters=await api.get("/api/jobs/filters"); }catch(e){ JB.filters=null; }
-  try{ JB.cats=(await api.get("/api/jobs/categories")).categories||[]; }catch(e){ JB.cats=[]; }
 }
 /* ---- type-ahead: suggestions come from titles we actually hold, with their
    result counts, so nothing offered leads to an empty list ---- */
@@ -4116,13 +4115,12 @@ function jbResumeSource(){
   return {kind:"none", label:""};
 }
 function jbReadInputs(){
-  const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote"), s=$("#jbMin"), k=$("#jbCat");
+  const q=$("#jbQ"), c=$("#jbCountry"), l=$("#jbLoc"), r=$("#jbRemote"), s=$("#jbMin");
   if(q) JB.q=q.value.trim();
   if(c) JB.country=c.value;
   if(l) JB.location=l.value.trim();
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
-  if(k) JB.category=k.value;
   const jt=$("#jbType"), pd=$("#jbPosted"),
         en=$("#jbEng"), vi=$("#jbVisa");
   if(jt) JB.jobType=jt.value;
@@ -4163,12 +4161,12 @@ async function jbRun(mode,keepPage){
       rzLoad(); jbRestoreUpload();
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
         q:"",country:JB.country,location:JB.location,remote:JB.remote,
-        limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,category:JB.category,
+        limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,
         job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted});
       JB.jobs=res.jobs; JB.meta=res;
     }else{
       const p=new URLSearchParams({q:JB.q,country:JB.country,location:JB.location,
-        remote:JB.remote?"true":"false",status:"open",category:JB.category,
+        remote:JB.remote?"true":"false",status:"open",
         job_type:JB.jobType,engagement:JB.engagement,visa:JB.visa,posted:JB.posted,
         limit:String(JB.perPage),offset:String(JB.offset)});
       const res=await api.get("/api/jobs?"+p);
@@ -5010,10 +5008,12 @@ function jbSectionHTML(){
           placeholder="Job title or keyword — start typing…" value="${esc(JB.q)}"/>
         <div id="jbSuggBox">${jbSuggHTML()}</div>
       </div>
-      <select id="jbCat" class="ask-input" style="flex:1;min-width:160px">
-        <option value="">📂 All job types</option>
-        ${(JB.cats||[]).map(c=>`<option value="${esc(c.id)}" ${JB.category===c.id?"selected":""}>${esc(c.label)} (${c.count})</option>`).join("")}
-      </select>
+      <!-- No category picker. A posting sits in one bucket, and a bucket
+           somebody picked wrong hides it: "Data Center Controls Network
+           Engineer" is networking to one person and infrastructure to the
+           next. Search reads the title, the company, the skills and the
+           body, so typing the words finds the job whatever we filed it
+           under, and everything we hold stays reachable. -->
       <!-- No country picker: the board carries US postings only, so the
            control could only ever filter US down to nothing. -->
       <input id="jbLoc" class="ask-input" style="flex:1;min-width:150px"
@@ -5242,7 +5242,7 @@ function renderCareers(){
      waited for the button — so half the controls behaved one way and half the
      other. In match mode an instant re-run also spent a match per dropdown.
      Now every filter marks the search stale and the button does the work. */
-  ["jbCat","jbType","jbPosted","jbEng","jbVisa","jbMin","jbRemote","jbLoc"].forEach(id=>{
+  ["jbType","jbPosted","jbEng","jbVisa","jbMin","jbRemote","jbLoc"].forEach(id=>{
     const el=$("#"+id); if(!el) return;
     const mark=()=>jbMarkDirty();
     el.onchange=mark;
