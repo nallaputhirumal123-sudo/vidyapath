@@ -4955,9 +4955,17 @@ JSEARCH_EVERY_CRAWLS = max(1, int(env("JSEARCH_EVERY_CRAWLS", "1") or 1))
 # caught. Depth costs nothing extra: one request is one page either way, so
 # this reaches ten times as many distinct jobs for the same monthly spend.
 JSEARCH_DEPTH = max(1, min(20, int(env("JSEARCH_DEPTH", "10") or 10)))
+# How many JSearch requests are in flight at once. Kept well below the board
+# sweep's twelve: this one is metered and paid for, and a provider that
+# decides we are hammering it answers 429 for the rest of the crawl.
+JSEARCH_CONCURRENCY = max(1, min(12, int(env("JSEARCH_CONCURRENCY", "6") or 6)))
 # Seconds to wait for one JSearch response. The provider fetches every
 # requested page before replying, so the wait grows with JSEARCH_PAGES.
 JSEARCH_TIMEOUT = float(env("JSEARCH_TIMEOUT", "0") or 0) or max(30.0, 12.0 * JSEARCH_PAGES)
+# How long the whole board sweep gets. Named rather than computed inline so a
+# test can shorten it: the branch worth testing is the one that runs out of
+# clock, and that is not testable if the floor is ten minutes.
+BOARD_STAGE_CAP = float(env("BOARD_STAGE_CAP", "0") or 0) or max(600.0, JSEARCH_TIMEOUT * 6)
 _CRAWL_TICK = 0
 
 
@@ -5384,18 +5392,30 @@ async def _collect_jobs():
         tasks = [one(source, fetch, token)
                  for source, fetch in _FETCHERS.items()
                  for token in _job_tokens(source)]
-        try:
-            # The ceiling has to clear the slowest source, not the average
-            # one. At nine pages a JSearch query can take a minute and a half,
-            # and sixty-eight of them twelve at a time do not fit in ten
-            # minutes — the stage was being cut off with queries still in
-            # flight, which reads as a dead source rather than a short clock.
-            stage_cap = max(600.0, JSEARCH_TIMEOUT * 6)
-            results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True), timeout=stage_cap)
-        except asyncio.TimeoutError:
-            print("jobs: board sweep hit the 10 minute cap; using what arrived")
-            results = []
+        # The ceiling has to clear the slowest source, not the average one.
+        stage_cap = BOARD_STAGE_CAP
+        # wait(), not wait_for(gather()). gather cancels every task when the
+        # clock runs out and the except branch then threw away the lot — one
+        # slow host meant a crawl that fetched four hundred boards stored
+        # nothing from any of them. This keeps whatever finished and drops
+        # only what was still in flight.
+        # wait() raises on an empty set, which is reachable: switch every
+        # board off and the sweep should do nothing, not crash the crawl.
+        done, pending = set(), set()
+        if tasks:
+            done, pending = await asyncio.wait(
+                [asyncio.ensure_future(t) for t in tasks], timeout=stage_cap)
+        for t in pending:
+            t.cancel()
+        if pending:
+            print(f"jobs: board sweep hit the cap with {len(pending)} still "
+                  f"in flight; keeping the {len(done)} that answered")
+        results = []
+        for t in done:
+            try:
+                results.append(t.result())
+            except Exception:
+                pass
         for res in results:
             if isinstance(res, Exception) or not res:
                 continue
@@ -5466,40 +5486,75 @@ async def _collect_jobs():
                 JSEARCH_QUERIES_THIS_RUN = []
             else:
                 JSEARCH_QUERIES_THIS_RUN = None
-            for cc in ([] if used >= JSEARCH_MONTHLY_CAP
-                       else [c.strip().upper() for c in ADZUNA_COUNTRIES if c.strip()]):
-                for q in _jsearch_slice(used):
-                    _db = SessionLocal()
-                    try:
-                        page = _jsearch_page(_db, q)
-                    finally:
-                        _db.close()
-                    key = f"jsearch:{cc}:{q} p{page}"
+            # Concurrent, like the boards above. Sixty-eight queries one
+            # after another, each allowed thirty seconds, is half an hour of
+            # wall clock for a single crawl — long enough that the container
+            # restarted or the next crawl came round before the tail of the
+            # list was ever asked for. The same queries at the end never ran,
+            # every time, which is what "JSearch only pulls a few hundred"
+            # actually was. Six at a time: the whole list now fits in about a
+            # minute, and every role gets asked for on every crawl.
+            plan = [(cc, q)
+                    for cc in ([] if used >= JSEARCH_MONTHLY_CAP
+                               else [c.strip().upper() for c in ADZUNA_COUNTRIES
+                                     if c.strip()])
+                    for q in _jsearch_slice(used)]
+            # Page cursors in one go: one session for the batch rather than
+            # opening a connection inside every request.
+            pages = {}
+            if plan:
+                _db = SessionLocal()
+                try:
+                    for cc, q in plan:
+                        pages[(cc, q)] = _jsearch_page(_db, q)
+                finally:
+                    _db.close()
+            jsem = asyncio.Semaphore(JSEARCH_CONCURRENCY)
+            # A paid plan that has run out returns 429. Once one query sees
+            # it, the rest stop asking rather than burning what is left of
+            # the quota against a wall.
+            spent = {"limited": False}
+
+            async def one_query(cc, q):
+                page = pages[(cc, q)]
+                key = f"jsearch:{cc}:{q} p{page}"
+                if spent["limited"]:
+                    return key, [], "skipped: rate limited"
+                async with jsem:
+                    if spent["limited"]:
+                        return key, [], "skipped: rate limited"
                     try:
                         got = [r for r in await _fetch_jsearch(client, q, cc, page) if r]
-                        rows += got
-                        report[key] = len(got)
-                        _db = SessionLocal()
-                        try:
-                            _jsearch_used(_db, add=JSEARCH_PAGES)
-                        finally:
-                            _db.close()
+                        return key, got, len(got)
                     except Exception as e:
+                        if ("429" in str(e) or "TooManyRequests" in type(e).__name__
+                                or "exceeded" in str(e).lower()):
+                            spent["limited"] = True
                         # Always carry the message. A report that said only
                         # "AttributeError" for every query named the type of
-                        # the bug and nothing about where it was — which cost
-                        # a crawl's worth of guessing.
-                        report[key] = (str(e)[:180] if isinstance(e, RuntimeError)
-                                       else f"{type(e).__name__}: {e}"[:180])
-                        # A paid plan that has run out returns 429. Stop the
-                        # whole source rather than burning the rest of the
-                        # queries against a quota that is already gone.
-                        if "429" in str(e) or "TooManyRequests" in type(e).__name__                                 or "exceeded" in str(e).lower():
-                            report["jsearch"] = "stopped: rate limited"
-                            break
-                else:
+                        # the bug and nothing about where it was.
+                        return key, [], (str(e)[:180] if isinstance(e, RuntimeError)
+                                         else f"{type(e).__name__}: {e}"[:180])
+
+            got_all = await asyncio.gather(*[one_query(cc, q) for cc, q in plan],
+                                           return_exceptions=True)
+            billed = 0
+            for res in got_all:
+                if isinstance(res, Exception):
                     continue
-                break
+                key, got, outcome = res
+                rows += got
+                report[key] = outcome
+                if isinstance(outcome, int):
+                    billed += JSEARCH_PAGES
+            if billed:
+                _db = SessionLocal()
+                try:
+                    _jsearch_used(_db, add=billed)
+                finally:
+                    _db.close()
+            if spent["limited"]:
+                report["jsearch"] = "stopped: rate limited"
         else:
             report["jsearch"] = "skipped (no JSEARCH_KEY)"
     return rows, report, reached
@@ -7185,9 +7240,13 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
         words = [w for w in _re.split(r"[^a-z0-9+#.]+", q.strip().lower()) if w][:6]
         for w in words:
             like = f"%{w}%"
+            # Location is in here because the city box is gone: one box has
+            # to find "dallas" and "remote" as readily as it finds "network
+            # engineer", or removing the filter removes the capability.
             cond = (func.lower(Job.title).like(like)
                     | func.lower(Job.company).like(like)
-                    | func.lower(Job.skills).like(like))
+                    | func.lower(Job.skills).like(like)
+                    | func.lower(Job.location).like(like))
             # Widened only when the precise search found nothing. Someone
             # searching Citrix or ServiceNow is looking for a real thing we
             # simply do not have in the skills vocabulary, and an empty page

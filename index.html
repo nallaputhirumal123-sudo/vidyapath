@@ -3945,7 +3945,12 @@ let JB={mode:"match",jobs:[],meta:null,filters:null,loading:false,msg:"",ran:fal
            first page of month-old roles makes a live board look like an
            archive. The other windows are one click away, and "Past month"
            still shows everything we hold. */
-        posted:"7",
+        // Nothing selected means nothing filtered. This defaulted to
+        // seven days, so a board of 15,000 opened showing a third of itself
+        // and every count on the page disagreed with the list. Freshness is
+        // the sort order — newest first, always — not a filter somebody has
+        // to notice and switch off.
+        posted:"",
         tab:"find",tracks:null,trackTab:"viewed"};
 const TRACK_LABELS={viewed:"Recently viewed",saved:"Saved",applied:"Applied",
                     interviewing:"Interviewing",offer:"Offer received",
@@ -4933,7 +4938,12 @@ function jbSectionHTML(){
   const sel=(id,anyLabel,opts,cur)=>!opts.length?"":
     `<select id="${id}" class="ask-input" style="flex:1;min-width:165px">
       <option value="">${anyLabel}</option>
-      ${opts.map(o=>`<option value="${esc(o.id)}" ${cur===o.id?"selected":""}>${esc(o.label)}${o.count==null?"":` (${o.count})`}</option>`).join("")}
+      <!-- No counts beside the options. "Any job type (5,000)" next to a
+           board holding 15,000 reads as a contradiction, and the number was
+           never comparable anyway: it counted every posting carrying that
+           field while the list on screen was already narrowed by whatever
+           else was set. A number nobody can reconcile is worse than none. -->
+      ${opts.map(o=>`<option value="${esc(o.id)}" ${cur===o.id?"selected":""}>${esc(o.label)}</option>`).join("")}
     </select>`;
   const fresh=f&&f.updated
     /* No "updated N ago". It was the crawl's timestamp, not the jobs' — it
