@@ -4379,7 +4379,11 @@ _GREENHOUSE = ("anthropic,block,zscaler,purestorage,netskope,"
                "squarespace,fivetran,verkada,checkr,betterment,elastic,"
                "mongodb,postman,airbnb,datadog,okta,starburst,cockroachlabs,"
                "neo4j,planetscale,knock,tailscale,faire,hootsuite,ritual,"
-               "tulip")
+               "tulip,"
+               # Checked live before adding: netbrain carries Network
+               # Automation Engineer, kentik Network Intelligence
+               # Advisor, cribl Site Reliability Engineer.
+               "netbrain,kentik,cribl")
 _LEVER = ("palantir,cred,meesho,nium,matchgroup,alloy,veeva,shieldai,"
           "relay,d2l,wattpad,knix")
 _ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
@@ -4387,7 +4391,7 @@ _ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
           "modal,warp,browserbase,lovable,synthesia,cognition,"
           "fireworksai,baseten,langchain,n8n,runway,character,writer,"
           "deepgram,pinecone,weaviate,llamaindex,crusoe,abridge,"
-          "openevidence")
+          "openevidence,hyperbolic")
 # No verified public boards seeded for these two, but the fetchers are live —
 # add tokens with JOB_WORKABLE / JOB_RECRUITEE and they start working.
 _WORKABLE = ""
@@ -4889,7 +4893,17 @@ JSEARCH_QUERIES = [q.strip() for q in (env(
     "ization engineer,it infrastructure manager,data center technician,"
     "storage engineer,migration specialist,devops engineer,site reliabi"
     "lity engineer,release manager,build automation engineer,platform e"
-    "ngineer,kubernetes administrator,ci cd pipeline architect,full sta"
+    # Networking had five slots and none of them was "network engineer".
+    # Everything a posting for this work is actually titled, because the
+    # provider matches on the title we send and nothing else.
+    "ngineer,network engineer,senior network engineer,junior network en"
+    "gineer,network administrator,network architect,network operations "
+    "engineer,noc engineer,network support engineer,wireless network en"
+    "gineer,data center network engineer,network automation engineer,sd"
+    " wan engineer,voip engineer,unified communications engineer,teleco"
+    "m network engineer,field network engineer,routing and switching en"
+    "gineer,"
+    "kubernetes administrator,ci cd pipeline architect,full sta"
     "ck developer,backend engineer,frontend developer,mobile developer,"
     "api integration specialist,embedded systems engineer,game develope"
     "r,cms developer,machine learning engineer,ai prompt engineer,data "
@@ -5026,10 +5040,16 @@ def _jsearch_page(db, query: str) -> int:
     if row is None:
         row = SysCounter(k=k, v=0)
         db.add(row)
-    page = (row.v or 0) % JSEARCH_DEPTH + 1
-    row.v = page
+    row.v = turn = (row.v or 0) + 1
     db.commit()
-    return page
+    # Alternate. A straight walk down ten pages meant each role was asked
+    # what went up TODAY once every ten crawls — at four-hourly crawls, a
+    # posting could be a day and a half old before we asked the question it
+    # would have answered. Odd turns take page 1, which is where today is;
+    # even turns take the next page down, so the depth still gets covered.
+    if turn % 2:
+        return 1
+    return 2 + (turn // 2 - 1) % max(1, JSEARCH_DEPTH - 1)
 
 
 def _jsearch_slice(used: int = 0):
