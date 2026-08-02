@@ -980,6 +980,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="scanner.js?v=d02177c014"></script>
 <script src="voice.js?v=35513e1f46"></script>
+<script src="sketch.js?v=5eefae4c4a"></script>
 <script src="three3d.js?v=cb73e6bd03"></script>
 <script src="lab.js?v=bb3ff62573"></script>
 <script src="bot.js?v=a33f3f84b6"></script>
@@ -2425,17 +2426,19 @@ function sbGo(d){
  * free account never receives a scene to draw. Plain Ask Axle stays sketches
  * and text.
  */
-let SB_SCENE=null;
+let SB_SCENE=null, SB_SKETCH=null;
 function sbDropScene(){
   if(SB_SCENE){ try{ SB_SCENE(); }catch(e){} SB_SCENE=null; }
+  if(SB_SKETCH){ try{ SB_SKETCH(); }catch(e){} SB_SKETCH=null; }
 }
 function sbMountScene(){
   sbDropScene();
-  const el=document.getElementById("sbScene");
-  if(!el||!window.Three3D) return;
   const st=(SB.lesson&&SB.lesson.steps&&SB.lesson.steps[SB.i])||null;
-  if(!st||!st.scene) return;
-  Three3D.mount(el,st.scene).then(d=>{ SB_SCENE=d; });
+  if(!st) return;
+  const sk=document.getElementById("sbSketch");
+  if(sk&&st.sketch&&window.Sketch) SB_SKETCH=Sketch.mount(sk,st.sketch);
+  const el=document.getElementById("sbScene");
+  if(el&&st.scene&&window.Three3D) Three3D.mount(el,st.scene).then(d=>{ SB_SCENE=d; });
 }
 
 function sbDiagramHTML(d){
@@ -2769,6 +2772,9 @@ function sbBoardHTML(){
     <!-- The 3D scene, on the Pro board only. Mounted after this HTML is in
          the document, by sbMountScene below — the renderer needs a real
          element with a real width, which a template string is not. -->
+    ${st.sketch?`<div class="sb-scene-cap">✏️ ${esc(st.sketch.caption
+        ||"")}</div>
+      <div class="sb-scene" id="sbSketch"></div>`:""}
     ${st.scene?`<div class="sb-scene-cap">🧊 ${esc(st.scene.caption
         ||"Drag to turn it, pinch or scroll to zoom")}</div>
       <div class="sb-scene" id="sbScene"></div>`:""}

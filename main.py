@@ -8049,7 +8049,7 @@ def _board_prompt(topic: str, level: str) -> str:
         "ever standing in for. Walk the reader through it the way you "
         "would out loud, naming the pieces as you go.\n\n"
         "GIVE THE LESSON A 3D SCENE, on the one step where seeing the thing does the most work — the step where somebody would otherwise ask what it actually looks like. One per lesson: a second is a picture nobody looks at twice. Leave it out only when the topic has genuinely nothing to show, and be honest about that rather than forcing one.\n"
-        + _scene.PROMPT
+        + _scene.PROMPT + "\n\n" + _sketch.PROMPT
     )
 
 
@@ -8078,6 +8078,7 @@ def _clean_board(d, topic):
         lang = txt(raw.get("lang"), 12).lower()
         steps.append({
             "scene": _scene.clean(raw.get("scene")),
+            "sketch": _sketch.clean(raw.get("sketch")),
             "t": txt(raw.get("t")),
             # Where this step happens — the console, the portal, the query
             # tool. Shown as a caption above the screen so nobody has to guess
@@ -8096,6 +8097,12 @@ def _clean_board(d, topic):
     # it just costs another WebGL context on someone's phone.
     seen_scene = False
     for st in steps:
+        # A scene and a sketch are alternatives. Given both, the flat drawing
+        # wins: anything a model wanted to plot or annotate is a thing you
+        # read values off, and reading values off a perspective view is what
+        # the sketches exist to avoid.
+        if st.get("sketch") and st.get("scene"):
+            st["scene"] = None
         if not st.get("scene"):
             continue
         if seen_scene:
@@ -8477,6 +8484,7 @@ async def sql_ask(body: SqlAskIn, user: User = Depends(current_user),
 # ==========================================================================
 import scanner as _scan                                             # noqa: E402
 import scene as _scene                                              # noqa: E402
+import sketch as _sketch                                            # noqa: E402
 
 
 @app.post("/api/scan")
@@ -8738,7 +8746,9 @@ Rules:
   connected to the thing it measures is the reason people believe maths is
   pointless, and the same is true of every other subject.
 
-{_scene.PROMPT}"""
+{_scene.PROMPT}
+
+{_sketch.PROMPT}"""
 
 
 def _clean_course(d):
@@ -8795,6 +8805,7 @@ def _clean_course(d):
                       "trap": txt(l.get("trap"), 500),
                       "visual": visual(l.get("visual")),
                       "scene": _scene.clean(l.get("scene")),
+                      "sketch": _sketch.clean(l.get("sketch")),
                       "check": quiz(l.get("check"))}
             if lesson["teach"]:
                 lessons.append(lesson)
