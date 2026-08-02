@@ -319,5 +319,35 @@ check("every free-tier allowance is deliberate, not an oversight",
                             "sql_explain", "scan", "course"},
       str(sorted(m.FREE_TRIAL)))
 
+# --------------------------------------------------------------------------
+print("\nUPSTREAM FAILURES ARE NOT THE USER'S FAULT")
+# Every rate limit used to come back as "the free AI limit has been reached".
+# On a Pro account that is false, and it reads as a billing fault on their own
+# account — the worst thing to be wrong about.
+def msg(raw):
+    return m._ai_error_message(Exception(raw))
+
+
+check("a rate limit says the provider, not the plan",
+      "provider is rate-limiting" in msg("429 Too Many Requests"),
+      msg("429 Too Many Requests")[:50])
+check("and reassures them nothing was spent",
+      "Nothing has been used up on your account" in msg("429"))
+check("spent credit says so, and says waiting will not help",
+      "will not fix" in msg("Error code: 429 - insufficient_quota"),
+      msg("insufficient_quota")[:50])
+check("a daily pool says it resets tomorrow",
+      "resets tomorrow" in msg("Quota exceeded: tokens per day"))
+check("anything else stays vague rather than guessing",
+      "could not respond" in msg("connection reset by peer"))
+check("no message ever blames the reader's free allowance",
+      not any("your free" in msg(r).lower() for r in
+              ("429", "insufficient_quota", "tokens per day", "billing",
+               "rate limit", "boom")))
+# A bare "402" in a token count or a request id must not be read as billing.
+check("a number containing 402 is not a billing failure",
+      "credit has run out" not in msg("stream ended after 4402 tokens"),
+      msg("stream ended after 4402 tokens")[:46])
+
 print(f"\nPASSED {ok}   FAILED {fail}")
 sys.exit(1 if fail else 0)

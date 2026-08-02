@@ -3259,13 +3259,34 @@ def _ai_cache_put(db, qkey, result):
 
 
 def _ai_error_message(e):
-    """Turn a raw upstream error into a friendly message for the user. Rate
-    limits (very common on free AI tiers) get their own clear explanation."""
+    """Turn a raw upstream error into words that are true for the reader.
+
+    This used to answer every rate limit with "the free AI limit has been
+    reached". For somebody on Pro that is simply false — it is the model
+    provider that is out, not their allowance — and it reads as a billing
+    fault on their own account, which is the worst thing to be wrong about.
+
+    Two upstream conditions arrive looking similar and need opposite advice.
+    Being told to wait when the credit has run out means waiting forever.
+    """
     s = str(e).lower()
-    if "429" in s or "rate limit" in s or "tokens per day" in s or "quota" in s:
-        return ("The free AI limit has been reached for now. It refreshes shortly "
-                "(short bursts free up in about a minute; the daily pool resets "
-                "each day). Please try again in a little while.")
+    # No bare "402": any number containing it — a token count, a request id —
+    # would match and tell somebody their credit had run out when it had not.
+    dead = ("insufficient_quota", "exceeded your current quota",
+            "billing", "credit balance", "payment required")
+    if any(k in s for k in dead):
+        return ("The AI provider's credit has run out, so this will not fix "
+                "itself by waiting. Nothing is wrong with your account. If "
+                "this is your site, top up the provider or set a second API "
+                "key — Craxle falls back automatically to whichever one still "
+                "works.")
+    if "429" in s or "rate limit" in s or "tokens per minute" in s:
+        return ("The AI provider is rate-limiting requests at the moment. "
+                "This clears on its own, usually within a minute. Nothing has "
+                "been used up on your account.")
+    if "tokens per day" in s or "quota" in s:
+        return ("The AI provider's daily allowance is spent and resets "
+                "tomorrow. Nothing has been used up on your account.")
     return "The AI could not respond just now. Please try again in a moment."
 
 
