@@ -3108,10 +3108,17 @@ FREE_TRIAL = {"resume_upload": 0, "match": 0, "extension": 0,
               # costs us nothing — it is a SQLite file in memory, not a model
               # call. Only the written explanation is metered.
               "sql_explain": 3,
-              # The scanner and the course generator both cost a real model
-              # call every time they miss the cache. Enough free goes to see
-              # whether they work for you, not enough to be the product.
-              "scan": 3, "course": 1}
+              # The scanner is the way in: three goes is enough to find out
+              # whether it reads your handwriting and whether the answer is
+              # any good, and not enough to be the product.
+              "scan": 3,
+              # The course generator gets none. It is the deep explanation —
+              # the largest single generation on the site and the thing worth
+              # paying for — so it sits with the smart board on the paid side
+              # rather than being given away once. It had one free go, which
+              # also meant a free account could reach the 3D scenes a course
+              # carries; those are Pro, and now they are Pro by every route.
+              "course": 0}
 
 
 def _trial_used(db, user, key):
@@ -3132,6 +3139,12 @@ def require_paid_or_trial(db, user, key, feature, spent="free go"):
     if plan_of(user) != "free":
         return
     limit = FREE_TRIAL.get(key, 0)
+    if limit <= 0:
+        # No allowance at all, so nothing was ever spent. Telling somebody
+        # "you've used your one free course" when they never had one reads as
+        # a billing bug, which is the worst thing a paywall can look like —
+        # and it is what this said the moment the course allowance went to 0.
+        return require_paid(user, feature)
     if _trial_used(db, user, key) >= limit:
         raise HTTPException(402, f"You've used your {spent}. {feature} is part "
                                  "of Pro — browsing every live job stays free.")
@@ -3552,10 +3565,10 @@ async def ask_with_image(image: UploadFile = File(...),
     mime = (image.content_type or "").lower().split(";")[0].strip()
     if mime not in _scan.MIMES:
         raise HTTPException(400, "Send a photo — JPG, PNG or WEBP")
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The AI tutor is not switched on")
     require_paid_or_trial(db, user, "scan", "Asking about a photo",
                           "three free photo questions")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
 
     q = (question or "").strip()[:400]
     subject = (subject or "General").strip()[:60]
@@ -8437,10 +8450,10 @@ async def sql_explain(body: SqlRunIn, user: User = Depends(current_user),
     ex = _sqlc.BY_ID.get(body.exercise)
     if not ex:
         raise HTTPException(404, "No such exercise")
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The AI tutor is not switched on")
     require_paid_or_trial(db, user, "sql_explain",
                           "Written explanations", "three free explanations")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
 
     sql = (body.sql or "").strip()
     if not sql:
@@ -8467,10 +8480,10 @@ async def sql_ask(body: SqlAskIn, user: User = Depends(current_user),
     query: "why is my total too high" is asked by everyone on the same
     exercise and deserves to be paid for once.
     """
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The AI tutor is not switched on")
     require_paid_or_trial(db, user, "sql_explain",
                           "Asking the board", "three free questions")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
     ex = _sqlc.BY_ID.get(body.exercise)
     q = body.question.strip()
     lesson, cached = await _sql_lesson(
@@ -8506,9 +8519,9 @@ async def scan(image: UploadFile = File(...),
     mime = (image.content_type or "").lower().split(";")[0].strip()
     if mime not in _scan.MIMES:
         raise HTTPException(400, "Send a photo — JPG, PNG or WEBP")
+    require_paid_or_trial(db, user, "scan", "The scanner", "three free scans")
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
-    require_paid_or_trial(db, user, "scan", "The scanner", "three free scans")
 
     digest = hashlib.sha256(raw).hexdigest()
     qkey = f"scan|{digest}"
@@ -8817,10 +8830,10 @@ async def build_course(body: CourseIn, user: User = Depends(current_user),
                        db: Session = Depends(get_db)):
     """Generate a full course on one topic. Paid — it is the largest single
     generation on the site, and the one worth paying for."""
-    if not ASK_ENABLED:
-        raise HTTPException(503, "The AI tutor is not switched on")
     require_paid_or_trial(db, user, "course", "Personalised courses",
                           "one free course")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
     topic = body.topic.strip()
     qkey = f"course|{_norm_q(body.level)}|{_norm_q(topic)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()

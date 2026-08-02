@@ -294,5 +294,30 @@ check("a different course keeps its own count",
 check("one person's progress is not another's",
       B.get(f"/api/course/progress?topic={T}").json()["attempted"] == 0)
 
+# --------------------------------------------------------------------------
+print("\nTHE DEEP EXPLANATION IS PAID, BY EVERY ROUTE")
+# 3D scenes reach a learner two ways: on the Pro smart board, and inside a
+# generated course. The board has always been paid; the course had one free
+# go, which quietly made the whole 3D layer reachable without paying.
+check("the course generator gives no free goes",
+      m.FREE_TRIAL["course"] == 0, str(m.FREE_TRIAL["course"]))
+r = A.post("/api/course", json={"topic": "the cardiac cycle",
+                                "level": "undergrad"})
+check("a free account is refused a course", r.status_code == 402,
+      str(r.status_code))
+check("and is told why, not just refused",
+      "Pro" in r.json().get("detail", "") or "plan" in r.json().get("detail", ""),
+      r.json().get("detail", "")[:60])
+# An allowance of zero must not claim they spent something they never had.
+check("it does not invent a free go they never had",
+      "used your" not in r.json().get("detail", ""),
+      r.json().get("detail", "")[:70])
+# The scanner stays open, because it is the way in rather than the product.
+check("the scanner still has its free goes", m.FREE_TRIAL["scan"] == 3)
+check("every free-tier allowance is deliberate, not an oversight",
+      set(m.FREE_TRIAL) == {"resume_upload", "match", "extension",
+                            "sql_explain", "scan", "course"},
+      str(sorted(m.FREE_TRIAL)))
+
 print(f"\nPASSED {ok}   FAILED {fail}")
 sys.exit(1 if fail else 0)
