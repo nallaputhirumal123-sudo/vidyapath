@@ -224,9 +224,16 @@ def clean(d):
     return None
 
 
-PROMPT = """You may add a flat drawing to a step, as `sketch`. Use it for the
-things a 3D scene cannot show properly — anything you would read values off,
-or follow along a line. It is drawn from numbers, so only these eight exist.
+PROMPT = """GIVE THE ANSWER A DRAWING, as `sketch`. Almost every topic has one, and a
+learner takes in a picture and a paragraph far better than two paragraphs.
+Before concluding that something needs no drawing, go through this list
+against it: a comparison is a venn, a sequence of events is a timeline, a
+classification or a branching argument is a tree, any relationship between
+two quantities is a plot, quantities side by side are bars. Only decide
+against a drawing when none of the eight genuinely fits — not as the safe
+default.
+
+It is drawn from numbers, so only these eight exist.
 
 "plot"      {"kind":"plot","x":"time (s)","y":"velocity (m/s)",
              "series":[{"name":"with drag","points":[[0,0],[1,8],[2,13]]}],
@@ -273,7 +280,9 @@ or follow along a line. It is drawn from numbers, so only these eight exist.
 
 Rules:
 - A sketch and a 3D scene are alternatives, not a pair. Pick whichever
-  actually shows the idea, and give a step at most one of them.
+  actually shows the idea, and give a step at most one of them. The sketch is
+  the usual answer; the 3D scene is for when the arrangement in space is
+  itself the thing being taught.
 - `caption` says what to look at, in under twelve words.
 - Real values. A plot with invented numbers is worse than no plot, because it
   will be read as data."""

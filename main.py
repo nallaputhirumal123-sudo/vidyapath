@@ -2923,6 +2923,8 @@ def _parse_lesson(text: str, question: str) -> dict:
     return {
         "title": str(les.get("title", question))[:120],
         "steps": [str(s)[:300] for s in les["steps"]][:40],
+        # Text only. Drawings — flat or 3D — are the Pro board's, which is
+        # where the room and the step structure to hang them on exists.
         "takeaway": str(les.get("takeaway", ""))[:300],
     }
 
@@ -8041,6 +8043,11 @@ def _board_prompt(topic: str, level: str) -> str:
         "in \"code\" with the matching \"where\" — the actual commands and "
         "the output they return, the worked calculation line by line, the "
         "text of the clause. Never prose in that field.\n\n"
+        "EVERY LESSON GETS A DRAWING. Put a sketch on the step where seeing "
+        "it does the most work, and on any other step where a different one "
+        "genuinely earns its place. A lesson that arrives as nothing but "
+        "paragraphs has failed a reader who needed to see the shape of the "
+        "thing.\n\n"
         "EXPLAIN IN WORDS RATHER THAN IN BOXES. Do not describe a "
         "diagram, do not draw one in characters, and never emit SVG, "
         "HTML or markdown. Where something has parts or an order, say "
@@ -8709,7 +8716,7 @@ Return JSON only:
           "example": "a worked example, or the code, in full",
           "practice": "one thing for them to do, specific enough to check",
           "trap": "the mistake almost everyone makes here",
-          "visual": {{"want": "3d"|"diagram"|"none",
+          "visual": {{"want": "3d"|"none",
                       "of": "the exact thing to show, e.g. human heart,
                              four chambers",
                       "look_for": "what they should notice when they look
@@ -8734,8 +8741,8 @@ Rules:
   drawing on the whole module rather than one lesson.
 - `visual.want` is "3d" only where rotating and zooming a real object would
   genuinely teach something — anatomy, molecules, mechanisms, astronomy,
-  geology. Use "diagram" for anything flat, and "none" where a picture would
-  be decoration. Be honest: most lessons are "none".
+  geology. For anything flat, send a `sketch` instead — that is what they are
+  for. Use "none" where a picture would be decoration, which is most lessons.
 - Plain text. No markdown, no backticks, no HTML.
 - Define every term the first time it appears.
 - Be concrete. Real numbers, real names, real code, real cases.
@@ -8785,7 +8792,10 @@ def _clean_course(d):
         if not isinstance(v, dict):
             return None
         want = str(v.get("want") or "").strip().lower()
-        if want not in ("3d", "diagram"):
+        # "diagram" used to be accepted here and was never drawn by
+        # anything: a value the schema allowed and the page ignored. Flat
+        # pictures are sketches now, and they have their own field.
+        if want != "3d":
             return None
         return {"want": want, "of": txt(v.get("of"), 120),
                 "look_for": txt(v.get("look_for"), 300)}

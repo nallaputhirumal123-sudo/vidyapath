@@ -424,7 +424,10 @@
 
     h += '<div class="scbar"><button class="btn ghost sm" id="scAgain">' +
       "Scan another</button>" +
-      '<button class="btn ghost sm" id="scSave">Download this</button></div>';
+      '<button class="btn ghost sm" id="scPdf">⬇ Download PDF</button>' +
+      '<button class="btn ghost sm" id="scSave">⬇ Plain text</button>' +
+      '<span class="sctag" style="background:rgba(63,174,106,.14);' +
+      'color:#3fae6a">✓ Saved to your account</span></div>';
 
     // The offer. This is the point of the whole page: an answer solves today,
     // a course means they are not back here next week with the same thing.
@@ -608,6 +611,24 @@
   /* ------------------------------------------------------------------ *
    * wiring
    * ------------------------------------------------------------------ */
+  /* The same PDF the board produces, with the Craxle header on every page.
+     A scan is the thing people most want on paper — it is homework they were
+     stuck on — and it was going out as a .txt while the board next door had
+     a proper export sitting there unused. */
+  function pdf() {
+    var s = SC.scan;
+    if (!s || typeof askPDF !== "function") return download();
+    var steps = s.steps.map(function (st, i) {
+      return (i + 1) + ". " + (st.heading ? st.heading + " — " : "") +
+        (st.teach || "") + (st.working ? "\n" + st.working : "");
+    });
+    if (s.answer) steps.push("Answer: " + s.answer);
+    if (s.next) steps.push("Next: " + s.next);
+    askPDF({ q: s.read, subject: s.subject || "Scan", level: s.kind,
+             title: s.subject || "Scanned problem", steps: steps,
+             takeaway: s.answer || "" });
+  }
+
   function download() {
     var s = SC.scan;
     if (!s) return;
@@ -642,6 +663,7 @@
         paint();
       },
       scSave: download,
+      scPdf: pdf,
       scCourse: buildCourse,
       scPick: function () { var f = $("#scFile"); if (f) f.click(); },
       scClear: async function () {

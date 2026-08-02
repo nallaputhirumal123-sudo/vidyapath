@@ -985,7 +985,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=df48c07ae5"></script>
-<script src="scanner.js?v=390f50b85b"></script>
+<script src="scanner.js?v=e38e441925"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="sketch.js?v=5eefae4c4a"></script>
 <script src="three3d.js?v=cb73e6bd03"></script>
@@ -2481,224 +2481,6 @@ function sbMountScene(){
   if(el&&st.scene&&window.Three3D) Three3D.mount(el,st.scene).then(d=>{ SB_SCENE=d; });
 }
 
-function sbDiagramHTML(d){
-  if(!d||!d.nodes||d.nodes.length<2) return "";
-  const kind=(d.kind||"flow");
-  const N=d.nodes, E=d.edges||[];
-  const W=680;
-  const wrap=(inner,h)=>`<div class="sb-dia"><svg viewBox="0 0 ${W} ${h}"
-    style="width:100%;height:auto" role="img" aria-label="${esc(kind)} diagram">
-    ${inner}</svg></div>`;
-  const short=(t,n)=>{t=String(t||"");return t.length>n?t.slice(0,n-1)+"…":t;};
-  const box=(x,y,w,h,label,tone)=>{
-    const fill=tone==="hi"?"rgba(255,153,51,.16)":"rgba(255,255,255,.07)";
-    const line=tone==="hi"?"#ffb347":"#8fe3b0";
-    return `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"
-      fill="${fill}" stroke="${line}" stroke-width="1.5"/>
-      <text x="${x+w/2}" y="${y+h/2+4}" text-anchor="middle" font-size="12.5"
-        fill="#eafff2">${esc(short(label,Math.floor(w/7.2)))}</text></g>`;
-  };
-
-  /* ---- layers, drawn stacked, because that is what a stack looks like.
-     An OSI model or an application's tiers rendered as a left-to-right chain
-     tells the reader the opposite of the truth about how it is arranged. */
-  if(kind==="stack"){
-    const h=40, gap=8, pad=14;
-    const rows=N.slice(0,6);
-    const H=pad*2+rows.length*(h+gap);
-    let out="";
-    rows.forEach((n,i)=>{
-      const y=pad+i*(h+gap);
-      out+=box(120,y,440,h,n,i===0?"hi":"");
-      if(i<rows.length-1)
-        out+=`<path d="M340 ${y+h} L340 ${y+h+gap}" stroke="#ffe6a1"
-          stroke-width="1.4"/>`;
-    });
-    out+=`<text x="96" y="${pad+16}" text-anchor="end" font-size="10.5"
-      fill="#8fe3b0">top</text>
-      <text x="96" y="${pad+(rows.length-1)*(h+gap)+26}" text-anchor="end"
-      font-size="10.5" fill="#8fe3b0">bottom</text>`;
-    return wrap(out,H);
-  }
-
-  /* ---- a header laid out as fields, the way every networking book draws
-     one. Widths come from the edge list when given, so a 4-bit field is
-     drawn narrower than a 32-bit one. */
-  if(kind==="packet"){
-    const fields=N.slice(0,8);
-    const widths=fields.map((_,i)=>{
-      const e=E.find(x=>x.from===i);
-      const n=e&&parseInt(String(e.label).replace(/[^0-9]/g,""),10);
-      return n&&n>0?n:8;
-    });
-    const total=widths.reduce((a,b)=>a+b,0)||1;
-    const h=46, pad=16;
-    let x=20, out="";
-    fields.forEach((f,i)=>{
-      const w=Math.max(52,(W-40)*widths[i]/total);
-      out+=box(x,pad,w,h,f,"");
-      out+=`<text x="${x+w/2}" y="${pad+h+14}" text-anchor="middle"
-        font-size="10" fill="#8fe3b0">${esc(String(widths[i])+" bits")}</text>`;
-      x+=w;
-    });
-    return wrap(out,pad+h+26);
-  }
-
-  /* ---- two things beside each other. A comparison drawn as a chain reads
-     as a sequence, which is the one thing it is not. */
-  if(kind==="compare"){
-    const mid=Math.ceil(N.length/2);
-    const L=N.slice(0,mid), R=N.slice(mid);
-    const h=34, gap=7, pad=34;
-    const rows=Math.max(L.length,R.length);
-    const H=pad+rows*(h+gap)+8;
-    let out=`<text x="170" y="20" text-anchor="middle" font-size="11.5"
-      fill="#ffb347" font-weight="700">${esc(short(L[0]||"",26))}</text>
-      <text x="510" y="20" text-anchor="middle" font-size="11.5"
-      fill="#8fe3b0" font-weight="700">${esc(short(R[0]||"",26))}</text>
-      <line x1="340" y1="26" x2="340" y2="${H-6}" stroke="#2b3a33"
-      stroke-width="1"/>`;
-    for(let i=1;i<rows;i++){
-      const y=pad+(i-1)*(h+gap);
-      if(L[i]) out+=box(20,y,300,h,L[i],"hi");
-      if(R[i]) out+=box(360,y,300,h,R[i],"");
-    }
-    return wrap(out,H);
-  }
-
-  /* ---- lifelines. A handshake explained without showing who spoke when is
-     not explained at all. */
-  if(kind==="sequence"){
-    const actors=N.slice(0,3);
-    const cols=actors.map((_,i)=>90+i*((W-180)/Math.max(1,actors.length-1)));
-    const top=34, step=38;
-    const msgs=E.slice(0,7);
-    const H=top+Math.max(1,msgs.length)*step+24;
-    let out="";
-    actors.forEach((a,i)=>{
-      out+=`<text x="${cols[i]}" y="18" text-anchor="middle" font-size="11.5"
-        fill="#eafff2" font-weight="700">${esc(short(a,22))}</text>
-        <line x1="${cols[i]}" y1="26" x2="${cols[i]}" y2="${H-14}"
-        stroke="#2b3a33" stroke-width="1.5"/>`;
-    });
-    msgs.forEach((e,i)=>{
-      const a=cols[Math.min(e.from,cols.length-1)], b=cols[Math.min(e.to,cols.length-1)];
-      const y=top+i*step;
-      if(a===b){
-        out+=`<path d="M${a} ${y} q46 12 0 24" fill="none" stroke="#ffe6a1"
-          stroke-width="1.6"/>
-          <text x="${a+52}" y="${y+16}" font-size="10.5" fill="#ffd98a">${
-            esc(short(e.label,20))}</text>`;
-        return;
-      }
-      const dir=b>a?-1:1;
-      out+=`<line x1="${a}" y1="${y}" x2="${b+dir*9}" y2="${y}" stroke="#ffe6a1"
-        stroke-width="1.6"/>
-        <polygon points="${b+dir*9},${y-4} ${b+dir*1},${y} ${b+dir*9},${y+4}"
-        fill="#ffe6a1"/>
-        <text x="${(a+b)/2}" y="${y-7}" text-anchor="middle" font-size="10.5"
-        fill="#ffd98a">${esc(short(e.label,30))}</text>`;
-    });
-    return wrap(out,H);
-  }
-
-  /* ---- a drawn scene.
-
-     Boxes and arrows explain a protocol stack. They cannot explain sunlight
-     entering an atmosphere, a frame arriving at a switch port, or a signal
-     on a wire — and a student who cannot see the thing is being given a
-     definition, not a lesson.
-
-     The model never sends markup. It names primitives from a fixed
-     vocabulary with coordinates on a 100x100 grid, and this draws them.
-     Anything it invents that is not in the list is skipped, so the worst a
-     bad answer can do is draw less. */
-  if(kind==="scene"){
-    const H=300, S=x=>x*(W/100), T=y=>y*(H/100);
-    const P={sun:"#ffcf66",wave:"#8fe3b0",ray:"#ffe6a1",particle:"#9fd0ff",
-             box:"#8fe3b0",arrow:"#ffe6a1",label:"#eafff2",note:"#ffd98a"};
-    let out="";
-    (d.shapes||[]).slice(0,26).forEach(sh=>{
-      const c=P[sh.color]||P[sh.type]||"#8fe3b0";
-      const x=S(+sh.x||0), y=T(+sh.y||0);
-      if(sh.type==="sun"){
-        out+=`<circle cx="${x}" cy="${y}" r="${S(+sh.r||6)}" fill="${c}"
-          opacity=".92"/>`;
-        for(let i=0;i<8;i++){
-          const a=i*Math.PI/4, r1=S((+sh.r||6)+2), r2=S((+sh.r||6)+6);
-          out+=`<line x1="${x+Math.cos(a)*r1}" y1="${y+Math.sin(a)*r1}"
-            x2="${x+Math.cos(a)*r2}" y2="${y+Math.sin(a)*r2}"
-            stroke="${c}" stroke-width="1.6" opacity=".8"/>`;
-        }
-      }else if(sh.type==="particle"){
-        out+=`<circle cx="${x}" cy="${y}" r="${S(+sh.r||1.6)}" fill="${c}"
-          opacity=".85"/>`;
-      }else if(sh.type==="ray"){
-        out+=`<line x1="${x}" y1="${y}" x2="${S(+sh.x2||0)}" y2="${T(+sh.y2||0)}"
-          stroke="${c}" stroke-width="${+sh.w||1.6}" opacity=".9"/>`;
-      }else if(sh.type==="wave"){
-        const x2=S(+sh.x2||100), amp=T(+sh.amp||4), n=Math.max(2,+sh.cycles||4);
-        let p=`M${x} ${y}`;
-        for(let i=0;i<n;i++){
-          const seg=(x2-x)/n, sx=x+i*seg;
-          p+=` q${seg/4} ${-amp} ${seg/2} 0 q${seg/4} ${amp} ${seg/2} 0`;
-        }
-        out+=`<path d="${p}" fill="none" stroke="${c}" stroke-width="1.8"/>`;
-      }else if(sh.type==="arrow"){
-        const x2=S(+sh.x2||0), y2=T(+sh.y2||0);
-        const a=Math.atan2(y2-y,x2-x), h=7;
-        out+=`<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${c}"
-          stroke-width="1.8"/>
-          <polygon points="${x2},${y2} ${x2-h*Math.cos(a-0.4)},${y2-h*Math.sin(a-0.4)}
-          ${x2-h*Math.cos(a+0.4)},${y2-h*Math.sin(a+0.4)}" fill="${c}"/>`;
-      }else if(sh.type==="box"){
-        out+=`<rect x="${x}" y="${y}" width="${S(+sh.w||20)}" height="${T(+sh.h||12)}"
-          rx="6" fill="rgba(255,255,255,.07)" stroke="${c}" stroke-width="1.5"/>`;
-        if(sh.text) out+=`<text x="${x+S(+sh.w||20)/2}" y="${y+T(+sh.h||12)/2+4}"
-          text-anchor="middle" font-size="11.5" fill="#eafff2">${esc(String(sh.text).slice(0,24))}</text>`;
-      }else if(sh.type==="label"){
-        out+=`<text x="${x}" y="${y}" font-size="11.5" fill="${c}"
-          text-anchor="${sh.align==="end"?"end":sh.align==="middle"?"middle":"start"}"
-          >${esc(String(sh.text||"").slice(0,42))}</text>`;
-      }
-    });
-    return wrap(out,H);
-  }
-
-  /* ---- the original: a pipeline, left to right. Correct for a pipeline and
-     for nothing else, which is why the other four exist. */
-  const n=N.length, boxW=Math.min(150,Math.floor((W-40)/n)-14),
-        boxH=46, gap=(W-n*boxW)/(n+1), y=26;
-  let out="";
-  E.forEach(e=>{
-    if(e.to<e.from) return;
-    const ax=gap+e.from*(boxW+gap)+boxW, bx=gap+e.to*(boxW+gap);
-    const mid=(ax+bx)/2, yy=y+boxH/2;
-    out+=`<line x1="${ax+4}" y1="${yy}" x2="${bx-9}" y2="${yy}"
-      stroke="#ffe6a1" stroke-width="1.6"/>
-      <polygon points="${bx-9},${yy-4} ${bx-1},${yy} ${bx-9},${yy+4}" fill="#ffe6a1"/>
-      ${e.label?`<text x="${mid}" y="${yy-8}" text-anchor="middle" font-size="11"
-        fill="#ffd98a">${esc(e.label)}</text>`:""}`;
-  });
-  N.forEach((label,k)=>{ out+=box(gap+k*(boxW+gap),y,boxW,boxH,label,""); });
-  return wrap(out,y+boxH+22);
-}
-
-/* The follow-ups that make it feel like a tutor rather than a lookup. Each
-   re-asks the SAME topic with a different lens, so the board keeps its thread
-   instead of starting a new conversation every time. */
-/* A glyph per lens. Six buttons of identical text are read as a wall; six
-   with distinct marks are scanned and picked from. */
-const SB_LENS_ICON={simpler:"◔",deeper:"⌄",example:"▶",why:"?",
-                    mistakes:"!",practice:"✎"};
-const SB_LENSES=[
-  ["simpler",  "Explain it simpler",   t=>t+" — explain much more simply, for a beginner"],
-  ["deeper",   "Go deeper",            t=>t+" — go deeper, with the details an expert would want"],
-  ["example",  "Show an example",      t=>t+" — walk through one concrete worked example end to end"],
-  ["why",      "Why does it matter?",  t=>t+" — why does this matter in real work, and when is it used"],
-  ["mistakes", "Common mistakes",      t=>t+" — the mistakes people make with this and how to avoid them"],
-  ["practice", "Give me practice",     t=>t+" — practice exercises with the answers explained"],
-];
 function sbLens(id){
   const l=SB_LENSES.find(x=>x[0]===id); if(!l||!SB.topic) return;
   sbTeach(l[2](SB.topic.replace(/ — .*$/,"")));
@@ -3042,7 +2824,6 @@ function askHighlight(){
   const el=b.querySelector(`[data-ln="${ASK.spoken}"]`);
   if(el){ el.classList.add("spoken"); el.scrollIntoView({block:"nearest",behavior:"smooth"}); }
 }
-function askPaintTeacher(){}
 function askPaintSlide(){
   const b=$("#askBoard"); if(b)b.innerHTML=askBoardHTML();
   askUpdateControls(); askHighlight();
@@ -3072,7 +2853,6 @@ async function askTeach(l){
     ASK.spoken=it.ln;
     const pg=askSlideOfLine(it.ln);
     if(pg!==ASK.page){ ASK.page=pg; askPaintSlide(); } else { askHighlight(); }
-    askPaintTeacher();
     await askSpeak(it.t);
   }
   ASK.speaking=false; ASK.spoken=-1;
@@ -6720,8 +6500,24 @@ function pushView(){
   const v = S.view || {page:"home"};
   const prev = history.state && history.state.view;
   if(prev && prev.page === v.page && prev.track === v.track && prev.id === v.id) return;
+  _hashLock = true;
   history.pushState({view:{...v}}, "", "#" + (v.page || "home"));
+  setTimeout(() => { _hashLock = false; }, 0);
 }
+/* A link to #lab, clicked by somebody already on the site.
+   pushState writes the page into the address bar and restoreView reads it
+   back at startup, but nothing was listening while the page stayed open — so
+   a shared link worked from cold and did nothing from warm, which is the
+   confusing way round. Ignored while we are the ones changing it. */
+let _hashLock = false;
+window.addEventListener("hashchange", () => {
+  if(_hashLock || !AUTHED) return;
+  const h = decodeURIComponent((location.hash||"").replace(/^#/,"")).trim();
+  if(!HASH_PAGES.has(h) || h === S.view.page) return;
+  S.view = {page:h};
+  render();
+});
+
 window.addEventListener("popstate", e => {
   if(!AUTHED) return;                     // signed out: let the browser leave
   const v = e.state && e.state.view;
