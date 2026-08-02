@@ -1019,12 +1019,33 @@ var TUTOR = window.Tutor || {
 /* ===================== API ===================== */
 const api = {
   async call(path, opts={}){
-    const r = await fetch(path, {
-      credentials:"same-origin",
-      headers:{"Content-Type":"application/json"},
-      ...opts,
-      body: opts.body!==undefined ? JSON.stringify(opts.body) : undefined,
-    });
+    /* Every request gets a deadline. Without one, a fetch that never settles
+       — a proxy that drops the connection without closing it, a phone that
+       loses signal mid-request — leaves the promise pending forever, and the
+       screen sits on "Building your lesson…" with nothing coming and no way
+       back. A lesson can legitimately take half a minute; nothing here can
+       legitimately take two. */
+    const ac = new AbortController();
+    const ms = opts.timeout || 75000;
+    const timer = setTimeout(() => ac.abort(), ms);
+    let r;
+    try{
+      r = await fetch(path, {
+        credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        signal: ac.signal,
+        ...opts,
+        body: opts.body!==undefined ? JSON.stringify(opts.body) : undefined,
+      });
+    }catch(err){
+      clearTimeout(timer);
+      if(err && err.name==="AbortError"){
+        throw new Error("That took too long and was stopped. The AI service "
+          + "may be slow right now — try again in a moment.");
+      }
+      throw new Error("Could not reach the server. Check your connection.");
+    }
+    clearTimeout(timer);
     if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
     const txt = await r.text();
     /* A non-JSON body means the response did not come from us — a Cloudflare
@@ -1060,8 +1081,21 @@ const api = {
      the resume one had to special-case 402 by hand or the paywall reached the
      user as "could not read that file". One helper, one set of rules. */
   async upload(path, formData){
-    const r = await fetch(path,{method:"POST",credentials:"same-origin",
-                               body:formData});
+    // Longer than a plain call: the photo has to be sent before the model
+    // even starts reading it.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 120000);
+    let r;
+    try{
+      r = await fetch(path,{method:"POST",credentials:"same-origin",
+                            body:formData, signal: ac.signal});
+    }catch(err){
+      clearTimeout(timer);
+      throw new Error(err && err.name==="AbortError"
+        ? "That photo took too long to process. Try a smaller one."
+        : "Could not reach the server. Check your connection.");
+    }
+    clearTimeout(timer);
     if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
     const txt = await r.text();
     let data;

@@ -133,7 +133,18 @@ OPENAI_API_KEY = _clean_key("OPENAI_API_KEY")
 # Verified against /api/ai/selftest. Check any new model ID there before
 # changing this: a wrong ID does not fail loudly — the provider fallback
 # quietly serves every request from Groq instead, at Groq's cost.
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# The rolling alias, not a pinned version. "gemini-2.5-flash-lite" was the
+# default and it is closed to API keys created after it shipped — a new key
+# gets 404 "model not found" for it on every single call. That does not fail
+# loudly: the provider chain catches it, moves to the next key, and the user
+# sees whatever the SECOND provider says. So a perfectly good Gemini key sat
+# there doing nothing while OpenAI's out-of-credit message came back, and the
+# obvious conclusion — "Gemini is added, why am I still seeing this" — was
+# exactly right.
+#
+# The alias resolves to whatever the current flash-lite is, for any key.
+# Check /api/ai/models before pinning a specific id here again.
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-flash-lite-latest")
 # Used only where the writing quality is the product: the apply kit's
 # cover note and screening answers. Everything else stays on the cheap
 # model, because scoring and classifying do not read any better on a
@@ -3280,6 +3291,11 @@ def _ai_error_message(e):
                 "this is your site, top up the provider or set a second API "
                 "key — Craxle falls back automatically to whichever one still "
                 "works.")
+    if ("not found" in s and "model" in s) or "is not supported" in s             or "unknown model" in s:
+        return ("The AI model name in the settings does not exist for this "
+                "API key. Nothing is wrong with your account. If this is your "
+                "site, check /api/ai/models to see what the key can actually "
+                "use and set GEMINI_MODEL or OPENAI_MODEL to one of them.")
     if "429" in s or "rate limit" in s or "tokens per minute" in s:
         return ("The AI provider is rate-limiting requests at the moment. "
                 "This clears on its own, usually within a minute. Nothing has "
@@ -3430,8 +3446,13 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
     if not order:
         raise RuntimeError("No AI provider that can read images is configured")
     last = None
-    async with httpx.AsyncClient(timeout=90) as client:
+    import time as _t
+    _deadline = _t.monotonic() + 100
+    async with httpx.AsyncClient(timeout=45) as client:
         for prov in order:
+            if _t.monotonic() > _deadline:
+                print(f"AI vision: out of time before trying {prov}")
+                break
             try:
                 txt = await _provider_vision(client, prov, prompt, raw, mime,
                                              max_tokens)
@@ -3453,8 +3474,18 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
     if not providers:
         raise RuntimeError("No AI provider key is configured")
     last = None
-    async with httpx.AsyncClient(timeout=60) as client:
+    # 60s each across four providers is four minutes — longer than the client
+    # waits, longer than Railway's proxy holds a connection, and long enough
+    # that the page sat on "Building your lesson..." until somebody gave up.
+    # Per-provider cap, plus a budget for the whole chain so a slow first
+    # provider cannot eat the time the others needed.
+    import time as _t
+    _deadline = _t.monotonic() + 55
+    async with httpx.AsyncClient(timeout=25) as client:
         for prov in providers:
+            if _t.monotonic() > _deadline:
+                print(f"AI: out of time before trying {prov}")
+                break
             try:
                 txt = await _provider_generate(client, prov, prompt, max_tokens,
                                                json_mode, best)
