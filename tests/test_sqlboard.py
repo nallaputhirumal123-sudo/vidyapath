@@ -249,5 +249,49 @@ check("a window function is noticed",
           "SELECT title, RANK() OVER (ORDER BY price) FROM products")["notes"]))
 check("an empty query has no walkthrough", not E.walkthrough("")["ok"])
 
+# --------------------------------------------------------------------------
+print("\nIT GOES PAST BEGINNER")
+adv = [x for x in C.EXERCISES if x["id"].startswith("x")]
+check("there are expert exercises at all", len(adv) >= 12, str(len(adv)))
+check("every skill has at least one exercise, expert ones included",
+      all(C.BY_SKILL.get(s) for s, _ in C.SKILLS),
+      str([s for s, _ in C.SKILLS if not C.BY_SKILL.get(s)]))
+# The things somebody is actually paid to know.
+for skill in ("sets", "cte", "frames", "dedup", "shape", "recursive"):
+    check(f"{skill} is covered", bool(C.BY_SKILL.get(skill)))
+check("the beginner path still starts at the beginning",
+      C.next_up({})["skill"] == "select")
+check("expert questions come after the basics",
+      C.ORDER.index("recursive") > C.ORDER.index("select"))
+
+# A recursive CTE is one of the things an expert most needs to practise, and
+# the authorizer was refusing every one of them: SQLite asks permission to
+# read the CTE's own name, which is not one of the four tables.
+r = E.run("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n "
+          "WHERE i < 5) SELECT COUNT(*) FROM n")
+check("recursive CTEs run", r["ok"] and r["rows"][0][0] == 5,
+      r.get("error", "")[:40])
+check("plain CTEs run", E.run("WITH t AS (SELECT 1 x) SELECT x FROM t")["ok"])
+check("window frames run",
+      E.run("SELECT SUM(qty) OVER (ORDER BY id) FROM order_items")["ok"])
+check("FILTER runs",
+      E.run("SELECT COUNT(*) FILTER (WHERE status='completed') FROM orders")["ok"])
+check("set operations run",
+      E.run("SELECT id FROM customers EXCEPT SELECT customer_id FROM orders")["ok"])
+# ...and none of that reopened the schema tables.
+for t in ("sqlite_master", "sqlite_sequence", "SQLITE_MASTER"):
+    check(f"{t} is still refused", not E.run(f"SELECT * FROM {t}")["ok"])
+check("a runaway recursion is still stopped",
+      not E.run("WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r)"
+                " SELECT COUNT(*) FROM r")["ok"])
+check("writes are still refused", not E.run("DROP TABLE customers")["ok"])
+
+# The anti-join exercise needs something that was never ordered, or its
+# answer is an empty table and it teaches nothing.
+check("the catalogue has dead stock to find",
+      E.run("SELECT p.id FROM products p WHERE NOT EXISTS "
+            "(SELECT 1 FROM order_items i WHERE i.product_id = p.id)"
+            )["count"] >= 1)
+
 print(f"\nPASSED {ok}   FAILED {fail}")
 sys.exit(1 if fail else 0)

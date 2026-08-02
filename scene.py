@@ -15,7 +15,10 @@ gives a slightly wrong picture where rejecting gives none at all — but a
 thousand atoms is a hung tab on a phone, so counts are cut hard.
 """
 
-KINDS = ("molecule", "layers", "lattice", "surface", "orbit", "solid")
+KINDS = ("molecule", "layers", "lattice", "surface", "orbit", "solid",
+         "process")
+
+MAX_STAGES = 8
 
 SHAPES = ("cube", "sphere", "cylinder", "cone", "torus", "tetra", "octa",
           "icosa", "prism")
@@ -173,6 +176,24 @@ def clean(d):
             out["centre_color"] = c
         return out
 
+    if kind == "process":
+        stages = []
+        for st in (d.get("stages") or [])[:MAX_STAGES]:
+            if not isinstance(st, dict):
+                continue
+            name = _label(st.get("name"), 32)
+            if not name:
+                continue
+            stages.append({"name": name,
+                           "in": _label(st.get("in"), 28),
+                           "out": _label(st.get("out"), 28)})
+        if len(stages) < 2:
+            return None
+        layout = str(d.get("layout") or "").strip().lower()
+        out["layout"] = layout if layout in ("cycle", "chain") else "chain"
+        out["stages"] = stages
+        return out
+
     if kind == "solid":
         shape = str(d.get("shape") or "").strip().lower()
         out["shape"] = shape if shape in SHAPES else "cube"
@@ -221,6 +242,24 @@ none.
 "solid"     {"kind":"solid","shape":"cube|sphere|cylinder|cone|torus|tetra|
              octa|icosa|prism"}
             Geometry, volumes, packing, crystal habit.
+
+"process"   {"kind":"process","layout":"cycle"|"chain","caption":"...",
+             "stages":[{"name":"Light absorbed","in":"photon",
+                        "out":"excited electron"}, ...]}
+            A sequence of stages with something flowing between them, shown
+            as linked stations you can walk around. "cycle" when the last
+            stage feeds the first — the Krebs cycle, the water cycle, the
+            nitrogen cycle, the carbon cycle, a refrigeration loop. "chain"
+            when it runs start to finish — photosynthesis, digestion,
+            transcription and translation, a production line, a CPU pipeline,
+            a request travelling through a system.
+
+A PROCESS IS NOT A MOLECULE. If someone asks how photosynthesis works, the
+answer is the stages and what passes between them, not a ball-and-stick model
+of chlorophyll: drawing the magnesium and nitrogen atoms of one pigment
+molecule answers a question nobody asked. Ask yourself whether the thing being
+taught is a SHAPE or a SEQUENCE, and pick on that. Only reach for "molecule"
+when the arrangement of the atoms is itself the lesson.
 
 Rules:
 - Real coordinates and real proportions. An invented geometry taught

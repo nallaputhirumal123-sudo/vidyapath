@@ -95,6 +95,11 @@ PRODUCTS = [
     (8, "Designing Data-Intensive Applications", "books", 1150.0),
     (9, "Notebook, ruled", "stationery", 120.0),
     (10, "Gel pen pack", "stationery", 260.0),
+    # Dead stock, and deliberately so. Every other product appears in some
+    # order, which meant "find the products nobody has ever ordered" returned
+    # an empty result — an anti-join exercise whose answer is nothing teaches
+    # nothing. Real catalogues always have one of these.
+    (11, "Whiteboard marker, dry-wipe", "stationery", 180.0),
 ]
 
 # (id, customer_id, ordered_at, status)
@@ -168,14 +173,21 @@ def _readonly(action, arg1, arg2, dbname, trigger):
     from SQLite's own parser, which is both safer than regex and a better
     lesson than a lecture about what they are not allowed to type.
 
-    Reads are checked against the table name as well, which closes
-    sqlite_master. Nothing secret lives in it — this database is a toy and its
-    schema is printed down the side of the page — but a sandbox that answers
-    "what else is in here" is one table away from being interesting to the
-    wrong person, and the tightening costs a line.
+    Reads are checked by name as well, which closes sqlite_master. Nothing
+    secret lives in it — this database is a toy and its schema is printed down
+    the side of the page — but a sandbox that answers "what else is in here"
+    is one table away from being interesting to the wrong person.
+
+    Checked by prefix rather than against the four table names, which was the
+    first attempt. SQLite reserves everything beginning "sqlite_" for its own
+    internals, and it also asks permission to read the name of a CTE — so an
+    allowlist of real tables refused every WITH RECURSIVE query on the board,
+    which is one of the things an expert most needs to practise. The database
+    is rebuilt per request and holds nothing but the sample data, so any name
+    that is not SQLite's own is ours to read.
     """
     if action == sqlite3.SQLITE_READ:
-        return _OK if arg1 in TABLES else _DENY
+        return _DENY if str(arg1 or "").lower().startswith("sqlite_") else _OK
     return _OK if action in _ALLOWED else _DENY
 
 

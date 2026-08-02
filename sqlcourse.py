@@ -32,6 +32,12 @@ SKILLS = [
     ("subquery", "Queries inside queries"),
     ("window", "Window functions"),
     ("perf", "Indexes and query plans"),
+    ("sets", "Set operations"),
+    ("cte", "Common table expressions"),
+    ("frames", "Window frames and running totals"),
+    ("dedup", "Duplicates and anti-joins"),
+    ("shape", "Reshaping and conditional aggregates"),
+    ("recursive", "Recursion"),
 ]
 SKILL_NAME = dict(SKILLS)
 ORDER = [s for s, _ in SKILLS]
@@ -147,6 +153,152 @@ EXERCISES = [
                 "  RANK() OVER (PARTITION BY category ORDER BY price DESC)",
                 "    AS rank_in_cat",
                 "FROM products")),
+
+    # ---------------------------------------------------------------- expert
+    # Everything below is a real reporting problem. None of it needs a table
+    # the board does not already have, and all of it turns up in interviews.
+    dict(id="x1", skill="sets", title="Who bought, and who did not",
+         ask="Return the id of every customer who has never placed an order, "
+             "using a set operation rather than a join.",
+         hint="EXCEPT takes the rows of the first query and removes any that "
+              "appear in the second.",
+         ref=_q("SELECT id FROM customers",
+                "EXCEPT",
+                "SELECT customer_id FROM orders")),
+
+    dict(id="x2", skill="dedup", title="Products nobody has ordered",
+         ask="Return the title of every product that has never appeared in "
+             "an order item.",
+         hint="An anti-join: LEFT JOIN and keep the NULLs, or NOT EXISTS. "
+              "NOT IN is the trap — it returns nothing at all if the inner "
+              "query yields a single NULL.",
+         ref=_q("SELECT p.title FROM products p",
+                "WHERE NOT EXISTS (SELECT 1 FROM order_items i",
+                "                  WHERE i.product_id = p.id)")),
+
+    dict(id="x3", skill="shape", title="Completed and cancelled, side by side",
+         ask="For each customer id that has any orders, return the id, how "
+             "many of their orders are completed as `done`, and how many are "
+             "cancelled as `gone`.",
+         hint="Count conditionally: COUNT(*) FILTER (WHERE ...), or "
+              "SUM(CASE WHEN ... THEN 1 ELSE 0 END). One pass, not two "
+              "queries stitched together.",
+         ref=_q("SELECT customer_id,",
+                "  COUNT(*) FILTER (WHERE status = 'completed') AS done,",
+                "  COUNT(*) FILTER (WHERE status = 'cancelled') AS gone",
+                "FROM orders GROUP BY customer_id")),
+
+    dict(id="x4", skill="frames", title="A running total",
+         ask="For every order item in id order, return the item id, its qty, "
+             "and the running total of qty so far as `so_far`.",
+         hint="SUM(qty) OVER (ORDER BY id) — an ORDER BY inside OVER gives "
+              "you a frame that grows as it goes.",
+         ref=_q("SELECT id, qty,",
+                "  SUM(qty) OVER (ORDER BY id) AS so_far",
+                "FROM order_items")),
+
+    dict(id="x5", skill="frames", title="Each order against the last",
+         ask="For each order in date order, return the id, the date, and the "
+             "date of the previous order as `prev`. The first row's prev is "
+             "NULL.",
+         hint="LAG() looks backwards from the current row; LEAD() looks "
+              "forwards.",
+         ref=_q("SELECT id, ordered_at,",
+                "  LAG(ordered_at) OVER (ORDER BY ordered_at, id) AS prev",
+                "FROM orders")),
+
+    dict(id="x6", skill="cte", title="Break it into named steps",
+         ask="Using a CTE, work out each customer's total completed spend, "
+             "then return only the customers who spent more than the average "
+             "of those totals. Return name and spend, biggest first.",
+         hint="WITH spend AS (...) — name the intermediate result, then use "
+              "it twice: once for the rows, once for the average.",
+         ref=_q("WITH spend AS (",
+                "  SELECT c.id, c.name, SUM(i.qty * p.price) AS total",
+                "  FROM customers c",
+                "  JOIN orders o ON o.customer_id = c.id AND o.status = 'completed'",
+                "  JOIN order_items i ON i.order_id = o.id",
+                "  JOIN products p ON p.id = i.product_id",
+                "  GROUP BY c.id)",
+                "SELECT name, total AS spend FROM spend",
+                "WHERE total > (SELECT AVG(total) FROM spend)",
+                "ORDER BY spend DESC")),
+
+    dict(id="x7", skill="window", title="The top seller in each category",
+         ask="Return the title, category and price of the single most "
+             "expensive product in each category.",
+         hint="Rank inside the category with a window function, then keep "
+              "rank 1. A GROUP BY gives you the price but not the title that "
+              "goes with it — that is the whole difficulty.",
+         ref=_q("SELECT title, category, price FROM (",
+                "  SELECT title, category, price,",
+                "    ROW_NUMBER() OVER (PARTITION BY category",
+                "                       ORDER BY price DESC) AS rn",
+                "  FROM products) WHERE rn = 1")),
+
+    dict(id="x8", skill="subquery", title="Their most recent order",
+         ask="For every customer who has ordered, return their name and the "
+             "date of their most recent order as `latest`.",
+         hint="A correlated subquery asks a question per row. A GROUP BY with "
+              "MAX also works — try both and compare the plans.",
+         ref=_q("SELECT c.name, MAX(o.ordered_at) AS latest",
+                "FROM customers c JOIN orders o ON o.customer_id = c.id",
+                "GROUP BY c.id")),
+
+    dict(id="x9", skill="shape", title="Share of the total",
+         ask="For each product category, return the category and its share of "
+             "all product value as a percentage rounded to one decimal, as "
+             "`pct`. Value means the sum of the prices in that category.",
+         hint="A window function with no PARTITION runs over everything, so "
+              "SUM(x) OVER () is the grand total sitting beside each row.",
+         ref=_q("SELECT category,",
+                "  ROUND(SUM(price) * 100.0 / (SELECT SUM(price) FROM products), 1)",
+                "    AS pct",
+                "FROM products GROUP BY category")),
+
+    dict(id="x10", skill="dedup", title="Customers in the same city",
+         ask="Return every pair of customer names who live in the same city, "
+             "each pair once, as `a` and `b`.",
+         hint="Join the table to itself. The trick is stopping Asha–Divya and "
+              "Divya–Asha both appearing: compare the ids with < rather than "
+              "<>.",
+         ref=_q("SELECT c1.name AS a, c2.name AS b",
+                "FROM customers c1 JOIN customers c2",
+                "  ON c1.city = c2.city AND c1.id < c2.id")),
+
+    dict(id="x11", skill="recursive", title="Every day in a month",
+         ask="Using a recursive CTE, return the numbers 1 to 31 in a column "
+             "called `d`.",
+         hint="WITH RECURSIVE d(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM d "
+              "WHERE n < 31). The WHERE is the stopping point — without it "
+              "the query never ends.",
+         ref=_q("WITH RECURSIVE days(d) AS (",
+                "  SELECT 1 UNION ALL SELECT d + 1 FROM days WHERE d < 31)",
+                "SELECT d FROM days")),
+
+    dict(id="x12", skill="multi", title="The basket, as one line each",
+         ask="For every completed order, return the order id and every "
+             "product title in it joined into one comma-separated string as "
+             "`basket`, one row per order.",
+         hint="GROUP_CONCAT collapses a column of a group into one string. "
+              "This is how a report turns many rows into something a person "
+              "can read.",
+         ref=_q("SELECT o.id, GROUP_CONCAT(p.title, ', ') AS basket",
+                "FROM orders o",
+                "JOIN order_items i ON i.order_id = o.id",
+                "JOIN products p ON p.id = i.product_id",
+                "WHERE o.status = 'completed'",
+                "GROUP BY o.id")),
+
+    dict(id="x13", skill="perf", title="Why the second one is faster",
+         ask="Write the query that returns the id and status of the order "
+             "with id 108. Then open the plan and compare it with the plan "
+             "for the same lookup done on ordered_at instead.",
+         hint="Looking up a primary key is a SEARCH; filtering on an "
+              "unindexed column is a SCAN. On twelve rows both are instant — "
+              "on twelve million only one of them is.",
+         plan_focus=True,
+         ref=_q("SELECT id, status FROM orders WHERE id = 108")),
 
     dict(id="e13", skill="perf", title="Read the plan",
          ask="Write the query that finds the orders belonging to customer 5, "

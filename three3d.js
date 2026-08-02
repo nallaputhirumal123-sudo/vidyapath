@@ -355,6 +355,124 @@
       new THREE.LineBasicMaterial({ color: 0xeafff2 })));
   };
 
+  /* A process: stations with something moving between them.
+   *
+   * This is the kind that was missing, and its absence showed. Asked about
+   * photosynthesis the model reached for "molecule" — the only kind that
+   * could hold anything biological — and drew the magnesium and nitrogen of
+   * a chlorophyll molecule. Correct atoms, and an answer to a question nobody
+   * asked: photosynthesis is a sequence, and none of the other five kinds can
+   * draw a sequence.
+   *
+   * Laid out as a ring when the last stage feeds the first, and as a line
+   * when it runs start to finish, because that difference is most of what
+   * somebody needs to understand about a cycle. The pulses travelling the
+   * arrows carry the label of what actually flows.
+   */
+  BUILD.process = function (spec, group) {
+    var st = spec.stages || [], n = st.length;
+    var cycle = spec.layout === "cycle";
+    // Wider than it looks like it needs to be. The text is what has to fit,
+    // not the discs.
+    var R = Math.max(4.4, n * 1.25);
+    var GAP = 4.6;
+    var pos = st.map(function (_, i) {
+      if (cycle) {
+        var a = (i / n) * Math.PI * 2 - Math.PI / 2;
+        return new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R);
+      }
+      return new THREE.Vector3((i - (n - 1) / 2) * GAP, 0, 0);
+    });
+
+    pos.forEach(function (p, i) {
+      // A disc rather than a box: a station on a route, not a component.
+      var m = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.05, 1.05, 0.34, 40),
+        new THREE.MeshStandardMaterial({
+          color: cycle ? 0x3f8f6a : 0x3a6ea8, roughness: 0.4,
+          metalness: 0.1 }));
+      m.position.copy(p);
+      group.add(m);
+      group.add(new THREE.Mesh(
+        new THREE.TorusGeometry(1.05, 0.05, 10, 44),
+        new THREE.MeshBasicMaterial({ color: 0xeafff2 })
+      ).rotateX(Math.PI / 2).translateOnAxis(new THREE.Vector3(0, 0, 0), 0)
+       .translateX(p.x).translateY(p.y + 0.18).translateZ(p.z));
+      label(group, String(i + 1), p.x, p.y + 0.42, p.z);
+      // Two lines rather than one long one, and alternating heights so a
+      // stage never sits at the same level as the one beside it.
+      var lift = 1.35 + (i % 2) * 0.62;
+      wrapLabel(st[i].name, 15).forEach(function (line, k) {
+        label(group, line, p.x, p.y + lift + k * 0.42, p.z);
+      });
+    });
+
+    // The arrows, and what travels along them.
+    var links = [];
+    for (var i = 0; i < n - (cycle ? 0 : 1); i++) {
+      links.push([i, (i + 1) % n]);
+    }
+    links.forEach(function (L) {
+      var a = pos[L[0]], b = pos[L[1]];
+      var dir = new THREE.Vector3().subVectors(b, a);
+      var len = dir.length() - 2.1;                 // stop short of the discs
+      if (len <= 0.2) return;
+      var mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+      var shaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, len, 10),
+        new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true,
+                                      opacity: 0.65 }));
+      shaft.position.copy(mid);
+      shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+                                          dir.clone().normalize());
+      group.add(shaft);
+
+      var head = new THREE.Mesh(
+        new THREE.ConeGeometry(0.16, 0.42, 14),
+        new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+      head.position.copy(b).addScaledVector(dir.clone().normalize(), -1.15);
+      head.quaternion.copy(shaft.quaternion);
+      group.add(head);
+
+      // What passes along this arrow — the whole point of the picture.
+      var carried = st[L[0]].out || st[L[1]]["in"];
+      if (carried) {
+        label(group, carried.length > 18 ? carried.slice(0, 17) + "\u2026"
+                                         : carried,
+              mid.x, mid.y - 0.55, mid.z);
+      }
+
+      var pulse = new THREE.Mesh(
+        new THREE.SphereGeometry(0.15, 14, 10),
+        new THREE.MeshBasicMaterial({ color: 0xffe6a1 }));
+      pulse.userData.flow = { a: a.clone(), b: b.clone(),
+                              t: Math.random(), speed: 0.35 };
+      group.add(pulse);
+    });
+
+    if (st[0] && st[0]["in"]) {
+      label(group, "in: " + st[0]["in"], pos[0].x, pos[0].y - 1.45, pos[0].z);
+    }
+    var last = st[n - 1];
+    if (!cycle && last && last.out) {
+      label(group, "out: " + last.out, pos[n - 1].x,
+            pos[n - 1].y - 1.45, pos[n - 1].z);
+    }
+  };
+
+  /* Break a long label on word boundaries, so a stage name reads as two
+     short lines instead of one that overlaps its neighbours. */
+  function wrapLabel(text, max) {
+    var words = String(text || "").split(/\s+/), lines = [], cur = "";
+    words.forEach(function (w) {
+      if (!cur) { cur = w; return; }
+      if ((cur + " " + w).length <= max) cur += " " + w;
+      else { lines.push(cur); cur = w; }
+    });
+    if (cur) lines.push(cur);
+    return lines.slice(0, 2);
+  }
+
   /* ---- labels, as sprites so they always face you ------------------- */
   function label(group, text, x, y, z) {
     var cv = document.createElement("canvas");
@@ -374,7 +492,11 @@
     tex.minFilter = THREE.LinearFilter;
     var s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex,
       transparent: true, depthTest: false }));
-    s.scale.set(w / 46, 56 / 46, 1);
+    // /120, not /46. At the larger size a stage called "ATP + NADPH made"
+    // was over three world units wide against a three-unit gap between
+    // stations, so every label in a process overlapped its neighbours and the
+    // scene was a pile of text with geometry somewhere behind it.
+    s.scale.set(w / 120, 56 / 120, 1);
     s.position.set(x, y, z);
     group.add(s);
   }
@@ -434,7 +556,9 @@
       // how big the finished scene will be until it is finished. Scaling them
       // here is what stops "H" and "O" from being drawn larger than the water
       // molecule they belong to.
-      var k = span / 9;
+      // Clamped. Straight proportionality made labels grow without limit on
+      // wide scenes — the very ones that have the most of them.
+      var k = Math.max(0.6, Math.min(1.6, span / 9));
       group.traverse(function (o) {
         if (o.isSprite) o.scale.multiplyScalar(k);
       });
@@ -442,8 +566,11 @@
       var ctl = orbit(cam, ren.domElement, span * 1.9);
       ctl.setRange(span * 0.55, span * 5);
 
-      var spinners = [];
-      group.traverse(function (o) { if (o.userData.spin) spinners.push(o); });
+      var spinners = [], flows = [];
+      group.traverse(function (o) {
+        if (o.userData.spin) spinners.push(o);
+        if (o.userData.flow) flows.push(o);
+      });
 
       var live = true, raf = 0, t0 = performance.now();
       (function tick(now) {
@@ -454,6 +581,14 @@
           var s = o.userData.spin;
           var a = s.t + dt * s.speed;
           o.position.set(Math.cos(a) * s.r, 0, Math.sin(a) * s.r);
+        });
+        // Things moving between the stations of a process. The motion is the
+        // explanation: a static arrow says two stages are connected, a pulse
+        // says which way it goes and that something is being carried.
+        flows.forEach(function (o) {
+          var f = o.userData.flow;
+          var u = (f.t + dt * f.speed) % 1;
+          o.position.lerpVectors(f.a, f.b, u);
         });
         if (spec.turntable !== false && !ctl.isDragging) group.rotation.y += 0.0016;
         ctl.update();

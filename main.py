@@ -7954,16 +7954,31 @@ def _board_prompt(topic: str, level: str) -> str:
     return (
         f"You are Axle, teaching at a board. Topic: {topic}. Learner level: "
         f"{level}.\n\n"
+        "This board teaches anything anyone asks it, to whatever depth "
+        "they need — medicine, law, pure mathematics, history, "
+        "engineering, linguistics, finance, music, a trade, a language, "
+        "and computing among them. Do not steer the lesson towards "
+        "programming, and do not assume the learner is a programmer "
+        "unless the topic itself is.\n\n"
         "Teach it as a sequence of steps that build on each other, the way a "
         "good teacher works through a board: one idea per step, in order, "
         "nothing assumed that has not already been shown.\n\n"
         # A learner who is shown a Python snippet for a switching topic knows
         # immediately that nobody has done this job. Teach each skill in the
         # place the work actually happens, or the whole lesson reads as fake.
-        "TEACH IT WHERE THE WORK HAPPENS. Every skill lives in a real "
-        "environment, and most of them are not Python. Before writing a step, "
-        "decide what a person doing this job would actually be looking at, "
-        "and show THAT: a Cisco IOS console session for switching and "
+        "TEACH IT WHERE THE WORK HAPPENS. Every subject lives somewhere "
+        "real, and it is only sometimes a screen. Before writing a step, "
+        "decide where a person who actually does this would be standing "
+        "and what would be in front of them, and put the learner THERE.\n"
+        "Outside computing that is a place, not a terminal: a ward round "
+        "reading a patient's ECG, a bench with a titration half finished, "
+        "a courtroom and the section being argued, a balance sheet on an "
+        "auditor's desk, an archive with the actual document, a workshop "
+        "with the part in a vice, a score on a music stand, a field site "
+        "with the core sample. Name the setting, quote the real numbers, "
+        "cite the real case or paper or reaction.\n"
+        "In computing it is a screen, and most of them are not Python: "
+        "a Cisco IOS console session for switching and "
         "routing, the AWS or Azure portal and its CLI for cloud, kubectl and "
         "YAML manifests for Kubernetes, a Wireshark capture for packet "
         "analysis, a Splunk or Sentinel search for SOC work, a Jenkins or "
@@ -7980,50 +7995,33 @@ def _board_prompt(topic: str, level: str) -> str:
         "Ground it in the job: name the situation the skill is used in — the "
         "outage, the ticket, the migration, the audit finding — so the "
         "learner sees when this comes up at work, not just what it is.\n\n"
-        "Where a step is best shown as a picture, include a SIMPLE diagram "
-        "as boxes and arrows — never as SVG or markup.\n\n"
-        "Respond with ONLY valid JSON, no markdown fences, in exactly this "
-        "shape:\n"
         '{"title":"<topic in 2-6 words>",'
         '"steps":[{"t":"<TEACH this step: 120-220 words. Say what it is, how '
         'it works underneath, why it is done this way, and what breaks when it '
         'is done wrong. Never one line, never a definition on its own.>",'
-        '"where":"<the screen or tool this step happens in, e.g. '
-        '\'Console session on a Catalyst 9200 switch\'>",'
-        '"code":"<exactly what is on that screen — commands AND the output '
-        'they return — or empty>",'
+        '"where":"<where this step happens — a screen, a bench, a ward, a '
+        'courtroom, e.g. \'Console on a Catalyst 9200\' or \'Titration at '
+        'the bench\' — or empty if the step has no single place>",'
+        '"code":"<what is literally on that screen or page: commands and '
+        'their output, the worked calculation, the statute text, the '
+        'balanced equation — or empty. Never prose.>",'
         '"lang":"cisco|bash|powershell|python|javascript|sql|yaml|hcl|json|'
         'kql|splunk|text|",'
-        '"diagram":{"kind":"flow|stack|packet|compare|sequence","nodes":["Box A","Box B"],"edges":[[0,1,"label"]]}}],'
+        '}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
         "6 to 12 steps, and every one of them a paragraph a tutor would actually say out loud — 120 to 220 words. A step that reads like a glossary entry has failed: the learner already found the definition before coming here, and what they lack is why it works that way and what goes wrong without it. Use a concrete number, name or scenario in most steps rather than speaking generally.\n\n"
-        "At least half the steps carry a real screen in \"code\" with the matching \"where\". DRAW as often as you can: any step describing something with parts, a flow, a request and a response, or layers gets a diagram. A picture of boxes and arrows next to the words is how anyone teaching at a board explains a system, and it is what makes a screen of text a lesson. Diagram nodes are PLAIN TEXT labels, at most 6 of them; edges are [from,to,label] "
-        "using node positions.\n\n"
-        "PICK THE SHAPE THAT MATCHES THE IDEA, and name it in kind: "
-        "stack for layers or tiers, drawn top to bottom. "
-        "packet for the fields of a header - nodes are field names and "
-        "each edge label is that field width in bits. "
-        "compare for two approaches side by side - first half of the "
-        "nodes is the left column, heading first, second half the right. "
-        "sequence for who says what to whom in order - nodes are the two "
-        "or three actors, each edge one message. "
-        "flow for a genuine pipeline, one stage feeding the next.\n\n"
-        "Drawing a comparison as a flow says it is a sequence, and "
-        "drawing layers left to right says they sit beside each other. "
-        "The shape is part of the explanation, not decoration. "
-        "Never repeat a diagram: each one must show something the "
-        "previous ones did not, and a step that would only redraw an "
-        "earlier picture gets no diagram at all.\n\n"
-        # Any topic, not only the ones with a course behind them. Somebody who
-        # asks the board about MOSFETs, benzene or orbital mechanics gets the
-        # thing itself to turn around. One per lesson at most: a model you
-        # have already turned teaches nothing the second time, and costs
-        # another WebGL context on somebody's phone to do it.
-        #
-        # This is the Pro board. Plain Ask Axle stays sketches and text — it
-        # is free, it has to load on anything, and a flat diagram is the right
-        # answer for most questions anyway.
+        "At least half the steps carry a real screen, bench or document "
+        "in \"code\" with the matching \"where\" — the actual commands and "
+        "the output they return, the worked calculation line by line, the "
+        "text of the clause. Never prose in that field.\n\n"
+        "EXPLAIN IN WORDS RATHER THAN IN BOXES. Do not describe a "
+        "diagram, do not draw one in characters, and never emit SVG, "
+        "HTML or markdown. Where something has parts or an order, say "
+        "what each part does, what passes between them, and what breaks "
+        "when one is missing — that is the explanation a drawing was only "
+        "ever standing in for. Walk the reader through it the way you "
+        "would out loud, naming the pieces as you go.\n\n"
         "AT MOST ONE step may also carry a 3D scene, as \"scene\". Use it "
         "only where turning and zooming the real structure teaches something "
         "the flat diagram cannot. Most lessons should have none.\n"
@@ -8053,18 +8051,6 @@ def _clean_board(d, topic):
     for raw in (d.get("steps") or [])[:14]:
         if not isinstance(raw, dict):
             continue
-        dia = raw.get("diagram") or {}
-        nodes, edges = [], []
-        if isinstance(dia, dict):
-            nodes = [txt(x, 40) for x in (dia.get("nodes") or [])[:6] if txt(x, 40)]
-            for e in (dia.get("edges") or [])[:8]:
-                try:
-                    a, b = int(e[0]), int(e[1])
-                except Exception:
-                    continue
-                if 0 <= a < len(nodes) and 0 <= b < len(nodes) and a != b:
-                    edges.append({"from": a, "to": b,
-                                  "label": txt(e[2] if len(e) > 2 else "", 24)})
         lang = txt(raw.get("lang"), 12).lower()
         steps.append({
             "scene": _scene.clean(raw.get("scene")),
@@ -8079,16 +8065,6 @@ def _clean_board(d, topic):
             # all. The label is a caption, not an execution target: anything
             # outside the list is dropped, but the list has to cover the work.
             "lang": lang if lang in _BOARD_LANGS else "",
-            # The shape has to survive the clean, or the five layouts the
-            # board can draw all collapse back to one. Validated against the
-            # list rather than passed through: it goes straight into a CSS
-            # class and an aria-label.
-            "diagram": ({"kind": (txt(dia.get("kind"), 12).lower()
-                                  if txt(dia.get("kind"), 12).lower() in
-                                  ("flow", "stack", "packet", "compare", "sequence")
-                                  else "flow"),
-                         "nodes": nodes, "edges": edges}
-                        if len(nodes) >= 2 else None),
         })
     steps = [x for x in steps if x["t"] or x["code"]]
     # One scene per lesson. Models hand the same model to every step, and a
@@ -8102,27 +8078,6 @@ def _clean_board(d, topic):
             st["scene"] = None
         else:
             seen_scene = True
-    # One drawing, once. Models repeat the same diagram on every step, so a
-    # lesson that earned a single picture showed it eight times and the board
-    # looked like it had one idea. A repeat says nothing the first one did
-    # not, and a picture that never changes teaches the reader to stop
-    # looking at it.
-    seen_dia = set()
-    for st in steps:
-        # NOT named d: that is this function's own parameter, and shadowing it
-        # left d as None once a step had no diagram, so the next line —
-        # d.get("deeper") — raised and every lesson whose last step had no
-        # drawing failed with "the AI did not respond".
-        dg = st.get("diagram")
-        if not dg:
-            continue
-        sig = (dg.get("kind"), tuple(dg.get("nodes") or []),
-               tuple((e.get("from"), e.get("to"), e.get("label"))
-                     for e in (dg.get("edges") or [])))
-        if sig in seen_dia:
-            st["diagram"] = None
-        else:
-            seen_dia.add(sig)
     deeper, seen = [], {_norm_q(topic)}
     for x in (d.get("deeper") or [])[:9]:
         t = txt(x, 70)
@@ -9045,6 +9000,91 @@ def lab_index(user: User = Depends(current_user)):
 def lab_mix(body: MixIn, user: User = Depends(current_user)):
     """Mix two reagents and report exactly what comes back."""
     return _lab.react(body.a, body.b, body.grams_a, body.grams_b)
+
+
+class MixAskIn(BaseModel):
+    a: str = Field(min_length=1, max_length=60)
+    b: str = Field(min_length=1, max_length=60)
+
+
+@app.post("/api/lab/explain")
+async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Anything the bench cannot simulate, explained rather than simulated.
+
+    The shelf holds seventeen reagents because those are the ones with a
+    verified reaction table behind them. People want to mix other things, and
+    telling them "no" is a bad answer to a good instinct — so this exists, and
+    it is careful about two things.
+
+    It is labelled. The response says `simulated: false`, and the page prints
+    it as an explanation, because a number computed from a balanced equation
+    and a paragraph written by a language model are different kinds of thing
+    and must never look alike on a chemistry bench.
+
+    And it leads with the hazard. A model asked "what happens if I mix X and
+    Y" will cheerfully describe the products of something that produces
+    chlorine gas in a domestic bathroom. The prompt puts danger first and
+    forbids anything resembling a procedure, because the honest answer to some
+    of these questions is "do not, and here is why".
+    """
+    a, b = body.a.strip(), body.b.strip()
+    if not a or not b:
+        raise HTTPException(400, "Name two things")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    require_paid_or_trial(db, user, "scan", "Explaining a mixture",
+                          "three free explanations")
+
+    # Cached on the unordered pair: mixing A with B is the same question as
+    # mixing B with A, and the first person to ask pays for both.
+    pair = " + ".join(sorted([_norm_q(a), _norm_q(b)]))
+    qkey = f"labmix|{pair}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"ok": True, "simulated": False, "text": row.lesson,
+                "cached": True}
+
+    _ai_enforce_limit(db, user)
+    prompt = (
+        f"Someone learning chemistry asks what happens if {a} and {b} are "
+        f"mixed. They are an adult. Answer as a chemistry teacher would.\n\n"
+        "START WITH THE DANGER if there is any — toxic gas, violent reaction, "
+        "heat, pressure, explosion — and say plainly if this is something "
+        "nobody should do outside a fume hood, or at all. Do not soften it.\n"
+        "Then say what actually happens: whether they react at all, what "
+        "forms, and what you would see. Give the balanced equation if there "
+        "is one.\n"
+        "If they do not react, say so — that is a real answer and people "
+        "assume everything reacts with everything.\n"
+        "If you are not certain, say you are not certain rather than "
+        "producing a plausible equation. A wrong reaction here is not a wrong "
+        "answer, it is somebody in an emergency room.\n\n"
+        "Never give quantities, a procedure, or steps to carry it out. "
+        "Explain the chemistry, do not instruct the experiment.\n"
+        "Plain text. No markdown, no headings, no bullet characters. "
+        "Under 160 words.")
+    try:
+        text = (await _ai_text(prompt, 420)).strip()
+    except Exception as e:
+        print(f"Lab explain failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not text:
+        raise HTTPException(502, "Nothing came back — try naming them "
+                                 "differently.")
+    text = _re.sub(r"[*#`_]+", "", text)[:1400]
+
+    _ai_bump(db, user)
+    _trial_consume(db, user, "scan")
+    db.add(AskCache(qkey=qkey, subject="lab", level="mix",
+                    question=f"{a} + {b}"[:2000], lesson=text, hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"ok": True, "simulated": False, "text": text, "cached": False}
 
 
 @app.post("/api/lab/sim")

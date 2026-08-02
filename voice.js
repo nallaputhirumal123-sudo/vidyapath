@@ -55,22 +55,61 @@
     tell();
   }
 
-  /* ---- speaking ---------------------------------------------------- */
-  function say(text) {
+  /* ---- speaking ---------------------------------------------------- *
+   *
+   * Sentence by sentence, and the caller is told after each one — so the
+   * words can appear on screen as they are said rather than all at once
+   * before the voice starts. Watching a paragraph land and then listening to
+   * it being read is two separate experiences of the same answer; having the
+   * line show up as you hear it is one.
+   *
+   * Chrome also truncates long utterances, so chunking is what makes a full
+   * answer actually finish being spoken. Both reasons point the same way.
+   */
+  function sentences(text) {
+    var out = [];
+    String(text).replace(/\s+/g, " ").trim()
+      .split(/(?<=[.!?:])\s+/).forEach(function (s) {
+        while (s.length > 180) {              // long clause, break on a comma
+          var cut = s.lastIndexOf(", ", 180);
+          if (cut < 60) cut = 180;
+          out.push(s.slice(0, cut));
+          s = s.slice(cut).replace(/^,\s*/, "");
+        }
+        if (s.trim()) out.push(s.trim());
+      });
+    return out;
+  }
+
+  function sayOne(part) {
     return new Promise(function (resolve) {
-      if (!text || !window.speechSynthesis) return resolve();
-      // speakChunks belongs to the main board: sentence-by-sentence, with the
-      // voice picked once. Reusing it means one set of Chrome's truncation
-      // workarounds rather than a second that drifts out of step.
-      if (typeof speakChunks === "function") {
-        speakChunks(text, { cancelled: function () { return !V.on; } })
-          .then(resolve);
-        return;
-      }
-      var u = new SpeechSynthesisUtterance(text);
-      u.onend = u.onerror = function () { resolve(); };
+      if (!window.speechSynthesis) return resolve();
+      var u = new SpeechSynthesisUtterance(part);
+      var v = (typeof askPickVoice === "function") ? askPickVoice() : null;
+      if (v) u.voice = v;
+      u.rate = 0.98;
+      var done = false;
+      var go = function () { if (!done) { done = true; setTimeout(resolve, 80); } };
+      u.onend = go;
+      u.onerror = go;
+      // Never hang on an event Chrome forgot to fire.
+      setTimeout(go, 2200 + part.length * 80);
       window.speechSynthesis.speak(u);
     });
+  }
+
+  async function say(text, onPart) {
+    if (!text || !window.speechSynthesis) {
+      if (onPart) onPart(text || "");
+      return;
+    }
+    var parts = sentences(text), shown = "";
+    for (var i = 0; i < parts.length; i++) {
+      if (!V.on) return;
+      shown = shown ? shown + " " + parts[i] : parts[i];
+      if (onPart) onPart(shown);
+      await sayOne(parts[i]);
+    }
   }
 
   function hush() {
@@ -222,7 +261,13 @@
     }
     if (!V.on) return;
     set("speaking");
-    await say(reply);
+    // The caller gets each sentence as it is spoken, so its transcript grows
+    // in step with the voice instead of appearing whole beforehand.
+    await say(reply, function (sofar) {
+      V.saying = sofar;
+      tell();
+    });
+    V.saying = "";
     if (!V.on) return;
     listen();
   }

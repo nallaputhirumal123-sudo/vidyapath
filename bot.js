@@ -156,6 +156,18 @@
     if (typeof sbTeach !== "function" || typeof S === "undefined") return false;
     if (B.open) toggle();
     if (typeof Voice !== "undefined" && Voice.on) Voice.stop();
+    // Clear the board BEFORE switching to it. render() paints whatever SB
+    // currently holds, which is the last thing that was taught — so handing a
+    // new topic over flashed the previous lesson first, and if the new one
+    // was slow or failed you were left looking at it. That is the whole of
+    // "it took me to the thing I asked before".
+    if (typeof SB !== "undefined") {
+      SB.lesson = null;
+      SB.error = "";
+      SB.busy = true;
+      SB.topic = topic;
+      SB.i = 0;
+    }
     S.view = { page: "ask" };
     if (typeof render === "function") render();
     sbTeach(topic);
@@ -209,6 +221,7 @@
       say = e.message || "I could not answer that just now.";
     }
     B.turns.push({ who: "ax", text: say });
+    B.lastReply = say;
     B.busy = false;
     draw();
     return say;
@@ -280,15 +293,40 @@
       return draw();
     }
     if (!B.open) toggle();
-    Voice.start(function (said) {
-      // send() pushes both turns and repaints, so the answer is on screen
-      // before it is spoken. It also returns the text, which is what the
-      // voice then reads — one string, one source of truth.
-      return send(said);
+    Voice.start(async function (said) {
+      // send() returns the answer, which the voice then reads. The text is
+      // NOT left on screen in full: the turn is emptied here and refilled a
+      // sentence at a time by the callback below, so the words arrive in step
+      // with the voice saying them.
+      var reply = await send(said);
+      B.spokenTurn = B.turns.length - 1;
+      if (B.turns[B.spokenTurn]) B.turns[B.spokenTurn].text = "";
+      draw();
+      return reply;
     }, function (v) {
       B.listening = v.on && v.state === "listening";
       B.heard = v.heard;
       B.speaking = v.state === "speaking";
+      // Anything the voice layer could not do has to be said out loud, so to
+      // speak. A blocked microphone set this and nothing rendered it, so
+      // pressing the button did nothing visible and the whole feature read as
+      // broken — which is exactly what it looks like from the outside when a
+      // permission was refused once and the browser now refuses silently.
+      // The sentence the voice has reached, written into the turn it belongs
+      // to. When speaking ends, v.saying is empty and the full text is put
+      // back, so an interrupted answer is not left truncated on screen.
+      if (B.spokenTurn !== undefined && B.turns[B.spokenTurn]) {
+        if (v.saying) B.turns[B.spokenTurn].text = v.saying;
+        else if (v.state !== "speaking" && B.lastReply) {
+          B.turns[B.spokenTurn].text = B.lastReply;
+          B.spokenTurn = undefined;
+        }
+      }
+      if (v.error && v.error !== B.lastVoiceErr) {
+        B.lastVoiceErr = v.error;
+        B.turns.push({ who: "ax", text: v.error });
+      }
+      if (!v.on) B.lastVoiceErr = "";
       var mic = document.getElementById("botMic");
       if (mic) {
         mic.textContent = !v.on ? "🎙"
@@ -298,6 +336,11 @@
       }
       draw();
     });
+    // start() reports "not supported" through the same error field, before
+    // any callback fires.
+    if (Voice.error) {
+      B.turns.push({ who: "ax", text: Voice.error });
+    }
     draw();
   };
 

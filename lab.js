@@ -73,6 +73,14 @@
     ".lbwhy{font-size:13px;line-height:1.75;color:var(--body,#ccc);",
     "  border-left:2px solid var(--accent,#ffb020);padding-left:12px;",
     "  margin-bottom:12px}",
+    ".lbexp{border:1px solid var(--accent,#ffb020);border-radius:11px;",
+    "  padding:13px 15px;margin-bottom:11px;",
+    "  background:rgba(255,176,32,.07)}",
+    ".lbexp b{display:block;font-size:13px;color:var(--accent,#ffb020);",
+    "  margin-bottom:6px}",
+    ".lbexp p{margin:0 0 8px;font-size:13.5px;line-height:1.7}",
+    ".lbexp em{font-style:normal;font-size:11.5px;color:var(--muted,#8a8a8a);",
+    "  line-height:1.55;display:block}",
     ".lbno{border:1px dashed var(--line,#2a2a2a);border-radius:11px;",
     "  padding:14px;font-size:13px;line-height:1.65;",
     "  color:var(--muted,#8a8a8a)}",
@@ -131,14 +139,22 @@
   /* ---- chemistry ---------------------------------------------------- */
   function mixHtml() {
     var rs = (LB.shelf && LB.shelf.reagents) || [];
+    /* A text box with the shelf behind it, rather than a dropdown.
+     *
+     * The dropdown said, wrongly, that these seventeen are the only things
+     * chemistry contains. Now you can type anything: if the pair has a
+     * verified reaction behind it you get the real arithmetic, and if it does
+     * not you get an explanation that is clearly labelled as an explanation.
+     * Refusing to answer was a bad response to a good instinct. */
     function sel(id, val) {
-      return '<select data-lbsel="' + id + '">' + rs.map(function (r) {
-        return '<option value="' + esc(r.sym) + '"' +
-          (r.sym === val ? " selected" : "") + ">" + esc(r.name) +
-          " (" + esc(r.sym) + ")</option>";
-      }).join("") + "</select>";
+      return '<input list="lbShelf" data-lbsel="' + id + '" value="' +
+        esc(val) + '" placeholder="type or pick — e.g. HCl" ' +
+        'autocomplete="off" spellcheck="false">';
     }
-    var h = '<div class="lbrow">' +
+    var datalist = '<datalist id="lbShelf">' + rs.map(function (r) {
+      return '<option value="' + esc(r.sym) + '">' + esc(r.name) + "</option>";
+    }).join("") + "</datalist>";
+    var h = datalist + '<div class="lbrow">' +
       '<div class="lbf"><label>First</label>' + sel("a", LB.a) + "</div>" +
       '<div class="lbf"><label>grams</label>' +
         '<input type="number" step="0.01" min="0" data-lbnum="ga" value="' +
@@ -156,11 +172,27 @@
         "what is left in the flask and what you would actually see.</div>";
     }
     if (!o.ok) {
-      return h + '<div class="lbno">' + esc(o.error) +
-        (o.known === false
-          ? '<div style="margin-top:9px"><button class="btn ghost sm" ' +
-            'id="lbAsk">Ask the board about it</button></div>' : "") +
-        "</div>";
+      if (o.known === false) {
+        // Not on the shelf. Offer the explanation, and never let it look like
+        // a simulated result: a number computed from a balanced equation and
+        // a paragraph written by a model are different kinds of thing, and on
+        // a chemistry bench they must not share a style.
+        return h +
+          (LB.explain
+            ? '<div class="lbexp"><b>⚠ Explained, not simulated</b>' +
+              '<p>' + esc(LB.explain) + "</p>" +
+              '<em>This one has no verified reaction behind it, so this is an ' +
+              "explanation rather than a computed result. Treat the numbers " +
+              "in it with more suspicion than the ones on the bench.</em></div>"
+            : '<div class="lbno">' + esc(o.error) + "</div>") +
+          '<div class="scbar" style="margin-top:10px">' +
+          '<button class="btn ghost sm" id="lbAsk"' +
+          (LB.explainBusy ? " disabled" : "") + ">" +
+          (LB.explainBusy ? "Working it out…"
+            : LB.explain ? "Explain again" : "Explain what would happen") +
+          "</button></div>";
+      }
+      return h + '<div class="lbno">' + esc(o.error) + "</div>";
     }
 
     h += '<div class="lbeq">' + esc(o.equation) + "</div>";
@@ -301,12 +333,25 @@
   /* ------------------------------------------------------------------ */
   async function mix() {
     LB.out = { ok: true, pending: true };
+    LB.explain = "";
     try {
       LB.out = await api.post("/api/lab/mix",
         { a: LB.a, b: LB.b, grams_a: LB.ga, grams_b: LB.gb });
     } catch (e) {
       LB.out = { ok: false, error: e.message || "Could not run that." };
     }
+    paint();
+  }
+
+  async function explain() {
+    LB.explainBusy = true; LB.explain = ""; paint();
+    try {
+      var r = await api.post("/api/lab/explain", { a: LB.a, b: LB.b });
+      LB.explain = r.text;
+    } catch (e) {
+      LB.explain = e.message || "Could not work that out.";
+    }
+    LB.explainBusy = false;
     paint();
   }
 
@@ -356,14 +401,7 @@
     var rn = document.getElementById("lbRun");
     if (rn) rn.onclick = run;
     var ask = document.getElementById("lbAsk");
-    if (ask) {
-      ask.onclick = function () {
-        // Handed to the board, which is allowed to reason about it — clearly
-        // labelled as an explanation rather than a simulated result.
-        var q = "What happens when you mix " + LB.a + " and " + LB.b + "?";
-        if (typeof Bot !== "undefined" && Bot.toBoard) Bot.toBoard(q);
-      };
-    }
+    if (ask) ask.onclick = explain;
   }
 
   window.renderLab = load;

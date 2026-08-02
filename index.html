@@ -709,10 +709,20 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .ask-name{font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:18px;color:var(--warn);margin-top:4px}
 .ask-tstatus{font-size:11px;opacity:.6;height:14px}
 .ask-box{background:var(--panel);border:1px solid var(--line,#2a3340);border-radius:16px;padding:14px}
-.ask-inrow{display:flex;gap:10px;align-items:center}
-.ask-input{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--line,#2a3340);color:var(--text);
+/* The row wraps, and the field claims a whole line before it is allowed to
+   shrink. It was nowrap with one icon beside it; adding the talk and photo
+   buttons left the text box 34 pixels wide on a phone — three icons and a
+   send button had eaten the row, and the thing you type in came last. */
+.ask-inrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ask-input{flex:1 1 170px;min-width:0;background:var(--panel2);border:1px solid var(--line,#2a3340);color:var(--text);
   border-radius:12px;padding:14px 16px;font-size:16px;font-family:inherit;outline:none}
 .ask-input:focus{border-color:#8fe3b0}
+/* On a phone the field takes its own line outright, above the controls, and
+   the send button spreads to fill what the three icons leave. */
+@media(max-width:560px){
+  .ask-inrow>.ask-input{flex:1 1 100%;order:-1}
+  .ask-inrow>.ask-go,.ask-inrow>.ask-stop{flex:1}
+}
 .ask-btn{border:none;border-radius:12px;padding:0 18px;height:50px;font-weight:600;font-size:15px;cursor:pointer;
   font-family:inherit;display:flex;align-items:center;gap:8px;transition:.15s;white-space:nowrap}
 .ask-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -811,13 +821,18 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <div id="bgbloom" aria-hidden="true"></div>
 
 <!-- ================= LOADING ================= -->
-<div class="loading" id="loading" style="display:none" aria-hidden="true"></div>
+<!-- Shown until /api/auth/me answers. The sign-in panel used to be
+     visible from the first paint and hidden again once the session came
+     back, so every refresh flashed a login page at somebody who was
+     already signed in. Neither panel is shown until we know which one
+     is true. -->
+<div class="loading" id="loading" aria-hidden="true">Loading…</div>
 
 <button id="msgFab" title="Messages">🔔</button>
 <button id="themeFab" title="Switch light / dark">🌙</button>
 
 <!-- ================= LANDING + AUTH ================= -->
-<div class="gate" id="gate">
+<div class="gate" id="gate" style="display:none">
   <div class="land">
 
     <section class="lhero">
@@ -964,10 +979,10 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="scanner.js?v=d02177c014"></script>
-<script src="voice.js?v=f8b3f0b9c5"></script>
-<script src="three3d.js?v=b74a3a196f"></script>
-<script src="lab.js?v=e4d38263e9"></script>
-<script src="bot.js?v=c877509a34"></script>
+<script src="voice.js?v=35513e1f46"></script>
+<script src="three3d.js?v=bd7a2b5be8"></script>
+<script src="lab.js?v=1549cc4f42"></script>
+<script src="bot.js?v=a33f3f84b6"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -1282,6 +1297,34 @@ async function logout(){
 }
 
 /* ===================== BOOT ===================== */
+/* Where the app should open after a reload.
+ *
+ * pushView has always written the page into the URL, and nothing has ever
+ * read it back — so a refresh on #careers, or halfway through the lab,
+ * silently returned to home and lost what you were doing. That is the whole
+ * bug: the address bar said one thing and the app did another.
+ *
+ * history.state is tried first because it survives a reload and carries the
+ * entire view, including the track and lesson ids that a hash cannot hold.
+ * The hash is the fallback, for a link somebody pasted or bookmarked, and it
+ * can only restore a page that needs no parameters — landing on a lesson
+ * with no lesson id would be worse than landing on home.
+ */
+const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
+  "resources", "ask", "scan", "lab", "sqlboard", "class", "careers",
+  "resume", "plans", "hiring", "studio"]);
+
+function restoreView(){
+  // An employer account has no learner pages, so a stale hash must not put
+  // them on one.
+  if(isEmployer()) return {page:"hiring"};
+  const st = history.state && history.state.view;
+  if(st && typeof st.page === "string") return {...st};
+  const h = decodeURIComponent((location.hash||"").replace(/^#/,"")).trim();
+  if(HASH_PAGES.has(h)) return {page:h};
+  return {page:"home"};
+}
+
 async function boot(){
   const [cur, prog] = await Promise.all([api.get("/api/curriculum"), api.get("/api/progress")]);
   TRACKS = cur.tracks;
@@ -1289,8 +1332,9 @@ async function boot(){
   S.done = prog.done||{}; S.quiz=prog.quiz||{}; S.notes=prog.notes||{};
   S.code = prog.code||{}; S.path = prog.path||null;
   S.stats = prog.stats||{xp:0,level:1,streak:0,level_progress:0,next_level_at:250};
-  // Land an employer on the desk they came for, not a learner home page.
-  S.view = {page: isEmployer() ? "hiring" : "home"};
+  // Land an employer on the desk they came for, not a learner home page —
+  // and land everybody else back where they actually were.
+  S.view = restoreView();
   showApp(); render();
   paintPro();
   handleCheckoutReturn();
@@ -1332,28 +1376,36 @@ async function handleCheckoutReturn(){
 }
 
 let VERSION_INFO = {version:"?", commit:"?"};
-// Always-visible version badge, fixed to the bottom-right corner on every page.
-function rzVersionBadge(txt){
-  let el=document.getElementById("verBadge");
-  if(!el){
-    el=document.createElement("div"); el.id="verBadge";
-    // Sits ABOVE the tutor button, which is fixed at right:20px/bottom:20px
-    // and is 56px tall — at bottom:8px the two overlapped.
-    el.style.cssText="position:fixed;right:20px;bottom:88px;z-index:9998;font-size:11px;"
-      +"padding:3px 9px;border-radius:20px;background:rgba(20,22,28,.82);color:#cbd3e1;"
-      +"border:1px solid rgba(255,255,255,.14);font-family:system-ui,sans-serif;"
-      +"pointer-events:none;letter-spacing:.2px;box-shadow:0 2px 8px rgba(0,0,0,.3)";
-    document.body.appendChild(el);
-  }
-  el.textContent=txt;
+/* The version lives in the footer, not in a floating badge.
+ *
+ * It used to be pinned to the bottom-right at bottom:88px, stacked above the
+ * old tutor button. The Axle button is in that corner now, and on a phone the
+ * badge sat squarely on top of "Talk with Axle" — the badge had
+ * pointer-events:none, so taps went through to nothing at all and the button
+ * simply appeared broken.
+ *
+ * A version string is something you go and look for when you are filing a
+ * bug. It does not need to follow you around the app, and it certainly does
+ * not need to be in front of the one control people press most.
+ */
+let VERSION_LABEL = "loading…";
+function rzVersion(label){
+  if(label !== undefined) VERSION_LABEL = label;
+  // Re-applied after every render: the footer is rebuilt each time the page
+  // changes, so a value written once at startup is gone the first time
+  // somebody navigates.
+  document.querySelectorAll("[data-version]").forEach(el=>{
+    el.textContent = VERSION_LABEL;
+  });
+  // Remove any badge left in the DOM by a cached older build.
+  const old=document.getElementById("verBadge");
+  if(old) old.remove();
 }
-rzVersionBadge("loading…");
+rzVersion("loading…");
 fetch("/api/version").then(r=>r.json()).then(v=>{
   VERSION_INFO = v;
-  const label = "v" + v.version + " · " + v.commit;
-  document.querySelectorAll("[data-version]").forEach(el=>{ el.textContent = label; });
-  rzVersionBadge("Craxle v" + v.version);
-}).catch(()=>{ rzVersionBadge("version unavailable"); });
+  rzVersion("Craxle v" + v.version + " · " + v.commit);
+}).catch(()=>{ rzVersion("version unavailable"); });
 
 // Show the Google button + school list when the server provides them.
 api.get("/api/auth/config").then(c=>{
@@ -2714,7 +2766,6 @@ function sbBoardHTML(){
        <div class="sb-code">${esc(st.code)}</div></div>`
      :(st.where?`<div style="font-size:11.5px;color:#8fe3b0;margin-top:4px">
         🖥 ${esc(st.where)}</div>`:"")}
-    ${sbDiagramHTML(st.diagram)}
     <!-- The 3D scene, on the Pro board only. Mounted after this HTML is in
          the document, by sbMountScene below — the renderer needs a real
          element with a real width, which a template string is not. -->
@@ -6744,6 +6795,7 @@ function render(){
   else                          renderHome();
   renderNav();
   updateTopbar();
+  rzVersion();
   window.scrollTo(0,0);
 }
 
