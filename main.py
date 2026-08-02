@@ -28,7 +28,7 @@ import time
 import httpx
 from urllib.parse import urlencode
 from fastapi import (FastAPI, Depends, HTTPException, Request, Response, status,
-                     UploadFile, File, BackgroundTasks)
+                     UploadFile, File, Form, BackgroundTasks)
 from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                Response as RawResponse)
 from fastapi.staticfiles import StaticFiles
@@ -39,6 +39,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
                             relationship, defer)
+from sqlalchemy.exc import IntegrityError
 
 # --------------------------------------------------------------------------
 # Config
@@ -127,6 +128,7 @@ def _clean_key(name):
 GEMINI_API_KEY = _clean_key("GEMINI_API_KEY")
 GROQ_API_KEY = _clean_key("GROQ_API_KEY")
 ANTHROPIC_API_KEY = _clean_key("ANTHROPIC_API_KEY")
+OPENAI_API_KEY = _clean_key("OPENAI_API_KEY")
 
 # Verified against /api/ai/selftest. Check any new model ID there before
 # changing this: a wrong ID does not fail loudly — the provider fallback
@@ -139,24 +141,30 @@ GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash-lite")
 GEMINI_MODEL_BEST = env("GEMINI_MODEL_BEST", GEMINI_MODEL)
 GROQ_MODEL = env("GROQ_MODEL", "llama-3.3-70b-versatile")
 ANTHROPIC_MODEL = env("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
+OPENAI_MODEL = env("OPENAI_MODEL", "gpt-4o-mini")
+
+# Adding a provider widens the fallback; it does not mean asking more than one
+# of them anything. Every request still goes to exactly one model, and the
+# others exist so that a rate limit or an outage at one is a slower answer
+# rather than no answer. Fanning a question out to four providers to compare
+# them would multiply the bill by four to produce one answer, and the bill is
+# the constraint this whole product is designed around.
+_KEYS = {"gemini": GEMINI_API_KEY, "groq": GROQ_API_KEY,
+         "claude": ANTHROPIC_API_KEY, "openai": OPENAI_API_KEY}
+_MODELS = {"gemini": GEMINI_MODEL, "groq": GROQ_MODEL,
+           "claude": ANTHROPIC_MODEL, "openai": OPENAI_MODEL}
+# Cheapest capable first: Gemini and Groq have free tiers, the other two bill
+# from the first token.
+_PREFERRED = ("gemini", "groq", "openai", "claude")
 
 AI_PROVIDER = env("AI_PROVIDER").lower().strip()
-if AI_PROVIDER not in ("gemini", "groq", "claude", "anthropic"):
-    if GEMINI_API_KEY:
-        AI_PROVIDER = "gemini"
-    elif GROQ_API_KEY:
-        AI_PROVIDER = "groq"
-    elif ANTHROPIC_API_KEY:
-        AI_PROVIDER = "claude"
-    else:
-        AI_PROVIDER = "none"
 if AI_PROVIDER == "anthropic":
     AI_PROVIDER = "claude"
+if AI_PROVIDER not in _KEYS:
+    AI_PROVIDER = next((p for p in _PREFERRED if _KEYS[p]), "none")
 
-_PROVIDER_KEY = {"gemini": GEMINI_API_KEY, "groq": GROQ_API_KEY,
-                 "claude": ANTHROPIC_API_KEY}.get(AI_PROVIDER, "")
-_PROVIDER_MODEL = {"gemini": GEMINI_MODEL, "groq": GROQ_MODEL,
-                   "claude": ANTHROPIC_MODEL}.get(AI_PROVIDER, "")
+_PROVIDER_KEY = _KEYS.get(AI_PROVIDER, "")
+_PROVIDER_MODEL = _MODELS.get(AI_PROVIDER, "")
 ASK_ENABLED = bool(_PROVIDER_KEY)
 print(f"Ask Axle: provider={AI_PROVIDER} enabled={ASK_ENABLED}"
       + (f" model={_PROVIDER_MODEL}" if ASK_ENABLED else ""))
@@ -3091,7 +3099,19 @@ def require_paid(user, feature="This"):
 # resume matching, the tracker, apply kits and the extension are all paid.
 # The mechanism is left in place because turning a trial back on is a matter
 # of changing a number here, and it is covered by tests.
-FREE_TRIAL = {"resume_upload": 0, "match": 0, "extension": 0}
+# sql_explain is the only entry with an allowance. Running queries on the SQL
+# board is free forever because it costs us nothing — it is a SQLite file in
+# memory, not a model call. Only the written explanation of your own mistake
+# is paid, and three of those are enough to see whether it is worth paying for.
+FREE_TRIAL = {"resume_upload": 0, "match": 0, "extension": 0,
+              # Running queries on the SQL board is free forever because it
+              # costs us nothing — it is a SQLite file in memory, not a model
+              # call. Only the written explanation is metered.
+              "sql_explain": 3,
+              # The scanner and the course generator both cost a real model
+              # call every time they miss the cache. Enough free goes to see
+              # whether they work for you, not enough to be the product.
+              "scan": 3, "course": 1}
 
 
 def _trial_used(db, user, key):
@@ -3237,9 +3257,8 @@ def _ai_error_message(e):
 def _providers_in_order():
     """Providers to try, in order: the configured one first, then any others
     that also have a key — so if one is rate-limited we fall back to the next."""
-    keyed = {"gemini": GEMINI_API_KEY, "groq": GROQ_API_KEY, "claude": ANTHROPIC_API_KEY}
-    order = [AI_PROVIDER] + [p for p in ("gemini", "groq", "claude") if p != AI_PROVIDER]
-    return [p for p in order if keyed.get(p)]
+    order = [AI_PROVIDER] + [p for p in _PREFERRED if p != AI_PROVIDER]
+    return [p for p in order if _KEYS.get(p)]
 
 
 async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False,
@@ -3274,6 +3293,23 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
             json=body)
         _upstream_ok(r, "groq")
         return r.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    if provider == "openai":
+        # Same wire format as Groq — both speak the OpenAI chat API — but kept
+        # as its own branch because the model names, the key and the failure
+        # messages are all different, and merging them would mean a Groq
+        # rate-limit error reported as an OpenAI one.
+        body = {"model": OPENAI_MODEL, "max_tokens": max_tokens,
+                "temperature": 0.4,
+                "messages": [{"role": "user", "content": prompt}]}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        r = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}",
+                     "content-type": "application/json"},
+            json=body)
+        _upstream_ok(r, "openai")
+        return r.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
     # claude / anthropic
     r = await client.post(
         "https://api.anthropic.com/v1/messages",
@@ -3284,6 +3320,92 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
     _upstream_ok(r, "claude")
     return "".join(b.get("text", "") for b in r.json().get("content", [])
                    if b.get("type") == "text").strip()
+
+
+async def _provider_vision(client, provider, prompt, raw, mime, max_tokens):
+    """One generation call that also carries an image.
+
+    Kept apart from _provider_generate because the three wire formats disagree
+    about images in a way they do not disagree about text, and folding them
+    together would mean a branch per provider inside every other branch.
+
+    Groq is absent on purpose: the configured Groq model is text-only, and a
+    fallback that silently drops the image would answer a question nobody
+    asked. Better to skip it and try the next provider that can actually see.
+    """
+    b64 = base64.b64encode(raw).decode()
+    if provider == "gemini":
+        gen = {"maxOutputTokens": max_tokens, "temperature": 0.3,
+               "responseMimeType": "application/json"}
+        if _re.match(r"gemini-(2\.5|[3-9]|\d{2})", GEMINI_MODEL):
+            gen["thinkingConfig"] = {"thinkingBudget": 0}
+        r = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{GEMINI_MODEL}:generateContent",
+            headers={"x-goog-api-key": GEMINI_API_KEY,
+                     "content-type": "application/json"},
+            json={"contents": [{"parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": mime, "data": b64}}]}],
+                "generationConfig": gen})
+        _upstream_ok(r, "gemini")
+        return "".join(p.get("text", "") for c in r.json().get("candidates", [])
+                       for p in c.get("content", {}).get("parts", [])).strip()
+    if provider == "openai":
+        r = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}",
+                     "content-type": "application/json"},
+            json={"model": OPENAI_MODEL, "max_tokens": max_tokens,
+                  "temperature": 0.3,
+                  "response_format": {"type": "json_object"},
+                  "messages": [{"role": "user", "content": [
+                      {"type": "text", "text": prompt},
+                      {"type": "image_url", "image_url": {
+                          "url": f"data:{mime};base64,{b64}"}}]}]})
+        _upstream_ok(r, "openai")
+        return r.json().get("choices", [{}])[0].get(
+            "message", {}).get("content", "").strip()
+    if provider == "claude":
+        r = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY,
+                     "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": ANTHROPIC_MODEL, "max_tokens": max_tokens,
+                  "messages": [{"role": "user", "content": [
+                      {"type": "image", "source": {
+                          "type": "base64", "media_type": mime, "data": b64}},
+                      {"type": "text", "text": prompt}]}]})
+        _upstream_ok(r, "claude")
+        return "".join(b.get("text", "") for b in r.json().get("content", [])
+                       if b.get("type") == "text").strip()
+    raise RuntimeError(f"{provider} cannot read images")
+
+
+VISION_PROVIDERS = ("gemini", "openai", "claude")
+
+
+async def _ai_vision(prompt: str, raw: bytes, mime: str,
+                     max_tokens: int = 2000) -> str:
+    """Read an image, trying each provider that can, in the usual order."""
+    import httpx
+    order = [p for p in _providers_in_order() if p in VISION_PROVIDERS]
+    if not order:
+        raise RuntimeError("No AI provider that can read images is configured")
+    last = None
+    async with httpx.AsyncClient(timeout=90) as client:
+        for prov in order:
+            try:
+                txt = await _provider_vision(client, prov, prompt, raw, mime,
+                                             max_tokens)
+                if txt:
+                    return txt
+                last = RuntimeError(f"{prov} returned no text")
+            except Exception as e:
+                print(f"Vision via {prov} failed: {type(e).__name__}: {e}")
+                last = e
+    raise last or RuntimeError("No provider could read that image")
 
 
 async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
@@ -3317,6 +3439,161 @@ async def _call_model(question: str, subject: str, level: str) -> dict:
     if not text:
         raise RuntimeError("AI returned no text")
     return _parse_lesson(text, question)
+
+
+class TalkIn(BaseModel):
+    said: str = Field(min_length=1, max_length=600)
+    subject: str = Field(default="General", max_length=60)
+    level: str = Field(default="Intermediate", max_length=60)
+    # The last few turns, so "why?" means the thing just said rather than
+    # nothing at all. Kept short deliberately: a conversation that resends its
+    # whole history grows its own bill on every turn.
+    history: list[str] = []
+
+
+@app.post("/api/ask/talk")
+async def ask_talk(body: TalkIn, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    """One spoken turn of a conversation.
+
+    Deliberately not the board's lesson shape. A lesson is a page — headings,
+    steps, code — and reading a page aloud is not a conversation, it is a
+    lecture nobody can interrupt. This returns two to five sentences, written
+    to be *heard*: no bullet points, no symbols that do not survive being
+    said, and an answer that stops so the other person can speak.
+    """
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    said = body.said.strip()
+    level = (body.level or "Intermediate").strip()[:60]
+
+    # Cached on the question plus the immediate context. Everyone asks "what
+    # is a JOIN" out loud eventually, and the second person should not cost
+    # anything.
+    tail = " | ".join(body.history[-2:])[:300]
+    qkey = f"talk|{_norm_q(level)}|{_norm_q(tail)}|{_norm_q(said)}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"say": row.lesson, "cached": True}
+
+    _ai_enforce_limit(db, user)
+    hist = ("\n".join(f"- {h}" for h in body.history[-4:])
+            if body.history else "(this is the first thing they said)")
+    prompt = (
+        "You are Axle, talking out loud with someone who is learning. This is "
+        "speech, not writing — they will hear it, not read it.\n"
+        f"They are studying at this level: {level}.\n"
+        f"WHAT HAS BEEN SAID SO FAR:\n{hist}\n"
+        f"THEY JUST SAID: {said}\n\n"
+        "Reply the way a good tutor talks. Rules:\n"
+        "- Two to five sentences. Stop, so they can answer.\n"
+        "- Answer the question actually asked, and refer back to what was "
+        "said before when it matters.\n"
+        "- No lists, no bullet points, no headings, no markdown, no code "
+        "blocks, no asterisks. It is being read by a voice.\n"
+        "- Say numbers and symbols as words: 'x squared', not 'x^2'.\n"
+        "- If you need to check something before you can answer usefully, ask "
+        "them one short question instead of guessing.\n"
+        "- If you do not know, say so. Do not invent a fact, a citation or a "
+        "number.\n"
+        "- Plain speech. No 'Great question!' and no summarising what they "
+        "just said back at them.")
+    try:
+        text = (await _ai_text(prompt, 400)).strip()
+    except Exception as e:
+        print(f"Talk failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not text:
+        raise HTTPException(502, "Nothing came back — say that again?")
+
+    # Belt and braces: the model was told not to, but a stray asterisk or hash
+    # read aloud as "asterisk" is the kind of thing that makes a voice sound
+    # broken.
+    text = _re.sub(r"[*#`_]+", "", text)
+    text = _re.sub(r"\s{2,}", " ", text).strip()[:1200]
+
+    _ai_bump(db, user)
+    db.add(AskCache(qkey=qkey, subject=body.subject[:60], level=level,
+                    question=said[:2000], lesson=text, hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"say": text, "cached": False}
+
+
+@app.post("/api/ask/image")
+async def ask_with_image(image: UploadFile = File(...),
+                         question: str = Form(default=""),
+                         subject: str = Form(default="General"),
+                         level: str = Form(default="Intermediate"),
+                         user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """Ask Axle a question about a picture.
+
+    The scanner reads a problem and solves it. This is the other half: a
+    photograph you want to ask something *about* — a diagram you do not
+    follow, a graph in a paper, a slide, a specimen, a circuit, a page in a
+    language you do not read. The question is yours; the image is context.
+
+    It returns the same lesson shape as a typed question, so the board renders
+    it with no idea an image was involved.
+
+    Cached on the image plus the question, because the pairing is what was
+    asked. The same photo with a different question is a different question.
+    """
+    raw = await image.read()
+    if not raw:
+        raise HTTPException(400, "That photo was empty")
+    if len(raw) > _scan.MAX_MB * 1024 * 1024:
+        raise HTTPException(400, f"Photos need to be under {_scan.MAX_MB:.0f}MB")
+    mime = (image.content_type or "").lower().split(";")[0].strip()
+    if mime not in _scan.MIMES:
+        raise HTTPException(400, "Send a photo — JPG, PNG or WEBP")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    require_paid_or_trial(db, user, "scan", "Asking about a photo",
+                          "three free photo questions")
+
+    q = (question or "").strip()[:400]
+    subject = (subject or "General").strip()[:60]
+    level = (level or "Intermediate").strip()[:60]
+    digest = hashlib.sha256(raw).hexdigest()[:32]
+    qkey = f"askimg|{digest}|{_norm_q(level)}|{_norm_q(q)}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"lesson": json.loads(row.lesson), "cached": True}
+
+    _ai_enforce_limit(db, user)
+    prompt = _ask_prompt(
+        q or "Explain what is in this image, and what it is showing.",
+        subject, level) + (
+        "\n\nThe user has attached an image. Look at it first. Describe what "
+        "is actually in it before explaining anything, so they can tell "
+        "immediately whether you are looking at what they meant. If the image "
+        "does not show what the question implies, say so plainly rather than "
+        "answering the question you were expecting.")
+    try:
+        lesson = _parse_lesson(
+            await _ai_vision(prompt, raw, mime, 1800), q or "this image")
+    except Exception as e:
+        print(f"Ask with image failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+
+    _ai_bump(db, user)
+    _trial_consume(db, user, "scan")
+    db.add(AskCache(qkey=qkey, subject=subject, level=level,
+                    question=(q or "(about an image)")[:2000],
+                    lesson=json.dumps(lesson), hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"lesson": lesson, "cached": False}
 
 
 class ResumeAIIn(BaseModel):
@@ -6830,65 +7107,95 @@ def resume_ats_check(body: AtsCheckIn, user: User = Depends(current_user)):
     }
 
 
-def _ats_view(rtext: str, scored: list, impact: float, parsing: float) -> dict:
+def _posted_label(posted: str) -> str:
+    """The date filter, in the words the dropdown uses."""
+    return {"1": "roles posted in the past 24 hours",
+            "3": "roles posted in the past 3 days",
+            "7": "roles posted in the past week",
+            "14": "roles posted in the past fortnight",
+            "30": "roles posted in the past month"}.get(
+        str(posted or "").strip(), "all open roles")
+
+
+def _ats_view(rtext: str, scored: list, impact: float, parsing: float,
+              skills=None, pool_label: str = "") -> dict:
     """How this resume looks to the software that reads it first.
 
-    A real ATS does three things before a human sees anything: it parses the
-    file into fields, it looks for the keywords the requisition asks for, and
-    it ranks what survives. So this reports those three, measured the same way
-    the board measures them — not a separate opinion invented for a badge.
+    The score is a property of the resume and nothing else. It used to be
+    built mostly from requirement coverage across whatever jobs the current
+    filters had left, which meant the same untouched file scored 81 on "past
+    week" and 58 on "past 24 hours" — the smaller window simply had weaker
+    roles in it to be compared against. A number captioned "how your resume
+    reads to the software that screens it" cannot move when somebody changes
+    a date dropdown; either it is about the resume or it is not.
 
-    Deliberately not a single mysterious number: a 61 tells someone nothing,
-    "your file parses cleanly but you meet 4 of 9 stated requirements" tells
-    them what to do this afternoon.
+    So the three parts are all measured from the document: whether it carries
+    the vocabulary a keyword scan looks for, whether it can be parsed at all,
+    and whether the claims have evidence. Requirement coverage against live
+    roles is still worth knowing and is still returned — as `pool`, labelled
+    with the filter it was measured over, because that one genuinely does
+    change when you change the filter and should be seen to.
     """
+    low = (rtext or "").lower()
+    skills = skills or set()
+    real = {s for s in skills if s not in _WEAK_SKILLS}
+
+    # An ATS keyword scan happens before any particular job: it is looking for
+    # recognised, nameable skills in the document. Twelve is roughly where a
+    # resume stops being thin — beyond that, more keywords is padding, not
+    # strength, so it saturates rather than rewarding a wall of nouns.
+    keyword = min(len(real) / 12.0, 1.0)
+
+    have_sections = sum(1 for w in ("experience", "skills", "education",
+                                    "summary", "project") if w in low)
+    checks = [
+        {"ok": have_sections >= 3,
+         "t": "Standard sections an ATS can find" if have_sections >= 3
+              else "Add clear Experience / Skills / Education headings"},
+        {"ok": parsing >= 0.6,
+         "t": "Text extracts cleanly" if parsing >= 0.6
+              else "Hard to parse — avoid tables, columns and images"},
+        {"ok": impact >= 0.4,
+         "t": "Achievements carry numbers" if impact >= 0.4
+              else "Add figures to your bullets — %, £, users, uptime"},
+        {"ok": keyword >= 0.75,
+         "t": f"{len(real)} recognised skills a keyword scan can pick up"
+              if keyword >= 0.75
+              else f"Only {len(real)} recognised skills — name your tools and "
+                   f"technologies explicitly"},
+    ]
+
+    score = round(100 * (0.40 * keyword + 0.35 * parsing + 0.25 * impact))
+    out = {"score": max(0, min(100, score)),
+           "keyword_match": round(keyword * 100),
+           "parse_quality": round(parsing * 100),
+           "impact_evidence": round(impact * 100),
+           "checks": checks,
+           "verdict": ("Passes most filters" if score >= 65 else
+                       "Gets through some filters" if score >= 45 else
+                       "Likely to be screened out")}
+
     # The twenty best fits, not two hundred. Nobody applies to the two
     # hundredth-best match, so averaging over that tail measures a search
-    # nobody runs and reports a number that reads as failure to someone whose
-    # resume is fine.
+    # nobody runs.
     near = [d for d in scored if d["score"] >= 45][:20]
-    # Requirement coverage, averaged over the roles worth applying to. This is
-    # the number a recruiter's filter is really applying.
-    cover = 0.0
     if near:
         tot = hit = 0
         for d in near:
-            miss = len(d.get("missing") or [])
-            got = len(d.get("matched") or [])
-            tot += miss + got
-            hit += got
+            tot += len(d.get("missing") or []) + len(d.get("matched") or [])
+            hit += len(d.get("matched") or [])
         cover = (hit / tot) if tot else 0.0
-
-    low = (rtext or "").lower()
-    checks = []
-    have_sections = sum(1 for w in ("experience", "skills", "education",
-                                    "summary", "project") if w in low)
-    checks.append({"ok": have_sections >= 3,
-                   "t": "Standard sections an ATS can find"
-                        if have_sections >= 3
-                        else "Add clear Experience / Skills / Education headings"})
-    checks.append({"ok": parsing >= 0.6,
-                   "t": "Text extracts cleanly" if parsing >= 0.6
-                        else "Hard to parse — avoid tables, columns and images"})
-    checks.append({"ok": impact >= 0.4,
-                   "t": "Achievements carry numbers" if impact >= 0.4
-                        else "Add figures to your bullets — %, £, users, uptime"})
-    checks.append({"ok": cover >= 0.5,
-                   "t": f"You meet {round(cover * 100)}% of stated requirements"
-                        if cover >= 0.5
-                        else f"You meet {round(cover * 100)}% of stated "
-                             f"requirements on roles you nearly fit"})
-    # Weighted the way an ATS actually weights: keywords first, then whether
-    # the document can be read at all, then evidence.
-    score = round(100 * (0.50 * cover + 0.30 * parsing + 0.20 * impact))
-    return {"score": max(0, min(100, score)),
-            "keyword_match": round(cover * 100),
-            "parse_quality": round(parsing * 100),
-            "impact_evidence": round(impact * 100),
-            "checks": checks,
-            "verdict": ("Passes most filters" if score >= 65 else
-                        "Gets through some filters" if score >= 45 else
-                        "Likely to be screened out")}
+        out["pool"] = {
+            "cover": round(cover * 100),
+            "roles": len(near),
+            "label": pool_label or "the roles you are viewing",
+            "note": f"Across the {len(near)} closest of "
+                    f"{pool_label or 'the roles you are viewing'}, you meet "
+                    f"{round(cover * 100)}% of the stated requirements. This "
+                    f"one moves when you change the filters, because it is "
+                    f"about the jobs, not about your resume.",
+        }
+    return out
 
 
 def match_tier(score: int) -> dict:
@@ -7694,7 +8001,20 @@ def _board_prompt(topic: str, level: str) -> str:
         "The shape is part of the explanation, not decoration. "
         "Never repeat a diagram: each one must show something the "
         "previous ones did not, and a step that would only redraw an "
-        "earlier picture gets no diagram at all."
+        "earlier picture gets no diagram at all.\n\n"
+        # Any topic, not only the ones with a course behind them. Somebody who
+        # asks the board about MOSFETs, benzene or orbital mechanics gets the
+        # thing itself to turn around. One per lesson at most: a model you
+        # have already turned teaches nothing the second time, and costs
+        # another WebGL context on somebody's phone to do it.
+        #
+        # This is the Pro board. Plain Ask Axle stays sketches and text — it
+        # is free, it has to load on anything, and a flat diagram is the right
+        # answer for most questions anyway.
+        "AT MOST ONE step may also carry a 3D scene, as \"scene\". Use it "
+        "only where turning and zooming the real structure teaches something "
+        "the flat diagram cannot. Most lessons should have none.\n"
+        + _scene.PROMPT
     )
 
 
@@ -7734,6 +8054,7 @@ def _clean_board(d, topic):
                                   "label": txt(e[2] if len(e) > 2 else "", 24)})
         lang = txt(raw.get("lang"), 12).lower()
         steps.append({
+            "scene": _scene.clean(raw.get("scene")),
             "t": txt(raw.get("t")),
             # Where this step happens — the console, the portal, the query
             # tool. Shown as a caption above the screen so nobody has to guess
@@ -7757,6 +8078,17 @@ def _clean_board(d, topic):
                         if len(nodes) >= 2 else None),
         })
     steps = [x for x in steps if x["t"] or x["code"]]
+    # One scene per lesson. Models hand the same model to every step, and a
+    # thing you have already turned around teaches nothing the second time —
+    # it just costs another WebGL context on someone's phone.
+    seen_scene = False
+    for st in steps:
+        if not st.get("scene"):
+            continue
+        if seen_scene:
+            st["scene"] = None
+        else:
+            seen_scene = True
     # One drawing, once. Models repeat the same diagram on every step, so a
     # lesson that earned a single picture showed it eight times and the board
     # looked like it had one idea. A repeat says nothing the first one did
@@ -7830,6 +8162,895 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
                     question=topic[:2000], lesson=json.dumps(lesson), hits=0))
     db.commit()
     return {"lesson": lesson, "cached": False}
+
+
+# ==========================================================================
+# The SQL smart board
+# ==========================================================================
+# The general smart board explains any topic and costs a model call to do it.
+# This one is different in kind: SQL is the one subject on the site where the
+# machine can check the work itself, because a query either returns the right
+# rows or it does not. So the whole loop — run, mark, say what went wrong,
+# choose what comes next — is arithmetic, and arithmetic is free.
+#
+# That is what makes it free to use. Running queries has no per-student cost,
+# so there is no reason to put it behind the paywall, and every reason not to:
+# it is the best demonstration of the product we have.
+import sqlboard as _sqlb                                            # noqa: E402
+import sqlcourse as _sqlc                                           # noqa: E402
+
+
+class SqlRunIn(BaseModel):
+    sql: str = Field(default="", max_length=4000)
+    exercise: str = Field(default="", max_length=20)
+
+
+# A query is capped at a few milliseconds by the engine's own step budget, so
+# this is not protecting the CPU — it is stopping a script from filling the
+# logs and the trial counters at machine speed.
+_SQL_HITS: dict = {}
+_SQL_PER_MIN = 90
+
+
+def _sql_throttle(user):
+    import time as _t
+    now_s = _t.monotonic()
+    seen = [t for t in _SQL_HITS.get(user.id, []) if now_s - t < 60]
+    if len(seen) >= _SQL_PER_MIN:
+        raise HTTPException(429, "That is a lot of queries in one minute. "
+                                 "Give it a moment.")
+    seen.append(now_s)
+    _SQL_HITS[user.id] = seen
+    if len(_SQL_HITS) > 4000:                      # crude, bounded, adequate
+        for k in list(_SQL_HITS)[:2000]:
+            _SQL_HITS.pop(k, None)
+
+
+def _sql_history(db, user):
+    """This student's attempts, keyed by exercise id.
+
+    Stored in the existing progress table rather than a new one: an attempt at
+    a SQL exercise is the same fact as an attempt at any other lab, and a
+    second table would mean a second migration and two places to delete from
+    when somebody asks for their data to be erased.
+    """
+    rows = db.query(Progress).filter(
+        Progress.user_id == user.id,
+        Progress.lesson_slug.like("sqlboard:%")).all()
+    return {r.lesson_slug.split(":", 1)[1]:
+            {"tries": r.attempts or 0, "solved": bool(r.completed),
+             "code": r.code or ""}
+            for r in rows}
+
+
+@app.get("/api/sql/board")
+def sql_board(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Everything the board needs to open: the schema, where you are, what next."""
+    hist = _sql_history(db, user)
+    nxt = _sqlc.next_up(hist)
+    done = sum(1 for v in hist.values() if v["solved"])
+    return {
+        "schema": _sqlb.schema(),
+        "skills": _sqlc.progress(hist),
+        "exercises": [_sqlc.public(x) for x in _sqlc.EXERCISES],
+        "history": {k: {"tries": v["tries"], "solved": v["solved"]}
+                    for k, v in hist.items()},
+        "next": _sqlc.public(nxt) if nxt else None,
+        "done": done, "total": len(_sqlc.EXERCISES),
+        "explain_left": (None if plan_of(user) != "free"
+                         else max(0, FREE_TRIAL["sql_explain"]
+                                  - _trial_used(db, user, "sql_explain"))),
+    }
+
+
+@app.post("/api/sql/run")
+def sql_run(body: SqlRunIn, user: User = Depends(current_user)):
+    """Run a query and hand back the rows, plus what the query actually did.
+
+    Free — it costs nothing to serve. The walkthrough rides along with every
+    run rather than waiting to be asked for: the order SQL executes in is the
+    thing that makes the rest of it make sense, and it is worked out from the
+    text, so there is no reason to make anyone click for it.
+    """
+    _sql_throttle(user)
+    r = _sqlb.run(body.sql)
+    r["walk"] = _sqlb.walkthrough(body.sql, r)
+    return r
+
+
+@app.post("/api/sql/plan")
+def sql_plan(body: SqlRunIn, user: User = Depends(current_user)):
+    """SQLite's own plan for the query, so an index stops being a metaphor."""
+    _sql_throttle(user)
+    return _sqlb.plan(body.sql)
+
+
+@app.get("/api/sql/join/{exercise}")
+def sql_join(exercise: str, user: User = Depends(current_user)):
+    """The row-by-row pairing behind a JOIN exercise, for the picture."""
+    ex = _sqlc.BY_ID.get(exercise)
+    if not ex or not ex.get("visual"):
+        raise HTTPException(404, "That exercise has no join diagram")
+    return _sqlb.join_trace(**ex["visual"])
+
+
+@app.post("/api/sql/check")
+def sql_check(body: SqlRunIn, user: User = Depends(current_user),
+              db: Session = Depends(get_db)):
+    """Mark an attempt by running it, and record that it happened.
+
+    Free, like running. The marking is a row comparison, and a row comparison
+    is not something anybody should have to pay for.
+    """
+    _sql_throttle(user)
+    ex = _sqlc.BY_ID.get(body.exercise)
+    if not ex:
+        raise HTTPException(404, "No such exercise")
+    verdict = _sqlc.mark(ex, body.sql)
+
+    slug = f"sqlboard:{ex['id']}"
+    row = db.query(Progress).filter(Progress.user_id == user.id,
+                                    Progress.lesson_slug == slug).first()
+    if row is None:
+        row = Progress(user_id=user.id, lesson_slug=slug, attempts=0)
+        db.add(row)
+    row.attempts = (row.attempts or 0) + 1
+    row.code = (body.sql or "")[:4000]
+    if verdict["correct"] and not row.completed:
+        row.completed = True
+        row.completed_at = now()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two tabs, same exercise, same second. The mark is still valid; only
+        # the bookkeeping raced.
+        db.rollback()
+
+    hist = _sql_history(db, user)
+    nxt = _sqlc.next_up(hist)
+    verdict["next"] = _sqlc.public(nxt) if nxt else None
+    verdict["skills"] = _sqlc.progress(hist)
+    verdict["done"] = sum(1 for v in hist.values() if v["solved"])
+    verdict["walk"] = _sqlb.walkthrough(body.sql, verdict.get("result"))
+    return verdict
+
+
+# The written explanations come back in the same shape as the main smart
+# board's lessons, so they go through _clean_board and inherit its validation:
+# the model's output is rebuilt field by field, and markup in any of them is
+# dropped rather than rendered into another user's page.
+#
+# No diagram field. The pictures on this board are the student's own rows at
+# each stage of their own query, which the server computes for free — a
+# model-invented diagram of a pipeline would be a worse illustration of a
+# thing we can show for real, and would cost tokens to be worse.
+_SQL_SHAPE = (
+    'Reply with JSON only: {"title": str, "steps": [{"t": str, "where": str, '
+    '"code": str, "lang": "sql"}], "takeaway": str, "deeper": [str]}\n'
+    "Rules for every reply:\n"
+    "- 3 to 5 steps. Each `t` is 2 to 4 plain sentences, spoken aloud well: "
+    "this gets read out by a voice, so no bullet characters and no symbols "
+    "that do not survive being said.\n"
+    "- `where` is a 2-4 word label for what that step is about.\n"
+    "- Use `code` for a runnable SQL fragment where one helps. Leave it empty "
+    "otherwise. Never put prose in `code`.\n"
+    "- Talk about rows: what goes in, what survives, what comes out. Name the "
+    "actual customers, products and totals from the tables above rather than "
+    "speaking generally.\n"
+    "- Be concrete about where this bites in real work — a report that "
+    "double-counts, a dashboard that silently drops customers, a query that "
+    "is fine on ten rows and times out on ten million.\n"
+    "- Never write SVG, HTML or markdown anywhere.\n"
+    '- `deeper` is 3 short follow-up questions the learner might ask next.\n'
+)
+
+_SQL_TABLES = (
+    "The database on screen: customers(id, name, city, joined); "
+    "products(id, title, category, price); "
+    "orders(id, customer_id, ordered_at, status); "
+    "order_items(id, order_id, product_id, qty). "
+    "Three customers have never ordered, and two orders are cancelled."
+)
+
+
+def _sql_explain_prompt(ex, sql, verdict):
+    return (
+        "You are a SQL tutor sitting beside a learner at a practice board. "
+        "They are about 16 and have written a query that is not right yet.\n"
+        f"{_SQL_TABLES}\n"
+        f"THE QUESTION THEY WERE ASKED: {ex['ask']}\n"
+        f"THEIR QUERY:\n{sql}\n"
+        f"WHAT THE MARKER SAID: {verdict}\n\n"
+        "Walk them through what their query actually does to the rows, step by "
+        "step, and show where that stops matching the question. Do NOT hand "
+        "them the finished query — take them to the next thing to try.\n"
+        + _SQL_SHAPE)
+
+
+def _sql_ask_prompt(ex, sql, question):
+    return (
+        "You are a SQL tutor at a practice board, answering the learner's own "
+        "question. They are about 16.\n"
+        f"{_SQL_TABLES}\n"
+        f"THE EXERCISE ON SCREEN: {ex['ask'] if ex else '(none)'}\n"
+        f"WHAT THEY HAVE WRITTEN SO FAR:\n{sql or '(nothing yet)'}\n"
+        f"THEIR QUESTION: {question}\n\n"
+        "Answer that question. Ground it in the tables above and in what they "
+        "have written — a general definition they could have read anywhere is "
+        "a wasted answer. If the question is vague, answer the most useful "
+        "reading of it rather than asking them to clarify.\n"
+        + _SQL_SHAPE)
+
+
+async def _sql_lesson(db, user, prompt, qkey, question, level):
+    """Generate, validate and cache one structured explanation.
+
+    Shared by explain and ask because they differ only in the prompt, and the
+    caching, the spend accounting and the validation must not drift apart
+    between two copies.
+    """
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        try:
+            return json.loads(row.lesson), True
+        except Exception:
+            # A row from before the shape changed. Drop it and regenerate
+            # rather than serving something the page cannot draw.
+            db.delete(row)
+            db.commit()
+
+    _ai_enforce_limit(db, user)
+    try:
+        text = await _ai_text(prompt, 2200, json_mode=True)
+        lesson = _clean_board(_ai_json(text), question[:80])
+    except Exception as e:
+        print(f"SQL board AI failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not lesson["steps"]:
+        raise HTTPException(502, "That came back empty — try asking it a "
+                                 "different way.")
+
+    _ai_bump(db, user)
+    _trial_consume(db, user, "sql_explain")
+    db.add(AskCache(qkey=qkey, subject="sqlboard", level=level,
+                    question=question[:2000], lesson=json.dumps(lesson),
+                    hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return lesson, False
+
+
+@app.post("/api/sql/explain")
+async def sql_explain(body: SqlRunIn, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """A stepped, drawn explanation of this particular attempt.
+
+    The only paid part of the board, because it is the only part that costs
+    anything. Cached on the exercise plus the normalised query: wrong answers
+    are not original — a hundred students write the same missing GROUP BY, and
+    the second one onwards is served from the row the first one paid for.
+    """
+    ex = _sqlc.BY_ID.get(body.exercise)
+    if not ex:
+        raise HTTPException(404, "No such exercise")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    require_paid_or_trial(db, user, "sql_explain",
+                          "Written explanations", "three free explanations")
+
+    sql = (body.sql or "").strip()
+    if not sql:
+        raise HTTPException(400, "Write a query first")
+    verdict = _sqlc.mark(ex, sql)
+    lesson, cached = await _sql_lesson(
+        db, user, _sql_explain_prompt(ex, sql, verdict["why"]),
+        f"sqlx2|{ex['id']}|{_norm_q(sql)}"[:500], sql, ex["skill"])
+    return {"lesson": lesson, "short": verdict["why"], "cached": cached}
+
+
+class SqlAskIn(BaseModel):
+    question: str = Field(min_length=2, max_length=300)
+    sql: str = Field(default="", max_length=4000)
+    exercise: str = Field(default="", max_length=20)
+
+
+@app.post("/api/sql/ask")
+async def sql_ask(body: SqlAskIn, user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """Ask the board anything, by typing or by speaking.
+
+    Cached on the question plus the exercise, not on the student's draft
+    query: "why is my total too high" is asked by everyone on the same
+    exercise and deserves to be paid for once.
+    """
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    require_paid_or_trial(db, user, "sql_explain",
+                          "Asking the board", "three free questions")
+    ex = _sqlc.BY_ID.get(body.exercise)
+    q = body.question.strip()
+    lesson, cached = await _sql_lesson(
+        db, user, _sql_ask_prompt(ex, body.sql, q),
+        f"sqlq|{body.exercise}|{_norm_q(q)}"[:500], q,
+        ex["skill"] if ex else "ask")
+    return {"lesson": lesson, "cached": cached}
+
+
+# ==========================================================================
+# The scanner: photograph anything, get it taught
+# ==========================================================================
+import scanner as _scan                                             # noqa: E402
+import scene as _scene                                              # noqa: E402
+
+
+@app.post("/api/scan")
+async def scan(image: UploadFile = File(...),
+               user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """Read a photographed problem and teach it.
+
+    Cached on the bytes of the image. Two hundred people photographing the
+    same page of the same textbook is one generation, not two hundred, which
+    is the difference between this being affordable and not.
+    """
+    raw = await image.read()
+    if not raw:
+        raise HTTPException(400, "That photo was empty")
+    if len(raw) > _scan.MAX_MB * 1024 * 1024:
+        raise HTTPException(400, f"Photos need to be under "
+                                 f"{_scan.MAX_MB:.0f}MB")
+    mime = (image.content_type or "").lower().split(";")[0].strip()
+    if mime not in _scan.MIMES:
+        raise HTTPException(400, "Send a photo — JPG, PNG or WEBP")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    require_paid_or_trial(db, user, "scan", "The scanner", "three free scans")
+
+    digest = hashlib.sha256(raw).hexdigest()
+    qkey = f"scan|{digest}"
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        out = json.loads(row.lesson)
+        _scan_remember(db, user, digest, out)
+        return {"scan": out, "cached": True, "key": digest[:16]}
+
+    _ai_enforce_limit(db, user)
+    try:
+        out = _scan.clean(_ai_json(
+            await _ai_vision(_scan.prompt(), raw, mime, 2400)))
+    except Exception as e:
+        print(f"Scan failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+
+    if not out["readable"]:
+        # Not cached, and not charged for. A blurred photo is a photo to take
+        # again, and storing the failure would serve it straight back to the
+        # person who retakes it.
+        return {"scan": out, "cached": False}
+
+    _ai_bump(db, user)
+    _trial_consume(db, user, "scan")
+    db.add(AskCache(qkey=qkey, subject="scan", level=out["kind"],
+                    question=_scan.title(out)[:2000],
+                    lesson=json.dumps(out), hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    _scan_remember(db, user, digest, out)
+    return {"scan": out, "cached": False, "key": digest[:16]}
+
+
+def _scan_remember(db, user, digest, out):
+    """Keep it in this person's recent list.
+
+    In the existing per-user notes table rather than a new one: a saved scan
+    is a key and a blob, which is exactly what that table is, and a second
+    table would be a second migration and a second place to forget when
+    somebody asks to be erased.
+    """
+    k = f"scan:{digest[:16]}"
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == k).first()
+    body = json.dumps({"title": _scan.title(out), "kind": out["kind"],
+                       "subject": out.get("subject", ""),
+                       "at": now().isoformat()})
+    if row:
+        row.v = body
+    else:
+        db.add(Note(user_id=user.id, k=k, v=body))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+
+@app.get("/api/scan/recent")
+def scan_recent(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """This person's recent scans, newest first."""
+    rows = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k.like("scan:%")).all()
+    out = []
+    for r in rows:
+        try:
+            d = json.loads(r.v)
+        except Exception:
+            continue
+        d["key"] = r.k.split(":", 1)[1]
+        out.append(d)
+    out.sort(key=lambda x: x.get("at", ""), reverse=True)
+    return {"recent": out[:30]}
+
+
+@app.get("/api/scan/{key}")
+def scan_one(key: str, user: User = Depends(current_user),
+             db: Session = Depends(get_db)):
+    """Reopen a saved scan.
+
+    Checked against this user's own notes first, so the cache — which is
+    shared by everyone and keyed on the image — cannot be walked by guessing
+    digests.
+    """
+    k = f"scan:{key[:16]}"
+    mine = db.query(Note).filter(Note.user_id == user.id, Note.k == k).first()
+    if not mine:
+        raise HTTPException(404, "Not one of yours")
+    row = db.query(AskCache).filter(
+        AskCache.qkey.like(f"scan|{key[:16]}%")).first()
+    if not row:
+        raise HTTPException(404, "That answer is no longer stored")
+    return {"scan": json.loads(row.lesson), "key": key[:16]}
+
+
+@app.delete("/api/scan/recent")
+def scan_clear(user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """Clear the list. Removes this person's history, not the shared cache —
+    the cache holds answers keyed on images, not on who asked."""
+    n = db.query(Note).filter(Note.user_id == user.id,
+                              Note.k.like("scan:%")).delete(
+        synchronize_session=False)
+    db.commit()
+    return {"cleared": n}
+
+
+# ==========================================================================
+# "Should I teach you this properly?"
+# ==========================================================================
+# An answer solves today's problem and is forgotten by Thursday. The offer
+# under every answer is the actual product: turn the thing you were stuck on
+# into a course that takes you from where you are to competent.
+#
+# Cached on the topic, so the tenth person who gets stuck on the same thing
+# pays nothing for the course the first one generated.
+class CourseIn(BaseModel):
+    topic: str = Field(min_length=2, max_length=200)
+    level: str = Field(default="", max_length=40)
+    context: str = Field(default="", max_length=1200)
+
+
+# Depth is the only dimension this product fixes. There is no subject list,
+# because any list would be missing somebody's subject — a course on Ottoman
+# tax law and a course on tensor calculus are the same product here. What does
+# have to be pinned down is how far to go: the same topic is a different
+# course for someone meeting it in second year and someone who needs it for a
+# thesis, and getting that wrong wastes the whole thing in either direction.
+_DEPTH = {
+    "curious": "an interested adult with no background in this. Assume "
+               "nothing, define everything, and aim for real understanding "
+               "rather than a simplified story they will have to unlearn.",
+    "undergrad": "an undergraduate studying this formally. Standard notation "
+                 "and terminology, worked examples like the ones in their "
+                 "problem sets, and the derivations rather than just results.",
+    "masters": "a master's student. They have the undergraduate material. Go "
+               "to the level of a graduate course: proper treatment, the "
+               "assumptions behind the standard results, and where those "
+               "assumptions break.",
+    "phd": "a doctoral researcher. Assume full command of the fundamentals. "
+           "Cover the current state of the question, the competing "
+           "approaches, what is genuinely unsettled, and name the key papers "
+           "or results by author and year where you are confident of them.",
+    "applied": "someone who needs to use this at work rather than be examined "
+               "on it. Lead with the decisions they will actually have to "
+               "make and the ways this goes wrong in practice; keep the "
+               "theory to what changes those decisions.",
+}
+
+
+def _course_prompt(topic, level, context):
+    who = _DEPTH.get((level or "").strip().lower(),
+                     "an adult studying this at their own level")
+    return f"""Build a complete course that takes someone from where they are
+now to genuinely competent at this. They arrived here because they got stuck
+on something specific.
+
+This can be any subject at all — medicine, law, pure mathematics, history,
+engineering, linguistics, finance, a language. Do not steer it towards
+programming, and do not assume any technical background beyond what the level
+below implies.
+
+THE TOPIC: {topic}
+WHO THEY ARE: {who}
+WHAT THEY WERE STUCK ON: {context or "(not given)"}
+
+This is not a summary and not a reading list. It is the actual teaching, in
+order, so that someone who works through it can do the thing afterwards.
+
+Return JSON only:
+{{"title": "the course name",
+  "why": "2-3 sentences on what they will be able to do at the end, concretely",
+  "hours": 6,
+  "prereq": ["anything they must already know, or an empty list"],
+  "modules": [
+    {{"name": "module name",
+      "goal": "one sentence on what this module gets them to",
+      "lessons": [
+        {{"name": "lesson name",
+          "teach": "4-8 sentences of the actual explanation, not a description
+                    of what would be explained",
+          "example": "a worked example, or the code, in full",
+          "practice": "one thing for them to do, specific enough to check",
+          "trap": "the mistake almost everyone makes here",
+          "visual": {{"want": "3d"|"diagram"|"none",
+                      "of": "the exact thing to show, e.g. human heart,
+                             four chambers",
+                      "look_for": "what they should notice when they look
+                                   at it"}},
+          "check": {{"q": "one question testing THIS lesson",
+                     "options": ["four options"],
+                     "answer": 0,
+                     "why": "why that is right and the near-miss is wrong"}}}}],
+      "exam": [{{"q": "...", "options": ["four options"], "answer": 0,
+                 "why": "..."}}]}}],
+  "after": "what to learn next once this is solid"}}
+
+Rules:
+- 3 to 5 modules, 2 to 4 lessons each. Build strictly on what came before.
+- `teach` is the teaching itself. A lesson whose teach says "this lesson
+  covers X" has failed and is worth nothing to the reader.
+- Every lesson ends with a `check`: one question, four options, `answer` is
+  the 0-based index of the right one. Test whether they understood the
+  lesson, not whether they remember a word from it. Make the wrong options
+  plausible — an option nobody would pick tests nothing.
+- Every module ends with an `exam` of 3 to 5 questions in the same shape,
+  drawing on the whole module rather than one lesson.
+- `visual.want` is "3d" only where rotating and zooming a real object would
+  genuinely teach something — anatomy, molecules, mechanisms, astronomy,
+  geology. Use "diagram" for anything flat, and "none" where a picture would
+  be decoration. Be honest: most lessons are "none".
+- Plain text. No markdown, no backticks, no HTML.
+- Define every term the first time it appears.
+- Be concrete. Real numbers, real names, real code, real cases.
+- EVERY lesson says where this actually turns up. Not "this is important" —
+  name the job, the machine, the court, the ward, the factory, the paper.
+  Where is a matrix multiplication happening as you read this? Who is being
+  paid to know this today, and to do what with it? An integral that is never
+  connected to the thing it measures is the reason people believe maths is
+  pointless, and the same is true of every other subject.
+
+{_scene.PROMPT}"""
+
+
+def _clean_course(d):
+    """Rebuild the course field by field, same discipline as everything else."""
+    def txt(v, n):
+        s = str(v or "")
+        s = "".join(c for c in s if c in "\n\t" or ord(c) >= 32)
+        return s.strip()[:n]
+
+    def quiz(q):
+        """One multiple-choice question, or None.
+
+        The right answer travels to the browser with the question, because
+        these are self-tests: grading happens instantly, offline and free.
+        Anyone determined enough to read it out of the network tab is cheating
+        at a test they set themselves, which is their business. A real exam
+        would need the answer kept back and a marking round-trip; this is not
+        one, and pretending otherwise would cost a request per question to
+        protect nothing.
+        """
+        if not isinstance(q, dict):
+            return None
+        opts = [txt(o, 200) for o in (q.get("options") or [])[:4] if txt(o, 200)]
+        try:
+            a = int(q.get("answer"))
+        except Exception:
+            return None
+        if len(opts) < 2 or not (0 <= a < len(opts)) or not txt(q.get("q"), 300):
+            return None
+        return {"q": txt(q.get("q"), 300), "options": opts, "answer": a,
+                "why": txt(q.get("why"), 500)}
+
+    def visual(v):
+        if not isinstance(v, dict):
+            return None
+        want = str(v.get("want") or "").strip().lower()
+        if want not in ("3d", "diagram"):
+            return None
+        return {"want": want, "of": txt(v.get("of"), 120),
+                "look_for": txt(v.get("look_for"), 300)}
+
+    mods = []
+    for m in (d.get("modules") or [])[:5]:
+        if not isinstance(m, dict):
+            continue
+        lessons = []
+        for l in (m.get("lessons") or [])[:4]:
+            if not isinstance(l, dict):
+                continue
+            lesson = {"name": txt(l.get("name"), 120),
+                      "teach": txt(l.get("teach"), 2200),
+                      "example": txt(l.get("example"), 1600),
+                      "practice": txt(l.get("practice"), 600),
+                      "trap": txt(l.get("trap"), 500),
+                      "visual": visual(l.get("visual")),
+                      "scene": _scene.clean(l.get("scene")),
+                      "check": quiz(l.get("check"))}
+            if lesson["teach"]:
+                lessons.append(lesson)
+        if lessons:
+            exam = [q for q in (quiz(x) for x in (m.get("exam") or [])[:5]) if q]
+            mods.append({"name": txt(m.get("name"), 120),
+                         "goal": txt(m.get("goal"), 300),
+                         "lessons": lessons, "exam": exam})
+    try:
+        hours = max(1, min(200, int(d.get("hours") or 6)))
+    except Exception:
+        hours = 6
+    return {"title": txt(d.get("title"), 120),
+            "why": txt(d.get("why"), 600),
+            "hours": hours,
+            "prereq": [txt(x, 90) for x in (d.get("prereq") or [])[:5]
+                       if txt(x, 90)],
+            "modules": mods,
+            "after": txt(d.get("after"), 300)}
+
+
+@app.post("/api/course")
+async def build_course(body: CourseIn, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Generate a full course on one topic. Paid — it is the largest single
+    generation on the site, and the one worth paying for."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    require_paid_or_trial(db, user, "course", "Personalised courses",
+                          "one free course")
+    topic = body.topic.strip()
+    qkey = f"course|{_norm_q(body.level)}|{_norm_q(topic)}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"course": json.loads(row.lesson), "cached": True}
+
+    _ai_enforce_limit(db, user)
+    try:
+        course = _clean_course(_ai_json(await _ai_text(
+            _course_prompt(topic, body.level, body.context), 7000,
+            json_mode=True, best=True)))
+    except Exception as e:
+        print(f"Course failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not course["modules"]:
+        raise HTTPException(502, "That came back empty — try naming the topic "
+                                 "more specifically.")
+
+    _ai_bump(db, user)
+    _trial_consume(db, user, "course")
+    db.add(AskCache(qkey=qkey, subject="course", level=body.level or "any",
+                    question=topic[:2000], lesson=json.dumps(course), hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"course": course, "cached": False}
+
+
+# ==========================================================================
+# Coming back to it
+# ==========================================================================
+# Everything anyone asks here is answered and then gone. That is fine for a
+# lookup and wrong for learning: people study in twenty-minute pieces, close
+# the tab, and come back not remembering what they were halfway through.
+#
+# So two things are kept per person. What they asked, so a session can be
+# picked up where it stopped; and which self-tests they have actually
+# answered, because that — not how many lessons scrolled past — is the only
+# honest measure of progress.
+class RecentIn(BaseModel):
+    q: str = Field(min_length=1, max_length=300)
+    kind: str = Field(default="ask", max_length=12)
+
+
+RECENT_KINDS = ("ask", "board", "talk", "scan", "sql", "course")
+RECENT_KEEP = 40
+
+
+@app.post("/api/recent")
+def recent_add(body: RecentIn, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """Remember that this person asked this."""
+    kind = body.kind if body.kind in RECENT_KINDS else "ask"
+    q = body.q.strip()
+    if not q:
+        raise HTTPException(400, "Nothing to remember")
+    # Keyed on the question, so asking the same thing twice moves it up the
+    # list rather than filling the list with itself.
+    k = f"recent:{hashlib.sha256(_norm_q(q).encode()).hexdigest()[:16]}"
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == k).first()
+    body_json = json.dumps({"q": q[:300], "kind": kind,
+                            "at": now().isoformat()})
+    if row:
+        row.v = body_json
+    else:
+        db.add(Note(user_id=user.id, k=k, v=body_json))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+    # Trim. Without this the notes table grows for the life of the account,
+    # and nobody scrolls to their four hundredth question anyway.
+    rows = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k.like("recent:%")).all()
+    if len(rows) > RECENT_KEEP:
+        def when(r):
+            try:
+                return json.loads(r.v).get("at", "")
+            except Exception:
+                return ""
+        for old in sorted(rows, key=when)[:len(rows) - RECENT_KEEP]:
+            db.delete(old)
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/recent")
+def recent_list(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """What this person was working on, newest first."""
+    out = []
+    for r in db.query(Note).filter(Note.user_id == user.id,
+                                   Note.k.like("recent:%")).all():
+        try:
+            d = json.loads(r.v)
+        except Exception:
+            continue
+        d["key"] = r.k.split(":", 1)[1]
+        out.append(d)
+    out.sort(key=lambda x: x.get("at", ""), reverse=True)
+    return {"recent": out[:RECENT_KEEP]}
+
+
+@app.delete("/api/recent")
+def recent_clear(user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    n = db.query(Note).filter(Note.user_id == user.id,
+                              Note.k.like("recent:%")).delete(
+        synchronize_session=False)
+    db.commit()
+    return {"cleared": n}
+
+
+class CourseMarkIn(BaseModel):
+    topic: str = Field(min_length=1, max_length=200)
+    lesson: str = Field(min_length=1, max_length=40)   # "m0l1" or "m0e2"
+    correct: bool = False
+
+
+@app.post("/api/course/progress")
+def course_mark(body: CourseMarkIn, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Record one answered self-test.
+
+    Progress moves here and nowhere else. Scrolling past a lesson is not
+    learning it, and a bar that fills as you scroll is a bar that lies — so
+    completion is counted from questions actually answered, and only the ones
+    answered correctly count as done.
+    """
+    slug = f"course:{_norm_q(body.topic)[:30]}:{body.lesson}"[:60]
+    row = db.query(Progress).filter(Progress.user_id == user.id,
+                                    Progress.lesson_slug == slug).first()
+    if row is None:
+        row = Progress(user_id=user.id, lesson_slug=slug, attempts=0)
+        db.add(row)
+    row.attempts = (row.attempts or 0) + 1
+    if body.correct and not row.completed:
+        row.completed = True
+        row.completed_at = now()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return course_progress(body.topic, user, db)
+
+
+@app.get("/api/course/progress")
+def course_progress(topic: str = "", user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Which of this course's questions this person has answered."""
+    pre = f"course:{_norm_q(topic)[:30]}:"
+    rows = db.query(Progress).filter(
+        Progress.user_id == user.id,
+        Progress.lesson_slug.like(pre + "%")).all()
+    done = {}
+    for r in rows:
+        done[r.lesson_slug[len(pre):]] = {"tries": r.attempts or 0,
+                                          "correct": bool(r.completed)}
+    return {"answered": done,
+            "right": sum(1 for v in done.values() if v["correct"]),
+            "attempted": len(done)}
+
+
+# ==========================================================================
+# The lab
+# ==========================================================================
+# Free, and free forever, for the same reason the SQL board is: none of it
+# costs a model call. The chemistry is a table of real reactions and the
+# physics is closed-form, so a thousand students running a thousand
+# experiments costs exactly what one does.
+#
+# It is also the one place on the site where a model must not be involved.
+# Asked what happens when two reagents meet, a language model produces a
+# fluent answer whether or not it knows — and a confidently invented reaction
+# is not a wrong answer like a wrong date is a wrong answer. Somebody acts on
+# it. So a pair that is not in the table returns "not simulated" rather than
+# a guess.
+import lab as _lab                                                  # noqa: E402
+
+
+class MixIn(BaseModel):
+    a: str = Field(min_length=1, max_length=20)
+    b: str = Field(min_length=1, max_length=20)
+    grams_a: float = 10.0
+    grams_b: float = 10.0
+
+
+class SimIn(BaseModel):
+    kind: str = Field(min_length=1, max_length=20)
+    # Loose on purpose: each simulation reads the numbers it needs and the
+    # engine clamps every one of them.
+    values: dict = {}
+
+
+@app.get("/api/lab")
+def lab_index(user: User = Depends(current_user)):
+    """The shelf and the bench."""
+    return {"experiments": _lab.EXPERIMENTS,
+            "reagents": [{"sym": k, "name": n, "kind": t}
+                         for k, n, t in _lab.REAGENTS],
+            "pairs": [sorted(r["pair"]) for r in _lab.REACTIONS]}
+
+
+@app.post("/api/lab/mix")
+def lab_mix(body: MixIn, user: User = Depends(current_user)):
+    """Mix two reagents and report exactly what comes back."""
+    return _lab.react(body.a, body.b, body.grams_a, body.grams_b)
+
+
+@app.post("/api/lab/sim")
+def lab_sim(body: SimIn, user: User = Depends(current_user)):
+    """Run one of the physics benches."""
+    v = body.values or {}
+    k = body.kind
+    if k == "projectile":
+        return _lab.projectile(v.get("speed", 20), v.get("angle", 45),
+                               v.get("height", 0))
+    if k == "circuit":
+        return _lab.circuit(v.get("resistances") or [100, 220],
+                            v.get("volts", 12),
+                            bool(v.get("series", True)))
+    if k == "pendulum":
+        return _lab.pendulum(v.get("length", 1.0), v.get("angle", 10.0))
+    if k == "lens":
+        return _lab.lens(v.get("focal", 50.0), v.get("object", 150.0))
+    raise HTTPException(404, "No such experiment")
 
 
 # /detail/ and not /api/jobs/{job_id}: FastAPI matches in definition
@@ -8037,7 +9258,12 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
                 "tiers": {"S": "72-100 exceptional", "A": "60-71 strong",
                           "B": "45-59 worth applying", "C": "below 45 weak"},
             },
-            "ats": _ats_view(rtext, scored, impact, parsing),
+            # skills goes in so the score can be measured from the document
+            # rather than from whatever the filters happened to leave behind;
+            # the label names the pool the coverage figure is about, so the
+            # one number that does move says what it moved with.
+            "ats": _ats_view(rtext, scored, impact, parsing, skills,
+                             _posted_label(body.posted)),
             "offset": off, "limit": lim, "has_more": off + lim < len(scored),
             "level": level, "families": sorted(my_fams),
             "your_skills": sorted(s for s in skills if s not in _WEAK_SKILLS)[:30]}

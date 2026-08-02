@@ -797,6 +797,10 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 @media (max-width:900px){
   .topbar{padding-right:112px}
 }
+.sb-scene{border:1px solid rgba(234,255,242,.16);border-radius:12px;
+  overflow:hidden;background:rgba(0,0,0,.28);margin:6px 0 10px;min-height:140px}
+.sb-scene-cap{font-size:11.5px;color:#8fe3b0;margin:10px 0 4px}
+.sb-scene .td-fail{padding:14px;font-size:12.5px;color:#8fa3b0;line-height:1.6}
 </style>
 </head>
 <body>
@@ -958,7 +962,12 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
-<script src="tutor.js?v=1.70.0"></script>
+<script src="sqlboard.js?v=df48c07ae5"></script>
+<script src="scanner.js?v=d02177c014"></script>
+<script src="voice.js?v=f8b3f0b9c5"></script>
+<script src="three3d.js?v=b74a3a196f"></script>
+<script src="lab.js?v=e4d38263e9"></script>
+<script src="bot.js?v=c877509a34"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -1005,6 +1014,34 @@ const api = {
   get:  p       => api.call(p),
   post: (p,b)   => api.call(p,{method:"POST",body:b}),
   del:  p       => api.call(p,{method:"DELETE"}),
+  /* Multipart. Every upload on the site used to be a raw fetch with its own
+     copy of the error handling, and each copy forgot something different —
+     the resume one had to special-case 402 by hand or the paywall reached the
+     user as "could not read that file". One helper, one set of rules. */
+  async upload(path, formData){
+    const r = await fetch(path,{method:"POST",credentials:"same-origin",
+                               body:formData});
+    if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
+    const txt = await r.text();
+    let data;
+    try{ data = txt?JSON.parse(txt):{}; }
+    catch(e){
+      const html=/^\s*<(?:!doctype|html)/i.test(txt);
+      data={detail: html
+        ? (r.status>=500
+            ? "The server is not responding right now. Please try again in a moment."
+            : "Something went wrong. Please try again.")
+        : (txt||"").slice(0,300)};
+    }
+    if(r.status===402){
+      const msg=data.detail||"You've used your plan's allowance.";
+      if(typeof toast==="function") toast(msg);
+      if(typeof S!=="undefined"){ S.view={page:"plans"}; if(typeof render==="function") render(); }
+      throw new Error(msg);
+    }
+    if(!r.ok) throw new Error(data.detail || ("Upload failed ("+r.status+")"));
+    return data;
+  },
 };
 
 /* ===================== STATE ===================== */
@@ -1413,7 +1450,10 @@ function renderNav(){
   h+=nav("home","🏠","Home")
    + nav("paths","🧭","Choose a path")
    + nav("projects","🛠️","Projects")
-   + nav("ask","💬","Ask Axle anything");
+   + nav("ask","💬","Ask Axle anything")
+   + nav("scan","📷","Scan a problem")
+   + nav("lab","🧪","The lab")
+   + nav("sqlboard","🗄️","SQL board");
 
   h+=`<div class="navsec">Get hired</div>`
    + nav("careers","🎓","Career board")
@@ -1605,6 +1645,45 @@ function renderHome(){
     <button class="tile" data-nav="hiring">
       <div style="font-size:14px;font-weight:700">🏢 Hiring</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">post a role, free</div></button>
+  </div>
+
+  <!-- The SQL board sits above the stats because it is the one thing on this
+       page you can start doing in ten seconds without choosing a path first,
+       and because it is free: it marks itself, so there is nothing to meter. -->
+  <!-- The scanner leads, because it is the shortest path from "I am stuck"
+       to something useful, needs nothing chosen first, and works on any
+       subject rather than only the ones with a track here. -->
+  <div class="eyebrow" style="margin-top:0">Get unstuck</div>
+  <div class="grid g2" style="margin-bottom:26px">
+    <button class="tile" data-nav="scan" style="border-color:var(--accent)">
+      <div style="font-size:15px;font-weight:750">📷 Scan a problem</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+        Photograph anything you are stuck on — any subject, any level — and
+        get it worked through step by step. Then turn it into a full
+        course.</div></button>
+    <button class="tile" data-nav="lab">
+      <div style="font-size:15px;font-weight:750">🧪 The lab</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+        Mix reagents, fire projectiles, wire circuits — real equations, real
+        numbers, nothing guessed. Free.</div></button>
+    <button class="tile" data-ask="talk" style="border-color:var(--accent)">
+      <div style="font-size:15px;font-weight:750">🎙 Talk with Axle</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+        Just talk. Ask out loud, get an answer out loud, interrupt whenever
+        you want — like talking to a tutor, not typing at one.</div></button>
+  </div>
+
+  <div class="grid g2" style="margin-bottom:26px">
+    <button class="tile" data-nav="sqlboard">
+      <div style="font-size:15px;font-weight:750">🗄️ SQL board</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+        Write real queries against a real database and have them marked on the
+        rows they return. Free, unlimited.</div></button>
+    <button class="tile" data-nav="ask">
+      <div style="font-size:15px;font-weight:750">💬 Ask Axle anything</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+        Type it, say it, or attach a photo of it — any subject, explained on
+        the board and read aloud.</div></button>
   </div>
 
   <div class="eyebrow" style="margin-top:0">Your learning</div>
@@ -2268,6 +2347,7 @@ function sbPaint(){
     if(b){ b.innerHTML=sbBoardHTML(); return; }
   }
   renderAsk();
+  sbMountScene();
 }
 function sbGo(d){
   if(!SB.lesson) return;
@@ -2282,6 +2362,30 @@ function sbGo(d){
 /* We draw the diagram ourselves from labels and index pairs. The model never
    sends markup — anything it authored going into innerHTML would be a stored
    XSS hole, and a teaching board is the last place to open one. */
+/* The board's 3D scene.
+ *
+ * One at a time, and disposed the moment the step changes. A board is stepped
+ * through, so without this every step you walked past would leave its WebGL
+ * context alive — browsers cap how many exist and start killing the oldest,
+ * which shows up as the first diagram going black for no reason.
+ *
+ * Pro only, by construction: /api/board/lesson is behind require_paid, so a
+ * free account never receives a scene to draw. Plain Ask Axle stays sketches
+ * and text.
+ */
+let SB_SCENE=null;
+function sbDropScene(){
+  if(SB_SCENE){ try{ SB_SCENE(); }catch(e){} SB_SCENE=null; }
+}
+function sbMountScene(){
+  sbDropScene();
+  const el=document.getElementById("sbScene");
+  if(!el||!window.Three3D) return;
+  const st=(SB.lesson&&SB.lesson.steps&&SB.lesson.steps[SB.i])||null;
+  if(!st||!st.scene) return;
+  Three3D.mount(el,st.scene).then(d=>{ SB_SCENE=d; });
+}
+
 function sbDiagramHTML(d){
   if(!d||!d.nodes||d.nodes.length<2) return "";
   const kind=(d.kind||"flow");
@@ -2611,6 +2715,12 @@ function sbBoardHTML(){
      :(st.where?`<div style="font-size:11.5px;color:#8fe3b0;margin-top:4px">
         🖥 ${esc(st.where)}</div>`:"")}
     ${sbDiagramHTML(st.diagram)}
+    <!-- The 3D scene, on the Pro board only. Mounted after this HTML is in
+         the document, by sbMountScene below — the renderer needs a real
+         element with a real width, which a template string is not. -->
+    ${st.scene?`<div class="sb-scene-cap">🧊 ${esc(st.scene.caption
+        ||"Drag to turn it, pinch or scroll to zoom")}</div>
+      <div class="sb-scene" id="sbScene"></div>`:""}
     ${SB.i===l.steps.length-1&&l.takeaway
       ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
     <!-- On the board itself, not below it. Full screen hides everything
@@ -2997,6 +3107,42 @@ async function askPDF(rec){
   doc.save(name+".pdf");
 }
 
+/* ---- talking with Axle, and showing it things ----------------------------
+   VOICE_ON is read while rendering the button, so it lives out here rather
+   than inside ASK: the conversation survives the board being re-rendered
+   underneath it, which it does on every turn. */
+let VOICE_ON=false, VOICE_SAID=[];
+
+/* Opens the talk panel. Deliberately a global rather than something inside
+   the Ask page: the same conversation should be reachable from the home page
+   and from halfway through a course, and an overlay is what survives the page
+   underneath re-rendering on every turn. */
+function askTalkToggle(){
+  if(!window.Bot){ toast("The assistant is not loaded."); return; }
+  Bot.talk();
+}
+
+/* A photograph attached to a question. The scanner reads a problem and solves
+   it; this asks Axle something *about* a picture — a diagram, a graph in a
+   paper, a slide, a page in a language you cannot read. */
+async function askPhotoSend(file){
+  if(!file) return;
+  const el=document.getElementById("askInput");
+  const q=((el&&el.value)||ASK.question||"").trim();
+  ASK.loading=true; ASK.error=""; renderAsk();
+  const fd=new FormData();
+  fd.append("image",file);
+  fd.append("question",q);
+  fd.append("subject",ASK.subject||"General");
+  fd.append("level",ASK.level||"Intermediate");
+  try{
+    const r=await api.upload("/api/ask/image",fd);
+    ASK.lesson=r.lesson; ASK.fromCache=!!r.cached; ASK.slide=0;
+    ASK.question=q||"About that photo";
+  }catch(e){ ASK.error=e.message||"Could not read that photo."; }
+  ASK.loading=false; renderAsk();
+}
+
 function askVoiceInput(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){ ASK.error="Voice input is not supported in this browser. Please type your question."; renderAsk(); return; }
@@ -3206,6 +3352,14 @@ function renderAsk(){
   <div class="ask-box" style="${sbOn?"display:none":""}">
     <div class="ask-inrow">
       <button class="ask-btn ask-mic ${a.listening?"on":""}" data-ask="voice" ${a.loading||a.speaking?"disabled":""} title="Ask by voice">${a.listening?"●":"🎤"}</button>
+      <!-- Two ways in beyond typing: hold a conversation, or show it
+           something. The mic above dictates one question; "Talk" keeps the
+           exchange going without a button between turns. -->
+      <button class="ask-btn ask-mic ${VOICE_ON?"on":""}" data-ask="talk"
+        title="Talk with Axle">${VOICE_ON?"◼":"💬"}</button>
+      <button class="ask-btn ask-mic" data-ask="photo" title="Ask about a photo"
+        ${a.loading?"disabled":""}>📎</button>
+      <input type="file" id="askPhoto" accept="image/*" hidden>
       <input class="ask-input" id="askInput" placeholder="Type your question about ${esc(a.subject)}…" value="${esc(a.question)}" ${a.loading?"disabled":""}>
       ${a.speaking
         ? `<button class="ask-btn ask-stop" data-ask="stop">Stop</button>`
@@ -3241,6 +3395,8 @@ function renderAsk(){
     inp.oninput=e=>{ ASK.question=e.target.value; };
     inp.onkeydown=e=>{ if(e.key==="Enter")askSubmit(); };
   }
+  const ph=document.getElementById("askPhoto");
+  if(ph) ph.onchange=()=>{ if(ph.files[0]) askPhotoSend(ph.files[0]); };
 }
 
 /* Ask section uses its own data-ask handler so it never triggers navigation. */
@@ -3253,6 +3409,8 @@ document.addEventListener("click",e=>{
   else if(kind==="send"){ askSubmit(); }
   else if(kind==="stop"){ askStop(); }
   else if(kind==="voice"){ askVoiceInput(); }
+  else if(kind==="talk"){ askTalkToggle(); }
+  else if(kind==="photo"){ const f=$("#askPhoto"); if(f) f.click(); }
   else if(kind==="smartboardlocked"){
     toast("Axle Pro teaches any topic step by step — with runnable code and diagrams.");
     S.view={page:"plans"}; render();
@@ -4403,7 +4561,8 @@ function jbResultsHTML(){
                <div style="font-size:14px;font-weight:700">${esc(a.verdict)}</div>
                <div style="font-size:12px;color:var(--muted);margin-top:1px">
                  How your resume reads to the software that screens it before a
-                 person ever sees it.</div>
+                 person ever sees it. Measured on the document alone, so it
+                 does not move when you change the filters.</div>
              </div>
            </div>
            <div class="row" style="gap:14px;margin-top:12px;flex-wrap:wrap">
@@ -4416,7 +4575,23 @@ function jbResultsHTML(){
                c.ok?"var(--body)":"var(--muted)"}">
                <b style="color:${c.ok?"var(--ok)":"var(--warn)"}">${c.ok?"✓":"!"}</b>
                ${esc(c.t)}</div>`).join("")}
-           </div></div>`;})():""}
+           </div>
+           <!-- Kept visibly separate from the score above. This one is about
+                the jobs on screen, so it is supposed to change when the
+                filters change — which is exactly why it cannot sit inside a
+                number captioned "your resume". -->
+           ${a.pool?`<div style="margin-top:12px;padding-top:11px;
+                border-top:1px solid var(--line)">
+             <div class="row" style="align-items:baseline;gap:8px">
+               <b style="font-size:15px;color:${tone(a.pool.cover)}">${a.pool.cover}%</b>
+               <span style="font-size:12.5px;color:var(--body)">of the stated
+                 requirements across the ${a.pool.roles} closest of
+                 ${esc(a.pool.label)}</span>
+             </div>
+             <div style="font-size:11.5px;color:var(--dim);margin-top:3px">
+               This figure moves with your filters — it is about the jobs, not
+               about your resume.</div>
+           </div>`:""}</div>`;})():""}
        ${(m.top_gaps&&m.top_gaps.length)?`<div class="card" style="margin-bottom:12px;padding:14px 16px">
          <!-- One posting's gaps tell you what one employer wanted. The same
               gap across two hundred of them tells you what to study first,
@@ -6548,6 +6723,9 @@ function render(){
   else if(v.page==="projects")  renderProjects();
   else if(v.page==="resources") renderResources();
   else if(v.page==="ask")       renderAsk();
+  else if(v.page==="sqlboard")  renderSqlBoard();
+  else if(v.page==="scan")      renderScanner();
+  else if(v.page==="lab")       renderLab();
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
@@ -6604,6 +6782,9 @@ document.addEventListener("click",e=>{
   else if(n==="projects")  S.view={page:"projects"};
   else if(n==="resources") S.view={page:"resources"};
   else if(n==="ask")       S.view={page:"ask"};
+  else if(n==="sqlboard")  S.view={page:"sqlboard"};
+  else if(n==="scan")      S.view={page:"scan"};
+  else if(n==="lab")       S.view={page:"lab"};
   else if(n==="class")     S.view={page:"class"};
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="resume")    S.view={page:"resume"};
