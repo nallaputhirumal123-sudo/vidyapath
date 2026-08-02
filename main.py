@@ -9039,8 +9039,13 @@ def lab_mix(body: MixIn, user: User = Depends(current_user)):
 
 
 class MixAskIn(BaseModel):
-    a: str = Field(min_length=1, max_length=60)
-    b: str = Field(min_length=1, max_length=60)
+    # Either a pair of reagents, or an experiment described in words. One
+    # endpoint, because both are the same request: something the deterministic
+    # benches cannot compute, explained instead.
+    a: str = Field(default="", max_length=60)
+    b: str = Field(default="", max_length=60)
+    what: str = Field(default="", max_length=300)
+    subject: str = Field(default="", max_length=40)
 
 
 @app.post("/api/lab/explain")
@@ -9065,8 +9070,9 @@ async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
     of these questions is "do not, and here is why".
     """
     a, b = body.a.strip(), body.b.strip()
-    if not a or not b:
-        raise HTTPException(400, "Name two things")
+    what = body.what.strip()
+    if not what and (not a or not b):
+        raise HTTPException(400, "Name two things, or describe the experiment")
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
     require_paid_or_trial(db, user, "scan", "Explaining a mixture",
@@ -9074,8 +9080,11 @@ async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
 
     # Cached on the unordered pair: mixing A with B is the same question as
     # mixing B with A, and the first person to ask pays for both.
-    pair = " + ".join(sorted([_norm_q(a), _norm_q(b)]))
-    qkey = f"labmix|{pair}"[:500]
+    if what:
+        qkey = f"labany|{_norm_q(body.subject)}|{_norm_q(what)}"[:500]
+    else:
+        pair = " + ".join(sorted([_norm_q(a), _norm_q(b)]))
+        qkey = f"labmix|{pair}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
@@ -9085,8 +9094,18 @@ async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
 
     _ai_enforce_limit(db, user)
     prompt = (
-        f"Someone learning chemistry asks what happens if {a} and {b} are "
-        f"mixed. They are an adult. Answer as a chemistry teacher would.\n\n"
+        (f"Someone is working through an experiment and asks what would "
+         f"happen. They are an adult, studying at their own level.\n"
+         f"SUBJECT: {body.subject or 'work it out from the description'}\n"
+         f"THE EXPERIMENT: {what}\n\n"
+         "Say what would actually be observed and why — the mechanism or the "
+         "principle, not just the outcome. Give the numbers where the "
+         "physics or the arithmetic fixes them, and say plainly when a "
+         "result depends on conditions you have not been told.\n"
+         if what else
+         f"Someone learning chemistry asks what happens if {a} and {b} are "
+         f"mixed. They are an adult. Answer as a chemistry teacher would.\n\n")
+        +
         "START WITH THE DANGER if there is any — toxic gas, violent reaction, "
         "heat, pressure, explosion — and say plainly if this is something "
         "nobody should do outside a fume hood, or at all. Do not soften it.\n"
@@ -9114,8 +9133,9 @@ async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
 
     _ai_bump(db, user)
     _trial_consume(db, user, "scan")
-    db.add(AskCache(qkey=qkey, subject="lab", level="mix",
-                    question=f"{a} + {b}"[:2000], lesson=text, hits=0))
+    db.add(AskCache(qkey=qkey, subject="lab", level="any" if what else "mix",
+                    question=(what or f"{a} + {b}")[:2000], lesson=text,
+                    hits=0))
     try:
         db.commit()
     except IntegrityError:

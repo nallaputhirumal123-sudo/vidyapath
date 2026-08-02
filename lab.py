@@ -230,6 +230,46 @@ for _x in REACTIONS:
 BY_PAIR = {r["pair"]: r for r in REACTIONS}
 
 
+# People type what they mean, not what is printed on the bottle. "water",
+# "caustic soda", "h20" with a zero — none of those are the symbol, and all of
+# them are the right answer to what the person intended.
+ALIASES = {
+    "water": "H2O", "h20": "H2O", "h2o": "H2O",
+    "salt": "NaCl", "table salt": "NaCl", "common salt": "NaCl",
+    "baking soda": "NaHCO3", "bicarb": "NaHCO3",
+    "bicarbonate of soda": "NaHCO3", "sodium bicarb": "NaHCO3",
+    "washing soda": "Na2CO3", "soda ash": "Na2CO3",
+    "caustic soda": "NaOH", "lye": "NaOH", "naoh2": "NaOH",
+    "muriatic acid": "HCl", "hydrochloric": "HCl",
+    "oil of vitriol": "H2SO4", "sulphuric acid": "H2SO4",
+    "sulfuric": "H2SO4", "sulphuric": "H2SO4",
+    "chalk": "CaCO3", "limestone": "CaCO3", "marble": "CaCO3",
+    "blue vitriol": "CuSO4", "copper sulphate": "CuSO4",
+    "peroxide": "H2O2", "hydrogen peroxide": "H2O2",
+    "magnesium": "Mg", "zinc": "Zn", "iron": "Fe", "copper": "Cu",
+}
+
+_LOWER_SYM = {k.lower(): k for k in MOLAR}
+_LOWER_NAME = {n.lower(): k for k, n, _ in REAGENTS}
+
+
+def resolve(name):
+    """Turn what somebody typed into a symbol we know, or None."""
+    s = " ".join(str(name or "").split()).strip()
+    if not s:
+        return None
+    low = s.lower()
+    for table in (_LOWER_SYM, _LOWER_NAME, ALIASES):
+        if low in table:
+            return table[low]
+    # "Sodium hydroxide (NaOH)" — the datalist shows both, and a paste brings
+    # the whole thing back.
+    if "(" in s and s.rstrip().endswith(")"):
+        inner = s[s.rindex("(") + 1:-1].strip()
+        return _LOWER_SYM.get(inner.lower())
+    return None
+
+
 def react(a, b, grams_a, grams_b):
     """Mix two reagents and work out exactly what comes back.
 
@@ -237,9 +277,20 @@ def react(a, b, grams_a, grams_b):
     forms, and what you would see. All of it arithmetic on the balanced
     equation — no judgement, no estimate.
     """
-    a, b = (a or "").strip(), (b or "").strip()
-    if a not in MOLAR or b not in MOLAR:
-        return {"ok": False, "error": "Pick two reagents from the shelf."}
+    raw_a, raw_b = (a or "").strip(), (b or "").strip()
+    a, b = resolve(raw_a), resolve(raw_b)
+
+    # Not a symbol this bench knows. That is not a dead end — it is exactly
+    # the case the explanation path exists for, so it has to be reported as
+    # "not simulated" rather than as an error, or the button that would help
+    # never appears. Typing "h20" and being told to pick from a shelf that is
+    # no longer a dropdown is the worst of both.
+    if not a or not b:
+        unknown = [x for x, r in ((raw_a, a), (raw_b, b)) if not r]
+        return {"ok": False, "known": False,
+                "error": f"This bench does not have a verified reaction for "
+                         f"{' or '.join(unknown)}. That does not mean nothing "
+                         f"happens — it means this lab will not guess."}
     if a == b:
         return {"ok": False, "error": "That is the same thing twice."}
     rxn = BY_PAIR.get(frozenset((a, b)))
@@ -446,4 +497,13 @@ EXPERIMENTS = [
     {"id": "lens", "name": "Thin lens", "subject": "Physics",
      "ask": "Move an object towards a lens and watch the image flip, grow "
             "and become virtual."},
+    # The open bench. Everything above computes; this one explains, and says
+    # so, because a computed number and a written answer are different kinds
+    # of thing and a lab that blurs them is not a lab.
+    {"id": "any", "name": "Any experiment", "subject": "Anything",
+     "open": True,
+     "ask": "Describe any experiment, in any subject, and get what would "
+            "happen and why. Biology, materials, electronics, economics, "
+            "psychology — anything you would set up and observe. This one is "
+            "explained rather than computed, and it is labelled as such."},
 ]

@@ -702,12 +702,12 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   box-shadow:0 6px 14px rgba(0,0,0,.35);position:relative}
 .ask-chalk{position:absolute;bottom:4px;left:22px;width:24px;height:5px;border-radius:3px;background:#f6efe0;opacity:.85}
 .ask-chalk.y{left:56px;background:#ffe6a1;width:18px}
-.ask-teacher{width:128px;flex:0 0 128px;display:flex;flex-direction:column;align-items:center;margin-left:-4px;align-self:flex-end}
-.ask-teacher .ask-svg svg{filter:drop-shadow(0 10px 16px rgba(0,0,0,.4));transform-origin:bottom center}
-.ask-teacher.talk .ask-svg svg{animation:askSway 1.6s ease-in-out infinite}
+
+
+
 @keyframes askSway{0%,100%{transform:rotate(-1deg)}50%{transform:rotate(1.5deg)}}
-.ask-name{font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:18px;color:var(--warn);margin-top:4px}
-.ask-tstatus{font-size:11px;opacity:.6;height:14px}
+
+
 .ask-box{background:var(--panel);border:1px solid var(--line,#2a3340);border-radius:16px;padding:14px}
 /* The row wraps, and the field claims a whole line before it is allowed to
    shrink. It was nowrap with one icon beside it; adding the talk and photo
@@ -743,7 +743,7 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .ask-sw.on i{left:18px}
 .ask-err{color:#ffb4b4;font-size:13px;margin-top:10px}
 .ask-saved{color:#8fe3b0;font-size:12.5px;margin-top:10px}
-@media(max-width:640px){.ask-teacher{display:none}.ask-title{font-size:24px}.ask-line{font-size:18px}.ask-board{min-height:280px;padding:18px 20px}}
+@media(max-width:640px){.ask-title{font-size:24px}.ask-line{font-size:18px}.ask-board{min-height:280px;padding:18px 20px}}
 
 /* ---------------- Projects workspace ---------------- */
 .pj-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
@@ -980,8 +980,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="scanner.js?v=d02177c014"></script>
 <script src="voice.js?v=35513e1f46"></script>
-<script src="three3d.js?v=b04589ed4f"></script>
-<script src="lab.js?v=1549cc4f42"></script>
+<script src="three3d.js?v=cb73e6bd03"></script>
+<script src="lab.js?v=bb3ff62573"></script>
 <script src="bot.js?v=a33f3f84b6"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
@@ -2996,21 +2996,29 @@ function askHighlight(){
   const el=b.querySelector(`[data-ln="${ASK.spoken}"]`);
   if(el){ el.classList.add("spoken"); el.scrollIntoView({block:"nearest",behavior:"smooth"}); }
 }
-function askPaintTeacher(){
-  const t=$("#askTeacher"); if(t){ t.classList.toggle("talk",ASK.speaking);
-    const s=t.querySelector(".ask-svg"); if(s)s.innerHTML=askTeacherSVG(ASK.speaking); }
-  const st=$("#askStatus"); if(st)st.textContent=ASK.speaking?"explaining…":(ASK.fromCache?"from memory":"");
-}
+function askPaintTeacher(){}
 function askPaintSlide(){
   const b=$("#askBoard"); if(b)b.innerHTML=askBoardHTML();
   askUpdateControls(); askHighlight();
 }
 
-/* Show the whole answer at once; the VOICE moves through it line by line. */
-async function askTeach(l){
-  ASK.cancel=false; ASK.speaking=true; ASK.spoken=-1; ASK.page=0;
+/* An answer arrives silently and stays on screen. Reading it out is a thing
+   you ask for — there has always been a Read aloud button, and the voice
+   started on its own as well, so the only way to have it quiet was to press
+   Stop after every single answer. */
+function askShow(l){
+  ASK.cancel=true; ASK.speaking=false; ASK.spoken=-1; ASK.page=0;
   askBuildSlides(l);
-  renderAsk();                                    // one render: full answer visible
+  renderAsk();
+}
+
+/* Read the answer already on screen, line by line, highlighting as it goes.
+   Called only from the Read aloud button. */
+async function askTeach(l){
+  if(ASK.speaking){ askStop(); return; }
+  ASK.cancel=false; ASK.speaking=true; ASK.spoken=-1;
+  askBuildSlides(l);
+  renderAsk();
   const seq=[{t:l.title,ln:-1}, ...l.steps.map((t,i)=>({t,ln:i}))];
   if(l.takeaway) seq.push({t:"Remember: "+l.takeaway, ln:l.steps.length});
   for(const it of seq){
@@ -3037,7 +3045,10 @@ async function askSubmit(raw){
     ASK.fromCache=!!res.cached;
     if(res.cached)ASK.cacheHits++;
     if(res.disabled)ASK.enabled=false;
-    askTeach(res.lesson);                          // renders + narrates
+    // Renders. Does not narrate: the voice belongs to the Read aloud
+    // button, and having it here as well meant the only way to keep it
+    // quiet was to press Stop after every answer.
+    askShow(res.lesson);
   }catch(e){
     ASK.loading=false;
     ASK.error=(e&&e.message)||"Axle could not reach the board just now. Try again.";
@@ -3204,92 +3215,6 @@ function askVoiceInput(){
   ASK.listening=true; renderAsk(); r.start();
 }
 
-function askTeacherSVG(speaking){
-  return `<svg width="128" height="212" viewBox="0 0 128 212" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="vSari" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#2aa17f"/><stop offset="1" stop-color="#127a5c"/>
-      </linearGradient>
-      <linearGradient id="vDupatta" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#ffd15c"/><stop offset="1" stop-color="#f0a93a"/>
-      </linearGradient>
-      <radialGradient id="vSkin" cx="0.5" cy="0.4" r="0.7">
-        <stop offset="0" stop-color="#f0b892"/><stop offset="1" stop-color="#d99b6f"/>
-      </radialGradient>
-      <linearGradient id="vSkinArm" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#e6a97f"/><stop offset="1" stop-color="#cf9068"/>
-      </linearGradient>
-    </defs>
-
-    <!-- soft ground shadow -->
-    <ellipse cx="64" cy="205" rx="34" ry="6" fill="#000" opacity=".18"/>
-
-    <!-- pointer to the board -->
-    <line x1="40" y1="120" x2="4" y2="150" stroke="#caa96e" stroke-width="3.5" stroke-linecap="round"/>
-    <circle cx="4" cy="150" r="3.2" fill="#fff" opacity=".85"/>
-
-    <!-- body / sari -->
-    <path d="M40 208 Q36 150 44 124 Q50 112 64 112 Q78 112 84 124 Q92 150 88 208 Z" fill="url(#vSari)"/>
-    <!-- sari pleats -->
-    <path d="M64 118 Q60 160 62 208" stroke="#0e6249" stroke-width="1.6" opacity=".5" fill="none"/>
-    <path d="M72 120 Q74 160 76 208" stroke="#0e6249" stroke-width="1.4" opacity=".4" fill="none"/>
-    <!-- dupatta over shoulder -->
-    <path d="M44 124 Q34 150 40 208 L52 208 Q46 156 60 126 Z" fill="url(#vDupatta)" opacity=".95"/>
-    <path d="M44 124 Q40 122 60 126" stroke="#e0982c" stroke-width="1.2" opacity=".5" fill="none"/>
-
-    <!-- far arm (resting) -->
-    <path d="M80 128 Q92 150 86 176" stroke="url(#vSkinArm)" stroke-width="11" stroke-linecap="round" fill="none"/>
-    <!-- near arm (raised, pointing) -->
-    <path d="M50 126 Q34 118 40 121" stroke="url(#vSkinArm)" stroke-width="11" stroke-linecap="round" fill="none"/>
-    <circle cx="39" cy="120" r="5.4" fill="#e6a97f"/>
-
-    <!-- neck -->
-    <path d="M57 104 Q57 114 64 116 Q71 114 71 104 Z" fill="#d99b6f"/>
-    <!-- head -->
-    <ellipse cx="64" cy="86" rx="19" ry="20.5" fill="url(#vSkin)"/>
-    <!-- ears + earrings -->
-    <circle cx="45.5" cy="88" r="3.4" fill="#d99b6f"/><circle cx="82.5" cy="88" r="3.4" fill="#d99b6f"/>
-    <circle cx="45.5" cy="94" r="2" fill="#ffd15c"/><circle cx="82.5" cy="94" r="2" fill="#ffd15c"/>
-
-    <!-- hair: crown + side sweep + bun -->
-    <path d="M44 84 Q42 58 64 57 Q86 58 84 84 Q84 74 78 69 Q72 63 64 63 Q56 63 50 69 Q44 74 44 84 Z" fill="#241a15"/>
-    <path d="M45 86 Q43 72 49 66 Q46 78 50 88 Z" fill="#1a120e"/>
-    <path d="M83 86 Q85 72 79 66 Q82 78 78 88 Z" fill="#1a120e"/>
-    <circle cx="64" cy="52" r="8.5" fill="#2a1e17"/>
-    <!-- centre parting -->
-    <path d="M64 57 L64 63" stroke="#1a120e" stroke-width="1.6"/>
-    <!-- bindi -->
-    <circle cx="64" cy="72" r="2.1" fill="#c0392b"/>
-
-    <!-- eyebrows -->
-    <path d="M52 79 Q57 76.5 61 78.5" stroke="#3a2a20" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-    <path d="M67 78.5 Q71 76.5 76 79" stroke="#3a2a20" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-
-    <!-- eyes with blink -->
-    <g fill="#2a2018">
-      <ellipse cx="56.5" cy="84" rx="2.5" ry="3">
-        <animate attributeName="ry" values="3;3;0.4;3;3;3;3;3" dur="4.2s" repeatCount="indefinite"/>
-      </ellipse>
-      <ellipse cx="71.5" cy="84" rx="2.5" ry="3">
-        <animate attributeName="ry" values="3;3;0.4;3;3;3;3;3" dur="4.2s" repeatCount="indefinite"/>
-      </ellipse>
-    </g>
-    <circle cx="57.3" cy="83" r="0.8" fill="#fff" opacity=".9"/>
-    <circle cx="72.3" cy="83" r="0.8" fill="#fff" opacity=".9"/>
-
-    <!-- cheeks -->
-    <ellipse cx="52" cy="92" rx="3.4" ry="2.2" fill="#e88" opacity=".28"/>
-    <ellipse cx="76" cy="92" rx="3.4" ry="2.2" fill="#e88" opacity=".28"/>
-    <!-- nose -->
-    <path d="M64 86 Q65.5 91 63 93" stroke="#c58a63" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-
-    <!-- mouth -->
-    ${speaking
-      ? `<ellipse cx="64" cy="98.5" rx="4" ry="3" fill="#8f3b32"><animate attributeName="ry" values="1.2;3.4;1.8;3.2;1.2" dur="0.42s" repeatCount="indefinite"/></ellipse><path d="M60 98 Q64 96 68 98" stroke="#7a3128" stroke-width="1" fill="none"/>`
-      : `<path d="M59 97.5 Q64 102 69 97.5" stroke="#8f3b32" stroke-width="2" fill="none" stroke-linecap="round"/>`}
-  </svg>`;
-}
-
 function askBoardHTML(){
   if(ASK.loading) return `<div class="ask-empty">Axle is thinking…</div>`;
   if(!ASK.lesson) return `<div class="ask-empty">Namaste! I am Axle.<br>Pick a subject, then ask anything —<br>I'll explain it on the board.</div>`;
@@ -3384,11 +3309,6 @@ function renderAsk(){
         <span id="askSlideLbl">Slide ${Math.min((a.page||0)+1,a.slides.length)} / ${a.slides.length}</span>
         <button class="ask-sbtn" data-ask="nextslide" title="Next slide">›</button>
       </div>
-    </div>
-    <div class="ask-teacher ${a.speaking?"talk":""}" id="askTeacher">
-      <div class="ask-svg">${askTeacherSVG(a.speaking)}</div>
-      <div class="ask-name">Axle</div>
-      <div class="ask-tstatus" id="askStatus">${a.speaking?"explaining…":(a.fromCache?"from memory":"")}</div>
     </div>
   </div>
 

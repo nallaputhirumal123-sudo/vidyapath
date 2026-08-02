@@ -131,7 +131,8 @@
       '<p style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">' +
       esc((exps.filter(function (e) { return e.id === LB.tab; })[0] || {}).ask
         || "") + "</p>" +
-      (LB.tab === "mix" ? mixHtml() : simHtml(LB.tab)) +
+      (LB.tab === "mix" ? mixHtml()
+        : LB.tab === "any" ? anyHtml() : simHtml(LB.tab)) +
       "</div>";
     wire();
   }
@@ -225,6 +226,58 @@
     h += "</tbody></table></div>";
     h += '<div class="lbwhy">' + esc(o.why) + "</div>";
     return h;
+  }
+
+  /* Anything the five benches cannot compute.
+   *
+   * Kept visibly apart from them. The computed benches carry numbers that
+   * came out of a balanced equation or a closed-form formula and can be
+   * relied on; this one carries a written answer. Both are useful and they
+   * are not the same, so this panel never borrows the numeric styling. */
+  function anyHtml() {
+    var h = '<div class="lbrow">' +
+      '<div class="lbf" style="flex:1 1 100%"><label>What is the ' +
+      'experiment?</label>' +
+      '<input id="lbAnyQ" style="width:100%" maxlength="300" ' +
+      'placeholder="e.g. a beam loaded at its centre, or bacteria in a ' +
+      'nutrient broth" value="' + esc(LB.anyQ || "") + '"></div>' +
+      '<div class="lbf"><label>Subject (optional)</label>' +
+      '<input id="lbAnyS" maxlength="40" placeholder="biology" value="' +
+      esc(LB.anyS || "") + '"></div>' +
+      '<button class="btn" id="lbAnyGo"' + (LB.anyBusy ? " disabled" : "") +
+      ">" + (LB.anyBusy ? "Working it out…" : "What would happen?") +
+      "</button></div>";
+
+    if (LB.anyOut) {
+      h += '<div class="lbexp"><b>⚠ Explained, not simulated</b><p>' +
+        esc(LB.anyOut) + "</p><em>The five benches beside this one compute " +
+        "their numbers from a balanced equation or a formula. This one is a " +
+        "written answer — good for understanding what would happen, and not " +
+        "a measurement.</em></div>";
+    } else if (!LB.anyBusy) {
+      h += '<div class="lbno">Describe anything you would set up and ' +
+        "observe — any subject. You get what would happen and why, and it " +
+        "is labelled as an explanation rather than a computed result.</div>";
+    }
+    return h;
+  }
+
+  async function askAny() {
+    var q = (document.getElementById("lbAnyQ") || {}).value || "";
+    q = q.trim();
+    if (!q) return;
+    LB.anyQ = q;
+    LB.anyS = ((document.getElementById("lbAnyS") || {}).value || "").trim();
+    LB.anyBusy = true; LB.anyOut = ""; paint();
+    try {
+      var r = await api.post("/api/lab/explain",
+        { what: q, subject: LB.anyS });
+      LB.anyOut = r.text;
+    } catch (e) {
+      LB.anyOut = e.message || "Could not work that out.";
+    }
+    LB.anyBusy = false;
+    paint();
   }
 
   function cell(label, big, note) {
@@ -402,6 +455,14 @@
     if (rn) rn.onclick = run;
     var ask = document.getElementById("lbAsk");
     if (ask) ask.onclick = explain;
+    var anyGo = document.getElementById("lbAnyGo");
+    if (anyGo) anyGo.onclick = askAny;
+    var anyQ = document.getElementById("lbAnyQ");
+    if (anyQ) {
+      anyQ.onkeydown = function (e) {
+        if (e.key === "Enter") { e.preventDefault(); askAny(); }
+      };
+    }
   }
 
   window.renderLab = load;

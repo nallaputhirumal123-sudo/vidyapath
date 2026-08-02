@@ -54,7 +54,11 @@
    * lesson on a bad connection.
    */
   function orbit(cam, dom, radius) {
-    var st = { r: radius, theta: Math.PI * 0.25, phi: Math.PI * 0.35,
+    // phi is measured down from straight up, so 0.44pi opens about ten
+    // degrees above the horizon — almost side-on. It was 0.35pi, looking down
+    // at 27 degrees, which foreshortened every layer stack in the library
+    // into a flat slab and hid the one thing those scenes exist to show.
+    var st = { r: radius, theta: Math.PI * 0.22, phi: Math.PI * 0.44,
                drag: false, x: 0, y: 0, min: radius * 0.4, max: radius * 5,
                dragging: false };
 
@@ -504,20 +508,25 @@
 
     // The cut section, standing beside the blade so both are readable at once.
     var sec = new THREE.Group();
-    sec.position.set(4.6, 0.6, 0.4);
+    // Below the blade, not beside it. Beside it put the section between x=2.9
+    // and x=6.3, which is exactly where the outgoing stream's labels sit —
+    // "glucose" and "oxygen" landed on top of "cuticle" and "palisade
+    // mesophyll". The traffic runs left to right, so the section goes down.
+    sec.position.set(0, -3.6, 0);
     // Names only. The first version put a description under each layer as
     // well, which doubled the number of labels in a section a couple of units
     // tall — they all landed on top of one another and the structure was
     // buried under its own captions. What each layer does belongs in the
     // step's text; the picture's job is to show where it is.
     var LAYERS = [
-      ["cuticle", 0.16, 0xd8e8c0],
-      ["upper epidermis", 0.30, 0x8fd18f],
-      ["palisade mesophyll", 0.95, 0x2f8f45],
-      ["spongy mesophyll", 0.85, 0x63b878],
-      ["lower epidermis", 0.30, 0x8fd18f]
+      ["cuticle", 0.28, 0xd8e8c0],
+      ["upper epidermis", 0.48, 0x8fd18f],
+      ["palisade mesophyll", 1.45, 0x2f8f45],
+      ["spongy mesophyll", 1.25, 0x63b878],
+      ["lower epidermis", 0.48, 0x8fd18f]
     ];
-    var y = 0;
+    // Slabs first, remembering where the middle of each one is.
+    var y = 0, mids = [];
     LAYERS.forEach(function (L) {
       var h = L[1];
       var slab = new THREE.Mesh(
@@ -528,8 +537,32 @@
       sec.add(new THREE.LineSegments(new THREE.EdgesGeometry(slab.geometry),
         new THREE.LineBasicMaterial({ color: 0x14301c, transparent: true,
           opacity: 0.45 })).translateY(-y - h / 2));
-      label(sec, L[0], 2.6, -y - h / 2, 0);
+      mids.push(-y - h / 2);
       y += h;
+    });
+
+    // Labels fanned out evenly, with a leader line back to the layer each one
+    // names. Placed at their layer's own height they were 0.2 units apart on
+    // the thin ones — cuticle, upper epidermis and palisade all landed on top
+    // of each other. Even spacing plus a line is how a textbook annotates a
+    // section, and for exactly this reason.
+    var top = mids[0] + 0.5, step = (top - (mids[mids.length - 1] - 0.5))
+      / Math.max(1, mids.length - 1);
+    mids.forEach(function (my, i) {
+      var ly = top - i * step;
+      label(sec, LAYERS[i][0], 4.4, ly, 0);
+      sec.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(1.75, my, 0),
+          new THREE.Vector3(2.6, ly, 0),
+          new THREE.Vector3(3.1, ly, 0)]),
+        new THREE.LineBasicMaterial({ color: LAYERS[i][2], transparent: true,
+          opacity: 0.95 })));
+      // A dot on the layer itself, same colour, so the line has a visible
+      // origin instead of appearing to start in mid-air.
+      sec.add(new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8),
+        new THREE.MeshBasicMaterial({ color: LAYERS[i][2] })
+      ).translateX(1.75).translateY(my));
     });
 
     // Chloroplasts, packed in the palisade layer where they actually are.
@@ -693,6 +726,16 @@
         var a = side < 0 ? from : to;
         var b = side < 0 ? to : from;
         label(group, item.name, from.x, from.y + 0.75, from.z);
+
+        // A faint rail along the path. The beads are only in one place at a
+        // time, so without this the route they travel is invisible between
+        // them and the picture reads as dots hanging in space.
+        var rail = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([a, b]),
+          new THREE.LineBasicMaterial({
+            color: side < 0 ? 0x7fb8ff : 0x8fe3b0,
+            transparent: true, opacity: 0.28 }));
+        group.add(rail);
         // Three beads per stream, evenly offset, so it reads as continuous
         // traffic rather than one thing making a trip.
         for (var k = 0; k < 3; k++) {
@@ -712,6 +755,49 @@
     stream(ins, -1);      // in from the left
     stream(outs, 1);      // out to the right
   };
+
+  /* Push overlapping labels apart.
+   *
+   * Every builder places its labels where the thing they name actually is,
+   * which is right and which is also why they collide: a leaf section has
+   * five layers within two units, and a flow has traffic labels crossing the
+   * same space. Fixing it per builder means fixing it again for the next one.
+   *
+   * So it happens once, here, after everything is built and scaled. Sprites
+   * are billboards — they always face the camera — so their footprint in the
+   * scene is close enough to their scale, and separating any two whose boxes
+   * meet is enough to make a scene readable from the angle it opens at.
+   *
+   * Bounded iterations, because with enough labels in one place this can
+   * chase its own tail. Eight passes settles every scene here and gives up
+   * gracefully rather than hanging on a pathological one.
+   */
+  function declutter(sprites) {
+    if (sprites.length < 2) return;
+    var PAD = 0.06;
+    for (var pass = 0; pass < 8; pass++) {
+      var moved = false;
+      // Top down, so a label pushed aside lands somewhere already settled.
+      sprites.sort(function (a, b) { return b.position.y - a.position.y; });
+      for (var i = 0; i < sprites.length; i++) {
+        for (var j = i + 1; j < sprites.length; j++) {
+          var A = sprites[i], B = sprites[j];
+          var dx = Math.abs(A.position.x - B.position.x);
+          var dy = Math.abs(A.position.y - B.position.y);
+          var dz = Math.abs(A.position.z - B.position.z);
+          var wx = (A.scale.x + B.scale.x) / 2 + PAD;
+          var wy = (A.scale.y + B.scale.y) / 2 + PAD;
+          // Depth counts: two labels far apart in z read as near and far, not
+          // as one on top of the other, so they are left alone.
+          if (dx < wx && dy < wy && dz < wx) {
+            B.position.y -= (wy - dy) + 0.02;
+            moved = true;
+          }
+        }
+      }
+      if (!moved) return;
+    }
+  }
 
   /* Break a long label on word boundaries, so a stage name reads as two
      short lines instead of one that overlaps its neighbours. */
@@ -812,9 +898,11 @@
       // Clamped. Straight proportionality made labels grow without limit on
       // wide scenes — the very ones that have the most of them.
       var k = Math.max(0.6, Math.min(1.6, span / 9));
+      var sprites = [];
       group.traverse(function (o) {
-        if (o.isSprite) o.scale.multiplyScalar(k);
+        if (o.isSprite) { o.scale.multiplyScalar(k); sprites.push(o); }
       });
+      declutter(sprites);
 
       // 1.35, not 1.9. The framing is driven by the bounding box, and a scene
       // with traffic streaming in from both sides has a box far wider than
