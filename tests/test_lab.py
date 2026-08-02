@@ -158,5 +158,114 @@ check("an object exactly at the focus forms no image",
       L.lens(50, 50)["at_focus"])
 check("a zero focal length is refused", not L.lens(0, 100)["ok"])
 
+# --------------------------------------------------------------------------
+print("\nTHE NEW BENCHES, AGAINST HAND-WORKED VALUES")
+# Every expected number here was computed on paper first.
+sp = L.spring(200, 0.5, 0.1)
+check("F = kx", near(sp["force_n"], 20), str(sp["force_n"]))
+check("E = half k x squared", near(sp["energy_j"], 1.0))
+check("T = 2pi root(m/k) = 0.314 s", near(sp["period_s"], 0.31416),
+      str(sp["period_s"]))
+check("the period does not depend on the pull",
+      L.spring(200, 0.5, 0.4)["period_s"] == sp["period_s"])
+check("four times the mass doubles the period",
+      near(L.spring(200, 2.0, 0.1)["period_s"], sp["period_s"] * 2))
+
+c = L.collision(2, 3, 1, 0, True)
+check("elastic: 2kg at 3 into 1kg gives 1 and 4",
+      near(c["v1"], 1) and near(c["v2"], 4), f"{c['v1']}, {c['v2']}")
+check("momentum is conserved", near(c["p_before"], c["p_after"]))
+check("elastic keeps all the kinetic energy",
+      near(c["ke_before"], c["ke_after"]) and near(c["ke_lost_j"], 0))
+ci = L.collision(2, 3, 1, 0, False)
+check("inelastic: they leave together at 2", near(ci["v1"], 2)
+      and near(ci["v2"], 2))
+check("and momentum still holds", near(ci["p_before"], ci["p_after"]))
+check("but 3 J of kinetic energy is gone", near(ci["ke_lost_j"], 3),
+      str(ci["ke_lost_j"]))
+check("equal masses in an elastic head-on swap speeds",
+      near(L.collision(1, 5, 1, 0, True)["v2"], 5))
+
+g = L.gas(101.325, 22.414, 273.15)
+check("a mole of gas at STP", near(g["moles"], 1.0, 0.005), str(g["moles"]))
+g2 = L.gas(100, 1, 300, p2=200, t2=300)
+check("Boyle: double the pressure, halve the volume",
+      near(g2["v2_l"], 0.5), str(g2["v2_l"]))
+g3 = L.gas(100, 1, 300, p2=100, t2=600)
+check("Charles: double the temperature, double the volume",
+      near(g3["v2_l"], 2.0), str(g3["v2_l"]))
+check("it says which one it solved for", g3["solved"] == "volume")
+
+cal = L.calorimetry(0.1, 80, 0.1, 20)
+check("equal masses settle halfway", near(cal["final_c"], 50))
+check("twice as much cold water pulls it lower",
+      near(L.calorimetry(0.1, 80, 0.2, 20)["final_c"], 40),
+      str(L.calorimetry(0.1, 80, 0.2, 20)["final_c"]))
+check("the heat moved is m c dT", near(cal["heat_moved_j"], 0.1 * 4186 * 30),
+      str(cal["heat_moved_j"]))
+
+w = L.wave(170, speed=340)
+check("v = f lambda", near(w["wavelength_m"], 2.0))
+ws = L.wave(50, speed=100, length=1)
+check("a 1 m string at 100 m/s has a 50 Hz fundamental",
+      near(ws["fundamental_hz"], 50), str(ws["fundamental_hz"]))
+check("harmonics are whole multiples",
+      ws["harmonics_hz"][:3] == [50.0, 100.0, 150.0],
+      str(ws["harmonics_hz"][:3]))
+
+p = L.punnett("Aa", "Aa")
+check("Aa x Aa is 1:2:1",
+      p["genotypes"] == {"AA": 1, "Aa": 2, "aa": 1}, str(p["genotypes"]))
+check("and 3:1 by phenotype",
+      p["phenotype_ratio"] == "3 dominant : 1 recessive")
+check("Aa x aa is 2:2",
+      L.punnett("Aa", "aa")["phenotype_ratio"] == "2 dominant : 2 recessive")
+check("AA x aa is all dominant",
+      L.punnett("AA", "aa")["phenotype_ratio"] == "4 dominant : 0 recessive")
+check("aa x aa is none",
+      L.punnett("aa", "aa")["phenotype_ratio"] == "0 dominant : 4 recessive")
+check("two different genes are refused", not L.punnett("Aa", "Bb")["ok"])
+check("a malformed genotype is refused", not L.punnett("A", "aa")["ok"])
+
+pop = L.population(100, 0.1, 3)
+check("unchecked growth compounds",
+      pop["exponential"] == [100.0, 110.0, 121.0, 133.1],
+      str(pop["exponential"]))
+check("the doubling time is right", near(pop["doubling_time"], 7.2725),
+      str(pop["doubling_time"]))
+cap = L.population(100, 0.5, 40, capacity=1000)
+check("logistic growth stops at the ceiling",
+      cap["logistic"][-1] <= cap["capacity"] + 1,
+      f"{cap['logistic'][-1]} vs {cap['capacity']}")
+check("and gets close to it", cap["logistic"][-1] > 900,
+      str(cap["logistic"][-1]))
+check("unchecked growth blows past it",
+      cap["exponential"][-1] > cap["capacity"] * 100)
+
+check("0.01 M strong acid is pH 2", near(L.ph(0.01)["ph"], 2))
+check("0.01 M strong base is pH 12", near(L.ph(0.01, "base")["ph"], 12))
+check("pH and pOH add to 14",
+      near(L.ph(0.001)["ph"] + L.ph(0.001)["poh"], 14))
+check("a tenfold dilution moves pH by one",
+      near(L.ph(0.001)["ph"] - L.ph(0.01)["ph"], 1))
+check("zero concentration is refused", not L.ph(0)["ok"])
+check("the verdict matches the number",
+      L.ph(0.1)["verdict"] == "strongly acidic"
+      and L.ph(1e-7)["verdict"] == "about neutral",
+      L.ph(1e-7)["verdict"])
+
+print("\nEVERY BENCH IS REACHABLE")
+ids = [e["id"] for e in L.EXPERIMENTS]
+check("ids are unique", len(set(ids)) == len(ids))
+check("there are more than five now", len(ids) >= 13, str(len(ids)))
+check("each one says what it is for",
+      all(e.get("ask") and e.get("name") and e.get("subject")
+          for e in L.EXPERIMENTS))
+check("the open bench is last",
+      ids[-1] == "any", ids[-1])
+check("more than one subject is covered",
+      len({e["subject"] for e in L.EXPERIMENTS}) >= 4,
+      str(sorted({e["subject"] for e in L.EXPERIMENTS})))
+
 print(f"\nPASSED {ok}   FAILED {fail}")
 sys.exit(1 if fail else 0)

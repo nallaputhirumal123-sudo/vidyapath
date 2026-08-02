@@ -389,17 +389,35 @@ input,select{font-family:inherit}
    sit once the board's own controls are on it. */
 @media(max-width:640px){
   .ask-frame:fullscreen{padding:8px}
-  .ask-frame:fullscreen .ask-board{min-height:86vh;font-size:16px;padding:16px}
-  .ask-frame.sb-focus .ask-board{min-height:86vh;font-size:16px;padding:16px}
+  /* min-height, not a fixed height: the board must be free to be taller than
+     the screen and scroll, which is what it does on every real lesson. 86vh
+     forced it to fill exactly one screen and hid the rest. */
+  .ask-frame:fullscreen .ask-board{min-height:auto;font-size:16px;padding:14px}
+  .ask-frame.sb-focus .ask-board{min-height:auto;font-size:16px;padding:14px}
+  .ask-frame.sb-focus{padding:10px calc(10px + env(safe-area-inset-right))
+                              calc(18px + env(safe-area-inset-bottom))
+                              calc(10px + env(safe-area-inset-left))}
 }
 /* The same thing without the API. iOS Safari will not put an arbitrary
    element full screen — only a video — so the button did nothing there.
    This pins the board over the page instead, which is what full screen was
    for: one thing on the device. */
+/* align-items:flex-start, not center. A flex container that centres its
+   child and then scrolls cannot reach the top of anything taller than the
+   viewport — the overflow goes above the scroll origin and is simply
+   unreachable. On a phone, where a lesson step is always taller than the
+   screen, that showed up as the board being cropped with no way to see the
+   rest of it.
+
+   And dvh rather than vh: on mobile, vh is the height with the address bar
+   hidden, so 78vh can be taller than what is actually visible. */
 .ask-frame.sb-focus{position:fixed;inset:0;z-index:9000;background:var(--bg);
-  padding:14px;display:flex;align-items:center;justify-content:center;
-  overflow:auto}
-.ask-frame.sb-focus .ask-board{width:100%;max-width:1100px;min-height:78vh;
+  padding:14px calc(14px + env(safe-area-inset-right))
+          calc(14px + env(safe-area-inset-bottom))
+          calc(14px + env(safe-area-inset-left));
+  display:flex;align-items:flex-start;justify-content:center;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.ask-frame.sb-focus .ask-board{width:100%;max-width:1100px;min-height:auto;
   font-size:18px}
 body.sb-focused{overflow:hidden}
 .sb-head{display:flex;align-items:center;gap:11px;margin:0 0 12px;
@@ -987,9 +1005,9 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="scanner.js?v=e38e441925"></script>
 <script src="voice.js?v=35513e1f46"></script>
-<script src="sketch.js?v=5eefae4c4a"></script>
+<script src="sketch.js?v=665dcd5a1b"></script>
 <script src="three3d.js?v=cb73e6bd03"></script>
-<script src="lab.js?v=e8bb68b6f5"></script>
+<script src="lab.js?v=a3e731b9ba"></script>
 <script src="bot.js?v=94cda8d571"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
@@ -2505,21 +2523,46 @@ function sbSaveNote(){
 /* Print rather than generate a PDF server-side: every browser can already
    turn this into a PDF, it keeps the real text selectable, and it needs no
    new dependency or endpoint. */
+/* Clear the board back to the picker. Everything that belonged to the last
+   lesson goes with it — the trail, the step position, the notes key — so a
+   new question cannot inherit anything from the old one. */
+function sbNewTopic(){
+  if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
+  sbDropScene();
+  SB.topic=""; SB.lesson=null; SB.i=0; SB.error=""; SB.busy=false; SB.trail=[];
+  PICK.open=true;
+  renderAsk();
+}
+
 function sbPrint(){
+  /* Not while a new lesson is on its way. Asking a second question and
+     pressing download before it lands printed the PREVIOUS lesson under the
+     new heading — one topic's title over another topic's steps, which is
+     exactly what "both topics are mixed" looks like. */
+  if(SB.busy){ toast("Still building that lesson — one moment."); return; }
   const l=SB.lesson; if(!l) return;
+  if(SB.topic && l.title &&
+     !l.title.toLowerCase().includes(SB.topic.toLowerCase().slice(0,12)) &&
+     !SB.topic.toLowerCase().includes(l.title.toLowerCase().slice(0,12))){
+    /* The model titles its own lesson, and sometimes titles it something
+       broader than what was asked. Print both so the sheet always says which
+       question produced it. */
+    l.asked = SB.topic;
+  }
   const nl=String.fromCharCode(10);
   const steps=l.steps.map((st,k)=>
     `<h3>Step ${k+1}</h3><p>${esc(st.t||"")}</p>`+
     (st.where?`<div class="wh">🖥 ${esc(st.where)}</div>`:"")+
     (st.code?`<pre>${esc(st.code)}</pre>`:"")+
-    (st.diagram?`<p><i>[diagram: ${esc((st.diagram.nodes||[]).join(" → "))}]</i></p>`:"")
+    (st.scene?`<p><i>[3D scene: ${esc(st.scene.caption||st.scene.kind)}]</i></p>`:"")+
+    (st.sketch?`<p><i>[sketch: ${esc(st.sketch.caption||st.sketch.kind)}]</i></p>`:"")
   ).join(nl);
   const note=(S.notes[sbNoteKey()]||"").trim();
   const w=window.open("","_blank");
   if(!w) return toast("Allow pop-ups to save this as a PDF.");
   const when=new Date().toLocaleDateString(undefined,
     {year:"numeric",month:"long",day:"numeric"});
-  w.document.write(`<html><head><title>${esc(l.title)} — Craxle</title>
+  w.document.write(`<html><head><title>${esc(SB.topic||l.title)} — Craxle</title>
     <style>
       @page{margin:18mm 16mm 20mm;
         /* Printed pages get separated from where they came from. The running
@@ -2560,6 +2603,9 @@ function sbPrint(){
       <div class="rt">craxle.com<br>${esc(when)}</div>
     </div>
     <h1>${esc(l.title)}</h1>
+    ${SB.topic&&SB.topic.toLowerCase()!==String(l.title||"").toLowerCase()
+      ?`<p style="color:#666;font-size:12pt;margin:-6px 0 14px">
+          You asked: ${esc(SB.topic)}</p>`:""}
     <div style="color:#666;font-size:13px">${esc(SB.topic||"")}</div>
     ${steps}
     ${l.takeaway?`<div class="tk"><b>Takeaway:</b> ${esc(l.takeaway)}</div>`:""}
@@ -2690,6 +2736,10 @@ function sbToolsHTML(){
           <div class="row" style="gap:6px;margin-top:6px">
             <button class="btn ghost sm" data-sbnote="1">Save note</button>
             <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
+      <!-- Explicit, because the alternative was ambiguous: typing into the
+           follow-up box continues the same lesson, and there was nothing that
+           plainly said "this is a different question now". -->
+      <button class="btn ghost sm" data-sbnew="1">✚ Start a new topic</button>
           </div>
         </details>
       </div>
@@ -5474,6 +5524,7 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-sbask]")) return sbAsk();
   if(e.target.closest("[data-sbnote]")) return sbSaveNote();
   if(e.target.closest("[data-sbpdf]")) return sbPrint();
+  if(e.target.closest("[data-sbnew]")) return sbNewTopic();
 });
 document.addEventListener("keydown",e=>{
   if(e.target && e.target.id==="sbFollow" && e.key==="Enter"){ e.preventDefault(); sbAsk(); }

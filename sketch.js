@@ -51,12 +51,38 @@
     c.fill();
   }
 
+  /* Where labels have already been put on this canvas.
+   *
+   * Canvas draws immediately, so a label cannot be moved once it is down —
+   * the only way to stop two overlapping is to check before drawing. Every
+   * chip records its box here and the next one is nudged clear of them.
+   * Reset per render, which is what makes it work on resize too. */
+  var placed = [];
+
+  function freeSpot(x, y, w, h) {
+    for (var pass = 0; pass < 24; pass++) {
+      var clash = false;
+      for (var i = 0; i < placed.length; i++) {
+        var p = placed[i];
+        if (Math.abs(x - p.x) < (w + p.w) / 2 + 2 &&
+            Math.abs(y - p.y) < (h + p.h) / 2 + 2) { clash = true; break; }
+      }
+      if (!clash) break;
+      // Alternate above and below the wanted spot, widening each time, so a
+      // label ends up as near where it belongs as it can get.
+      y += (pass % 2 ? 1 : -1) * (h + 3) * Math.ceil((pass + 1) / 2);
+    }
+    placed.push({ x: x, y: y, w: w, h: h });
+    return y;
+  }
+
   /* Text with a plate behind it. Cheap, and it means a label crossing a line
      or a filled shape stays readable without any layout cleverness. */
   function chip(c, text, x, y, col, align) {
     c.font = "600 12px system-ui, -apple-system, sans-serif";
     var w = c.measureText(text).width;
     var ox = align === "right" ? -w - 10 : align === "center" ? -w / 2 - 5 : 0;
+    y = freeSpot(x + ox + w / 2, y, w + 10, 18);
     c.fillStyle = "rgba(10,12,16,.72)";
     c.beginPath();
     var r = 5, x0 = x + ox - 5, y0 = y - 11, ww = w + 10, hh = 18;
@@ -71,8 +97,15 @@
     return w;
   }
 
-  function plain(c, text, x, y, col, size, align) {
+  function plain(c, text, x, y, col, size, align, keep) {
     c.font = (size || 11) + "px system-ui, -apple-system, sans-serif";
+    // Axis numbers and gridline values opt out: they are laid out on a grid
+    // already and nudging one off its tick makes it a lie.
+    if (!keep) {
+      var w = c.measureText(text).width;
+      var cx = align === "center" ? x : align === "right" ? x - w / 2 : x + w / 2;
+      y = freeSpot(cx, y, w, (size || 11) + 4);
+    }
     c.fillStyle = col;
     c.textAlign = align || "left";
     c.fillText(text, x, y);
@@ -108,12 +141,12 @@
       var gy = H - B - g / 4 * (H - T - B);
       c.beginPath(); c.moveTo(L, gy); c.lineTo(W - R, gy); c.stroke();
       plain(c, (y0 + g / 4 * (y1 - y0)).toFixed(
-        Math.abs(y1 - y0) < 10 ? 1 : 0), L - 7, gy + 4, I.muted, 11, "right");
+        Math.abs(y1 - y0) < 10 ? 1 : 0), L - 7, gy + 4, I.muted, 11, "right", 1);
     }
     for (var gx = 0; gx <= 4; gx++) {
       var vx = x0 + gx / 4 * (x1 - x0);
       plain(c, (Math.abs(x1 - x0) < 10 ? vx.toFixed(1) : vx.toFixed(0)),
-            px(vx), H - B + 16, I.muted, 11, "center");
+            px(vx), H - B + 16, I.muted, 11, "center", 1);
     }
     c.strokeStyle = I.muted;
     c.beginPath(); c.moveTo(L, T); c.lineTo(L, H - B); c.lineTo(W - R, H - B);
@@ -164,7 +197,7 @@
       var gy = H - B - g / 4 * (H - T - B);
       c.beginPath(); c.moveTo(L, gy); c.lineTo(W - R, gy); c.stroke();
       plain(c, (bot + g / 4 * (top - bot)).toFixed(0), L - 7, gy + 4,
-            I.muted, 11, "right");
+            I.muted, 11, "right", 1);
     }
     if (s.y) {
       c.save(); c.translate(13, (T + H - B) / 2); c.rotate(-Math.PI / 2);
@@ -465,6 +498,7 @@
         c.setTransform(dpr, 0, 0, dpr, 0, 0);
         c.clearRect(0, 0, W, H);
         c.textBaseline = "alphabetic";
+        placed = [];
         try {
           DRAW[spec.kind](c, spec, W, H);
         } catch (e) {

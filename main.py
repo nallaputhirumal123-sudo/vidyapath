@@ -9180,7 +9180,104 @@ def lab_sim(body: SimIn, user: User = Depends(current_user)):
         return _lab.pendulum(v.get("length", 1.0), v.get("angle", 10.0))
     if k == "lens":
         return _lab.lens(v.get("focal", 50.0), v.get("object", 150.0))
+    if k == "spring":
+        return _lab.spring(v.get("k", 200), v.get("mass", 0.5),
+                           v.get("x", 0.1))
+    if k == "collision":
+        return _lab.collision(v.get("m1", 2), v.get("u1", 3),
+                              v.get("m2", 1), v.get("u2", 0),
+                              bool(v.get("elastic", True)))
+    if k == "gas":
+        return _lab.gas(v.get("p1", 100), v.get("v1", 1), v.get("t1", 300),
+                        v.get("p2"), v.get("v2"), v.get("t2"))
+    if k == "calorimetry":
+        return _lab.calorimetry(v.get("mass_a", 0.1), v.get("temp_a", 80),
+                                v.get("mass_b", 0.1), v.get("temp_b", 20))
+    if k == "wave":
+        return _lab.wave(v.get("freq", 170), v.get("wavelength"),
+                         v.get("speed"), v.get("length"))
+    if k == "punnett":
+        return _lab.punnett(v.get("a", "Aa"), v.get("b", "Aa"))
+    if k == "population":
+        return _lab.population(v.get("n0", 100), v.get("rate", 0.1),
+                               v.get("steps", 12), v.get("capacity"))
+    if k == "ph":
+        return _lab.ph(v.get("conc", 0.01), v.get("kind", "acid"))
     raise HTTPException(404, "No such experiment")
+
+
+@app.post("/api/lab/photo")
+async def lab_photo(image: UploadFile = File(...),
+                    question: str = Form(default=""),
+                    user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Photograph an apparatus, a setup, or a reaction in progress.
+
+    The scanner reads a written problem. This is for the bench itself: a
+    titration mid-way, a circuit somebody has built, a plate of colonies, a
+    reading on a meter. What you get back is an explanation of what is set up
+    and what it is doing — labelled as an explanation, like everything else
+    on this page that is not computed from a formula.
+    """
+    raw = await image.read()
+    if not raw:
+        raise HTTPException(400, "That photo was empty")
+    if len(raw) > _scan.MAX_MB * 1024 * 1024:
+        raise HTTPException(400, f"Photos need to be under {_scan.MAX_MB:.0f}MB")
+    mime = (image.content_type or "").lower().split(";")[0].strip()
+    if mime not in _scan.MIMES:
+        raise HTTPException(400, "Send a photo — JPG, PNG or WEBP")
+    require_paid_or_trial(db, user, "scan", "Explaining a photo of a setup",
+                          "three free photo explanations")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+
+    q = (question or "").strip()[:200]
+    digest = hashlib.sha256(raw).hexdigest()[:32]
+    qkey = f"labpic|{digest}|{_norm_q(q)}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    if row:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"ok": True, "simulated": False, "text": row.lesson,
+                "cached": True}
+
+    _ai_enforce_limit(db, user)
+    prompt = (
+        "Someone has photographed a laboratory or workshop setup and wants to "
+        "understand it. They are an adult learner.\n"
+        + (f"THEY ASK: {q}\n" if q else "")
+        + "\nSay what the apparatus in the photo actually is and what it is "
+        "for, then what is happening or about to happen, then what the "
+        "result would tell them.\n"
+        "LEAD WITH ANY DANGER you can see — an unstoppered reaction that "
+        "should be vented, a flame near something flammable, missing eye "
+        "protection, a setup that will boil over.\n"
+        "If the photo does not show what the question implies, or you cannot "
+        "make it out, say so rather than describing a plausible experiment.\n"
+        "Never give quantities or a procedure to carry it out. Explain the "
+        "setup, do not instruct the experiment.\n"
+        "Plain text. No markdown, no headings, no bullet characters. Under "
+        "170 words.")
+    try:
+        text = (await _ai_vision(prompt, raw, mime, 500)).strip()
+    except Exception as e:
+        print(f"Lab photo failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not text:
+        raise HTTPException(502, "Nothing came back — try a clearer photo.")
+    text = _re.sub(r"[*#`_]+", "", text)[:1400]
+
+    _ai_bump(db, user)
+    _trial_consume(db, user, "scan")
+    db.add(AskCache(qkey=qkey, subject="lab", level="photo",
+                    question=(q or "a photographed setup")[:2000],
+                    lesson=text, hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"ok": True, "simulated": False, "text": text, "cached": False}
 
 
 # /detail/ and not /api/jobs/{job_id}: FastAPI matches in definition

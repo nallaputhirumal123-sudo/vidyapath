@@ -22,7 +22,15 @@
       projectile: { speed: 20, angle: 45, height: 0 },
       circuit: { r: [100, 220, 330], volts: 12, series: true },
       pendulum: { length: 1, angle: 10 },
-      lens: { focal: 50, object: 150 }
+      lens: { focal: 50, object: 150 },
+      spring: { k: 200, mass: 0.5, x: 0.1 },
+      collision: { m1: 2, u1: 3, m2: 1, u2: 0, elastic: true },
+      gas: { p1: 100, v1: 1, t1: 300, p2: 200, t2: 300 },
+      calorimetry: { mass_a: 0.1, temp_a: 80, mass_b: 0.1, temp_b: 20 },
+      wave: { freq: 170, speed: 343, length: 1 },
+      punnett: { a: "Aa", b: "Aa" },
+      population: { n0: 100, rate: 0.1, steps: 12, capacity: 1000 },
+      ph: { conc: 0.01, kind: "acid" }
     },
     simOut: {}
   };
@@ -292,7 +300,31 @@
                  ["height", "Launch height (m)", 0, 200]],
     pendulum: [["length", "Length (m)", 0.05, 50], ["angle", "Swing (°)", 1, 90]],
     lens: [["focal", "Focal length (mm)", -500, 500],
-           ["object", "Object distance (mm)", 1, 5000]]
+           ["object", "Object distance (mm)", 1, 5000]],
+    spring: [["k", "Stiffness k (N/m)", 1, 10000],
+             ["mass", "Mass (kg)", 0.01, 100],
+             ["x", "Pulled back (m)", 0, 2]],
+    collision: [["m1", "Mass 1 (kg)", 0.01, 1000],
+                ["u1", "Speed 1 (m/s)", -100, 100],
+                ["m2", "Mass 2 (kg)", 0.01, 1000],
+                ["u2", "Speed 2 (m/s)", -100, 100]],
+    gas: [["p1", "Pressure before (kPa)", 1, 10000],
+          ["v1", "Volume before (L)", 0.01, 1000],
+          ["t1", "Temp before (K)", 1, 3000],
+          ["p2", "Pressure after (kPa)", 0, 10000],
+          ["t2", "Temp after (K)", 0, 3000]],
+    calorimetry: [["mass_a", "Hot water (kg)", 0.001, 100],
+                  ["temp_a", "Its temp (C)", -20, 150],
+                  ["mass_b", "Cold water (kg)", 0.001, 100],
+                  ["temp_b", "Its temp (C)", -20, 150]],
+    wave: [["freq", "Frequency (Hz)", 0.1, 100000],
+           ["speed", "Speed (m/s)", 0.1, 400000],
+           ["length", "String length (m)", 0, 50]],
+    population: [["n0", "Starting number", 1, 1000000],
+                 ["rate", "Growth rate per step", -0.9, 2],
+                 ["steps", "Steps", 1, 40],
+                 ["capacity", "Carrying capacity", 0, 1000000]],
+    ph: [["conc", "Concentration (mol/L)", 0.0000001, 12]]
   };
 
   function simHtml(kind) {
@@ -309,12 +341,36 @@
         '<option value="s"' + (v.series ? " selected" : "") + ">Series</option>" +
         '<option value="p"' + (v.series ? "" : " selected") + ">Parallel</option>" +
         "</select></div>";
+    } else if (kind === "punnett") {
+      h += '<div class="lbf"><label>Parent 1</label>' +
+        '<input maxlength="2" data-lbtext2="a" value="' + esc(v.a) + '"></div>' +
+        '<div class="lbf"><label>Parent 2</label>' +
+        '<input maxlength="2" data-lbtext2="b" value="' + esc(v.b) + '"></div>' +
+        '<div class="lbf" style="min-width:200px"><label>&nbsp;</label>' +
+        '<span style="font-size:11.5px;color:var(--muted)">Capital is ' +
+        'dominant — Aa, aa, AA</span></div>';
     } else {
       (FIELDS[kind] || []).forEach(function (f) {
         h += '<div class="lbf"><label>' + esc(f[1]) + "</label>" +
           '<input type="number" step="any" min="' + f[2] + '" max="' + f[3] +
           '" data-lbnum2="' + f[0] + '" value="' + v[f[0]] + '"></div>';
       });
+    }
+    if (kind === "collision") {
+      h += '<div class="lbf"><label>Collision</label>' +
+        '<select data-lbpick="elastic">' +
+        '<option value="e"' + (v.elastic ? " selected" : "") +
+        ">Elastic (bounces)</option>" +
+        '<option value="i"' + (v.elastic ? "" : " selected") +
+        ">Inelastic (they stick)</option></select></div>";
+    }
+    if (kind === "ph") {
+      h += '<div class="lbf"><label>Which</label>' +
+        '<select data-lbpick="kind">' +
+        '<option value="acid"' + (v.kind === "acid" ? " selected" : "") +
+        ">Strong acid</option>" +
+        '<option value="base"' + (v.kind === "base" ? " selected" : "") +
+        ">Strong base</option></select></div>";
     }
     h += '<button class="btn" id="lbRun">Run it</button></div>';
 
@@ -345,6 +401,66 @@
         cell("Textbook period", o.period_small_s + " s", "small-angle formula") +
         cell("Real period", o.period_real_s + " s", "exact series") +
         cell("The formula is out by", o.error_pct + " %", "") + "</div>";
+    } else if (kind === "spring") {
+      h += '<div class="lbnum">' +
+        cell("Force at that stretch", o.force_n + " N", "") +
+        cell("Energy stored", o.energy_j + " J", "") +
+        cell("Period", o.period_s + " s", "one full swing") +
+        cell("Fastest it moves", o.max_speed_ms + " m/s", "at the middle") +
+        "</div>";
+    } else if (kind === "collision") {
+      h += '<div class="lbnum">' +
+        cell("Mass 1 after", o.v1 + " m/s", "") +
+        cell("Mass 2 after", o.v2 + " m/s", "") +
+        cell("Momentum", o.p_before + " → " + o.p_after,
+             "conserved, always") +
+        cell("Kinetic energy", o.ke_before + " → " + o.ke_after + " J",
+             o.ke_lost_j > 0.001 ? o.ke_lost_j + " J lost to heat and sound"
+                                 : "none lost") +
+        "</div>";
+    } else if (kind === "gas") {
+      h += '<div class="lbnum">' +
+        cell("Amount of gas", o.moles + " mol", o.molecules + " molecules") +
+        (o.v2_l !== undefined ? cell("Volume after", o.v2_l + " L", "") : "") +
+        (o.p2_kpa !== undefined ? cell("Pressure after", o.p2_kpa + " kPa", "") : "") +
+        (o.t2_k !== undefined ? cell("Temperature after", o.t2_k + " K", "") : "") +
+        "</div>";
+    } else if (kind === "calorimetry") {
+      h += '<div class="lbnum">' +
+        cell("Settles at", o.final_c + " °C", "") +
+        cell("Heat that moved", o.heat_moved_kj + " kJ",
+             o.heat_moved_j + " joules") + "</div>";
+    } else if (kind === "wave") {
+      h += '<div class="lbnum">' +
+        cell("Wavelength", o.wavelength_m + " m", "") +
+        cell("Speed", o.speed_ms + " m/s", "") +
+        cell("Period", o.period_s + " s", "") +
+        (o.fundamental_hz ? cell("Fundamental", o.fundamental_hz + " Hz",
+          "harmonics: " + o.harmonics_hz.join(", ")) : "") + "</div>";
+    } else if (kind === "punnett") {
+      h += '<div class="lbgrid" style="max-width:280px"><table><tbody>' +
+        "<tr><td>" + esc(o.grid[0]) + "</td><td>" + esc(o.grid[1]) +
+        "</td></tr><tr><td>" + esc(o.grid[2]) + "</td><td>" +
+        esc(o.grid[3]) + "</td></tr></tbody></table></div>" +
+        '<div class="lbnum">' +
+        cell("Genotypes", esc(o.genotype_ratio), "") +
+        cell("Phenotypes", esc(o.phenotype_ratio),
+             o.pct_dominant + "% show the dominant trait") + "</div>";
+    } else if (kind === "population") {
+      var last = o.exponential[o.exponential.length - 1];
+      h += '<div class="lbnum">' +
+        cell("After " + o.steps + " steps", String(last), "unchecked") +
+        (o.logistic ? cell("With a ceiling",
+          String(o.logistic[o.logistic.length - 1]),
+          "capacity " + o.capacity) : "") +
+        (o.doubling_time ? cell("Doubles every", o.doubling_time + " steps", "")
+                         : "") + "</div>" +
+        popPlot(o);
+    } else if (kind === "ph") {
+      h += '<div class="lbnum">' +
+        cell("pH", String(o.ph), o.verdict) +
+        cell("pOH", String(o.poh), "") +
+        cell("H+ concentration", o.h_conc + " mol/L", "") + "</div>";
     } else if (kind === "lens") {
       h += '<div class="lbnum">' +
         (o.at_focus
@@ -356,6 +472,25 @@
                  o.inverted ? "upside down" : "upright")) + "</div>";
     }
     return h + '<div class="lbwhy">' + esc(o.why) + "</div>";
+  }
+
+  /* Growth is the one bench whose answer is a shape rather than a number, so
+     it borrows the sketch renderer rather than printing forty figures. */
+  function popPlot(o) {
+    if (!window.Sketch) return "";
+    setTimeout(function () {
+      var el = document.getElementById("lbPop");
+      if (!el) return;
+      var series = [{ name: "unchecked",
+                      points: o.exponential.map(function (v, i) { return [i, v]; }) }];
+      if (o.logistic) {
+        series.push({ name: "with a ceiling", dashed: true,
+                      points: o.logistic.map(function (v, i) { return [i, v]; }) });
+      }
+      Sketch.mount(el, { kind: "plot", height: 260, x: "steps",
+                         y: "population", series: series });
+    }, 0);
+    return '<div id="lbPop" style="margin-bottom:12px"></div>';
   }
 
   /* The trajectory, drawn from the points the server returned. No library —
@@ -449,6 +584,15 @@
     }
     var w = document.querySelector("[data-lbwire]");
     if (w) w.onchange = function () { LB.sim.circuit.series = w.value === "s"; };
+    document.querySelectorAll("[data-lbtext2]").forEach(function (el) {
+      el.oninput = function () { LB.sim[LB.tab][el.dataset.lbtext2] = el.value; };
+    });
+    document.querySelectorAll("[data-lbpick]").forEach(function (el) {
+      el.onchange = function () {
+        var key = el.dataset.lbpick;
+        LB.sim[LB.tab][key] = key === "elastic" ? el.value === "e" : el.value;
+      };
+    });
 
     var go = document.getElementById("lbGo");
     if (go) go.onclick = mix;

@@ -40,6 +40,8 @@ MOLAR = {
     "H2SO4": 98.08, "CaCO3": 100.09, "CaCl2": 110.98,
     "KMnO4": 158.03, "MnSO4": 151.00, "K2SO4": 174.26, "O2": 32.00,
     "H2O2": 34.01,
+    "AgI": 234.77, "MgSO4": 120.37, "NH4Cl": 53.49, "NH3": 17.03,
+    "CaSO4": 136.14, "ZnCl2": 136.29,
 }
 
 REAGENTS = [
@@ -60,6 +62,8 @@ REAGENTS = [
     ("Zn", "Zinc", "metal"),
     ("Fe", "Iron filings", "metal"),
     ("H2O2", "Hydrogen peroxide", "other"),
+    ("NH4Cl", "Ammonium chloride", "salt"),
+    ("CaCl2", "Calcium chloride", "salt"),
 ]
 REAGENT_NAME = {k: n for k, n, _ in REAGENTS}
 # Solids and metals bring no solvent with them, which matters for the
@@ -227,6 +231,88 @@ for _x in REACTIONS:
     if _x["reactants"] == "":
         _x["reactants"] = {"Pb(NO3)2": 1, "KI": 2}
 
+
+# ---- a second shelf ------------------------------------------------------
+# The first fourteen were the school syllabus. These are the ones people
+# actually ask about next: the tests, the everyday reactions, and the two or
+# three that are genuinely dangerous and worth knowing why.
+REACTIONS += [
+    _r("NaHCO3", "H2SO4",
+       "2 NaHCO3 + H2SO4 -> Na2SO4 + 2 H2O + 2 CO2",
+       {"NaHCO3": 2, "H2SO4": 1}, {"Na2SO4": 1, "H2O": 2, "CO2": 2},
+       "Immediate heavy fizzing, twice the gas you get from hydrochloric "
+       "acid for the same amount of acid.",
+       "gas", -50.0,
+       "Open vessel only, and add the acid slowly — this one froths over.",
+       "Sulfuric acid has two protons, so one mole of it takes two moles of "
+       "bicarbonate and makes two of gas. Reading the equation tells you the "
+       "froth is coming before you see it."),
+
+    _r("Na2CO3", "CaCl2",
+       "Na2CO3 + CaCl2 -> CaCO3 + 2 NaCl",
+       {"Na2CO3": 1, "CaCl2": 1}, {"CaCO3": 1, "NaCl": 2},
+       "A white precipitate forms straight away and settles slowly.",
+       "precipitate", 0.0, "",
+       "This is how hard water furs a kettle, run deliberately: the calcium "
+       "in the water meets carbonate and drops out as limescale. It is also "
+       "the standard way to soften water."),
+
+    _r("AgNO3", "KI",
+       "AgNO3 + KI -> AgI + KNO3",
+       {"AgNO3": 1, "KI": 1}, {"AgI": 1, "KNO3": 1},
+       "A pale yellow precipitate, denser than the chloride and it does not "
+       "redissolve in ammonia.",
+       "precipitate", 0.0,
+       "Silver nitrate stains skin black for days.",
+       "The three silver halides come out white, cream and yellow for "
+       "chloride, bromide and iodide, and that colour order is how they are "
+       "told apart. Silver iodide is also what cloud seeding uses."),
+
+    _r("Mg", "CuSO4",
+       "Mg + CuSO4 -> MgSO4 + Cu",
+       {"Mg": 1, "CuSO4": 1}, {"MgSO4": 1, "Cu": 1},
+       "Violent by comparison with iron: the ribbon darkens at once, the "
+       "tube gets hot and copper falls out as a brown sludge.",
+       "displacement", -351.0,
+       "Gets hot enough to crack thin glass. Small amounts.",
+       "Magnesium is far above copper, so the reaction is far more "
+       "exothermic than iron's. The reactivity series is not a ranking of "
+       "whether it happens but of how hard."),
+
+    _r("NaOH", "NH4Cl",
+       "NaOH + NH4Cl -> NaCl + H2O + NH3",
+       {"NaOH": 1, "NH4Cl": 1}, {"NaCl": 1, "H2O": 1, "NH3": 1},
+       "A sharp smell and damp red litmus held over the tube turns blue.",
+       "gas", -50.0,
+       "Ammonia is an irritant. Waft the smell, never inhale over the tube.",
+       "The test for an ammonium salt. Any ammonium compound plus any strong "
+       "base gives ammonia, which is the only common alkaline gas — so a wet "
+       "red litmus turning blue identifies it on its own."),
+
+    _r("Zn", "H2SO4",
+       "Zn + H2SO4 -> ZnSO4 + H2",
+       {"Zn": 1, "H2SO4": 1}, {"ZnSO4": 1, "H2": 1},
+       "Steady fizzing; the gas pops with a lit splint.",
+       "gas", -154.0,
+       "Hydrogen is explosive in air. No flames near the tube.",
+       "The same displacement as with hydrochloric acid, and the same gas — "
+       "which is the point. The acid's identity does not matter to a metal "
+       "above hydrogen; only its H+ does."),
+
+    _r("CaCO3", "H2SO4",
+       "CaCO3 + H2SO4 -> CaSO4 + H2O + CO2",
+       {"CaCO3": 1, "H2SO4": 1}, {"CaSO4": 1, "H2O": 1, "CO2": 1},
+       "Fizzes for a moment and then stops, with the chip apparently "
+       "untouched.",
+       "gas", -20.0,
+       "Sulfuric acid is severely corrosive, and the carbon dioxide needs "
+       "somewhere to go — never stoppered.",
+       "It stops because calcium sulfate is barely soluble and coats the "
+       "chip, sealing the acid out. This is why sulfuric acid rain damages "
+       "limestone more slowly than nitric — and why the reaction that looks "
+       "identical on paper behaves completely differently in a beaker."),
+]
+
 BY_PAIR = {r["pair"]: r for r in REACTIONS}
 
 
@@ -236,6 +322,7 @@ BY_PAIR = {r["pair"]: r for r in REACTIONS}
 ALIASES = {
     "water": "H2O", "h20": "H2O", "h2o": "H2O",
     "salt": "NaCl", "table salt": "NaCl", "common salt": "NaCl",
+    "sal ammoniac": "NH4Cl", "ammonium chloride": "NH4Cl",
     "baking soda": "NaHCO3", "bicarb": "NaHCO3",
     "bicarbonate of soda": "NaHCO3", "sodium bicarb": "NaHCO3",
     "washing soda": "Na2CO3", "soda ash": "Na2CO3",
@@ -480,6 +567,245 @@ def lens(focal_mm, object_mm):
                     "picture on a camera sensor is upside down.")}
 
 
+R_GAS = 8.314          # J per mol per K
+C_WATER = 4186.0       # J per kg per K
+L_FUSION = 334000.0    # J per kg, ice
+L_VAPOUR = 2260000.0   # J per kg, water
+
+
+def spring(k, mass, x):
+    """Hooke's law and the oscillation that follows from it."""
+    k = max(0.1, min(1e5, float(k or 0)))
+    m = max(0.01, min(500.0, float(mass or 0)))
+    x = max(0.0, min(5.0, float(x or 0)))
+    T = 2 * math.pi * math.sqrt(m / k)
+    return {"ok": True,
+            "force_n": round(k * x, 3),
+            "energy_j": round(0.5 * k * x * x, 4),
+            "period_s": round(T, 4),
+            "freq_hz": round(1 / T, 4) if T else 0,
+            "max_speed_ms": round(x * math.sqrt(k / m), 4),
+            "why": ("The period depends on the mass and the stiffness and "
+                    "not at all on how far you pull it — double the "
+                    "amplitude and it still takes exactly as long to come "
+                    "back. That is what makes a pendulum clock and a quartz "
+                    "watch possible, and it stops being true once the spring "
+                    "is stretched past its elastic limit.")}
+
+
+def collision(m1, u1, m2, u2, elastic=True):
+    """Two masses meeting head-on, in one dimension."""
+    m1 = max(0.001, min(1e6, float(m1 or 0)))
+    m2 = max(0.001, min(1e6, float(m2 or 0)))
+    u1 = max(-1e4, min(1e4, float(u1 or 0)))
+    u2 = max(-1e4, min(1e4, float(u2 or 0)))
+    p0 = m1 * u1 + m2 * u2
+    ke0 = 0.5 * m1 * u1 * u1 + 0.5 * m2 * u2 * u2
+    if elastic:
+        v1 = ((m1 - m2) * u1 + 2 * m2 * u2) / (m1 + m2)
+        v2 = ((m2 - m1) * u2 + 2 * m1 * u1) / (m1 + m2)
+    else:
+        v1 = v2 = p0 / (m1 + m2)
+    ke1 = 0.5 * m1 * v1 * v1 + 0.5 * m2 * v2 * v2
+    return {"ok": True, "elastic": bool(elastic),
+            "v1": round(v1, 4), "v2": round(v2, 4),
+            "p_before": round(p0, 4), "p_after": round(m1 * v1 + m2 * v2, 4),
+            "ke_before": round(ke0, 4), "ke_after": round(ke1, 4),
+            "ke_lost_j": round(ke0 - ke1, 4),
+            "why": ("Momentum is conserved in every collision there has ever "
+                    "been — the two totals above are equal and always will "
+                    "be. Kinetic energy is not: in a real crash it goes into "
+                    "deformation, heat and sound, and 'elastic' just means "
+                    "the idealised case where none of it does.")}
+
+
+def gas(p1, v1, t1, p2=None, v2=None, t2=None, n=None):
+    """The ideal gas law, and what happens when one thing is changed.
+
+    Pressure in kPa, volume in litres, temperature in Kelvin — the units a
+    school actually works in, converted internally.
+    """
+    p1 = max(0.1, min(1e5, float(p1 or 0)))
+    v1 = max(0.001, min(1e4, float(v1 or 0)))
+    t1 = max(1.0, min(5000.0, float(t1 or 0)))
+    moles = (p1 * 1000 * v1 / 1000) / (R_GAS * t1)
+    out = {"ok": True, "moles": round(moles, 5),
+           "molecules": "{:.3e}".format(moles * 6.022e23)}
+    # Change any two and the third follows. Whichever is left blank is the
+    # answer.
+    p2 = float(p2) if p2 else None
+    v2 = float(v2) if v2 else None
+    t2 = float(t2) if t2 else None
+    if p2 and v2 and not t2:
+        out["t2_k"] = round(t1 * (p2 * v2) / (p1 * v1), 2)
+        out["solved"] = "temperature"
+    elif p2 and t2 and not v2:
+        out["v2_l"] = round(v1 * (p1 / p2) * (t2 / t1), 4)
+        out["solved"] = "volume"
+    elif v2 and t2 and not p2:
+        out["p2_kpa"] = round(p1 * (v1 / v2) * (t2 / t1), 3)
+        out["solved"] = "pressure"
+    out["why"] = ("pV over T is the same before and after, whatever you "
+                  "change — that single fact is the combined gas law and it "
+                  "contains Boyle's and Charles's as special cases. "
+                  "Temperature must be in Kelvin: at 0 degrees Celsius the "
+                  "gas has not stopped, and a ratio of Celsius values is "
+                  "meaningless.")
+
+
+    return out
+
+
+def calorimetry(mass_a, temp_a, mass_b, temp_b, c=C_WATER):
+    """Two bodies of water brought together, and where they settle."""
+    ma = max(0.001, min(1000.0, float(mass_a or 0)))
+    mb = max(0.001, min(1000.0, float(mass_b or 0)))
+    ta = max(-50.0, min(200.0, float(temp_a or 0)))
+    tb = max(-50.0, min(200.0, float(temp_b or 0)))
+    c = max(100.0, min(10000.0, float(c or C_WATER)))
+    final = (ma * ta + mb * tb) / (ma + mb)
+    q = ma * c * abs(final - ta)
+    return {"ok": True,
+            "final_c": round(final, 3),
+            "heat_moved_j": round(q, 1),
+            "heat_moved_kj": round(q / 1000, 3),
+            "why": ("The heat the hot one loses is exactly the heat the cold "
+                    "one gains, so the final temperature is the mass-weighted "
+                    "average — closer to whichever there is more of, not "
+                    "halfway between. Water's specific heat capacity of 4186 "
+                    "joules per kilogram per degree is unusually high, which "
+                    "is why the sea takes until September to warm up and why "
+                    "it is the coolant in almost everything.")}
+
+
+def wave(freq, wavelength=None, speed=None, length=None):
+    """v = f lambda, and the harmonics of a string fixed at both ends."""
+    f = max(0.01, min(1e9, float(freq or 0)))
+    out = {"ok": True}
+    if wavelength and not speed:
+        lam = max(1e-6, float(wavelength))
+        v = f * lam
+    elif speed:
+        v = max(0.01, float(speed))
+        lam = v / f
+    else:
+        v, lam = 343.0, 343.0 / f          # air at 20 degrees
+    out.update(speed_ms=round(v, 3), wavelength_m=round(lam, 5),
+               period_s=round(1 / f, 6))
+    if length:
+        L = max(0.01, min(100.0, float(length)))
+        out["harmonics_hz"] = [round(n * v / (2 * L), 2) for n in range(1, 6)]
+        out["fundamental_hz"] = out["harmonics_hz"][0]
+    out["why"] = ("Speed, frequency and wavelength are one equation with "
+                  "three names, so fixing any two fixes the third. On a "
+                  "string held at both ends only whole numbers of half "
+                  "wavelengths fit, which is why the harmonics are exact "
+                  "multiples of the fundamental — and why an instrument "
+                  "sounds like a note rather than a noise.")
+    return out
+
+
+def punnett(a, b):
+    """A monohybrid cross, worked out rather than remembered.
+
+    Alleles are written as two characters, capital dominant: "Aa", "aa".
+    """
+    def parse(g):
+        g = "".join(str(g or "").split())[:2]
+        return list(g) if len(g) == 2 and g.isalpha() else None
+
+    p1, p2 = parse(a), parse(b)
+    if not p1 or not p2:
+        return {"ok": False, "error": "Write each parent as two letters, "
+                                      "like Aa and aa."}
+    if p1[0].lower() != p2[0].lower():
+        return {"ok": False, "error": "Both parents must be the same gene — "
+                                      "Aa and aa, not Aa and Bb."}
+    letter = p1[0].lower()
+    cells = []
+    for x in p1:
+        for y in p2:
+            pair = "".join(sorted([x, y], key=lambda ch: (ch.islower(), ch)))
+            cells.append(pair)
+    geno = {}
+    for c in cells:
+        geno[c] = geno.get(c, 0) + 1
+    dom = sum(n for g, n in geno.items() if g[0].isupper())
+    rec = len(cells) - dom
+    return {"ok": True, "grid": cells,
+            "genotypes": geno,
+            "genotype_ratio": " : ".join(f"{n} {g}" for g, n in
+                                         sorted(geno.items())),
+            "phenotype_ratio": f"{dom} dominant : {rec} recessive",
+            "pct_dominant": round(dom / len(cells) * 100, 1),
+            "why": (f"Each parent gives one allele, so the four boxes are "
+                    f"every combination equally likely. A capital "
+                    f"{letter.upper()} masks a lowercase {letter}, which is "
+                    f"why three of these can look identical while only one "
+                    f"is truly {letter.upper()}{letter.upper()} — and why a "
+                    f"recessive condition reappears in a family that has not "
+                    f"shown it for generations.")}
+
+
+def population(n0, rate, steps, capacity=None):
+    """Growth with and without a ceiling."""
+    n0 = max(1.0, min(1e9, float(n0 or 0)))
+    r = max(-1.0, min(3.0, float(rate or 0)))
+    steps = int(max(1, min(60, float(steps or 10))))
+    K = float(capacity) if capacity else None
+    if K:
+        K = max(n0, min(1e12, K))
+    exp_series, log_series = [], []
+    n_exp, n_log = n0, n0
+    for _ in range(steps + 1):
+        exp_series.append(round(n_exp, 2))
+        log_series.append(round(n_log, 2))
+        n_exp = n_exp * (1 + r)
+        n_log = n_log + r * n_log * (1 - n_log / K) if K else n_exp
+    out = {"ok": True, "exponential": exp_series, "steps": steps,
+           "doubling_time": (round(math.log(2) / math.log(1 + r), 2)
+                             if r > 0 else None)}
+    if K:
+        out["logistic"] = log_series
+        out["capacity"] = round(K, 2)
+    out["why"] = ("Unchecked growth is a straight line on a log scale and a "
+                  "wall on a linear one — nothing in nature does it for "
+                  "long. The logistic curve is the same growth with the "
+                  "brakes that always exist: as the population approaches "
+                  "what the environment can carry, the rate falls to nothing "
+                  "and it levels off." if K else
+                  "Each step multiplies by the same factor, which is what "
+                  "makes it explosive: the increase itself grows. Give it a "
+                  "carrying capacity to see what actually happens.")
+    return out
+
+
+def ph(conc, kind="acid"):
+    """pH of a strong acid or base, from its concentration in mol/L."""
+    c = float(conc or 0)
+    if c <= 0:
+        return {"ok": False, "error": "Concentration has to be above zero."}
+    c = max(1e-14, min(12.0, c))
+    if kind == "base":
+        poh = -math.log10(c)
+        p = 14 - poh
+    else:
+        p = -math.log10(c)
+        poh = 14 - p
+    return {"ok": True, "ph": round(p, 3), "poh": round(poh, 3),
+            "h_conc": "{:.3e}".format(10 ** -p),
+            "verdict": ("strongly acidic" if p < 3 else "acidic" if p < 6.5
+                        else "about neutral" if p <= 7.5
+                        else "alkaline" if p < 11 else "strongly alkaline"),
+            "why": ("pH is minus the log of the hydrogen ion concentration, "
+                    "so every whole step is a factor of ten — pH 3 is not "
+                    "slightly worse than pH 4, it is ten times more acidic. "
+                    "That is why stomach acid at pH 1.5 and lemon juice at "
+                    "pH 2 are genuinely in a different league from coffee at "
+                    "pH 5, and why a one-point drop in ocean pH is a "
+                    "catastrophe rather than a rounding error.")}
+
+
 EXPERIMENTS = [
     {"id": "mix", "name": "Mix two reagents", "subject": "Chemistry",
      "ask": "Choose two things off the shelf and how much of each. You get "
@@ -497,6 +823,29 @@ EXPERIMENTS = [
     {"id": "lens", "name": "Thin lens", "subject": "Physics",
      "ask": "Move an object towards a lens and watch the image flip, grow "
             "and become virtual."},
+    {"id": "spring", "name": "Springs and oscillation", "subject": "Physics",
+     "ask": "Change the stiffness, the mass and how far you pull it, and "
+            "watch which of those actually changes the period."},
+    {"id": "collision", "name": "Collisions", "subject": "Physics",
+     "ask": "Two masses meet head-on. Compare elastic and inelastic, and "
+            "watch momentum hold while kinetic energy does not."},
+    {"id": "gas", "name": "Gas laws", "subject": "Chemistry",
+     "ask": "Set pressure, volume and temperature; leave one blank and it "
+            "is worked out. Boyle and Charles are both in here."},
+    {"id": "calorimetry", "name": "Heat and mixing", "subject": "Physics",
+     "ask": "Pour hot water into cold and find where it settles, and how "
+            "much energy moved to get there."},
+    {"id": "wave", "name": "Waves and harmonics", "subject": "Physics",
+     "ask": "Frequency, wavelength and speed, plus the harmonics of a "
+            "string held at both ends."},
+    {"id": "punnett", "name": "Genetic crosses", "subject": "Biology",
+     "ask": "Cross two parents and get the grid, the genotype ratio and "
+            "the phenotype ratio."},
+    {"id": "population", "name": "Population growth", "subject": "Biology",
+     "ask": "Exponential growth, and the same growth with a carrying "
+            "capacity, side by side."},
+    {"id": "ph", "name": "pH and acidity", "subject": "Chemistry",
+     "ask": "Concentration to pH, for a strong acid or a strong base."},
     # The open bench. Everything above computes; this one explains, and says
     # so, because a computed number and a written answer are different kinds
     # of thing and a lab that blurs them is not a lab.
