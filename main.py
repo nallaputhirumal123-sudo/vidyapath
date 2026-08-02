@@ -7966,6 +7966,31 @@ def _board_prompt(topic: str, level: str) -> str:
         # A learner who is shown a Python snippet for a switching topic knows
         # immediately that nobody has done this job. Teach each skill in the
         # place the work actually happens, or the whole lesson reads as fake.
+        "ONE SUBJECT, ITS OWN WAY OF THINKING. Work out what field this "
+        "belongs to before you write anything, then reason the way that "
+        "field reasons and use only its own apparatus. Mathematics argues "
+        "from definition and proof; physics from principle, symmetry and "
+        "order of magnitude; chemistry from mechanism and the balanced "
+        "equation; biology from structure, function and selection; "
+        "medicine from presentation, mechanism and differential; law from "
+        "authority, facts and the test the court applies; history from "
+        "sources and what they can and cannot support; economics from "
+        "incentives and constraint; engineering from requirement, "
+        "tolerance and failure mode; computing from state, cost and what "
+        "breaks under load.\n"
+        "Do not borrow an example from another field because it is "
+        "familiar. A chemistry lesson does not need a courtroom and a "
+        "history lesson does not need a circuit. If an analogy is worth "
+        "using, say plainly that it is an analogy and say where it stops "
+        "being true — an analogy left unqualified is the thing people "
+        "remember instead of the mechanism.\n"
+        "Use the notation, units and vocabulary that field actually "
+        "writes with, and define each of them once, the first time.\n\n"
+        "GET TO THE THEORY. Say why it is true, not only that it is. The "
+        "derivation, the mechanism, the reasoning behind the rule — and "
+        "the conditions under which it stops holding, because knowing "
+        "where a result fails is most of what separates somebody who has "
+        "learned it from somebody who has memorised it.\n\n"
         "TEACH IT WHERE THE WORK HAPPENS. Every subject lives somewhere "
         "real, and it is only sometimes a screen. Before writing a step, "
         "decide where a person who actually does this would be standing "
@@ -8010,7 +8035,8 @@ def _board_prompt(topic: str, level: str) -> str:
         '}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
-        "6 to 12 steps, and every one of them a paragraph a tutor would actually say out loud — 120 to 220 words. A step that reads like a glossary entry has failed: the learner already found the definition before coming here, and what they lack is why it works that way and what goes wrong without it. Use a concrete number, name or scenario in most steps rather than speaking generally.\n\n"
+        "6 to 10 steps of 60 to 110 words each. Tight. A step that reads like a glossary entry has failed — the learner found the definition before coming here, and what they lack is why it works that way and what breaks without it. Use a concrete number, name or scenario in most steps rather than speaking generally.\n"
+        "SHOW IT RATHER THAN DESCRIBE IT. Nobody takes in two thousand words of prose about a thing they cannot see. Every step should carry something to look at where one exists — the real screen or worked calculation in \"code\", or a scene. Cut a sentence before you cut the picture: if a paragraph is explaining what something looks like or how it is arranged, the scene is doing that job and the paragraph should say what it MEANS instead.\n\n"
         "At least half the steps carry a real screen, bench or document "
         "in \"code\" with the matching \"where\" — the actual commands and "
         "the output they return, the worked calculation line by line, the "
@@ -8022,9 +8048,7 @@ def _board_prompt(topic: str, level: str) -> str:
         "when one is missing — that is the explanation a drawing was only "
         "ever standing in for. Walk the reader through it the way you "
         "would out loud, naming the pieces as you go.\n\n"
-        "AT MOST ONE step may also carry a 3D scene, as \"scene\". Use it "
-        "only where turning and zooming the real structure teaches something "
-        "the flat diagram cannot. Most lessons should have none.\n"
+        "GIVE THE LESSON A 3D SCENE, on the one step where seeing the thing does the most work — the step where somebody would otherwise ask what it actually looks like. One per lesson: a second is a picture nobody looks at twice. Leave it out only when the topic has genuinely nothing to show, and be honest about that rather than forcing one.\n"
         + _scene.PROMPT
     )
 
@@ -8642,6 +8666,18 @@ This can be any subject at all — medicine, law, pure mathematics, history,
 engineering, linguistics, finance, a language. Do not steer it towards
 programming, and do not assume any technical background beyond what the level
 below implies.
+
+Teach it the way its own field teaches it. Mathematics argues from definition
+and proof, physics from principle and order of magnitude, chemistry from
+mechanism, medicine from presentation and differential, law from authority and
+the test the court applies, history from what the sources can support,
+engineering from requirement and failure mode. Use that field's notation,
+units and canonical examples, and do not borrow an illustration from an
+unrelated subject because it is familiar. Where you do use an analogy, say it
+is one and say where it breaks.
+
+Go to the theory, not only the recipe: why the result is true, what it rests
+on, and the conditions under which it stops holding.
 
 THE TOPIC: {topic}
 WHO THEY ARE: {who}

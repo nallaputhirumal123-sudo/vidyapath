@@ -16,9 +16,15 @@ thousand atoms is a hung tab on a phone, so counts are cut hard.
 """
 
 KINDS = ("molecule", "layers", "lattice", "surface", "orbit", "solid",
-         "process")
+         "process", "flow")
 
 MAX_STAGES = 8
+MAX_FLOWS = 4
+
+# Shapes that can be built honestly from curves. A leaf can; a liver cannot,
+# and offering "liver" would get one drawn as an ellipsoid, which teaches the
+# wrong shape to somebody who will be examined on the right one.
+BODIES = ("leaf", "cell", "root", "panel", "vessel", "box")
 
 SHAPES = ("cube", "sphere", "cylinder", "cone", "torus", "tetra", "octa",
           "icosa", "prism")
@@ -176,6 +182,33 @@ def clean(d):
             out["centre_color"] = c
         return out
 
+    if kind == "flow":
+        def side(key):
+            got = []
+            for x in (d.get(key) or [])[:MAX_FLOWS]:
+                if isinstance(x, str):
+                    x = {"name": x}
+                if not isinstance(x, dict):
+                    continue
+                nm = _label(x.get("name"), 22)
+                if not nm:
+                    continue
+                item = {"name": nm}
+                c = _colour(x.get("color"))
+                if c is not None:
+                    item["color"] = c
+                got.append(item)
+            return got
+
+        ins, outs = side("in"), side("out")
+        if not ins and not outs:
+            return None
+        body = str(d.get("body") or "").strip().lower()
+        out["body"] = body if body in BODIES else "box"
+        out["in"] = ins
+        out["out"] = outs
+        return out
+
     if kind == "process":
         stages = []
         for st in (d.get("stages") or [])[:MAX_STAGES]:
@@ -253,6 +286,24 @@ none.
             when it runs start to finish — photosynthesis, digestion,
             transcription and translation, a production line, a CPU pipeline,
             a request travelling through a system.
+
+"flow"      {"kind":"flow","body":"leaf"|"cell"|"root"|"panel"|"vessel"|"box",
+             "caption":"...",
+             "in":[{"name":"CO2"},{"name":"water"},{"name":"sunlight"}],
+             "out":[{"name":"oxygen"},{"name":"glucose"}]}
+            The thing itself, with what goes into it and what comes out
+            moving around it. This is the one to reach for when a learner
+            needs to see the object: photosynthesis is a LEAF with sunlight
+            on it and gases going in and out, not four labelled discs and not
+            a ball-and-stick chlorophyll. Also respiration in a cell, uptake
+            in a root, a solar panel, a reactor vessel, a heat exchanger.
+            Say "sunlight" or "light" among the inputs and a sun with rays
+            is drawn.
+
+PREFER "flow" OVER "process" WHEN THERE IS A REAL OBJECT. Discs and arrows
+are for something with no physical thing at its centre — a cycle of
+transformations, an accounting loop. The moment the answer has an object in
+it, show the object.
 
 A PROCESS IS NOT A MOLECULE. If someone asks how photosynthesis works, the
 answer is the stages and what passes between them, not a ball-and-stick model

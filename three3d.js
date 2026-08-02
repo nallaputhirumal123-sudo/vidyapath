@@ -460,6 +460,259 @@
     }
   };
 
+  /* ---- the thing itself, with what goes in and comes out ------------
+   *
+   * The process kind draws stations and arrows, which is right for a cycle
+   * and wrong for photosynthesis. Nobody understands photosynthesis from four
+   * labelled discs. They understand it from a leaf with sunlight falling on
+   * it, carbon dioxide and water going in, and oxygen and sugar coming out —
+   * the object, and the traffic around the object.
+   *
+   * So the bodies here are real shapes, built from curves rather than boxes:
+   * a leaf is a leaf, not a green rectangle. Only shapes that can be made
+   * honestly this way are offered. An organ with real anatomy is still a
+   * scanned-mesh problem and still says so.
+   */
+  var BODY = {};
+
+  /* A leaf, cut open.
+   *
+   * The first version was the outline of a leaf, and the outline of a leaf is
+   * not where photosynthesis happens. What teaches it is the section: waxy
+   * cuticle on top, the epidermis under it, the palisade cells standing on
+   * end where most of the chloroplasts are, the loose spongy layer below them
+   * with the air spaces the gases move through, and the stomata underneath
+   * that let them in and out. That is the structure, and the structure is the
+   * explanation — every layer is there for a reason you can point at.
+   *
+   * So the blade is half transparent and the section sits inside it, cut
+   * away, with the layers labelled where they are rather than in a key.
+   */
+  BODY.leaf = function () {
+    var g = new THREE.Group();
+    var sh = new THREE.Shape();
+    sh.moveTo(0, -2.2);
+    sh.bezierCurveTo(1.9, -1.1, 1.6, 1.4, 0, 2.4);
+    sh.bezierCurveTo(-1.6, 1.4, -1.9, -1.1, 0, -2.2);
+    var blade = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(sh, { depth: 0.09, bevelEnabled: true,
+        bevelSize: 0.05, bevelThickness: 0.04, bevelSegments: 2 }),
+      new THREE.MeshStandardMaterial({ color: 0x3f9d54, roughness: 0.6,
+        side: THREE.DoubleSide, transparent: true, opacity: 0.45 }));
+    blade.rotation.x = -Math.PI / 2.35;
+    g.add(blade);
+
+    // The cut section, standing beside the blade so both are readable at once.
+    var sec = new THREE.Group();
+    sec.position.set(4.6, 0.6, 0.4);
+    // Names only. The first version put a description under each layer as
+    // well, which doubled the number of labels in a section a couple of units
+    // tall — they all landed on top of one another and the structure was
+    // buried under its own captions. What each layer does belongs in the
+    // step's text; the picture's job is to show where it is.
+    var LAYERS = [
+      ["cuticle", 0.16, 0xd8e8c0],
+      ["upper epidermis", 0.30, 0x8fd18f],
+      ["palisade mesophyll", 0.95, 0x2f8f45],
+      ["spongy mesophyll", 0.85, 0x63b878],
+      ["lower epidermis", 0.30, 0x8fd18f]
+    ];
+    var y = 0;
+    LAYERS.forEach(function (L) {
+      var h = L[1];
+      var slab = new THREE.Mesh(
+        new THREE.BoxGeometry(3.4, h, 2.0),
+        new THREE.MeshStandardMaterial({ color: L[2], roughness: 0.62 }));
+      slab.position.y = -y - h / 2;
+      sec.add(slab);
+      sec.add(new THREE.LineSegments(new THREE.EdgesGeometry(slab.geometry),
+        new THREE.LineBasicMaterial({ color: 0x14301c, transparent: true,
+          opacity: 0.45 })).translateY(-y - h / 2));
+      label(sec, L[0], 2.6, -y - h / 2, 0);
+      y += h;
+    });
+
+    // Chloroplasts, packed in the palisade layer where they actually are.
+    for (var c = 0; c < 14; c++) {
+      var ch = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8),
+        new THREE.MeshStandardMaterial({ color: 0x0f5c25, roughness: 0.4 }));
+      ch.scale.set(1, 0.7, 1);
+      ch.position.set(-1.4 + (c % 7) * 0.45, -0.75 - Math.floor(c / 7) * 0.3,
+                      -0.4 + (c % 3) * 0.4);
+      sec.add(ch);
+    }
+    label(sec, "chloroplasts", -2.7, -0.75, 0);
+
+    // Stomata on the underside: the holes the gases actually pass through.
+    for (var st2 = 0; st2 < 3; st2++) {
+      var pore = new THREE.Mesh(
+        new THREE.TorusGeometry(0.13, 0.045, 8, 18),
+        new THREE.MeshStandardMaterial({ color: 0x2c6b3c }));
+      pore.rotation.x = Math.PI / 2;
+      pore.position.set(-0.9 + st2 * 0.9, -y + 0.02, 0.3);
+      sec.add(pore);
+    }
+    label(sec, "stomata", 0, -y - 0.45, 0);
+    g.add(sec);
+
+    // Midrib and veins, which is what makes it read as a leaf rather than a
+    // green blob.
+    var vein = new THREE.MeshStandardMaterial({ color: 0x2b6e3a,
+      roughness: 0.7 });
+    var rib = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.03, 4.4, 8),
+                             vein);
+    rib.rotation.x = -Math.PI / 2.35;
+    rib.position.y = 0.06;
+    g.add(rib);
+    for (var i = -3; i <= 3; i++) {
+      if (!i) continue;
+      var t = i / 4;
+      var v = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.025, 0.012, 1.5 - Math.abs(t) * 0.7, 6),
+        vein);
+      v.rotation.x = -Math.PI / 2.35;
+      v.rotation.z = (i > 0 ? 1 : -1) * 1.0;
+      v.position.set(0, 0.08, 0);
+      v.translateOnAxis(new THREE.Vector3(0, 1, 0), t * 1.9);
+      g.add(v);
+    }
+    // The stalk.
+    var st = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.5, 8),
+                            vein);
+    st.rotation.x = -Math.PI / 2.35;
+    st.position.set(0, -0.55, 1.6);
+    g.add(st);
+    return g;
+  };
+
+  /* A cell with its organelles, not a blue ball. The membrane is see-through
+     because everything worth pointing at is behind it. */
+  BODY.cell = function () {
+    var g = new THREE.Group();
+    var m = new THREE.Mesh(new THREE.SphereGeometry(2, 40, 28),
+      new THREE.MeshStandardMaterial({ color: 0x6fb7d9, roughness: 0.35,
+        transparent: true, opacity: 0.2, side: THREE.DoubleSide }));
+    m.scale.set(1.25, 0.85, 1);
+    g.add(m);
+    label(g, "cell membrane", 0, 1.95, 0);
+
+    var nuc = new THREE.Mesh(new THREE.SphereGeometry(0.72, 26, 18),
+      new THREE.MeshStandardMaterial({ color: 0x9a6fd9, roughness: 0.45 }));
+    g.add(nuc);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.26, 18, 12),
+      new THREE.MeshStandardMaterial({ color: 0x6b3fa0 })));
+    label(g, "nucleus", 0, 0.95, 0);
+
+    // Mitochondria, where respiration happens — the thing most lessons are
+    // actually about when they show a cell.
+    [[1.5, 0.35, 0.4], [-1.4, -0.3, -0.5], [0.3, -0.75, 1.0],
+     [-0.8, 0.6, -1.0]].forEach(function (p, i) {
+      var mito = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.44, 6, 12),
+        new THREE.MeshStandardMaterial({ color: 0xd9704a, roughness: 0.5 }));
+      mito.position.set(p[0], p[1], p[2]);
+      mito.rotation.z = 0.6 + i * 0.5;
+      g.add(mito);
+    });
+    label(g, "mitochondria", 1.5, 0.85, 0.4);
+    return g;
+  };
+
+  BODY.root = function () {
+    var g = new THREE.Group();
+    var mat = new THREE.MeshStandardMaterial({ color: 0xb08b5a,
+      roughness: 0.75 });
+    var main = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.06, 4, 12),
+                              mat);
+    g.add(main);
+    for (var i = 0; i < 6; i++) {
+      var b = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.02, 1.5, 8), mat);
+      b.position.y = 1.3 - i * 0.55;
+      b.rotation.z = (i % 2 ? 1 : -1) * 0.9;
+      b.translateOnAxis(new THREE.Vector3(0, 1, 0), 0.6);
+      g.add(b);
+    }
+    return g;
+  };
+
+  BODY.panel = function () {
+    var g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(4, 0.12, 2.6),
+      new THREE.MeshStandardMaterial({ color: 0x1c3f6e, roughness: 0.25,
+        metalness: 0.5 })));
+    for (var i = -1; i <= 1; i++) {
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 2.6),
+        new THREE.MeshBasicMaterial({ color: 0x8fa3b0 })
+      ).translateX(i * 1.3));
+    }
+    return g;
+  };
+
+  BODY.vessel = function () {
+    return new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2.6, 34),
+      new THREE.MeshStandardMaterial({ color: 0x9aa7b0, roughness: 0.3,
+        metalness: 0.3, transparent: true, opacity: 0.5 }));
+  };
+
+  BODY.box = function () {
+    return new THREE.Mesh(new THREE.BoxGeometry(3, 2, 2),
+      new THREE.MeshStandardMaterial({ color: 0x5c6b7a, roughness: 0.5 }));
+  };
+
+  BUILD.flow = function (spec, group) {
+    var make = BODY[spec.body] || BODY.box;
+    group.add(make());
+
+    var ins = spec["in"] || [], outs = spec.out || [];
+
+    // The sun, when something is arriving as light. It is the reason the
+    // whole picture makes sense for photosynthesis.
+    if (ins.some(function (x) { return /light|sun|photon/i.test(x.name); })) {
+      var sun = new THREE.Mesh(new THREE.SphereGeometry(0.55, 22, 16),
+        new THREE.MeshBasicMaterial({ color: 0xffd75c }));
+      sun.position.set(-2.2, 4.2, 2.6);
+      group.add(sun);
+      label(group, "sunlight", -2.2, 5.1, 2.6);
+      for (var r = 0; r < 5; r++) {
+        var ray = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, 3.4, 6),
+          new THREE.MeshBasicMaterial({ color: 0xffe6a1, transparent: true,
+            opacity: 0.5 }));
+        ray.position.set(-1.7 + r * 0.5, 2.6, 1.9 - r * 0.2);
+        ray.rotation.z = 0.55;
+        group.add(ray);
+      }
+    }
+
+    function stream(list, side) {
+      list.forEach(function (item, i) {
+        if (/light|sun|photon/i.test(item.name)) return;   // drawn as the sun
+        var spread = (i - (list.length - 1) / 2) * 1.5;
+        var from = new THREE.Vector3(side * 5.4, spread, side * 0.9);
+        var to = new THREE.Vector3(side * 0.6, spread * 0.35, 0);
+        var a = side < 0 ? from : to;
+        var b = side < 0 ? to : from;
+        label(group, item.name, from.x, from.y + 0.75, from.z);
+        // Three beads per stream, evenly offset, so it reads as continuous
+        // traffic rather than one thing making a trip.
+        for (var k = 0; k < 3; k++) {
+          var p = new THREE.Mesh(
+            new THREE.SphereGeometry(0.19, 16, 12),
+            new THREE.MeshStandardMaterial({
+              color: item.color !== undefined ? item.color
+                : (side < 0 ? 0x7fb8ff : 0x8fe3b0),
+              emissive: side < 0 ? 0x14324f : 0x14402a,
+              emissiveIntensity: 0.5, roughness: 0.35 }));
+          p.userData.flow = { a: a.clone(), b: b.clone(),
+                              t: k / 3, speed: 0.28 };
+          group.add(p);
+        }
+      });
+    }
+    stream(ins, -1);      // in from the left
+    stream(outs, 1);      // out to the right
+  };
+
   /* Break a long label on word boundaries, so a stage name reads as two
      short lines instead of one that overlaps its neighbours. */
   function wrapLabel(text, max) {
@@ -563,8 +816,12 @@
         if (o.isSprite) o.scale.multiplyScalar(k);
       });
 
-      var ctl = orbit(cam, ren.domElement, span * 1.9);
-      ctl.setRange(span * 0.55, span * 5);
+      // 1.35, not 1.9. The framing is driven by the bounding box, and a scene
+      // with traffic streaming in from both sides has a box far wider than
+      // the thing being taught — so the leaf everybody is meant to be looking
+      // at ended up small and adrift in the middle of a lot of nothing.
+      var ctl = orbit(cam, ren.domElement, span * 1.35);
+      ctl.setRange(span * 0.45, span * 4);
 
       var spinners = [], flows = [];
       group.traverse(function (o) {
