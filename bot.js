@@ -206,6 +206,11 @@
     B.turns.push({ who: "you", text: text });
     B.busy = true;
     draw();
+    // Same history as everything else, tagged by how it was asked so
+    // reopening it lands back in the right place.
+    if (typeof recordAsk === "function") {
+      recordAsk(text, B.listening ? "talk" : "ask");
+    }
     var say = "";
     try {
       var r = await api.post("/api/ask/talk", {

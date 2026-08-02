@@ -273,6 +273,7 @@
       var r = await api.post("/api/lab/explain",
         { what: q, subject: LB.anyS });
       LB.anyOut = r.text;
+      if (typeof recordAsk === "function") recordAsk(q, "lab");
     } catch (e) {
       LB.anyOut = e.message || "Could not work that out.";
     }

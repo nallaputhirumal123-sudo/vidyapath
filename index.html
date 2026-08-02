@@ -723,6 +723,13 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   .ask-inrow>.ask-input{flex:1 1 100%;order:-1}
   .ask-inrow>.ask-go,.ask-inrow>.ask-stop{flex:1}
 }
+.recentwrap{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:22px}
+.recentchip{display:flex;align-items:center;gap:7px;font-size:12.5px;
+  padding:7px 13px;border-radius:999px;cursor:pointer;max-width:100%;
+  border:1px solid var(--line);background:var(--panel);color:inherit;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recentchip:hover{border-color:var(--accent)}
+.recentchip.clear{color:var(--dim);border-style:dashed}
 .ask-btn{border:none;border-radius:12px;padding:0 18px;height:50px;font-weight:600;font-size:15px;cursor:pointer;
   font-family:inherit;display:flex;align-items:center;gap:8px;transition:.15s;white-space:nowrap}
 .ask-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -978,12 +985,12 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=df48c07ae5"></script>
-<script src="scanner.js?v=d02177c014"></script>
+<script src="scanner.js?v=390f50b85b"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="sketch.js?v=5eefae4c4a"></script>
 <script src="three3d.js?v=cb73e6bd03"></script>
-<script src="lab.js?v=bb3ff62573"></script>
-<script src="bot.js?v=a33f3f84b6"></script>
+<script src="lab.js?v=e8bb68b6f5"></script>
+<script src="bot.js?v=94cda8d571"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -1326,6 +1333,35 @@ function restoreView(){
   return {page:"home"};
 }
 
+/* Remember that this was asked, so a session can be picked up tomorrow.
+   Fire and forget: an answer must never fail because the history did. */
+let RECENT = [];
+function recordAsk(q, kind){
+  q=(q||"").trim();
+  if(!q || !AUTHED) return;
+  // Optimistic, so the list is right the moment you look at it rather than
+  // after a round trip.
+  RECENT = [{q, kind:kind||"ask", at:new Date().toISOString()}]
+    .concat(RECENT.filter(r=>r.q.toLowerCase()!==q.toLowerCase())).slice(0,40);
+  api.post("/api/recent",{q:q.slice(0,300), kind:kind||"ask"}).catch(()=>{});
+}
+async function loadRecent(){
+  try{ RECENT=(await api.get("/api/recent")).recent||[]; }catch(e){ RECENT=[]; }
+}
+const RECENT_ICON={board:"⚡",ask:"💬",talk:"🎙",scan:"📷",sql:"🗄️",
+                   course:"🎓",lab:"🧪"};
+/* Reopening sends it back to the surface it came from. A board question
+   reopened as a plain answer would lose the thing that made it worth
+   asking. */
+function recentHTML(limit){
+  if(!RECENT.length) return "";
+  return `<div class="eyebrow" style="margin-top:22px">Pick up where you left off</div>
+    <div class="recentwrap">${RECENT.slice(0,limit||6).map(r=>
+      `<button class="recentchip" data-again="${esc(r.q)}" data-againk="${esc(r.kind)}">
+        <span>${RECENT_ICON[r.kind]||"💬"}</span>${esc(r.q.slice(0,70))}</button>`).join("")}
+      <button class="recentchip clear" id="recentClear">Clear</button></div>`;
+}
+
 async function boot(){
   const [cur, prog] = await Promise.all([api.get("/api/curriculum"), api.get("/api/progress")]);
   TRACKS = cur.tracks;
@@ -1335,6 +1371,7 @@ async function boot(){
   S.stats = prog.stats||{xp:0,level:1,streak:0,level_progress:0,next_level_at:250};
   // Land an employer on the desk they came for, not a learner home page —
   // and land everybody else back where they actually were.
+  await loadRecent();
   S.view = restoreView();
   showApp(); render();
   paintPro();
@@ -1706,6 +1743,8 @@ function renderHome(){
   <!-- The scanner leads, because it is the shortest path from "I am stuck"
        to something useful, needs nothing chosen first, and works on any
        subject rather than only the ones with a track here. -->
+  ${recentHTML(6)}
+
   <div class="eyebrow" style="margin-top:0">Get unstuck</div>
   <div class="grid g2" style="margin-bottom:26px">
     <button class="tile" data-nav="scan" style="border-color:var(--accent)">
@@ -2379,6 +2418,7 @@ async function sbTeach(topic,keepTrail){
   if(!keepTrail) SB.trail=[];
   if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
   SB.topic=(topic||"").trim(); SB.lesson=null; SB.i=0; SB.error=""; SB.busy=true;
+  recordAsk(SB.topic,"board");
   renderAsk();
   try{
     const r=await api.post("/api/board/lesson",{topic:SB.topic,level:ASK.level||"Intermediate"});
@@ -3055,6 +3095,7 @@ async function askSubmit(raw){
     // button, and having it here as well meant the only way to keep it
     // quiet was to press Stop after every answer.
     askShow(res.lesson);
+    recordAsk(q,"ask");
   }catch(e){
     ASK.loading=false;
     ASK.error=(e&&e.message)||"Axle could not reach the board just now. Try again.";
@@ -6749,6 +6790,22 @@ document.addEventListener("click",e=>{
     return;
   }
   if(e.target.id==="scrim"){ closeDrawer(); return; }
+
+  const again=e.target.closest("[data-again]");
+  if(again){
+    const q=again.dataset.again, k=again.dataset.againk;
+    if(k==="board"){ S.view={page:"ask"}; render(); sbTeach(q); }
+    else if(k==="sql"){ S.view={page:"sqlboard"}; render(); }
+    else if(k==="scan"){ S.view={page:"scan"}; render(); }
+    else if(k==="lab"){ S.view={page:"lab"}; render(); }
+    else { S.view={page:"ask"}; ASK.question=q; render(); askSubmit(q); }
+    return;
+  }
+  if(e.target.closest("#recentClear")){
+    RECENT=[]; api.del("/api/recent").catch(()=>{});
+    render();
+    return;
+  }
 
   const b=e.target.closest("[data-nav]");
   if(!b) return;

@@ -226,6 +226,9 @@
       var r = await api.upload("/api/scan", fd);
       SC.scan = r.scan;
       SC.key = r.key || "";
+      if (typeof recordAsk === "function" && r.scan && r.scan.readable) {
+        recordAsk(r.scan.subject || (r.scan.read || "").slice(0, 60), "scan");
+      }
       if (!r.scan.readable) {
         SC.msg = r.scan.next ||
           "That did not come out readable. Try again with more light.";
@@ -272,12 +275,52 @@
         context: SC.scan.read.slice(0, 1000)
       });
       SC.course = r.course;
+      SC.courseTopic = SC.scan.subject || SC.scan.read.slice(0, 120);
       SC.open = { 0: true };
+      indexAnswers(r.course);
+      await loadCourseProgress();
     } catch (e) {
       SC.msg = e.message || "Could not build that course.";
     }
     SC.courseBusy = false;
     paint();
+  }
+
+  /* Which option is right, per question id.
+   *
+   * Built from the course when it arrives rather than during render, which
+   * was the first attempt and did not work: the restore ran before anything
+   * had been drawn, so the index was empty and nothing was ever restored. */
+  function indexAnswers(course) {
+    SC.answers = {};
+    (course.modules || []).forEach(function (m, mi) {
+      (m.lessons || []).forEach(function (l, li) {
+        if (l.check) SC.answers["m" + mi + "l" + li] = l.check.answer;
+      });
+      (m.exam || []).forEach(function (q, qi) {
+        SC.answers["m" + mi + "e" + qi] = q.answer;
+      });
+    });
+  }
+
+  /* What this person has already answered on this course. Only the ones
+     they got right count as done — the server decides that, and this only
+     restores what it recorded. */
+  async function loadCourseProgress() {
+    try {
+      var r = await api.get("/api/course/progress?topic=" +
+        encodeURIComponent(SC.courseTopic || ""));
+      Object.keys(r.answered || {}).forEach(function (id) {
+        // The chosen option is not stored, only whether it was right, so a
+        // restored answer shows as the correct one when it was and as the
+        // first wrong option when it was not. The score is what matters and
+        // the score is exact.
+        var right = (SC.answers || {})[id];
+        if (right === undefined) return;
+        SC.quiz[id] = r.answered[id].correct ? right
+          : (right === 0 ? 1 : 0);
+      });
+    } catch (e) { /* a missing history is not an error */ }
   }
 
   /* ------------------------------------------------------------------ *
@@ -621,8 +664,19 @@
     });
     document.querySelectorAll("[data-quiz]").forEach(function (el) {
       el.onclick = function () {
-        SC.quiz[el.dataset.quiz] = parseInt(el.dataset.opt, 10);
+        var id = el.dataset.quiz, pick = parseInt(el.dataset.opt, 10);
+        if (SC.quiz[id] !== undefined) return;      // answered once
+        SC.quiz[id] = pick;
         paint();
+        // Recorded server-side, so the score survives closing the tab. Fire
+        // and forget: a lost row is better than a click that appears to do
+        // nothing because the network was slow.
+        var right = SC.answers && SC.answers[id];
+        api.post("/api/course/progress", {
+          topic: SC.courseTopic || (SC.course && SC.course.title) || "course",
+          lesson: id,
+          correct: right !== undefined && pick === right
+        }).catch(function () {});
       };
     });
     document.querySelectorAll(".scmod").forEach(function (el) {
