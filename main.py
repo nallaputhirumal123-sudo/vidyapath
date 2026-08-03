@@ -4898,8 +4898,13 @@ async def ai_selftest(user: User = Depends(admin_user),
 
     base = {"maxOutputTokens": 20, "temperature": 0.4}
     matrix = {
-        # The configured model, stripped back one field at a time.
-        "as sent now":
+        # What the site actually builds today, rather than a guess at it. This
+        # row is the one to read: the others are controls that explain it.
+        "AS THE SITE SENDS IT":
+            await raw_call(GEMINI_MODEL, _gen_config(GEMINI_MODEL, 20, 0.4)),
+        # Control: thinkingConfig forced back on. Expected to fail — that is
+        # the whole finding, and it stays here so a regression is obvious.
+        "control: thinkingConfig forced on":
             await raw_call(GEMINI_MODEL,
                            dict(base, thinkingConfig={"thinkingBudget": 0})),
         "without thinkingConfig":
@@ -4915,10 +4920,14 @@ async def ai_selftest(user: User = Depends(admin_user),
             await raw_call("gemini-2.5-flash-lite", dict(base)),
     }
     works = [k for k, v in matrix.items() if v.get("ok")]
+    live_ok = matrix["AS THE SITE SENDS IT"].get("ok")
     matrix["VERDICT"] = (
         "Every variation failed — the key itself is refused, not the payload."
         if not works else
-        f"These work: {works}. Use one of them."
+        "Gemini is answering the request this site actually makes."
+        if live_ok else
+        f"The live request FAILS. These work instead: "
+        f"{[w for w in works if not w.startswith('control')]}."
     )
 
     short = await probe("short", GEMINI_MODEL, 20, "Reply with exactly: OK")
