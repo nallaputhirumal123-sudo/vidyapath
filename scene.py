@@ -15,6 +15,10 @@ gives a slightly wrong picture where rejecting gives none at all — but a
 thousand atoms is a hung tab on a phone, so counts are cut hard.
 """
 
+# The surface grid is computed with the same allowlisted evaluator that
+# checks a lesson's arithmetic. Nothing here executes a string.
+import maths as _maths
+
 KINDS = ("molecule", "layers", "lattice", "surface", "orbit", "solid",
          "process", "flow")
 
@@ -157,6 +161,21 @@ def clean(d):
         fn = str(d.get("fn") or "").strip().lower()
         out["fn"] = fn if fn in FUNCS else "saddle"
         out["span"] = _n(d.get("span"), 2, 8, 4)
+        # The function itself, if the lesson stated one.
+        #
+        # Six canned shapes meant a lesson on any other function got the
+        # nearest of them — a picture of a different function, which in
+        # mathematics is not a rough edge but the content being wrong. When
+        # an expression is given it is evaluated here, on a grid, by the same
+        # allowlisted walker used for checking answers: nothing executable
+        # reaches the browser, and nothing is executed here either. The page
+        # receives a list of numbers.
+        expr = str(d.get("expr") or "").strip()[:200]
+        if expr:
+            grid = _maths.surface(expr, out["span"])
+            if grid:
+                out["z"] = grid
+                out["expr"] = expr
         return out
 
     if kind == "orbit":
@@ -264,8 +283,14 @@ none.
             thin films, PCB stack-ups, geological strata, battery cells,
             skin and tissue layers, anything built up in labelled layers.
 
-"surface"   {"kind":"surface","fn":"saddle|bowl|dome|ripple|well|plane",
-             "span":4}
+"surface"   {"kind":"surface","expr":"x^2 - y^2","span":4}
+            Give "expr", the actual function of x and y this lesson is
+            about, and it is evaluated and plotted exactly — any function,
+            not a shape from a list. Use x and y only, with + - * / ^ and
+            sqrt, sin, cos, tan, exp, log, abs. "span" is how far out from
+            the origin to plot.
+            Fall back to {"fn":"saddle|bowl|dome|ripple|well|plane"} only
+            when the lesson is about the SHAPE rather than a formula.
             Optimisation, potentials, wave shapes, stationary points.
 
 "orbit"     {"kind":"orbit","centre":"Sun","bodies":[{"name":"Earth","r":4,

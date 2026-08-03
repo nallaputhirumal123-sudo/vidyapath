@@ -269,13 +269,74 @@
   /* z = f(x, y). Every optimisation surface, every wave, every potential
      well, and the only honest way to show a saddle point. */
   BUILD.surface = function (spec, group) {
+    /* Two ways to get a height, and the first is the real one.
+     *
+     * spec.z is a grid the server computed by evaluating the lesson's own
+     * function at each point. It arrives as plain numbers — no expression is
+     * ever sent here and nothing is evaluated in the browser. The six named
+     * shapes below remain only as the fallback for a lesson that named a
+     * shape instead of stating a function.
+     *
+     * A null in the grid means the function has no real value there, which
+     * is a fact about the function: sqrt(9 - x² - y²) is a hemisphere with
+     * nothing outside the circle. Those points are pushed out of range so
+     * the mesh does not weld a flat lid across a hole that is really there. */
     var N = 46, S = spec.span || 4;
+    var grid = spec.z;
+    if (grid && grid.length > 1) N = grid.length - 1;
     var g = new THREE.PlaneGeometry(S * 2, S * 2, N, N);
     var fn = FUNCS[spec.fn] || FUNCS.saddle;
     var p = g.attributes.position;
+
+    // Keep the drawn range proportionate to the function's own range, so a
+    // surface spanning 0..0.001 is not rendered as a flat sheet and one
+    // spanning 0..25 is not a spike with everything else crushed flat.
+    var lo = Infinity, hi = -Infinity;
+    if (grid) {
+      for (var r = 0; r < grid.length; r++) {
+        for (var c = 0; c < grid[r].length; c++) {
+          var v = grid[r][c];
+          if (v === null || v === undefined) continue;
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+      }
+    }
+    var scale = 1;
+    if (grid && hi > lo) scale = Math.min(1, (S * 1.1) / (hi - lo));
+
+    var hole = {};
     for (var i = 0; i < p.count; i++) {
       var x = p.getX(i), y = p.getY(i);
+      if (grid) {
+        // PlaneGeometry runs its vertices row by row from +y down to -y.
+        var col = i % (N + 1), row = (i - col) / (N + 1);
+        var gv = (grid[grid.length - 1 - row] || [])[col];
+        if (gv === null || gv === undefined) {
+          hole[i] = 1;
+          p.setZ(i, 0);
+        } else {
+          p.setZ(i, (gv - (lo + hi) / 2) * scale);
+        }
+        continue;
+      }
       p.setZ(i, Math.max(-6, Math.min(6, fn(x, y))));
+    }
+
+    /* Drop the triangles that touch a hole.
+     *
+     * A NaN position would be the obvious way to punch a hole and it is the
+     * wrong one: it propagates through computeVertexNormals and the entire
+     * mesh disappears. Removing the faces instead leaves the surface exactly
+     * where the function is defined and nothing where it is not, which is
+     * what a hemisphere should look like. */
+    if (grid && g.index) {
+      var idx = g.index.array, keep = [];
+      for (var t = 0; t < idx.length; t += 3) {
+        if (hole[idx[t]] || hole[idx[t + 1]] || hole[idx[t + 2]]) continue;
+        keep.push(idx[t], idx[t + 1], idx[t + 2]);
+      }
+      if (keep.length && keep.length < idx.length) g.setIndex(keep);
     }
     g.computeVertexNormals();
     g.rotateX(-Math.PI / 2);

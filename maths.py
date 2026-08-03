@@ -263,3 +263,78 @@ def check_solutions(text, order=("x", "y", "z")):
             })
             break                              # one failure per claim is enough
     return findings
+
+
+# --------------------------------------------------------------------------
+# Surfaces, computed rather than chosen
+# --------------------------------------------------------------------------
+# The 3D surface scene offered six canned shapes — saddle, bowl, dome, ripple,
+# well, plane — so a lesson on any other function got the nearest one, which
+# is a picture of a different function. For mathematics that is not a rough
+# edge, it is the whole content being wrong.
+#
+# A surface is the one visual on this board that can be produced exactly,
+# because the lesson states the function and evaluating it is arithmetic. So
+# the model gives the expression and the grid is computed here, point by
+# point, with the same allowlisted evaluator used everywhere else in this
+# file. Nothing executable is sent to the browser and nothing is executed
+# here: the page receives a plain list of numbers.
+GRID = 40                 # 41 x 41 points — smooth enough, ~1700 numbers
+MAX_Z = 1e6
+
+
+def surface(expr, span=4.0, n=GRID):
+    """Height values for z = f(x, y) over a square grid, or None.
+
+    Returns rows of z values from y = -span to +span, each row running
+    x = -span to +span, with None where the function has no real value —
+    a hole in the domain is a fact about the function and is drawn as one
+    rather than filled in with a guess.
+    """
+    try:
+        span = float(span)
+    except (TypeError, ValueError):
+        return None
+    if not (0.1 <= span <= 50) or not (8 <= int(n) <= 80):
+        return None
+    n = int(n)
+    src = _normalise(expr)
+    if not src or len(src) > 200:
+        return None
+    # Parse once, then walk the same tree for every point: 1,681 re-parses of
+    # the same string is the difference between instant and noticeable.
+    try:
+        tree = ast.parse(src, mode="eval")
+    except SyntaxError:
+        return None
+    if sum(1 for _ in ast.walk(tree)) > MAX_NODES:
+        return None
+
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    if names - {"x", "y"} - set(CONSTS) - set(FUNCS):
+        return None                       # a third variable is not a surface
+
+    rows, seen = [], 0
+    step = (2.0 * span) / n
+    for j in range(n + 1):
+        yv = -span + j * step
+        row = []
+        for i in range(n + 1):
+            xv = -span + i * step
+            try:
+                v = _walk(tree, {"x": xv, "y": yv})
+            except (Unsafe, ValueError, OverflowError, ZeroDivisionError,
+                    TypeError):
+                row.append(None)
+                continue
+            if v != v or abs(v) > MAX_Z:      # NaN, or off to infinity
+                row.append(None)
+                continue
+            row.append(round(float(v), 4))
+            seen += 1
+        rows.append(row)
+    # A function that is undefined nearly everywhere on this window is not
+    # being shown honestly; better no picture than a scattering of fragments.
+    if seen < (n + 1) * (n + 1) * 0.35:
+        return None
+    return rows
