@@ -666,6 +666,9 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   border-radius:8px;padding:11px 13px;margin:9px 0;overflow-x:auto;
   font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13.5px;
   line-height:1.6;color:#d9f7e6;white-space:pre}
+.sb-code .t-ps{color:#8fe3b0;font-weight:700}
+.sb-code .t-cmd{color:#ffffff;font-weight:600}
+.sb-code .t-out{color:#a9c6b6}
 .sb-lang{display:inline-block;font-size:10.5px;letter-spacing:.06em;
   text-transform:uppercase;color:#8fe3b0;margin-bottom:5px}
 .sb-dia{margin:10px 0}
@@ -2966,6 +2969,40 @@ function sbPhotoHTML(p){
     </figure>`;
 }
 
+/* A console session, read as one.
+ *
+ * A computing step arrives as the real prompt, the real command and the real
+ * output all in one block. Rendered flat it is an undifferentiated wall, and
+ * a learner cannot tell what was typed from what came back — which is the
+ * single most important distinction on a terminal screen.
+ *
+ * The prompt is what marks a typed line: a shell $ or #, a PowerShell
+ * PS C:\>, a Cisco hostname followed by > or #, a Python or SQL REPL. Those
+ * lines are lit; everything else is output and stays quiet, including the
+ * noisy and unhelpful parts, which the lesson is asked to keep.
+ *
+ * Escaped before matching, so nothing in the output can become markup.
+ */
+const TERM_PROMPT = /^(\s*(?:PS [A-Za-z]:[^>]*>|[A-Za-z]:\\[^>]*>|[\w.@()-]*[$#%](?=\s)|[\w.-]+(?:\([\w-]+\))?\s*[>#](?=\s|$)|>>>|\.\.\.|In \[\d+\]:|(?:mysql|postgres|sqlite|SQL)\s*>)\s?)/;
+
+function termHTML(code){
+  /* Match first, escape second.
+   *
+   * Escaping first turns > into &gt;, and half the prompts in computing are
+   * built from >: the Python REPL's >>>, PowerShell's PS C:\>, a Cisco
+   * switch in user mode as Switch>. Tested after escaping, those lines no
+   * longer contain the character that identifies them and were rendered as
+   * output — a Python session in which nobody appears to have typed
+   * anything. Every piece is still escaped before it reaches the page. */
+  const lines = String(code == null ? "" : code).split("\n");
+  return lines.map(ln => {
+    const m = ln.match(TERM_PROMPT);
+    if(!m) return '<span class="t-out">' + esc(ln) + '</span>';
+    return '<span class="t-ps">' + esc(m[1]) + '</span>'
+         + '<span class="t-cmd">' + esc(ln.slice(m[1].length)) + '</span>';
+  }).join("\n");
+}
+
 function sbBoardHTML(){
   if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
@@ -2984,7 +3021,7 @@ function sbBoardHTML(){
        ${st.where?`<div style="font-size:11.5px;color:#8fe3b0;margin-bottom:4px">
          🖥 ${esc(st.where)}</div>`:""}
        ${st.lang?`<span class="sb-lang">${esc(st.lang)}</span>`:""}
-       <div class="sb-code">${esc(st.code)}</div></div>`
+       <div class="sb-code">${termHTML(st.code)}</div></div>`
      :(st.where?`<div style="font-size:11.5px;color:#8fe3b0;margin-top:4px">
         🖥 ${esc(st.where)}</div>`:"")}
     <!-- The 3D scene, on the Pro board only. Mounted after this HTML is in
