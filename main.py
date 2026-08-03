@@ -8667,6 +8667,26 @@ async def _real_molecules(client, lesson, topic):
         if not isinstance(sc, dict):
             continue
 
+        # A crystal: the lattice constant and the basis are measured, and
+        # they are in a table rather than behind a request, because the
+        # structures that get taught are a short list and a table cannot be
+        # slow or down.
+        if sc.get("kind") == "lattice":
+            for name in (sc.get("caption"), topic):
+                real = _lattice.clean(name)
+                if not real:
+                    continue
+                sc.update(real)
+                # A cell edge in angstrom is 5.6, and the renderer draws in
+                # its own units where 5.6 would fill the screen with one
+                # cell. Keep the measured value for the label and give the
+                # drawing a size it can show.
+                sc["a_angstrom"] = real["a"]
+                sc["a"] = 2.0
+                swapped += 1
+                break
+            continue
+
         # A macromolecule: the backbone comes from the Protein Data Bank,
         # measured by crystallography. The model names the structure; it
         # does not place the atoms.
@@ -9386,6 +9406,7 @@ import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import depth as _depth                                              # noqa: E402
+import lattice as _lattice                                          # noqa: E402
 import images as _images                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402

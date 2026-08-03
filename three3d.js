@@ -264,6 +264,27 @@
     // The cell outline, so you can see what is actually repeating.
     var box = new THREE.Box3().setFromObject(group);
     group.add(new THREE.Box3Helper(box, 0xffb020));
+
+    /* The measured facts, when the structure is one that gets taught.
+     *
+     * The lattice constant and the coordination number are the lesson: rock
+     * salt and caesium chloride look similar at a glance and differ in
+     * exactly these two numbers. They come from a table of real values, not
+     * from the model, so they are worth putting on the picture.
+     *
+     * a_angstrom is the real cell edge; spec.a is how big it is drawn. Those
+     * are different numbers on purpose and only the first is a fact. */
+    if (spec.measured) {
+      var top = box.max.y + 0.7;
+      if (spec.structure) label(group, spec.structure, 0, top + 0.7, 0);
+      if (spec.a_angstrom) {
+        label(group, "a = " + spec.a_angstrom + " Å", 0, top, 0);
+      }
+      if (spec.coordination) {
+        label(group, "coordination " + spec.coordination,
+              0, box.min.y - 0.7, 0);
+      }
+    }
   };
 
   /* z = f(x, y). Every optimisation surface, every wave, every potential

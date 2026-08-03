@@ -1115,7 +1115,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
-<script src="three3d.js?v=bf400ade43"></script>
+<script src="three3d.js?v=e56d51609c"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
 <script src="bot.js?v=b85eb22fea"></script>
 <script>
@@ -3150,6 +3150,8 @@ function sceneSource(sc){
   if(sc.kind==="molecule" && (sc.atoms||[]).length)
     return "measured geometry · PubChem";
   if(sc.kind==="surface" && sc.z) return "computed from the function";
+  if(sc.kind==="lattice" && sc.measured)
+    return "measured structure · " + esc(sc.structure||"crystallography");
   return "schematic — drawn to explain, not to scale";
 }
 

@@ -201,6 +201,17 @@ def clean(d):
             return None
         out["basis"] = basis
         out["a"] = _n(d.get("a"), 0.6, 6.0, 2.0)
+        # Filled in from the measured table when the structure is one that
+        # gets taught. The drawing size and the real cell edge are different
+        # numbers: 5.64 angstrom is the fact, 2.0 is what fits on screen.
+        if d.get("measured"):
+            out["measured"] = True
+            out["structure"] = _label(d.get("structure"), 40)
+            out["a_angstrom"] = _n(d.get("a_angstrom"), 0.1, 100, 1.0)
+            try:
+                out["coordination"] = int(d.get("coordination") or 0)
+            except (TypeError, ValueError):
+                out["coordination"] = 0
         # Cubed, so this is the difference between 8 spheres and 500.
         out["repeat"] = int(_n(d.get("repeat"), 1, 4, 2))
         return out
@@ -347,7 +358,13 @@ none.
 
 "lattice"   {"kind":"lattice","caption":"...","a":2.0,"repeat":2,
              "basis":[{"el":"Si","x":0,"y":0,"z":0}, ...]}
-            Crystal structure, semiconductors, metals, salts.
+            Crystal structure, semiconductors, metals, salts. Name the
+            substance in the caption — "Rock salt unit cell", "Caesium
+            chloride" — and the real lattice constant, structure type and
+            coordination number are filled in and drawn from a table of
+            measured values. Do not write those yourself. For anything not
+            in the table your basis is used and the scene is marked
+            schematic.
 
 "layers"    {"kind":"layers","caption":"...",
              "layers":[{"name":"p substrate","t":1.0},
