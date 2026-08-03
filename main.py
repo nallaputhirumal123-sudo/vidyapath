@@ -3269,6 +3269,55 @@ def _ai_cache_put(db, qkey, result):
         db.rollback()
 
 
+class AIProvidersFailed(Exception):
+    """Every provider was tried and every one failed, with the reasons.
+
+    Carrying them all is the point. One provider's message describes one
+    provider, and reporting only the last one told people about a service
+    they had not configured while staying silent about the one they had.
+    """
+
+    def __init__(self, fails):
+        self.fails = fails or []
+        super().__init__("; ".join(f"{p}: {e}" for p, e in self.fails)[:400])
+
+
+def _one_provider_reason(prov, e):
+    """What went wrong at one provider, in that provider's own dialect."""
+    m = str(e).lower()
+    # Google first, because its rate-limit message is "You exceeded your
+    # current quota, please check your plan and billing details" — which
+    # contains both "quota" and "billing" while meaning neither. Gemini has no
+    # out-of-credit state that presents this way; enabling billing there buys
+    # a higher limit, it does not unblock a different error. So for Gemini,
+    # 429 is always a rate limit.
+    if prov == "gemini" and ("quota" in m or "429" in m
+                             or "rate limit" in m
+                             or "resource_exhausted" in m):
+        return ("rate", "Gemini is over its request limit for now — the free "
+                        "tier allows only a few calls a minute and a capped "
+                        "number per day, and it resets")
+    # Only these two are unambiguous. "billing" on its own is not.
+    if "insufficient_quota" in m or "credit balance" in m:
+        return ("credit", f"{prov} has no credit left — this will not clear "
+                          f"by waiting")
+    if ("not found" in m and "model" in m) or "is not supported" in m:
+        return ("model", f"{prov} does not have the model it was asked for")
+    if "api key" in m or "unauthor" in m or "401" in m or "403" in m:
+        return ("key", f"the {prov} key was refused")
+    if "quota" in m or "429" in m or "rate limit" in m or "resource_exhausted" in m:
+        if prov == "gemini":
+            return ("rate", "Gemini is over its request limit for now — the "
+                            "free tier allows only a few per minute and a "
+                            "capped number per day, and it resets")
+        return ("rate", f"{prov} is rate-limiting requests for now")
+    if "timeout" in m or "timed out" in m:
+        return ("slow", f"{prov} did not answer in time")
+    if "no text" in m:
+        return ("empty", f"{prov} returned nothing usable")
+    return ("other", f"{prov} could not be reached")
+
+
 def _ai_error_message(e):
     """Turn a raw upstream error into words that are true for the reader.
 
@@ -3280,11 +3329,25 @@ def _ai_error_message(e):
     Two upstream conditions arrive looking similar and need opposite advice.
     Being told to wait when the credit has run out means waiting forever.
     """
+    if isinstance(e, AIProvidersFailed) and e.fails:
+        reasons = [_one_provider_reason(p, x) for p, x in e.fails]
+        body = ". ".join(r[1][0].upper() + r[1][1:] for r in reasons) + "."
+        kinds = {r[0] for r in reasons}
+        if "credit" in kinds or "key" in kinds or "model" in kinds:
+            body += (" Nothing is wrong with your account — this is the "
+                     "site's own AI configuration.")
+        elif kinds <= {"rate", "slow", "empty", "other"}:
+            body += " Nothing has been used up on your account; try again "\
+                    "shortly."
+        return body
+
     s = str(e).lower()
     # No bare "402": any number containing it — a token count, a request id —
     # would match and tell somebody their credit had run out when it had not.
-    dead = ("insufficient_quota", "exceeded your current quota",
-            "billing", "credit balance", "payment required")
+    # And no bare "exceeded your current quota": that is OpenAI's phrase for
+    # billing and Google's for an ordinary rate limit, so on its own it means
+    # nothing.
+    dead = ("insufficient_quota", "credit balance", "payment required")
     if any(k in s for k in dead):
         return ("The AI provider's credit has run out, so this will not fix "
                 "itself by waiting. Nothing is wrong with your account. If "
@@ -3481,7 +3544,7 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
     order = [p for p in _providers_in_order() if p in VISION_PROVIDERS]
     if not order:
         raise RuntimeError("No AI provider that can read images is configured")
-    last = None
+    last, fails = None, []
     import time as _t
     _deadline = _t.monotonic() + 100
     async with httpx.AsyncClient(timeout=45) as client:
@@ -3504,9 +3567,13 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
+                fails.append((prov, last))
             except Exception as e:
                 print(f"Vision via {prov} failed: {type(e).__name__}: {e}")
                 last = e
+                fails.append((prov, e))
+    if fails:
+        raise AIProvidersFailed(fails)
     raise last or RuntimeError("No provider could read that image")
 
 
@@ -3518,7 +3585,7 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
     providers = _providers_in_order()
     if not providers:
         raise RuntimeError("No AI provider key is configured")
-    last = None
+    last, fails = None, []
     # 60s each across four providers is four minutes — longer than the client
     # waits, longer than Railway's proxy holds a connection, and long enough
     # that the page sat on "Building your lesson..." until somebody gave up.
@@ -3563,10 +3630,14 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
+                fails.append((prov, last))
             except Exception as e:
                 last = e
+                fails.append((prov, e))
                 print(f"AI provider '{prov}' failed, trying next: {type(e).__name__}: {e}")
                 continue
+    if fails:
+        raise AIProvidersFailed(fails)
     raise last if last else RuntimeError("AI generation failed")
 
 
