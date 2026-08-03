@@ -17,8 +17,12 @@ function to plot" would be sending something to evaluate in a browser, and a
 nicer curve is not worth that.
 """
 
-KINDS = ("plot", "bar", "timeline", "tree", "forces", "circuit", "venn",
-         "ray")
+# Only the three with conventions worth encoding. tree, forces, circuit, venn
+# and ray were named diagram types — the exact thing that made most questions
+# get no picture at all, because a question that is none of them got nothing.
+# They are all reachable from the drawing primitives now. The renderers stay
+# in draw.js's sibling for anything already cached, but nothing offers them.
+KINDS = ("plot", "bar", "timeline")
 
 # Free-body arrows point in eight directions and no others. A free angle
 # invites 37.4 degrees, which is a worse drawing than the nearest eighth.
@@ -224,16 +228,9 @@ def clean(d):
     return None
 
 
-PROMPT = """GIVE THE ANSWER A DRAWING, as `sketch`. Almost every topic has one, and a
-learner takes in a picture and a paragraph far better than two paragraphs.
-Before concluding that something needs no drawing, go through this list
-against it: a comparison is a venn, a sequence of events is a timeline, a
-classification or a branching argument is a tree, any relationship between
-two quantities is a plot, quantities side by side are bars. Only decide
-against a drawing when none of the eight genuinely fits — not as the safe
-default.
-
-It is drawn from numbers, so only these eight exist.
+PROMPT = """CHARTS, as `sketch`. Three kinds, for the three things that have conventions
+worth keeping: an axis, a bar and a dated line. Anything else you want to
+draw, compose with `draw` instead.
 
 "plot"      {"kind":"plot","x":"time (s)","y":"velocity (m/s)",
              "series":[{"name":"with drag","points":[[0,0],[1,8],[2,13]]}],
@@ -250,33 +247,6 @@ It is drawn from numbers, so only these eight exist.
 "timeline"  {"kind":"timeline","events":[{"at":"1789","name":"Estates-General",
              "note":"called for the first time since 1614"}]}
             History, a legal sequence, a geological period, project phases.
-
-"tree"      {"kind":"tree","root":{"name":"Chordata","children":[
-             {"name":"Mammalia","edge":"has hair"}]}}
-            Taxonomy, a decision tree, an org chart, a syntax tree, a
-            derivation that branches. Four levels deep at most.
-
-"forces"    {"kind":"forces","body":"block","surface":"rough slope",
-             "arrows":[{"dir":"down","label":"W = 49 N"},
-                       {"dir":"ne","label":"N = 42 N"},
-                       {"dir":"nw","label":"friction = 12 N"}]}
-            A free-body diagram. Directions are one of up, down, left, right,
-            ne, nw, se, sw.
-
-"circuit"   {"kind":"circuit","layout":"series",
-             "parts":[{"type":"battery","label":"12 V"},
-                      {"type":"resistor","label":"100 ohm"}]}
-            Electronics. Types: battery, resistor, lamp, switch, capacitor,
-            ammeter, voltmeter, motor, diode.
-
-"venn"      {"kind":"venn","a":"Mitosis","b":"Meiosis",
-             "only_a":"one division","both":"DNA replicates first",
-             "only_b":"crossing over"}
-            Comparing two things that genuinely share properties.
-
-"ray"       {"kind":"ray","lens":"converging","f":2,"u":4,"height":1}
-            Optics. Distances in arbitrary units; the drawing traces the rays
-            and finds the image itself.
 
 Rules:
 - A sketch and a 3D scene are alternatives, not a pair. Pick whichever

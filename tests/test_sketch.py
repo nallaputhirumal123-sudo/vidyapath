@@ -28,9 +28,11 @@ print("NOTHING UNRECOGNISED SURVIVES")
 check("a made-up kind is dropped", K.clean({"kind": "mandala"}) is None)
 check("junk instead of an object is dropped", K.clean("nope") is None)
 check("no kind at all is dropped", K.clean({}) is None)
-check("every advertised kind is implemented",
-      set(K.KINDS) == {"plot", "bar", "timeline", "tree", "forces",
-                       "circuit", "venn", "ray"})
+# Three, not eight. Only the kinds with conventions worth encoding stay here:
+# an axis, a bar and a dated line are better purpose-built than composed from
+# primitives every time. Everything else is drawn, not named.
+check("only the kinds with real conventions remain",
+      set(K.KINDS) == {"plot", "bar", "timeline"}, str(K.KINDS))
 
 print("\nPLOTS CARRY DATA, NOT FORMULAS")
 p = K.clean({"kind": "plot", "x": "t", "y": "v",
@@ -75,60 +77,16 @@ check("an event with no name is dropped",
                    "events": [{"name": "a"}, {"at": "1900"}, {"name": "b"}]}
                   )["events"]) == 2)
 
-deep = {"name": "L0", "children": [{"name": "L1", "children": [
-        {"name": "L2", "children": [{"name": "L3", "children": [
-            {"name": "L4", "children": [{"name": "L5"}]}]}]}]}]}
-t = K.clean({"kind": "tree", "root": deep})
-check("a tree stops at four levels",
-      max(n["depth"] for n in t["nodes"]) <= 4,
-      str(max(n["depth"] for n in t["nodes"])))
-check("every edge points at a real node",
-      all(0 <= e[0] < len(t["nodes"]) and 0 <= e[1] < len(t["nodes"])
-          for e in t["edges"]))
-check("a lone root is not a tree",
-      K.clean({"kind": "tree", "root": {"name": "only"}}) is None)
-
-check("a made-up force direction is dropped",
-      K.clean({"kind": "forces",
-               "arrows": [{"dir": "sideways", "label": "x"}]}) is None)
-check("real directions survive",
-      len(K.clean({"kind": "forces",
-                   "arrows": [{"dir": "up", "label": "N"},
-                              {"dir": "down", "label": "W"}]})["arrows"]) == 2)
-check("an arrow with no label is dropped",
-      K.clean({"kind": "forces", "arrows": [{"dir": "up"}]}) is None)
-check("a missing arrow size gets a default",
-      K.clean({"kind": "forces", "arrows": [{"dir": "up", "label": "N"}]}
-              )["arrows"][0]["size"] == 0.8)
-check("an unknown body falls back to a block",
-      K.clean({"kind": "forces", "body": "spaceship",
-               "arrows": [{"dir": "up", "label": "N"}]})["body"] == "block")
-
-check("an invented component is dropped",
-      K.clean({"kind": "circuit",
-               "parts": [{"type": "flux capacitor", "label": "1.21 GW"}]})
-      is None)
-check("real components survive",
-      len(K.clean({"kind": "circuit",
-                   "parts": [{"type": "battery", "label": "12 V"},
-                             {"type": "resistor", "label": "100"}]}
-                  )["parts"]) == 2)
-check("an unknown layout falls back to series",
-      K.clean({"kind": "circuit", "layout": "mesh",
-               "parts": [{"type": "battery"}]})["layout"] == "series")
-
-check("a venn needs both sides named",
-      K.clean({"kind": "venn", "a": "Mitosis"}) is None)
-check("a venn with both survives",
-      K.clean({"kind": "venn", "a": "A", "b": "B"})["b"] == "B")
-
-r = K.clean({"kind": "ray", "lens": "diverging", "f": 2, "u": 4})
-check("a ray diagram keeps its lens", r["lens"] == "diverging")
-check("an unknown lens falls back", K.clean({"kind": "ray",
-                                             "lens": "gravitational"}
-                                            )["lens"] == "converging")
-check("distances are clamped, not rejected",
-      K.clean({"kind": "ray", "u": 9999})["u"] == 12)
+# The five named diagram types are gone. They answered five questions and
+# left every other question with no picture at all, which is the whole reason
+# most answers arrived as text. Each of them composes from the drawing
+# primitives now — a Venn is two ellipses, a free-body diagram is arrows, a
+# circuit is symbols on a path — so the validator refuses them here and the
+# model is pointed at `draw` instead. Covered in test_draw.py.
+for retired in ("tree", "forces", "circuit", "venn", "ray"):
+    check(f"{retired} is refused now", K.clean({"kind": retired}) is None)
+check("a retired kind cannot sneak through with a full payload",
+      K.clean({"kind": "venn", "a": "Mitosis", "b": "Meiosis"}) is None)
 
 print("\nLABELS ARE TEXT AND NOTHING ELSE")
 long_name = "x" * 400

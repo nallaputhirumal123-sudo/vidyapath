@@ -8213,7 +8213,7 @@ def _board_prompt(topic: str, level: str) -> str:
         "ever standing in for. Walk the reader through it the way you "
         "would out loud, naming the pieces as you go.\n\n"
         "GIVE THE LESSON A 3D SCENE, on the one step where seeing the thing does the most work — the step where somebody would otherwise ask what it actually looks like. One per lesson: a second is a picture nobody looks at twice. Leave it out only when the topic has genuinely nothing to show, and be honest about that rather than forcing one.\n"
-        + _scene.PROMPT + "\n\n" + _sketch.PROMPT
+        + _draw.PROMPT + "\n\n" + _sketch.PROMPT + "\n\n" + _scene.PROMPT
     )
 
 
@@ -8243,6 +8243,7 @@ def _clean_board(d, topic):
         steps.append({
             "scene": _scene.clean(raw.get("scene")),
             "sketch": _sketch.clean(raw.get("sketch")),
+            "draw": _draw.clean(raw.get("draw")),
             "t": txt(raw.get("t")),
             # Where this step happens — the console, the portal, the query
             # tool. Shown as a caption above the screen so nobody has to guess
@@ -8265,7 +8266,13 @@ def _clean_board(d, topic):
         # wins: anything a model wanted to plot or annotate is a thing you
         # read values off, and reading values off a perspective view is what
         # the sketches exist to avoid.
-        if st.get("sketch") and st.get("scene"):
+        # One picture per step. The composed drawing wins over both: it can
+        # show anything the named kinds can and a great deal they cannot, so
+        # a step that sent two is a step that should have sent this one.
+        if st.get("draw"):
+            st["sketch"] = None
+            st["scene"] = None
+        elif st.get("sketch") and st.get("scene"):
             st["scene"] = None
         if not st.get("scene"):
             continue
@@ -8653,6 +8660,7 @@ async def sql_ask(body: SqlAskIn, user: User = Depends(current_user),
 import scanner as _scan                                             # noqa: E402
 import scene as _scene                                              # noqa: E402
 import sketch as _sketch                                            # noqa: E402
+import draw as _draw                                                # noqa: E402
 
 
 @app.post("/api/scan")
@@ -8914,9 +8922,11 @@ Rules:
   connected to the thing it measures is the reason people believe maths is
   pointless, and the same is true of every other subject.
 
-{_scene.PROMPT}
+{_draw.PROMPT}
 
-{_sketch.PROMPT}"""
+{_sketch.PROMPT}
+
+{_scene.PROMPT}"""
 
 
 def _clean_course(d):
@@ -8977,6 +8987,7 @@ def _clean_course(d):
                       "visual": visual(l.get("visual")),
                       "scene": _scene.clean(l.get("scene")),
                       "sketch": _sketch.clean(l.get("sketch")),
+                      "draw": _draw.clean(l.get("draw")),
                       "check": quiz(l.get("check"))}
             if lesson["teach"]:
                 lessons.append(lesson)

@@ -1005,6 +1005,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="scanner.js?v=e38e441925"></script>
 <script src="voice.js?v=35513e1f46"></script>
+<script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
 <script src="three3d.js?v=cb73e6bd03"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
@@ -2518,15 +2519,18 @@ function sbGo(d){
  * free account never receives a scene to draw. Plain Ask Axle stays sketches
  * and text.
  */
-let SB_SCENE=null, SB_SKETCH=null;
+let SB_SCENE=null, SB_SKETCH=null, SB_DRAW=null;
 function sbDropScene(){
   if(SB_SCENE){ try{ SB_SCENE(); }catch(e){} SB_SCENE=null; }
   if(SB_SKETCH){ try{ SB_SKETCH(); }catch(e){} SB_SKETCH=null; }
+  if(SB_DRAW){ try{ SB_DRAW.dispose(); }catch(e){} SB_DRAW=null; }
 }
 function sbMountScene(){
   sbDropScene();
   const st=(SB.lesson&&SB.lesson.steps&&SB.lesson.steps[SB.i])||null;
   if(!st) return;
+  const dr=document.getElementById("sbDraw");
+  if(dr&&st.draw&&window.Draw) SB_DRAW=Draw.mount(dr,st.draw);
   const sk=document.getElementById("sbSketch");
   if(sk&&st.sketch&&window.Sketch) SB_SKETCH=Sketch.mount(sk,st.sketch);
   const el=document.getElementById("sbScene");
@@ -2674,6 +2678,8 @@ function sbBoardHTML(){
     <!-- The 3D scene, on the Pro board only. Mounted after this HTML is in
          the document, by sbMountScene below — the renderer needs a real
          element with a real width, which a template string is not. -->
+    ${st.draw?`<div class="sb-scene-cap">✏️ ${esc(st.draw.caption||"")}</div>
+      <div class="sb-scene" id="sbDraw"></div>`:""}
     ${st.sketch?`<div class="sb-scene-cap">✏️ ${esc(st.sketch.caption
         ||"")}</div>
       <div class="sb-scene" id="sbSketch"></div>`:""}
