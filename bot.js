@@ -177,13 +177,51 @@
   /* The last thing worth explaining properly — used when somebody says "put
      that on the board", where "that" is the previous exchange, not the
      sentence containing the word "that". */
+  /* A bare reply to Axle's own question: "2 and 4", "yes", "the second one".
+     Short, and carrying no subject of its own. */
+  function isReply(t) {
+    var w = String(t || "").trim().split(/\s+/);
+    if (w.length > 5) return false;
+    // A question, however short, is a topic — "what is entropy?"
+    if (/[?]/.test(t)) return false;
+    if (/^(what|why|how|when|where|which|who|explain|teach|show)\b/i.test(t)) {
+      return false;
+    }
+    return true;
+  }
+
+  /* What the conversation is actually about.
+   *
+   * Not the most recent thing typed. Axle asks follow-up questions — "which
+   * numbers are a and b?" — and the replies to those are short and carry no
+   * subject: taking one as the topic sent "2 and 4" to the board, which
+   * built a lesson called "Division of 2 and 4" for somebody who had asked
+   * how to solve a squared plus b squared.
+   *
+   * So: the last substantial thing asked, plus the short replies that came
+   * after it, which are not the subject but are the values the lesson needs.
+   */
   function lastTopic() {
+    var idx = -1;
     for (var i = B.turns.length - 1; i >= 0; i--) {
-      if (B.turns[i].who === "you" && !BOARD_RE.test(B.turns[i].text)) {
-        return B.turns[i].text;
+      var t = B.turns[i];
+      if (t.who !== "you" || BOARD_RE.test(t.text)) continue;
+      if (isReply(t.text) && idx === -1) { idx = i; continue; }
+      if (!isReply(t.text)) {
+        var given = [];
+        for (var j = i + 1; j < B.turns.length; j++) {
+          if (B.turns[j].who === "you" && !BOARD_RE.test(B.turns[j].text)
+              && isReply(B.turns[j].text)) {
+            given.push(B.turns[j].text.trim());
+          }
+        }
+        return given.length
+          ? t.text + " \u2014 given: " + given.join(", ")
+          : t.text;
       }
     }
-    return "";
+    // Nothing but short replies: the first of them is the best there is.
+    return idx >= 0 ? B.turns[idx].text : "";
   }
 
   async function send(text) {
