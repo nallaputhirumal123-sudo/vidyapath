@@ -9019,6 +9019,15 @@ def _check_lesson(lesson, extra_lines=()):
         found = found + _maths_gate(list(extra_lines) + _lesson_prose(lesson))
     except Exception as e:
         print(f"Maths check skipped: {type(e).__name__}: {e}")
+    # Units. The constants checker knows CODATA values and the arithmetic
+    # checker does sums; neither reads a symbolic formula, which is how an
+    # angular momentum in kg/s reached a lesson. This is exponent arithmetic
+    # on the seven SI base units — no model, no network, no judgement.
+    try:
+        text = "\n".join(list(extra_lines) + _lesson_prose(lesson))
+        found = found + _dimensions.check(text)
+    except Exception as e:
+        print(f"Dimension check skipped: {type(e).__name__}: {e}")
     try:
         v = _verify.verdict(found)
     except Exception:
@@ -9047,10 +9056,27 @@ def _note_findings(found):
     holding a lesson they now distrust and no way to repair it; "that is
     wrong, and here is what it should say" leaves them with the answer.
     """
-    out = []
-    for f in found:
+    # Four checkers can now see the same fault. The reviewer reads the
+    # argument, the dimension checker reads the units, the maths gate
+    # substitutes the answer and verify.py reads the constants — a formula in
+    # the wrong units is exactly the kind of thing two of them catch at once,
+    # and telling somebody twice makes both reports look automated.
+    #
+    # Deduplicated on the words rather than the kind, because the same fault
+    # described by two checkers is still one fault, and the deterministic
+    # checkers are kept over the model when both found it: they can say what
+    # is wrong exactly, where the reviewer can only say it in a sentence.
+    ordered = sorted(found, key=lambda f: f.get("kind") == "review")
+    out, seen = [], []
+    for f in ordered:
         if f.get("severity") not in ("critical", "major"):
             continue
+        key = set(_re.findall(r"[a-z0-9]{4,}",
+                              str(f.get("problem") or "").lower()))
+        if any(key and len(key & prev) >= max(2, len(key) // 2)
+               for prev in seen):
+            continue
+        seen.append(key)
         problem = str(f.get("problem") or "").strip()
         if not problem:
             continue
@@ -9667,6 +9693,7 @@ import sketch as _sketch                                            # noqa: E402
 import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
+import dimensions as _dimensions                                    # noqa: E402
 import depth as _depth                                              # noqa: E402
 import lattice as _lattice                                          # noqa: E402
 import orbits as _orbits                                            # noqa: E402
