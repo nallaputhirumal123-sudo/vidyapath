@@ -154,6 +154,24 @@ def formula(atoms) -> str:
     return "".join(out)
 
 
+def _same_substance(asked, title):
+    """Does PubChem's canonical name agree with what was asked for?
+
+    A canonical Title is the name a chemist would use, so the asked-for
+    name should appear in it. Word-by-word rather than as a substring,
+    so "sulfuric acid" matches "Sulfuric Acid" whatever the ordering.
+    """
+    a = " ".join(str(asked or "").lower().split())
+    t = " ".join(str(title or "").lower().split())
+    if not a or not t:
+        return False
+    if a in t or t in a:
+        return True
+    aw = set(re.findall(r"[a-z0-9]+", a))
+    tw = set(re.findall(r"[a-z0-9]+", t))
+    return bool(aw) and aw <= tw
+
+
 async def find(client, name: str) -> dict:
     """A named compound in three dimensions, or nothing.
 
@@ -164,6 +182,37 @@ async def find(client, name: str) -> dict:
         return {}
     n = " ".join(str(name).split())
     from urllib.parse import quote
+
+    # Confirm PubChem means the same thing before drawing it.
+    #
+    # It is a chemical index carrying millions of depositor synonyms, and
+    # short words collide with them: "git" resolves to a triazole carbamate
+    # and "react" to Levonorgestrel. Both are real compounds and both would
+    # render beautifully, in a lesson about neither.
+    #
+    # Getting this wrong here is cheap in one direction and not the other. A
+    # refusal keeps the scene the model already described; an acceptance puts
+    # the wrong molecule on the board. So the canonical Title must contain
+    # what was asked: "Caffeine" does, "D-Glucose" does, and the IUPAC name
+    # of CID 162394498 contains no "git".
+    try:
+        chk = await client.get(
+            "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/"
+            + quote(n, safe="") + "/property/Title/JSON",
+            timeout=TIMEOUT, headers={"User-Agent": UA})
+        if chk.status_code != 200:
+            return {}
+        props = ((chk.json() or {}).get("PropertyTable") or {}).get(
+            "Properties") or []
+        title = str(props[0].get("Title") or "") if props else ""
+        if not _same_substance(n, title):
+            print(f"PubChem resolved {n!r} to {title[:50]!r} — not the same "
+                  f"substance, keeping the described scene")
+            return {}
+    except Exception as e:
+        print(f"PubChem name check failed for {n!r}: {type(e).__name__}: {e}")
+        return {}
+
     try:
         r = await client.get(PUBCHEM_3D.format(quote(n, safe="")),
                              timeout=TIMEOUT, headers={"User-Agent": UA})

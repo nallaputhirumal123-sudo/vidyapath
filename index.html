@@ -854,6 +854,73 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
   overflow:hidden;background:rgba(0,0,0,.28);margin:6px 0 10px;min-height:140px}
 .sb-scene-cap{font-size:11.5px;color:#8fe3b0;margin:10px 0 4px}
 .sb-scene .td-fail{padding:14px;font-size:12.5px;color:#8fa3b0;line-height:1.6}
+
+/* ---- phones and tablets ------------------------------------------------
+ * Everything below is about one thing: on a narrow screen the page must fit
+ * the screen, and tapping something must not change that.
+ */
+
+/* iOS Safari zooms the whole page when a focused control has a font under
+ * 16px. Not configurable, not a bug — it is simply what happens. Six controls
+ * here were under it, and that zoom is exactly why boxes looked "half eaten":
+ * the page is magnified rather than reflowed, so a layout that fitted the
+ * screen is now viewed through a window two thirds the width and everything
+ * to the right of it is off-screen.
+ *
+ * !important because lab.js and the other view scripts inject their
+ * stylesheets after this one, and their 13px would otherwise win. */
+@media (max-width: 1024px) {
+  input, textarea, select, button {
+    font-size: 16px !important;
+  }
+  /* Code keeps its monospace and its density, just not a zooming font. */
+  textarea.code, .pj-note, #stdCode {
+    font-size: 16px !important;
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Nothing may push the page sideways. A single long word — a URL, a
+   * chemical name, a hash — is enough to do it, and then every screen is
+   * scrollable horizontally and nothing lines up. */
+  body, #main { overflow-x: hidden; }
+  #main, .card, .ask-wrap, .lbwrap, .scwrap {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  h1, h2, h3, p, li, td, .ask-line, .sb-step, .scread, .scstep p {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* Things that genuinely cannot wrap scroll inside their own box rather
+   * than stretching the page: code, wide tables, and the maths renderer's
+   * stacked fractions. */
+  pre, .sb-code, .scwork, .lbeq, .code-out, table {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* A row of controls that will not fit must wrap, not overflow. This is
+   * what compressed the board's question box to a sliver: two buttons were
+   * added to a nowrap row and the input gave up its width to them. */
+  .ask-row, .scbar, .lbrow, .sb-tools, .ask-chips, .lbtabs {
+    flex-wrap: wrap;
+  }
+  .ask-input, .ask-row input[type="text"] {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  /* Give the question box the whole width and put the buttons under it,
+   * rather than dividing 320 points between an input and four controls. */
+  .ask-row { gap: 8px; }
+  .ask-btn, .ask-send { flex: 0 0 auto; }
+}
 </style>
 </head>
 <body>

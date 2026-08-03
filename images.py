@@ -289,28 +289,77 @@ def _compound(topic):
     return t if len(words) <= 3 else ""
 
 
+# The canonical name PubChem holds for a compound, used to confirm that what
+# came back is what was asked for.
+PUBCHEM_TITLE = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/"
+                 "{}/property/Title/JSON")
+PUBCHEM_CID = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
+               "{}/PNG?image_size=large")
+
+
+def _same_substance(asked, title):
+    """Does PubChem's canonical name agree with what was asked for?
+
+    The database carries millions of depositor synonyms and short words
+    collide with them: "git" resolves to a triazole carbamate and "react" to
+    Levonorgestrel. Both return a real, correct picture of a real compound
+    that has nothing to do with the lesson.
+
+    A canonical Title is the name a chemist would use, so the asked-for name
+    should be in it — "Caffeine" contains "caffeine", "D-Glucose" contains
+    "glucose". The IUPAC mouthful for CID 162394498 contains no "git".
+    """
+    a = " ".join(str(asked or "").lower().split())
+    t = " ".join(str(title or "").lower().split())
+    if not a or not t:
+        return False
+    if a in t or t in a:
+        return True
+    # Sulfuric acid is titled "Sulfuric Acid"; citric acid, "Citric Acid".
+    # Compare word by word so ordering and hyphens do not matter.
+    aw = set(re.findall(r"[a-z0-9]+", a))
+    tw = set(re.findall(r"[a-z0-9]+", t))
+    return bool(aw) and aw <= tw
+
+
 async def _from_pubchem(client, topic):
     """A structural formula, or nothing. Public domain: no credit required."""
     name = _compound(topic)
     if not name:
         return {}
     try:
-        r = await client.get(PUBCHEM.format(quote(name, safe="")),
+        # Ask what it resolves to before asking for a picture of it.
+        r = await client.get(PUBCHEM_TITLE.format(quote(name, safe="")),
                              timeout=TIMEOUT, headers={"User-Agent": UA})
-        # PubChem answers 404 for anything it does not recognise as a
-        # compound, which is exactly the filter wanted: no match, no picture.
-        if r.status_code != 200 or "image" not in \
-                r.headers.get("content-type", ""):
+        # PubChem answers 404 for anything it cannot resolve at all.
+        if r.status_code != 200:
+            return {}
+        props = ((r.json() or {}).get("PropertyTable") or {}).get(
+            "Properties") or []
+        if not props:
+            return {}
+        cid = props[0].get("CID")
+        title = str(props[0].get("Title") or "")
+        if not cid or not _same_substance(name, title):
+            print(f"PubChem resolved {name!r} to {title[:60]!r} — "
+                  f"not the same thing, so no picture")
+            return {}
+
+        url = PUBCHEM_CID.format(int(cid))
+        img = await client.get(url, timeout=TIMEOUT,
+                               headers={"User-Agent": UA})
+        if img.status_code != 200 or "image" not in \
+                img.headers.get("content-type", ""):
             return {}
         # A blank canvas is about 300 bytes. Benzene, a plain hexagon, is
         # only 800 — so the floor has to sit between them, not above both.
-        if len(r.content) < 500:
+        if len(img.content) < 500:
             return {}
     except Exception as e:
         print(f"PubChem lookup failed for {name!r}: {type(e).__name__}: {e}")
         return {}
-    return {"url": PUBCHEM.format(quote(name, safe="")), "width": 600,
-            "caption": name, "author": "", "license": "", "page": ""}
+    return {"url": url, "width": 600, "caption": title or name,
+            "author": "", "license": "", "page": ""}
 
 
 # ---- astronomy and earth science: NASA's own photographs ----------------
@@ -367,13 +416,32 @@ async def find(client, topic: str) -> dict:
     if not q or not wanted(q):
         return {}
 
-    # Public-domain sources first. They are better pictures for the subjects
-    # they cover — a structural formula is the compound, where an article's
-    # lead image is whatever an editor chose — and they carry no attribution
-    # obligation, so nothing appears under the picture at all.
-    # NASA first. "Saturn" is unambiguously astronomical and ambiguously
+    # Only sources whose picture is OF the thing that was asked about.
+    #
+    # PubChem generates the structure from the compound, so glucose returns
+    # glucose and cannot return anything else. NASA catalogues photographs
+    # against the object in them. Both are exact by construction rather than
+    # by an editor's judgement about what best introduces an article, and
+    # both are public domain, so no credit line appears at all.
+    #
+    # NASA first: "Saturn" is unambiguously astronomical and ambiguously
     # chemical, so the more specific signal is asked first.
-    for source in (_from_nasa, _from_pubchem):
+    # NASA only.
+    #
+    # PubChem was here too and is now gone. It is a chemical index with
+    # millions of depositor synonyms, and short words collide with them:
+    # "git" resolved to a triazole carbamate, "react" to Levonorgestrel.
+    # Verifying the canonical title against the query fixed those and then
+    # rejected caffeine, aspirin and benzene as well — the tightening that
+    # stops the wrong answers also stops the right ones, and every question
+    # became a new special case.
+    #
+    # NASA catalogues its photographs against the object in them, so a
+    # search for Saturn returns Saturn. It has not produced a wrong picture
+    # once. Everything it does not cover gets no photograph, and relies on
+    # the canvas sketch and the 3D scene, both of which are built from the
+    # lesson's own values and cannot be about something else.
+    for source in (_from_nasa,):
         try:
             pic = clean(await source(client, q))
         except Exception as e:
@@ -382,6 +450,27 @@ async def find(client, topic: str) -> dict:
         if pic:
             return pic
 
+    # And nothing else.
+    #
+    # Wikimedia used to catch everything these two do not. It was dropped
+    # after "aircraft engine" returned a photograph of an aeroplane — which
+    # was not a failure of the search. "Aircraft engine" is the right
+    # article; its lead image is an aeroplane because an editor chose the
+    # picture that best introduces the article, and introducing an article
+    # is not the same job as showing the subject.
+    #
+    # No filter fixes that. A title check can stop the search landing on the
+    # wrong subject, and one was added for exactly that — it is why a crane
+    # no longer appears for a gearbox. It cannot turn a general
+    # encyclopaedia's lead images into subject photographs.
+    #
+    # So there are fewer pictures now. A lesson with none is ordinary; a
+    # lesson illustrated with the wrong machine teaches the wrong machine,
+    # because a reader believes a picture over a paragraph.
+    return {}
+
+    # Unreachable, and kept on purpose: this is the working shape for a
+    # source that does index subject photographs, if one is ever added.
     try:
         r = await client.get(API, timeout=TIMEOUT, headers={"User-Agent": UA},
                              params={

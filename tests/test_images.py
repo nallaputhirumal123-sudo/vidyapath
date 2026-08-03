@@ -89,7 +89,7 @@ try:
 
     async def go():
         async with httpx.AsyncClient(follow_redirects=True) as c:
-            return (await images.find(c, "mitochondrion"),
+            return (await images.find(c, "Saturn"),
                     await images.find(c, "qwertyuiop asdfghjkl zxcvbnm 12345"))
 
     pic, nothing = asyncio.run(go())
@@ -97,15 +97,16 @@ except Exception as e:
     SKIP += 1
     print(f"  ..    live lookup skipped (no network?): {type(e).__name__}")
 else:
-    check("a real topic returns a picture", bool(pic.get("url")),
+    check("an astronomy topic returns a picture", bool(pic.get("url")),
           pic.get("caption", ""))
-    check("it comes from Wikimedia",
-          pic.get("url", "").startswith("https://upload.wikimedia.org/"),
+    check("it comes from NASA",
+          pic.get("url", "").startswith("https://images-assets.nasa.gov/"),
           pic.get("url", "")[:60])
-    check("it is credited", bool(pic.get("author") or pic.get("license")),
+    # NASA is US government work in the public domain. Nothing to credit is
+    # half the reason it is the source that was kept.
+    check("it carries no credit line",
+          not pic.get("author") and not pic.get("license"),
           f"{pic.get('author', '')} / {pic.get('license', '')}")
-    check("it is big enough to be a picture",
-          pic.get("width", 0) >= images.MIN_WIDTH, str(pic.get("width")))
     check("nonsense returns nothing rather than something wrong",
           nothing == {}, str(nothing)[:60])
 
@@ -135,7 +136,8 @@ try:
     async def routed():
         async with httpx.AsyncClient(follow_redirects=True) as c:
             out = {}
-            for t in ("glucose", "benzene", "Saturn", "the human heart"):
+            for t in ("git", "react", "glucose", "aircraft engine",
+                      "a lunar eclipse"):
                 out[t] = await images.find(c, t)
             return out
 
@@ -143,20 +145,16 @@ try:
 except Exception as _e:
     print("  ..    live routing skipped: " + type(_e).__name__)
 else:
-    check("glucose comes from PubChem",
-          "pubchem" in got["glucose"].get("url", ""),
-          got["glucose"].get("url", "")[:52])
-    check("benzene too, despite its small file",
-          "pubchem" in got["benzene"].get("url", ""))
-    check("Saturn comes from NASA, not PubChem",
-          "nasa" in got["Saturn"].get("url", ""),
-          got["Saturn"].get("url", "")[:52])
-    check("a public-domain picture needs no credit",
-          not got["glucose"].get("author")
-          and not got["glucose"].get("license"))
-    check("a Wikimedia picture still carries one",
-          bool(got["the human heart"].get("author")
-               or got["the human heart"].get("license")))
+    # The reports that closed the picture sources down, kept as tests.
+    check("'git' gets no picture", got["git"] == {},
+          str(got["git"])[:50])
+    check("nor does 'react'", got["react"] == {})
+    check("nor does a compound, now PubChem is out of the picture path",
+          got["glucose"] == {})
+    check("nor does 'aircraft engine'", got["aircraft engine"] == {})
+    check("an eclipse still does, from NASA",
+          "nasa" in got["a lunar eclipse"].get("url", ""),
+          got["a lunar eclipse"].get("caption", ""))
 
 print(f"\nPASSED {PASS}   FAILED {FAIL}" + (f"   SKIPPED {SKIP}" if SKIP else ""))
 sys.exit(1 if FAIL else 0)
