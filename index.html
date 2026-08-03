@@ -1124,7 +1124,7 @@ var TUTOR = window.Tutor || {
 
 /* ===================== API ===================== */
 const api = {
-  async call(path, opts={}){
+  async call(path, opts={}, _attempt=0){
     /* Every request gets a deadline. Without one, a fetch that never settles
        — a proxy that drops the connection without closing it, a phone that
        loses signal mid-request — leaves the promise pending forever, and the
@@ -1162,9 +1162,21 @@ const api = {
     catch(e){
       const html=/^\s*<(?:!doctype|html)/i.test(txt);
       if(html) console.error("Non-JSON response from "+path+":", txt.slice(0,400));
+      /* An HTML 502, 503 or 504 is the platform answering because the app
+         is not there: a restart, a cold start, or a request that outlived a
+         proxy timeout. Those clear in seconds and the request is a question,
+         not a purchase, so it is worth sending once more.
+
+         Deliberately not 500. A 500 is our own code failing, and retrying it
+         produces the same failure twice and hides it the first time. */
+      if(html && [502,503,504].includes(r.status) && _attempt < 1){
+        await new Promise(res=>setTimeout(res, 1800));
+        return api.call(path, opts, _attempt + 1);
+      }
       data={detail: html
         ? (r.status>=500
-            ? "The server is not responding right now. Please try again in a moment."
+            ? "The server did not answer that request ("+path+"). It may be "
+              + "restarting — wait a few seconds and try again."
             : "Something went wrong. Please try again.")
         : (txt||"").slice(0,300)};
     }
@@ -2886,7 +2898,8 @@ function sbVoiceInput(){
     return;
   }
   const r=new SR(); SB.recog=r;
-  r.lang="en-IN"; r.interimResults=false; r.maxAlternatives=1;
+  r.lang=ASK.voiceFallback ? "en-US" : "en-IN";
+  r.interimResults=false; r.maxAlternatives=1;
   r.onresult=ev=>{
     const t=(ev.results[0][0].transcript||"").trim();
     SB.recog=null; SB.listening=false;
@@ -2899,10 +2912,16 @@ function sbVoiceInput(){
   r.onerror=ev=>{
     const code=(ev&&ev.error)||"";
     SB.recog=null; SB.listening=false;
+    if(code==="language-not-supported" && !ASK.voiceFallback){
+      ASK.voiceFallback=true;
+      sbVoiceInput();
+      return;
+    }
     const msg=VOICE_TROUBLE[code];
-    if(msg!==undefined ? msg : true)
-      toast(msg!==undefined ? msg
-        : "The microphone stopped unexpectedly. Try again, or type it.");
+    const say = msg!==undefined ? msg
+      : "The microphone reported \u201c"+(code||"an unknown fault")
+        +"\u201d. Try again, or type the question instead.";
+    if(say) toast(say);
     sbPaint();
   };
   r.onend=()=>{ SB.recog=null; SB.listening=false; sbPaint(); };
@@ -3631,6 +3650,11 @@ function askVoiceStop(){
   if(r){ try{ r.onend=null; r.onerror=null; r.abort(); }catch(e){} }
 }
 
+/* Every cause the Web Speech API reports, in words somebody can act on.
+ *
+ * The fallback used to say "stopped unexpectedly", which is what you write
+ * when you do not know — and it left the reader nothing to report and me
+ * nothing to work from. It now carries the browser's own code. */
 const VOICE_TROUBLE={
   "not-allowed":"Your browser is blocking the microphone. Allow mic access "
     +"for this site — the padlock in the address bar — then try again.",
@@ -3641,7 +3665,10 @@ const VOICE_TROUBLE={
     +"in use by another app.",
   "network":"Speech recognition needs the network and could not reach it. "
     +"Check your connection, or type the question instead.",
-  "aborted":""            // the user stopped it on purpose; say nothing
+  "aborted":"",           // the user stopped it on purpose; say nothing
+  "language-not-supported":"This browser does not have Indian English for "
+    +"speech. Trying again in US English — say that once more.",
+  "bad-grammar":"The microphone returned something unusable. Try again."
 };
 
 function askVoiceInput(){
@@ -3656,7 +3683,8 @@ function askVoiceInput(){
     renderAsk(); return;
   }
   const r=new SR(); ASK.recog=r;
-  r.lang="en-IN"; r.interimResults=false; r.maxAlternatives=1;
+  r.lang=ASK.voiceFallback ? "en-US" : "en-IN";
+  r.interimResults=false; r.maxAlternatives=1;
   r.onresult=ev=>{
     const t=(ev.results[0][0].transcript||"").trim();
     ASK.recog=null; ASK.listening=false;
@@ -3666,9 +3694,17 @@ function askVoiceInput(){
   r.onerror=ev=>{
     const code=(ev&&ev.error)||"";
     ASK.recog=null; ASK.listening=false;
+    // Some browsers ship no Indian English and refuse the locale outright.
+    // One silent retry in US English, which every one of them has.
+    if(code==="language-not-supported" && !ASK.voiceFallback){
+      ASK.voiceFallback=true;
+      askVoiceInput();
+      return;
+    }
     const msg=VOICE_TROUBLE[code];
     ASK.error = msg!==undefined ? msg
-      : "The microphone stopped unexpectedly. Try again, or type it instead.";
+      : "The microphone reported \u201c"+(code||"an unknown fault")
+        +"\u201d. Try again, or type the question instead.";
     renderAsk();
   };
   r.onend=()=>{ ASK.recog=null; ASK.listening=false; renderAsk(); };
