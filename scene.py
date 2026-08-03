@@ -82,6 +82,53 @@ def _colour(v):
     return i if 0 <= i <= 0xFFFFFF else None
 
 
+# The nine solids, and what "size" means for each: the defining length a
+# school problem gives you.
+SOLIDS = {
+    "cube": "edge", "sphere": "radius", "cylinder": "radius",
+    "cone": "radius", "torus": "outer radius", "tetra": "edge",
+    "octa": "edge", "icosa": "edge", "prism": "edge",
+}
+
+
+def _solid_measures(shape, a):
+    """Volume and surface area, exactly, from the defining length.
+
+    Height is taken as twice the radius for the cylinder and the cone, which
+    is what the renderer draws — a figure whose numbers describe a different
+    solid from the one on screen is worse than no numbers.
+    """
+    import math as _m
+    a = float(a)
+    if shape == "cube":
+        v, s_ = a ** 3, 6 * a * a
+    elif shape == "sphere":
+        v, s_ = 4 / 3 * _m.pi * a ** 3, 4 * _m.pi * a * a
+    elif shape == "cylinder":
+        h = 2 * a
+        v, s_ = _m.pi * a * a * h, 2 * _m.pi * a * (a + h)
+    elif shape == "cone":
+        h = 2 * a
+        slant = _m.hypot(a, h)
+        v, s_ = _m.pi * a * a * h / 3, _m.pi * a * (a + slant)
+        v, s_ = v, s_
+    elif shape == "torus":
+        r = a * 0.35
+        v, s_ = 2 * _m.pi ** 2 * a * r * r, 4 * _m.pi ** 2 * a * r
+    elif shape == "tetra":
+        v, s_ = a ** 3 / (6 * _m.sqrt(2)), _m.sqrt(3) * a * a
+    elif shape == "octa":
+        v, s_ = _m.sqrt(2) / 3 * a ** 3, 2 * _m.sqrt(3) * a * a
+    elif shape == "icosa":
+        v = 5 * (3 + _m.sqrt(5)) / 12 * a ** 3
+        s_ = 5 * _m.sqrt(3) * a * a
+    else:                                   # triangular prism, height 2a
+        v, s_ = (_m.sqrt(3) / 4 * a * a) * (2 * a), \
+                (_m.sqrt(3) / 2 * a * a) + 3 * a * (2 * a)
+    return {"of": SOLIDS.get(shape, "edge"),
+            "volume": round(v, 4), "area": round(s_, 4)}
+
+
 def clean(d):
     """Validate one scene, or return None if there is not a usable one."""
     if not isinstance(d, dict):
@@ -164,6 +211,25 @@ def clean(d):
         # treats coordinates as numbers and drops anything that is not one.
         out.update(_protein.clean(d))
         return out if out.get("traces") else None
+
+    if kind == "solid":
+        # A solid is shown to teach the relationship between its dimensions
+        # and its volume and surface area, so those are computed here from
+        # the stated size — exactly, by the formula the lesson is teaching.
+        # Asking a model to write them risks a number that disagrees with the
+        # picture beside it, and nobody would see which was wrong.
+        shape = str(d.get("shape") or "cube").strip().lower()
+        if shape not in SOLIDS:
+            shape = "cube"
+        size = _n(d.get("size"), 0.1, 100, 1)
+        out["shape"] = shape
+        out["size"] = size
+        out["unit"] = _label(d.get("unit"), 8) or "unit"
+        out["measures"] = _solid_measures(shape, size)
+        c = _colour(d.get("color"))
+        if c is not None:
+            out["color"] = c
+        return out
 
     if kind == "surface":
         fn = str(d.get("fn") or "").strip().lower()
@@ -306,7 +372,13 @@ none.
             Astronomy, and shell diagrams where the orbit is a convention.
 
 "solid"     {"kind":"solid","shape":"cube|sphere|cylinder|cone|torus|tetra|
-             octa|icosa|prism"}
+             octa|icosa|prism","size":3,"unit":"cm"}
+            Give "size" — the defining length the problem states: the edge
+            of a cube or tetrahedron, the radius of a sphere, cylinder or
+            cone. Volume and surface area are computed from it and drawn on
+            the solid, so do not write them yourself; use the same number
+            the lesson uses and the picture and the working will agree.
+            Cylinders and cones are drawn with height twice the radius.
             Geometry, volumes, packing, crystal habit.
 
 "process"   {"kind":"process","layout":"cycle"|"chain","caption":"...",

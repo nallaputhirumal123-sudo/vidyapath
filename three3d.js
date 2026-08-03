@@ -443,26 +443,64 @@
   };
 
   /* Plain solids, for geometry and for anything that is simply a shape. */
+  /* A solid, with the numbers that make it worth showing.
+   *
+   * This drew nine shapes at a fixed size and put nothing on them. A cube
+   * with no edge length teaches "this is a cube", which the word already
+   * did — the reason a geometry lesson shows a solid at all is the
+   * relationship between its dimensions and its volume and surface area.
+   *
+   * The measurements are computed on the server from the stated size, by the
+   * formula the lesson is teaching, so they are exact and cannot disagree
+   * with the shape beside them. The geometry here is built at that same size,
+   * so the picture and the numbers describe one object.
+   *
+   * The cylinder and the cone are drawn with height twice the radius,
+   * because that is what the server assumed when it worked out the volume.
+   */
   BUILD.solid = function (spec, group) {
+    var a = spec.size || 1;
+    // Everything is drawn relative to a, then the camera frames it, so a
+    // solid of side 3 and one of side 300 both arrive the right size.
     var G = {
-      cube: function () { return new THREE.BoxGeometry(2, 2, 2); },
-      sphere: function () { return new THREE.SphereGeometry(1.4, 36, 24); },
-      cylinder: function () { return new THREE.CylinderGeometry(1.1, 1.1, 2.4, 34); },
-      cone: function () { return new THREE.ConeGeometry(1.3, 2.4, 34); },
-      torus: function () { return new THREE.TorusGeometry(1.2, 0.42, 20, 44); },
-      tetra: function () { return new THREE.TetrahedronGeometry(1.6); },
-      octa: function () { return new THREE.OctahedronGeometry(1.5); },
-      icosa: function () { return new THREE.IcosahedronGeometry(1.5); },
-      prism: function () { return new THREE.CylinderGeometry(1.3, 1.3, 2.2, 3); }
+      cube: function () { return new THREE.BoxGeometry(a, a, a); },
+      sphere: function () { return new THREE.SphereGeometry(a, 40, 26); },
+      cylinder: function () { return new THREE.CylinderGeometry(a, a, 2 * a, 40); },
+      cone: function () { return new THREE.ConeGeometry(a, 2 * a, 40); },
+      torus: function () { return new THREE.TorusGeometry(a, a * 0.35, 22, 48); },
+      tetra: function () { return new THREE.TetrahedronGeometry(a * 0.61); },
+      octa: function () { return new THREE.OctahedronGeometry(a * 0.71); },
+      icosa: function () { return new THREE.IcosahedronGeometry(a * 0.95); },
+      prism: function () { return new THREE.CylinderGeometry(a * 0.58, a * 0.58, 2 * a, 3); }
     };
     var mk = G[spec.shape] || G.cube;
     var geo = mk();
     group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
       color: spec.color || 0x4a90d9, roughness: 0.45,
-      transparent: true, opacity: 0.82 })));
+      transparent: true, opacity: 0.8 })));
     group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),
       new THREE.LineBasicMaterial({ color: 0xeafff2 })));
+
+    var m = spec.measures;
+    if (!m) return;
+    var unit = spec.unit || "unit";
+    // The defining length, on the solid, where a textbook would put it.
+    label(group, m.of + " = " + trim(a) + " " + unit, 0, -a * 1.15, 0);
+    // And what follows from it. Stacked above so they read as a pair.
+    label(group, "V = " + trim(m.volume) + " " + unit + "\u00b3",
+          0, a * 1.32, 0);
+    label(group, "A = " + trim(m.area) + " " + unit + "\u00b2",
+          0, a * 1.05, 0);
   };
+
+  /* 27, not 27.0000; 113.1, not 113.0973. A volume printed to four decimals
+     is a number nobody reads. */
+  function trim(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return String(v);
+    if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return String(Math.round(n * 100) / 100);
+  }
 
   /* A process: stations with something moving between them.
    *

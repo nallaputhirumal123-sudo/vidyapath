@@ -686,6 +686,9 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   line-height:1.9}
 .sb-trail .ask-chip{max-width:100%;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
+/* Whether a scene was measured or drawn. Quiet, and never absent. */
+.sb-src{display:inline-block;margin-left:8px;font-size:10.5px;
+  letter-spacing:.02em;opacity:.72;font-weight:600}
 .sb-lang{display:inline-block;font-size:10.5px;letter-spacing:.06em;
   text-transform:uppercase;color:#8fe3b0;margin-bottom:5px}
 .sb-dia{margin:10px 0}
@@ -1112,7 +1115,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
-<script src="three3d.js?v=b8f4081956"></script>
+<script src="three3d.js?v=bf400ade43"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
 <script src="bot.js?v=b85eb22fea"></script>
 <script>
@@ -3125,6 +3128,31 @@ function termHTML(code){
   }).join("\n");
 }
 
+/* What kind of claim a 3D scene is making.
+ *
+ * Three different things share this viewer. A molecule and a protein are
+ * measured — PubChem conformers and Protein Data Bank structures, where
+ * every atom is where the chemistry put it. A surface with a grid is
+ * computed from the lesson's own function. The rest are built here out of
+ * ellipsoids and slabs from a few parameters: honest diagrams, drawn to read
+ * clearly rather than to scale.
+ *
+ * Nothing on screen distinguished them, and that is the real problem with
+ * the drawn ones — not that a diagram is wrong, but that it sits in the same
+ * frame as a crystal structure with nothing to say it is a different kind of
+ * claim. Somebody who takes a schematic leaf for a scan has learned
+ * something false about a real leaf. */
+function sceneSource(sc){
+  if(!sc) return "";
+  if(sc.kind==="protein" && sc.pdb)
+    return "measured structure · PDB " + esc(sc.pdb);
+  if(sc.kind==="protein") return "measured structure";
+  if(sc.kind==="molecule" && (sc.atoms||[]).length)
+    return "measured geometry · PubChem";
+  if(sc.kind==="surface" && sc.z) return "computed from the function";
+  return "schematic — drawn to explain, not to scale";
+}
+
 function sbBoardHTML(){
   if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
@@ -3155,7 +3183,8 @@ function sbBoardHTML(){
         ||"")}</div>
       <div class="sb-scene" id="sbSketch"><button class="fig-btn" data-figfull="1" title="Full screen">⤢</button></div>`:""}
     ${st.scene?`<div class="sb-scene-cap">🧊 ${esc(st.scene.caption
-        ||"Drag to turn it, pinch or scroll to zoom")}</div>
+        ||"Drag to turn it, pinch or scroll to zoom")}
+        <span class="sb-src">${sceneSource(st.scene)}</span></div>
       <div class="sb-scene" id="sbScene"><button class="fig-btn" data-figfull="1" title="Full screen">⤢</button></div>`:""}
     ${SB.i===l.steps.length-1&&l.takeaway
       ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
