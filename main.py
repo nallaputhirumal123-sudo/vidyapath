@@ -8886,6 +8886,95 @@ def _molecule_name(caption):
     return t if _molecule.wanted(t) else ""
 
 
+_REVIEW_MAX = 2200
+
+
+def _review_prompt(question, lesson):
+    """Ask for the errors, not for an opinion of the lesson."""
+    body = []
+    for i, st in enumerate(lesson.get("steps") or [], 1):
+        if isinstance(st, dict):
+            body.append(f"[{i}] {st.get('t', '')}")
+            if st.get("code"):
+                body.append(f"    {st['code'][:400]}")
+        else:
+            body.append(f"[{i}] {st}")
+    if lesson.get("takeaway"):
+        body.append(f"[takeaway] {lesson['takeaway']}")
+    text = "\n".join(body)[:9000]
+
+    return (
+        "You are checking a lesson another tutor wrote, before it is shown to "
+        "a student. Your only job is to find what is WRONG in it.\n\n"
+        f"THE QUESTION ASKED: {question}\n\n"
+        f"THE LESSON:\n{text}\n\n"
+        "Look for, in this order of importance:\n"
+        "- A statement that is factually false, or a mechanism described "
+        "wrongly. Confusing two related things counts: a dipole treated as a "
+        "monopole, an enzyme for its substrate, a necessary condition for a "
+        "sufficient one.\n"
+        "- A formula that is dimensionally wrong. Check the units on both "
+        "sides. An angular momentum in kg/s is wrong however tidy it looks.\n"
+        "- Arithmetic or algebra that does not follow.\n"
+        "- A claim stated with more certainty than it deserves, or a "
+        "condition left off a result that needs one.\n"
+        "- An answer to a different question from the one asked.\n\n"
+        "RULES.\n"
+        "- Report only what you are SURE of. A list of debatable phrasings "
+        "gets ignored, and the one real error goes with it. If the lesson is "
+        "sound, say so and stop.\n"
+        "- Do not rewrite it, do not suggest improvements, do not comment on "
+        "style, length or what it might also have covered.\n"
+        "- Quote the words that are wrong so they can be found.\n\n"
+        "Reply with ONLY this JSON:\n"
+        '{"sound": true|false, "errors": [{"quote": "<the wrong words, '
+        'verbatim, under 20 words>", "wrong": "<what is false about it, one '
+        'sentence>", "correct": "<what it should say, one sentence>", '
+        '"severity": "critical"|"minor"}]}'
+    )
+
+
+async def _review_lesson(question, lesson):
+    """Read a finished lesson back and return the errors found.
+
+    Never raises and never blocks a lesson. If the review fails, times out or
+    comes back unparseable, the lesson is shown as it was — an unavailable
+    checker must not cost somebody their answer.
+    """
+    if not ASK_ENABLED or not isinstance(lesson, dict):
+        return []
+    if not (lesson.get("steps") or []):
+        return []
+    try:
+        raw = await _ai_text(_review_prompt(question, lesson),
+                             _REVIEW_MAX, json_mode=True)
+        d = _ai_json(raw)
+    except Exception as e:
+        print(f"Review skipped: {type(e).__name__}: {e}")
+        return []
+    if not isinstance(d, dict) or d.get("sound") is True:
+        return []
+
+    out = []
+    for e in (d.get("errors") or [])[:5]:
+        if not isinstance(e, dict):
+            continue
+        wrong = str(e.get("wrong") or "").strip()
+        if not wrong:
+            continue
+        sev = "critical" if str(e.get("severity")) == "critical" else "minor"
+        quote = str(e.get("quote") or "").strip()[:120]
+        fix = str(e.get("correct") or "").strip()[:300]
+        out.append({
+            "severity": sev,
+            "kind": "review",
+            "problem": (f"\u201c{quote}\u201d \u2014 {wrong}" if quote
+                        else wrong)[:400],
+            "correction": fix,
+        })
+    return out
+
+
 def _check_lesson(lesson, extra_lines=()):
     """Every automatic check, over one finished lesson.
 
@@ -8927,9 +9016,25 @@ def _lesson_prose(lesson):
 
 
 def _note_findings(found):
-    """The findings a reader should see, as short sentences."""
-    return [f["problem"][0].upper() + f["problem"][1:]
-            for f in found if f.get("severity") in ("critical", "major")][:3]
+    """The findings a reader should see, with the correction attached.
+
+    The correction is the useful half. "That is wrong" leaves somebody
+    holding a lesson they now distrust and no way to repair it; "that is
+    wrong, and here is what it should say" leaves them with the answer.
+    """
+    out = []
+    for f in found:
+        if f.get("severity") not in ("critical", "major"):
+            continue
+        problem = str(f.get("problem") or "").strip()
+        if not problem:
+            continue
+        line = problem[0].upper() + problem[1:]
+        fix = str(f.get("correction") or "").strip()
+        if fix and fix.lower() not in line.lower():
+            line += " — " + fix
+        out.append(line[:400])
+    return out[:3]
 
 
 def _maths_gate(lines):
@@ -9170,7 +9275,18 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
     # constants, the arithmetic, the units, and any answer that can be
     # substituted back into its own equation.
     found, verdict = _check_lesson(lesson)
-    _tr.phase("checks")
+    # The deterministic checks read the numbers. This reads the argument —
+    # the dipole treated as a monopole, the formula in the wrong units — which
+    # nothing else here can see. One extra call per new topic, cached with the
+    # lesson, so only the first person to ask pays for it.
+    review = await _review_lesson(topic, lesson)
+    if review:
+        found = review + found
+        if any(r["severity"] == "critical" for r in review):
+            verdict = {"cache": False, "confidence": "low", "state": "flagged"}
+        elif verdict["confidence"] == "high":
+            verdict = dict(verdict, confidence="medium", state="checked")
+    _tr.phase("checks+review")
     if found:
         print(f"Checks on {topic!r}: {verdict['state']} "
               f"({len(found)} finding(s)) — {found[0]['problem'][:120]}")
