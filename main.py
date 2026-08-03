@@ -5015,7 +5015,10 @@ async def ai_selftest(user: User = Depends(admin_user),
             "short_call": short,
             "apply_kit_style_call": long,
             "smart_board_call": board,
-            "board_endpoint_gates": gate}
+            "board_endpoint_gates": gate,
+            # What real requests did. Empty means none arrived — which
+            # would place the fault in the page, not the server.
+            "recent_board_requests": list(reversed(_BOARD_TRACE))}
 
 
 @app.post("/api/ask")
@@ -8744,11 +8747,16 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         raise HTTPException(503, "The AI tutor is not switched on")
     topic = body.topic.strip()
     level = body.level.strip() or "Intermediate"
+    # Every request leaves a trace. The selftest builds a lesson in five
+    # seconds while the browser waits forever, and only a record of what the
+    # real endpoint did can say which phase the real request stops at.
+    _tr = _Trace(topic, level)
 
     # Cached like Ask Axle: the same topic at the same level is the same
     # lesson, and the second person to ask should not cost anything.
     qkey = f"board|{_norm_q(level)}|{_norm_q(topic)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    _tr.phase("cache lookup")
     if row:
         # Read defensively. This was a bare json.loads outside any try block,
         # so one unreadable or outdated cached row produced a 500 on every
@@ -8762,6 +8770,7 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
                 raise ValueError("cached lesson has no steps")
             row.hits = (row.hits or 0) + 1
             db.commit()
+            _tr.done("served from cache")
             return {"lesson": cached, "cached": True}
         except Exception as ce:
             print(f"Board cache row unusable ({qkey}): "
@@ -8787,13 +8796,17 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
                 _ai_text(_board_prompt(topic, level), 8000, json_mode=True),
                 _images.find(_pic_client, topic),
             )
+        _tr.phase("model+picture")
         lesson = _clean_board(_ai_json(text), topic)
         if photo:
             lesson["photo"] = photo
+        _tr.phase("parse")
     except Exception as e:
         print(f"Smart board failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        _tr.done(f"failed: {type(e).__name__}: {str(e)[:120]}")
         raise HTTPException(503, _ai_error_message(e))
     if not lesson["steps"]:
+        _tr.done("came back empty")
         raise HTTPException(502, "That came back empty — try naming the topic "
                                  "more specifically.")
 
@@ -8801,6 +8814,7 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
     # constants, the arithmetic, the units, and any answer that can be
     # substituted back into its own equation.
     found, verdict = _check_lesson(lesson)
+    _tr.phase("checks")
     if found:
         print(f"Checks on {topic!r}: {verdict['state']} "
               f"({len(found)} finding(s)) — {found[0]['problem'][:120]}")
@@ -8809,6 +8823,7 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
 
     _ai_bump(db, user)
     if not verdict["cache"]:
+        _tr.done("built, not cached (failed a check)")
         # Shown, but never stored. Caching a lesson with a wrong constant or
         # arithmetic that does not add up serves that error to everybody who
         # asks the same question from then on, and it is free to do so, which
@@ -8826,6 +8841,7 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         # was the other way the board could return a 500 while holding a
         # complete answer.
         db.rollback()
+    _tr.done("built and cached")
     return {"lesson": lesson, "cached": False}
 
 
@@ -9355,6 +9371,95 @@ _DEPTH = {
 }
 
 
+def _norm_opt(t):
+    """An option reduced to what it says, for comparing."""
+    return " ".join(str(t or "").lower().split()).strip(" .;:\u2014-")
+
+
+def _match_option(value, opts, inside=False):
+    """Which option is this text? None if it is not exactly one of them.
+
+    Exact when matching a stated answer. When scanning an explanation, an
+    option counts only if it appears in full and no other option does —
+    "border-box" inside "box-sizing: border-box" would otherwise match two.
+    """
+    want = _norm_opt(value)
+    if not want:
+        return None
+    norm = [_norm_opt(o) for o in opts]
+    hits = [i for i, o in enumerate(norm) if o and o == want]
+    if len(hits) == 1:
+        return hits[0]
+    if not inside:
+        return None
+    # Longest first, so the most specific option wins its own substring.
+    hits = [i for i, o in enumerate(norm)
+            if o and len(o) >= 6 and o in want]
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+# Where an explanation stops teaching and starts thinking aloud.
+_ALOUD = _re.compile(
+    r"\b(wait|hold on|let me (?:check|re-?add|recount|think)|let's (?:check|"
+    r"re-?add|recount|see)|actually,|hmm|oops|scratch that|on second thought|"
+    r"i mean|correction:|ah,|so index|index \d|option \d|"
+    r"\(index|is index)\b", _re.I)
+
+
+def _plain_reason(why, cap):
+    """An explanation with the model's deliberation cut off.
+
+    One course told a student: "equalling 450px. Wait, let's re-add: 400 + 40
+    + 10 = 450. Option 3 is 450px (index 2? Let's check: 0=400 ...)". The
+    reason was the first sentence; the rest was the model working, and it
+    should never have been on the page.
+    """
+    t = " ".join(str(why or "").split())
+    m = _ALOUD.search(t)
+    if m:
+        t = t[:m.start()].strip()
+    t = t.rstrip(" ,;:\u2014-")
+    # If cutting left nothing usable, say nothing rather than a fragment.
+    return t[:cap] if len(t) >= 15 else ""
+
+
+# The last few board requests, for diagnosis. Bounded and in memory: this
+# must not cost a database write per lesson, and it is not a record anybody
+# needs tomorrow.
+_BOARD_TRACE = []
+_BOARD_TRACE_MAX = 20
+
+
+class _Trace:
+    """Phase timings for one board request.
+
+    Used as a context manager so an exception is recorded rather than
+    swallowed — a request that dies is exactly the one worth seeing.
+    """
+
+    def __init__(self, topic, level):
+        import time as _t
+        self._t = _t
+        self.row = {"topic": str(topic)[:70], "level": str(level)[:30],
+                    "at": now().isoformat(timespec="seconds"),
+                    "phases": [], "ended": "in flight"}
+        self._start = _t.monotonic()
+        self._mark = self._start
+        _BOARD_TRACE.append(self.row)
+        del _BOARD_TRACE[:-_BOARD_TRACE_MAX]
+
+    def phase(self, name):
+        t = self._t.monotonic()
+        self.row["phases"].append(f"{name} {t - self._mark:.2f}s")
+        self._mark = t
+
+    def done(self, how):
+        self.row["ended"] = how
+        self.row["total"] = round(self._t.monotonic() - self._start, 2)
+
+
 def _course_prompt(topic, level, context):
     who = _DEPTH.get((level or "").strip().lower(),
                      "an adult studying this at their own level")
@@ -9408,13 +9513,23 @@ Return JSON only:
                                    at it"}},
           "check": {{"q": "one question testing THIS lesson",
                      "options": ["four options"],
-                     "answer": 0,
+                     "correct": "the correct option, copied out in full,
+                                 exactly as it appears in options",
                      "why": "why that is right and the near-miss is wrong"}}}}],
-      "exam": [{{"q": "...", "options": ["four options"], "answer": 0,
+      "exam": [{{"q": "...", "options": ["four options"],
+                 "correct": "the correct option, copied out word for word",
                  "why": "..."}}]}}],
   "after": "what to learn next once this is solid"}}
 
 Rules:
+- "correct" is the winning option copied out in full, not a number and not
+  a letter. Never write "option 3", "the third one", or an index. Copy the
+  text. Counting positions while writing prose is how questions end up
+  marked against their own explanations.
+- "why" is for the student. Give the reason and stop. Never show your
+  working-out, never correct yourself mid-sentence, never mention options
+  by position, and never write "wait", "let me check" or "actually" — the
+  reader wants the reason, not the search for it.
 - 3 to 5 modules, 2 to 4 lessons each. Build strictly on what came before.
 - `teach` is the teaching itself. A lesson whose teach says "this lesson
   covers X" has failed and is worth nothing to the reader.
@@ -9466,14 +9581,31 @@ def _clean_course(d):
         if not isinstance(q, dict):
             return None
         opts = [txt(o, 200) for o in (q.get("options") or [])[:4] if txt(o, 200)]
-        try:
-            a = int(q.get("answer"))
-        except Exception:
+        if len(opts) < 2 or not txt(q.get("q"), 300):
             return None
-        if len(opts) < 2 or not (0 <= a < len(opts)) or not txt(q.get("q"), 300):
-            return None
+
+        # The answer is matched by text, not taken as a number. Asked for an
+        # index, the model counted wrong often enough to mark right answers
+        # wrong while explaining, in the same sentence, why they were right.
+        a = _match_option(q.get("correct"), opts)
+        if a is None:
+            try:
+                a = int(q.get("answer"))
+            except Exception:
+                return None
+            if not (0 <= a < len(opts)):
+                return None
+
+        why = _plain_reason(q.get("why"), 500)
+        # The explanation is the part written for a human. If it quotes one
+        # option and the index disagrees, believe the explanation.
+        named = _match_option(why, opts, inside=True)
+        if named is not None and named != a:
+            print(f"Quiz answer corrected by its own explanation: "
+                  f"{opts[a][:40]!r} -> {opts[named][:40]!r}")
+            a = named
         return {"q": txt(q.get("q"), 300), "options": opts, "answer": a,
-                "why": txt(q.get("why"), 500)}
+                "why": why}
 
     def visual(v):
         if not isinstance(v, dict):

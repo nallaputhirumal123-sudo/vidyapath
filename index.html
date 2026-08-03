@@ -2611,19 +2611,48 @@ async function sbTeach(topic,keepTrail){
    * answer. A reply that is no longer the current question is dropped. */
   const seq = (SB.seq = (SB.seq || 0) + 1);
   SB.topic=(topic||"").trim(); SB.lesson=null; SB.i=0; SB.error=""; SB.busy=true;
-  recordAsk(SB.topic,"board");
-  renderAsk();
+
+  /* A deadline that belongs to the screen, not to the request.
+   *
+   * api.post already gives up after 75 seconds, which covers a slow server.
+   * It does not cover anything that goes wrong BEFORE the request is made —
+   * if the two lines below this throw, or if some other path bumps SB.seq
+   * while this one is in flight, busy is left true and the board says
+   * "Building your lesson…" with nothing coming and no way back. That is
+   * indistinguishable, to the person looking at it, from a server that never
+   * answers, and it is not rescued by any timeout on the fetch.
+   *
+   * So the screen gets its own clock. If it is still building well after the
+   * request should have settled, it says so and offers the way out. */
+  clearTimeout(SB.watchdog);
+  SB.watchdog = setTimeout(()=>{
+    if(SB.seq===seq && SB.busy){
+      SB.busy=false;
+      SB.error="That took too long. The lesson never arrived — please try "
+        +"again, and if it keeps happening the AI service is likely down.";
+      renderAsk();
+    }
+  }, 90000);
+
   try{
+    recordAsk(SB.topic,"board");
+    renderAsk();
     const r=await api.post("/api/board/lesson",{topic:SB.topic,level:ASK.level||"Intermediate"});
     if(seq!==SB.seq) return;          // a newer question is already on the board
     SB.lesson=r.lesson; SB.i=0;
   }catch(e){
     if(seq!==SB.seq) return;
-    SB.error=e.message||"Could not build that lesson.";
+    // Includes anything thrown before the request was even sent, which
+    // previously escaped as an unhandled rejection and left the board stuck.
+    SB.error=(e&&e.message)||"Could not build that lesson.";
     if(/not switched on|GEMINI_API_KEY/i.test(SB.error)) ASK.enabled=false;
+  }finally{
+    if(SB.seq===seq){
+      clearTimeout(SB.watchdog);
+      SB.busy=false;
+      renderAsk();
+    }
   }
-  if(seq!==SB.seq) return;
-  SB.busy=false; renderAsk();
 }
 /* While full screen, repaint the board in place instead of re-rendering the
    page. Full screen belongs to one element; rebuild that element and the
