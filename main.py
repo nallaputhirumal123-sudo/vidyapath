@@ -1203,6 +1203,49 @@ async def _startup():
     asyncio.create_task(asyncio.to_thread(_seed_with_retries))
 
 
+
+def _backfill_job_skills():
+    """Parse every posting whose skills have never been derived.
+
+    A match request used to derive these from the description and keep the
+    answer only for the length of that request, so the work was repeated on
+    every match forever — the difference between a cold match at 8.3 seconds
+    and one at 2.5.
+
+    Rows with no recognisable skills are stored as "none" rather than left
+    empty, because empty means "not looked at yet": leaving them would have
+    them re-parsed on every pass, which is the fault being fixed.
+    """
+    try:
+        db = SessionLocal()
+    except Exception:
+        return
+    try:
+        rows = db.query(Job).filter(
+            (Job.skills == "") | (Job.skills.is_(None))).limit(20000).all()
+        if not rows:
+            return
+        import time as _t
+        t0 = _t.monotonic()
+        for j in rows:
+            found = {w for w in _words(j.text or "") if w in _SKILLS}
+            j.skills = ",".join(sorted(found))[:2000] if found else "none"
+        db.commit()
+        print(f"Startup: parsed skills for {len(rows)} postings in "
+              f"{_t.monotonic() - t0:.1f}s — matching no longer reparses them")
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"Startup: skill backfill skipped ({type(e).__name__}) — "
+              f"matching still works, just slower on the first call")
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
 def _seed_with_retries():
     """Postgres often is not accepting connections the instant we boot."""
     global STARTUP_ERROR
@@ -1212,6 +1255,9 @@ def _seed_with_retries():
             seed_if_empty()
             STARTUP_ERROR = None
             print("database ready")
+            _backfill_job_skills()
+
+
             return
         except Exception as e:
             STARTUP_ERROR = f"{type(e).__name__}: {e}"
@@ -10930,9 +10976,29 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.
     df, n = {}, max(len(rows), 1)
+    parsed_now = []
     for j in rows:
-        for s in _job_skills(j):
+        got = _job_skills(j)
+        # Empty in the column means this was derived from the description
+        # just now. _job_skills memoises it on the instance, which lasts one
+        # request — so without this the same thousands of descriptions are
+        # scanned again on the next match, and every match after that.
+        if got and not (j.skills or ""):
+            parsed_now.append(j)
+        for s in got:
             df[s] = df.get(s, 0) + 1
+
+    if parsed_now:
+        try:
+            for j in parsed_now:
+                j.skills = ",".join(sorted(_job_skills(j)))[:2000]
+            db.commit()
+            print(f"jobs match: stored parsed skills for {len(parsed_now)} "
+                  f"postings; later matches will not reparse them")
+        except Exception as e:
+            db.rollback()
+            print(f"jobs match: could not store parsed skills "
+                  f"({type(e).__name__}) — results are unaffected")
     # Floored for the same reason as the alert sweep: a weight below zero
     # would make a matched skill count against the job.
     idf = {s: max(0.05, math.log(n / (1 + c)) + 0.25) for s, c in df.items()}
