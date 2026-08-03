@@ -255,4 +255,13 @@ Rules:
   itself the thing being taught.
 - `caption` says what to look at, in under twelve words.
 - Real values. A plot with invented numbers is worse than no plot, because it
-  will be read as data."""
+  will be read as data.
+- THE SKETCH IS OF THIS STEP, not of the subject. Its numbers are the numbers
+  this step works with, its axis labels are the quantities and units this step
+  names, and its series names are the cases this step compares. A generic
+  rising curve labelled "time" and "value" on a step about terminal velocity
+  is not wrong and is not about that step either, and a reader can tell.
+- Then refer to it: name the mark, the crossing point or the taller bar in the
+  step's own sentences, so the reader knows which part to look at while
+  reading which line. If the step's content has no quantities in it, leave the
+  sketch out rather than attaching a decorative one."""

@@ -8503,6 +8503,8 @@ def _board_prompt(topic: str, level: str) -> str:
         "remember instead of the mechanism.\n"
         "Use the notation, units and vocabulary that field actually "
         "writes with, and define each of them once, the first time.\n\n"
+        "A SKILL IS PRACTISED, NOT KNOWN. When the topic is something done rather than understood \u2014 presenting, interviewing, teaching, negotiating, running a meeting, writing to be read, handling a difficult conversation \u2014 a list of tips teaches nobody anything. Nobody ever spoke better for having read that eye contact matters.\n"
+        "Teach those the way a coach does. Give the actual words: the opening line, the sentence that recovers a lost room, the question that reopens a stalled negotiation \u2014 written out in full, as somebody would really say them. Show the weak version and the strong version of the same moment and say precisely what changed between them. Name what goes wrong and what it feels like from the inside, because that is how somebody recognises it happening to them. Then give one thing to rehearse before the next real occasion, specific enough that they know whether they did it.\n"
         "GET TO THE THEORY. Say why it is true, not only that it is. The "
         "derivation, the mechanism, the reasoning behind the rule — and "
         "the conditions under which it stops holding, because knowing "
