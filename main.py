@@ -8477,6 +8477,35 @@ _BOARD_LANGS = {
 }
 
 
+def _maths_gate(lines):
+    """Claimed solutions in these lines that do not satisfy their equations.
+
+    Deliberately quiet. It only speaks when an equation and a claimed answer
+    are both present, both parse, and the mismatch is far bigger than
+    rounding — a checker that cries wolf gets switched off, and one that
+    fires on a lesson the reader can see is fine costs more trust than it
+    buys.
+    """
+    try:
+        text = "\n".join(str(x or "") for x in lines)
+        if "=" not in text:
+            return []
+        return _maths.check_solutions(text)
+    except Exception as e:                        # never break a lesson
+        print(f"Maths check skipped: {type(e).__name__}: {e}")
+        return []
+
+
+def _maths_note(findings):
+    """The correction, as one line a student can act on."""
+    if not findings:
+        return ""
+    first = findings[0]
+    return ("Check this before you use it: " + first["problem"] +
+            ". Substituting the stated answer back into the equation does "
+            "not balance, so at least one of the two is wrong.")
+
+
 def _clean_board(d, topic):
     """Validate the model's lesson into something safe to render.
 
@@ -8618,6 +8647,14 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
     if not lesson["steps"]:
         raise HTTPException(502, "That came back empty — try naming the topic "
                                  "more specifically.")
+
+    # Arithmetic the machine can settle, settled before anybody reads it.
+    bad = _maths_gate([st.get("t", "") for st in lesson["steps"]]
+                      + [lesson.get("takeaway", "")])
+    if bad:
+        print(f"Maths gate caught a bad answer on {topic!r}: "
+              f"{bad[0]['problem']}")
+        lesson["checked"] = _maths_note(bad)
     _ai_bump(db, user)
     db.add(AskCache(qkey=qkey, subject="board", level=level,
                     question=topic[:2000], lesson=json.dumps(lesson), hits=0))
@@ -8955,6 +8992,7 @@ import scanner as _scan                                             # noqa: E402
 import scene as _scene                                              # noqa: E402
 import sketch as _sketch                                            # noqa: E402
 import draw as _draw                                                # noqa: E402
+import maths as _maths                                              # noqa: E402
 
 
 @app.post("/api/scan")
@@ -9003,6 +9041,18 @@ async def scan(image: UploadFile = File(...),
         # again, and storing the failure would serve it straight back to the
         # person who retakes it.
         return {"scan": out, "cached": False}
+
+    # The fault that prompted all of this was a scanned maths problem
+    # answered with a triple that satisfies one equation and not the other.
+    bad = _maths_gate(
+        [out.get("read", "")]
+        + [part
+           for st in (out.get("steps") or []) if isinstance(st, dict)
+           for part in (st.get("teach", ""), st.get("working", ""))]
+        + [out.get("answer", "")])
+    if bad:
+        print(f"Maths gate caught a bad scan answer: {bad[0]['problem']}")
+        out["checked"] = _maths_note(bad)
 
     _ai_bump(db, user)
     _trial_consume(db, user, "scan")

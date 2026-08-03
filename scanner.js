@@ -85,6 +85,7 @@
     "  border:1px solid var(--line,#2a2a2a);border-radius:8px;",
     "  padding:9px 11px;margin:7px 0 0;overflow-x:auto}",
     ".scans{border:1px solid #3fae6a;background:rgba(63,174,106,.10);",
+    ".scwarn{border:1px solid #d9534f;background:rgba(217,83,79,.12);border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.6;margin-top:10px;font-weight:600}",
     "  border-radius:12px;padding:13px;margin-top:14px;font-size:14px;",
     "  line-height:1.65}",
     ".sctag{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;",
@@ -390,6 +391,14 @@
       '<div class="scbar">' + bar + "</div>";
   }
 
+  /* Maths written as maths. mathText comes from the main page; if it is ever
+     not there, fall back to the escaped text rather than failing to render. */
+  function mt(x) {
+    var t = esc(x);
+    try { return window.mathText ? window.mathText(t) : t; }
+    catch (e) { return t; }
+  }
+
   function answerHtml() {
     var s = SC.scan;
     var kindName = { worked: "Worked problem", code: "Code", error: "Error",
@@ -403,19 +412,25 @@
     // What they asked, shown back before anything else — so a misread is
     // obvious immediately rather than after they have trusted the answer.
     h += '<div class="scmini">What you asked</div>' +
-      '<div class="scread">' + esc(s.read) + "</div>";
+      '<div class="scread">' + mt(s.read) + "</div>";
 
     h += '<div class="scmini" style="margin-top:14px">Worked through</div>';
     s.steps.forEach(function (st, i) {
       h += '<div class="scstep"><div class="scstep-n">' + (i + 1) + "</div><div>" +
         (st.heading ? "<h4>" + esc(st.heading) + "</h4>" : "") +
-        (st.teach ? "<p>" + esc(st.teach) + "</p>" : "") +
-        (st.working ? '<div class="scwork">' + esc(st.working) + "</div>" : "") +
+        (st.teach ? "<p>" + mt(st.teach) + "</p>" : "") +
+        (st.working ? '<div class="scwork">' + mt(st.working) + "</div>" : "") +
         "</div></div>";
     });
 
     if (s.answer) {
-      h += '<div class="scans"><b>Answer</b><br>' + esc(s.answer) + "</div>";
+      h += '<div class="scans"><b>Answer</b><br>' + mt(s.answer) + "</div>";
+    }
+    /* Substitution disagreed with the stated answer. Said plainly, and next
+       to the answer rather than at the bottom, because the moment that
+       matters is the one just before somebody writes it down. */
+    if (s.checked) {
+      h += '<div class="scwarn">\u26a0 ' + esc(s.checked) + "</div>";
     }
     if (s.next) {
       h += '<p style="font-size:12.5px;color:var(--muted);margin-top:9px">' +

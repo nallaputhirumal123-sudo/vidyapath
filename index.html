@@ -741,6 +741,9 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   .ask-inrow>.ask-input{flex:1 1 100%;order:-1}
   .ask-inrow>.ask-go,.ask-inrow>.ask-stop{flex:1}
 }
+.sb-checked{border:1px solid #d9534f;background:rgba(217,83,79,.12);
+  border-radius:10px;padding:10px 13px;font-size:13px;line-height:1.6;
+  margin-top:10px;font-weight:600}
 /* A stacked fraction, which is the one thing inline text cannot do. */
 .mfrac{display:inline-flex;flex-direction:column;vertical-align:-0.45em;
   text-align:center;margin:0 .18em;line-height:1.15}
@@ -2797,6 +2800,7 @@ function sbBoardHTML(){
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?`<div class="ask-line sb-step"><span>${mathText(esc(st.t))}</span></div>`:""}
+    ${l.checked?`<div class="sb-checked">⚠ ${esc(l.checked)}</div>`:""}
     ${st.code?`<div>
        <!-- The screen this happens on. Without it a console session and a
             shell script look identical, and the lesson stops being credible. -->
