@@ -3400,16 +3400,29 @@ def _gen_config(model, tokens, temperature, json_mode=False, no_think=False):
     gen = {"maxOutputTokens": tokens, "temperature": temperature}
     if json_mode:
         gen["responseMimeType"] = "application/json"
-    if not no_think and not _NO_THINKING.match(model or ""):
+    if (not no_think and not _thinking_off["gemini"]
+            and not _NO_THINKING.match(model or "")):
         gen["thinkingConfig"] = {"thinkingBudget": 0}
     return gen
 
 
+# Once a model has rejected it, stop offering it for the life of the process.
+_thinking_off = {"gemini": False}
+
+
 def _rejects_thinking(e):
-    """Did the model refuse the thinking parameter itself?"""
+    """Did the model refuse the thinking parameter?
+
+    Google does not say which argument was invalid — the whole message is
+    "Request contains an invalid argument." So any 400 is treated as this,
+    because thinkingConfig is the only optional field in the payload and
+    losing the provider over it is far worse than one wasted retry.
+    """
     m = str(e).lower()
-    return "thinking" in m and ("not supported" in m or "invalid" in m
-                                or "unknown" in m or "unexpected" in m)
+    if "thinking" in m and ("not supported" in m or "invalid" in m
+                            or "unknown" in m or "unexpected" in m):
+        return True
+    return "invalid_argument" in m or "invalid argument" in m or "400" in m
 
 
 def _is_missing_model(e):
@@ -3568,6 +3581,15 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                     txt = await _provider_vision(client, prov, prompt, raw,
                                                  mime, max_tokens)
                 except Exception as inner:
+                    if prov == "gemini" and _rejects_thinking(inner) \
+                            and not _thinking_off["gemini"]:
+                        _thinking_off["gemini"] = True
+                        print("AI: Gemini refused thinkingBudget on a vision "
+                              "call; sending without it from now on.")
+                        txt = await _provider_vision(client, prov, prompt, raw,
+                                                     mime, max_tokens)
+                        if txt:
+                            return txt
                     _w, _safe = _gemini_model()
                     if not (prov == "gemini" and _safe
                             and _is_missing_model(inner)):
@@ -3627,6 +3649,11 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                             client, prov, prompt, max_tokens, json_mode, best,
                             _no_think=True)
                         if txt:
+                            if not _thinking_off["gemini"]:
+                                _thinking_off["gemini"] = True
+                                print("AI: this Gemini model will not take "
+                                      "thinkingBudget; sending without it "
+                                      "from now on.")
                             return txt
                         raise
                     want, safe = _gemini_model(best)
@@ -8412,6 +8439,23 @@ def _clean_board(d, topic):
             "lang": lang if lang in _BOARD_LANGS else "",
         })
     steps = [x for x in steps if x["t"] or x["code"]]
+
+    # A picture sent beside "steps" rather than inside one. The reply that
+    # prompted this ended with a complete, valid flow scene that nothing ever
+    # looked at, so a lesson plainly containing a drawing reported none.
+    # Three drawing systems offered in one prompt is a lot to keep straight;
+    # putting it in the wrong place is a reasonable mistake to absorb.
+    for key, cleaner in (("draw", _draw.clean), ("sketch", _sketch.clean),
+                         ("scene", _scene.clean)):
+        stray = cleaner(d.get(key))
+        if not stray or not steps:
+            continue
+        if any(st.get(key) for st in steps):
+            continue
+        # Onto the step that already has the most to say, which is where a
+        # picture is most likely to have belonged.
+        host = max(steps, key=lambda st: len(st.get("t") or ""))
+        host[key] = stray
     # One scene per lesson. Models hand the same model to every step, and a
     # thing you have already turned around teaches nothing the second time —
     # it just costs another WebGL context on someone's phone.
