@@ -1,0 +1,113 @@
+"""Pictures: where they may come from, and what must travel with them.
+
+Two things matter here and neither is cosmetic.
+
+A URL that reaches a browser must be one Wikimedia itself returned. Nothing
+in this file is written by a model, but the rule is enforced at the boundary
+anyway, because the day somebody lets a model suggest an image is the day an
+unchecked URL becomes a way to point a student's browser anywhere.
+
+And attribution is a licence condition, not a nicety. These are other
+people's photographs. A picture that arrives without an author or a licence
+is discarded rather than shown bare.
+
+The network tests are skipped when there is no connection: a test that fails
+on a train is a test people learn to ignore.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import images                                      # noqa: E402
+
+PASS = FAIL = SKIP = 0
+
+
+def check(name, ok, detail=""):
+    global PASS, FAIL
+    if ok:
+        PASS += 1
+        print(f"  PASS  {name}" + (f"  ({detail})" if detail else ""))
+    else:
+        FAIL += 1
+        print(f"  FAIL  {name}  {detail}")
+
+
+# ---- only Wikimedia, only https -------------------------------------
+HOSTILE = [
+    ("another host entirely", "https://evil.example/x.png"),
+    ("plain http", "http://upload.wikimedia.org/x.png"),
+    ("a javascript url", "javascript:alert(1)"),
+    ("a data url", "data:image/png;base64,AAAA"),
+    ("a lookalike host", "https://upload.wikimedia.org.evil.example/x.png"),
+    ("a host that merely contains it", "https://xupload.wikimedia.orgx/x.png"),
+    ("credentials in the url", "https://user@evil.example/x.png"),
+    ("protocol relative", "//upload.wikimedia.org/x.png"),
+    ("empty", ""),
+]
+for name, url in HOSTILE:
+    check(f"refuses {name}", images.clean({"url": url}) == {}, url[:46])
+
+for junk in ("not a dict", None, 42, [], {"nourl": 1}):
+    check(f"refuses {str(junk)[:22]} as a picture", images.clean(junk) == {})
+
+GOOD = {"url": "https://upload.wikimedia.org/wikipedia/commons/a.png",
+        "width": 900, "caption": "X" * 400,
+        "author": "<b onclick='x'>Someone</b>", "license": "CC BY-SA 4.0",
+        "page": "https://en.wikipedia.org/wiki/X"}
+got = images.clean(GOOD)
+check("keeps a genuine Wikimedia url", got.get("url", "").endswith("a.png"))
+check("strips markup from the credit", got["author"] == "Someone",
+      repr(got["author"]))
+check("caps an overlong caption", len(got["caption"]) <= 200,
+      str(len(got["caption"])))
+check("keeps the licence", got["license"] == "CC BY-SA 4.0")
+check("only these fields survive",
+      set(got) == {"url", "width", "caption", "author", "license", "page"},
+      str(sorted(got)))
+
+# a page link on a foreign host is dropped without dropping the picture
+odd = images.clean(dict(GOOD, page="https://evil.example/x"))
+check("a foreign source link is dropped", odd["page"] == "" and odd["url"])
+
+# ---- where a photograph does not belong -----------------------------
+for topic in ("Pythagorean theorem", "eigenvalue decomposition",
+              "proof by induction", "the binomial theorem",
+              "Cauchy-Schwarz inequality", "a sorting algorithm"):
+    check(f"no photo for {topic[:30]!r}", not images.wanted(topic))
+
+for topic in ("photosynthesis", "the human heart", "a Cisco switch",
+              "titration", "the Indian Constitution", "monsoon"):
+    check(f"a photo is wanted for {topic[:26]!r}", images.wanted(topic))
+
+check("an empty topic is refused", not images.wanted("   "))
+
+# ---- against the real service ---------------------------------------
+try:
+    import asyncio
+    import httpx
+
+    async def go():
+        async with httpx.AsyncClient(follow_redirects=True) as c:
+            return (await images.find(c, "mitochondrion"),
+                    await images.find(c, "qwertyuiop asdfghjkl zxcvbnm 12345"))
+
+    pic, nothing = asyncio.run(go())
+except Exception as e:
+    SKIP += 1
+    print(f"  ..    live lookup skipped (no network?): {type(e).__name__}")
+else:
+    check("a real topic returns a picture", bool(pic.get("url")),
+          pic.get("caption", ""))
+    check("it comes from Wikimedia",
+          pic.get("url", "").startswith("https://upload.wikimedia.org/"),
+          pic.get("url", "")[:60])
+    check("it is credited", bool(pic.get("author") or pic.get("license")),
+          f"{pic.get('author', '')} / {pic.get('license', '')}")
+    check("it is big enough to be a picture",
+          pic.get("width", 0) >= images.MIN_WIDTH, str(pic.get("width")))
+    check("nonsense returns nothing rather than something wrong",
+          nothing == {}, str(nothing)[:60])
+
+print(f"\nPASSED {PASS}   FAILED {FAIL}" + (f"   SKIPPED {SKIP}" if SKIP else ""))
+sys.exit(1 if FAIL else 0)

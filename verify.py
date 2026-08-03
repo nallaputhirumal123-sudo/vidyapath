@@ -62,7 +62,29 @@ def _close(a, b, tol=TOLERANCE):
     return abs(a - b) / abs(b) <= tol
 
 
-_NUM = r"[-+]?\d[\d,]*\.?\d*(?:\s*[x×*]\s*10\s*\^?\s*[-+]?\d+|[eE][-+]?\d+)?"
+# Every quantifier here is bounded, and that is the whole point.
+#
+# This was `\d[\d,]*\.?\d*`, in which [\d,]* and \d* both match digits and the
+# dot is optional — so a run of N digits can be divided between them N ways,
+# at every starting position. arithmetic() chains three of these looking for
+# an operator, and on a long digit run the engine explores the product of
+# those divisions. A 4000-digit string did not finish.
+#
+# That is not a theoretical input. Lesson text carries MAC tables, hashes,
+# account numbers and base64, and this runs inside the async endpoint — so
+# one such lesson blocks the event loop for every user on the site, which is
+# precisely what "Building your lesson..." forever looks like.
+#
+# Bounding each part removes the ambiguity: a comma must be followed by
+# digits, a dot must be followed by digits, and nothing may run past its
+# limit. Real numbers in a lesson are nowhere near these bounds.
+_NUM = (r"[-+]?\d{1,15}(?:,\d{3})*(?:\.\d{1,10})?"
+        r"(?:\s*[x×*]\s*10\s*\^?\s*[-+]?\d{1,4}|[eE][-+]?\d{1,4})?")
+
+# No single check may run over more than this. A lesson is a few thousand
+# characters; anything past it is a code dump, and scanning it for stated
+# arithmetic finds nothing worth the time.
+MAX_TEXT = 20000
 
 
 def _value(s):
@@ -82,6 +104,7 @@ def _value(s):
 
 def constants(text):
     """Stated values of named physical constants, checked against the table."""
+    text = (text or "")[:MAX_TEXT]
     out = []
     low = (text or "").lower()
     for key, (true, unit, names) in CONSTANTS.items():
@@ -106,6 +129,7 @@ def constants(text):
 
 def arithmetic(text):
     """Simple stated sums, checked. 'so 2 x 3 = 7' is catchable and worth it."""
+    text = (text or "")[:MAX_TEXT]
     out = []
     pattern = (r"(" + _NUM + r")\s*([+\-x×*/])\s*(" + _NUM +
                r")\s*=\s*(" + _NUM + r")")
@@ -161,6 +185,7 @@ _UNIT_WORD = re.compile(r"[a-zA-Zµ]+")
 
 def units(text):
     """A quantity stated in a unit that cannot measure it."""
+    text = (text or "")[:MAX_TEXT]
     out = []
     low = (text or "").lower()
     for quantity, (allowed, expect) in UNITS.items():

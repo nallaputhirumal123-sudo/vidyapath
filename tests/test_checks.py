@@ -112,5 +112,44 @@ for model in ("gemini-2.5-pro", "gemini-3-pro-preview"):
     check(f"{model} still gets thinkingConfig",
           "thinkingConfig" in main._gen_config(model, 100, 0.4))
 
+# ---- the checks must never be slow ----------------------------------
+# These run inside the async endpoint, so a slow scan does not delay one
+# lesson — it blocks the event loop and stalls the site for everybody. The
+# original number pattern was `\d[\d,]*\.?\d*`, whose two digit-matching
+# quantifiers can divide a run of digits many ways at every position;
+# arithmetic() chains three of those, and a 4000-digit string never finished.
+# Lesson text really does carry MAC tables, hashes and base64.
+import time                                        # noqa: E402
+
+HOSTILE = {
+    "a long run of digits": "1" * 4000,
+    "digits and commas": "1," * 2000,
+    "a long equation": "x + " * 900 + "y = 3",
+    "many decimals": "12345.6789 " * 800,
+    "scientific notation": "5 x 10^3 " * 700,
+    "base64": "aGVsbG8xMjM0NTY3ODkw" * 400,
+    "a MAC address table": "0011.2233.4455 Gi1/0/24  " * 300,
+    "a hex digest": "a1b2c3d4e5f6" * 500,
+}
+BUDGET = 2.0
+for _name, _txt in HOSTILE.items():
+    _l = {"title": "t", "steps": [{"t": _txt, "code": _txt}], "takeaway": _txt}
+    _t0 = time.perf_counter()
+    main._check_lesson(_l)
+    _dt = time.perf_counter() - _t0
+    check(f"{_name} is checked quickly", _dt < BUDGET, f"{_dt:.3f}s")
+
+# and it still catches what it is for, after the pattern was tightened
+check("a wrong constant is still caught",
+      bool(verify.constants("the speed of light is 2.5 x 10^8 m/s")))
+check("a correct constant still passes",
+      not verify.constants("the speed of light is 3.0 x 10^8 m/s"))
+check("wrong arithmetic is still caught",
+      bool(verify.arithmetic("so 12 + 15 = 29 in total")))
+check("grouped thousands still parse",
+      bool(verify.arithmetic("1,200 + 1,300 = 2,000")))
+check("a lesson's own rounding is not flagged",
+      not verify.arithmetic("2.0 x 3.0 = 6.01"))
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)

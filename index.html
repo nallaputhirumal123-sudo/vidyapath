@@ -741,6 +741,13 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   .ask-inrow>.ask-input{flex:1 1 100%;order:-1}
   .ask-inrow>.ask-go,.ask-inrow>.ask-stop{flex:1}
 }
+.sb-photo{margin:12px 0;padding:0;border:1px solid var(--line,#2a2a2a);
+  border-radius:12px;overflow:hidden;background:var(--panel2,#0f0f0f)}
+.sb-photo img{display:block;width:100%;height:auto;max-height:340px;
+  object-fit:contain;background:#fff}
+.sb-photo figcaption{font-size:11.5px;line-height:1.5;padding:7px 11px;
+  color:var(--muted,#8a8a8a)}
+.sb-photo figcaption a{color:inherit;text-decoration:underline;margin-left:6px}
 .sb-checked b{display:block;margin-bottom:5px}
 .sb-checked i{display:block;font-style:normal;font-size:11.5px;opacity:.75;margin-top:6px;font-weight:400}
 .sb-checked{border:1px solid #d9534f;background:rgba(217,83,79,.12);
@@ -2796,6 +2803,28 @@ function sbPrint(){
   setTimeout(()=>w.print(),300);
 }
 
+/* A real photograph, credited.
+ *
+ * Every other picture here is drawn from the lesson's own numbers, which is
+ * the right default: a diagram built that way cannot show something the
+ * lesson did not say. But a diagram of a mitochondrion is not a
+ * mitochondrion, and for most topics the thing itself is what somebody came
+ * to see.
+ *
+ * The credit is not decoration. These are other people's photographs under a
+ * licence that asks for attribution, so the author and the licence are shown
+ * with the picture and the link goes back to the source. Loading is lazy and
+ * a failure hides the whole figure rather than leaving a broken frame. */
+function sbPhotoHTML(p){
+  const credit=[p.author,p.license].filter(Boolean).map(esc).join(" · ");
+  return `<figure class="sb-photo">
+    <img src="${esc(p.url)}" alt="${esc(p.caption||"")}" loading="lazy"
+         onerror="this.closest('figure').style.display='none'">
+    <figcaption>${esc(p.caption||"")}${credit?` — ${credit}`:""}
+      ${p.page?`<a href="${esc(p.page)}" target="_blank" rel="noopener nofollow">source</a>`:""}
+    </figcaption></figure>`;
+}
+
 function sbBoardHTML(){
   if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
@@ -2806,6 +2835,7 @@ function sbBoardHTML(){
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?`<div class="ask-line sb-step"><span>${mathText(esc(st.t))}</span></div>`:""}
+    ${(SB.i===0&&l.photo&&l.photo.url)?sbPhotoHTML(l.photo):""}
     ${(l.findings&&l.findings.length)?`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${mathText(esc(f))}</div>`).join("")}<i>This lesson was not saved for anyone else.</i></div>`:""}
     ${st.code?`<div>
        <!-- The screen this happens on. Without it a console session and a

@@ -25,6 +25,7 @@ import io
 import hashlib
 import hmac
 import time
+import asyncio
 import httpx
 from urllib.parse import urlencode
 from fastapi import (FastAPI, Depends, HTTPException, Request, Response, status,
@@ -8777,8 +8778,18 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         # and the old cap cut the JSON off mid-object — which surfaces as a
         # parse failure, not as "too long", so it looked like the board was
         # broken rather than short of room.
-        text = await _ai_text(_board_prompt(topic, level), 8000, json_mode=True)
+        # The picture search runs beside the model call rather than after
+        # it. The topic is known before either starts, the search is the far
+        # quicker of the two, and it finishes well inside the model's shadow
+        # — so a real photograph costs no waiting at all.
+        async with httpx.AsyncClient(follow_redirects=True) as _pic_client:
+            text, photo = await asyncio.gather(
+                _ai_text(_board_prompt(topic, level), 8000, json_mode=True),
+                _images.find(_pic_client, topic),
+            )
         lesson = _clean_board(_ai_json(text), topic)
+        if photo:
+            lesson["photo"] = photo
     except Exception as e:
         print(f"Smart board failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
@@ -9143,6 +9154,7 @@ import sketch as _sketch                                            # noqa: E402
 import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
+import images as _images                                            # noqa: E402
 
 
 @app.post("/api/scan")
