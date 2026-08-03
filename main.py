@@ -9292,8 +9292,17 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         # quicker of the two, and it finishes well inside the model's shadow
         # — so a real photograph costs no waiting at all.
         async with httpx.AsyncClient(follow_redirects=True) as _pic_client:
+            # Send the computation to something that computes. Models are
+            # fluent about arithmetic and poor at it, which is the worst
+            # combination — a derivation that reads correctly and is wrong in
+            # the third line is harder to catch than one that reads badly.
+            # Wolfram returns the result from a computer algebra system and
+            # the model is left explaining what it means.
+            computed = await _wolfram.result(_pic_client, topic)
             text, photo = await asyncio.gather(
-                _ai_text(_board_prompt(topic, level), _depth.tokens(topic),
+                _ai_text(_board_prompt(topic, level)
+                         + _wolfram.note(topic, computed),
+                         _depth.tokens(topic),
                         json_mode=True),
                 _images.find(_pic_client, topic),
             )
@@ -9694,6 +9703,7 @@ import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import dimensions as _dimensions                                    # noqa: E402
+import wolfram as _wolfram                                          # noqa: E402
 import depth as _depth                                              # noqa: E402
 import lattice as _lattice                                          # noqa: E402
 import orbits as _orbits                                            # noqa: E402
