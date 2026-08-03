@@ -3315,6 +3315,32 @@ def _providers_in_order():
 
 GEMINI_SAFE_MODEL = "gemini-flash-lite-latest"
 
+# Only these two families never had thinking. Everything else — 2.5, 3, and
+# every rolling alias, now and later — gets it switched off.
+#
+# This was a positive match on version digits, which is exactly wrong for a
+# setting that is usually an alias: "gemini-flash-lite-latest" has no digits
+# after "gemini-", so it fell through, thinking stayed on, and it quietly ate
+# the output budget of the largest prompt in the product.
+_NO_THINKING = _re.compile(r"^gemini-(1\.|2\.0)")
+
+
+def _gen_config(model, tokens, temperature, json_mode=False, no_think=False):
+    """The generationConfig for one Gemini call."""
+    gen = {"maxOutputTokens": tokens, "temperature": temperature}
+    if json_mode:
+        gen["responseMimeType"] = "application/json"
+    if not no_think and not _NO_THINKING.match(model or ""):
+        gen["thinkingConfig"] = {"thinkingBudget": 0}
+    return gen
+
+
+def _rejects_thinking(e):
+    """Did the model refuse the thinking parameter itself?"""
+    m = str(e).lower()
+    return "thinking" in m and ("not supported" in m or "invalid" in m
+                                or "unknown" in m or "unexpected" in m)
+
 
 def _is_missing_model(e):
     """Did this fail because the model id is wrong, rather than transiently?"""
@@ -3334,19 +3360,11 @@ def _gemini_model(best=False):
 
 
 async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False,
-                             best=False, _override=None):
+                             best=False, _override=None, _no_think=False):
     """One raw generation call to a single provider. Raises on HTTP error."""
     if provider == "gemini":
-        gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
-        if json_mode:
-            gen["responseMimeType"] = "application/json"
         model = _override or (GEMINI_MODEL_BEST if best else GEMINI_MODEL)
-        # Gemini models from 2.5 onwards do internal "thinking" that is billed
-        # against the same output budget. Left on, it can consume the whole
-        # allowance and return no visible text at all — which reaches the user
-        # as "the AI could not respond". None of these tasks benefit from it.
-        if _re.match(r"gemini-(2\.5|[3-9]|\d{2})", model):
-            gen["thinkingConfig"] = {"thinkingBudget": 0}
+        gen = _gen_config(model, max_tokens, 0.4, json_mode, _no_think)
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
@@ -3408,10 +3426,7 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
     """
     b64 = base64.b64encode(raw).decode()
     if provider == "gemini":
-        gen = {"maxOutputTokens": max_tokens, "temperature": 0.3,
-               "responseMimeType": "application/json"}
-        if _re.match(r"gemini-(2\.5|[3-9]|\d{2})", GEMINI_MODEL):
-            gen["thinkingConfig"] = {"thinkingBudget": 0}
+        gen = _gen_config(_override or GEMINI_MODEL, max_tokens, 0.3, True)
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{_override or GEMINI_MODEL}:generateContent",
@@ -3521,6 +3536,16 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                     txt = await _provider_generate(client, prov, prompt,
                                                    max_tokens, json_mode, best)
                 except Exception as inner:
+                    # A model that does not take thinkingConfig at all: send
+                    # the same call again without it rather than losing the
+                    # provider over one optional field.
+                    if prov == "gemini" and _rejects_thinking(inner):
+                        txt = await _provider_generate(
+                            client, prov, prompt, max_tokens, json_mode, best,
+                            _no_think=True)
+                        if txt:
+                            return txt
+                        raise
                     want, safe = _gemini_model(best)
                     if not (prov == "gemini" and safe
                             and _is_missing_model(inner)):
@@ -4648,9 +4673,7 @@ async def ai_selftest(user: User = Depends(admin_user)):
     async def probe(label, model, tokens, prompt):
         try:
             async with httpx.AsyncClient(timeout=60) as c:
-                gen = {"maxOutputTokens": tokens, "temperature": 0.4}
-                if model.startswith("gemini-2.5"):
-                    gen["thinkingConfig"] = {"thinkingBudget": 0}
+                gen = _gen_config(model, tokens, 0.4)
                 r = await c.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                     headers={"x-goog-api-key": GEMINI_API_KEY,
