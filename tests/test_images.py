@@ -109,5 +109,54 @@ else:
     check("nonsense returns nothing rather than something wrong",
           nothing == {}, str(nothing)[:60])
 
+# ---- routing: the most specific source wins -------------------------
+# PubChem is a chemical index and answers for names not being used
+# chemically — it has an entry called "Saturn", so a lesson on the planet came
+# back as a structural formula until astronomy was asked first.
+check("a planet is not treated as a compound", not images._compound("Saturn"))
+check("nor is an eclipse", not images._compound("a lunar eclipse"))
+check("a bare compound name is kept", images._compound("glucose") == "glucose")
+check("so is a stated structure",
+      images._compound("the structure of citric acid") == "citric acid",
+      images._compound("the structure of citric acid"))
+check("a phrase with no chemical signal is refused",
+      not images._compound("the Indian Constitution"))
+
+check("PubChem is an allowed host",
+      images.clean({"url": "https://pubchem.ncbi.nlm.nih.gov/rest/x/PNG"}) != {})
+check("NASA assets are an allowed host",
+      images.clean({"url": "https://images-assets.nasa.gov/image/a/b.jpg"}) != {})
+for _bad in ("https://pubchem.ncbi.nlm.nih.gov.evil.test/x.png",
+             "https://images-assets.nasa.gov.evil.test/x.jpg",
+             "http://pubchem.ncbi.nlm.nih.gov/x.png"):
+    check("refuses " + _bad[:46], images.clean({"url": _bad}) == {})
+
+try:
+    async def routed():
+        async with httpx.AsyncClient(follow_redirects=True) as c:
+            out = {}
+            for t in ("glucose", "benzene", "Saturn", "the human heart"):
+                out[t] = await images.find(c, t)
+            return out
+
+    got = asyncio.run(routed())
+except Exception as _e:
+    print("  ..    live routing skipped: " + type(_e).__name__)
+else:
+    check("glucose comes from PubChem",
+          "pubchem" in got["glucose"].get("url", ""),
+          got["glucose"].get("url", "")[:52])
+    check("benzene too, despite its small file",
+          "pubchem" in got["benzene"].get("url", ""))
+    check("Saturn comes from NASA, not PubChem",
+          "nasa" in got["Saturn"].get("url", ""),
+          got["Saturn"].get("url", "")[:52])
+    check("a public-domain picture needs no credit",
+          not got["glucose"].get("author")
+          and not got["glucose"].get("license"))
+    check("a Wikimedia picture still carries one",
+          bool(got["the human heart"].get("author")
+               or got["the human heart"].get("license")))
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}" + (f"   SKIPPED {SKIP}" if SKIP else ""))
 sys.exit(1 if FAIL else 0)

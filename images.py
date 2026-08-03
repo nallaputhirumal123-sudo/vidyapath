@@ -1,4 +1,4 @@
-"""A real photograph to go with the drawing, from Wikimedia.
+"""A real picture to go with the drawing, from whoever draws it best.
 
 Every picture on this site so far has been drawn from numbers — canvas
 sketches and procedural 3D. That was the right default and it stays: a
@@ -6,7 +6,16 @@ diagram built from the lesson's own values cannot show something the lesson
 did not say. But a diagram of a mitochondrion is not a mitochondrion, and for
 a great many topics the thing itself is what somebody needs to see.
 
-Wikimedia was chosen over an image-generation model for three reasons, in
+Three sources, asked in order of how specific they are.
+
+PubChem draws the actual structural formula for a named compound: ask for
+glucose and you get glucose, because it is generated from the structure rather
+than chosen by an editor. NASA covers astronomy, planetary science and earth
+observation with its own photographs. Both are public domain, so a chemistry
+or astronomy lesson carries no credit line at all. Wikimedia catches
+everything else, and its files are credited because their licence says so.
+
+A real picture was chosen over an image-generation model for three reasons, in
 order of how much they matter here.
 
 It costs nothing. Generating an image per lesson would be the single most
@@ -39,7 +48,10 @@ API = "https://en.wikipedia.org/w/api.php"
 # upload.wikimedia.org; the rest are here because redirects between the
 # project domains are normal and harmless.
 _HOSTS = ("upload.wikimedia.org", "commons.wikimedia.org",
-          "en.wikipedia.org", "wikimedia.org")
+          "en.wikipedia.org", "wikimedia.org",
+          # Public-domain sources, added deliberately and by exact name. A
+          # picture may still only come from a host named here.
+          "pubchem.ncbi.nlm.nih.gov", "images-assets.nasa.gov")
 
 MIN_WIDTH = 240          # thumbnails smaller than this are icons, not pictures
 TIMEOUT = 6.0            # a picture is a bonus; it never delays a lesson
@@ -138,6 +150,120 @@ def _parse(search_body, meta_body) -> dict:
     return clean(best)
 
 
+# ---- chemistry: the structure itself, drawn from the structure ----------
+PUBCHEM = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/"
+           "{}/PNG?image_size=large")
+
+# Words that mean "this topic is a substance", plus the giveaway of a formula.
+_CHEM = re.compile(
+    r"\b(molecul\w*|compound|structure of|formula of|reaction|acid|base|salt|"
+    r"alkane|alkene|alkyne|alcohol|ester|amine|amide|ketone|aldehyde|"
+    r"benzene|polymer|monomer|isomer|organic chem\w*|functional group)\b",
+    re.I)
+
+# A named substance, if the topic is plainly about one. PubChem resolves
+# common names, so "table salt" and "aspirin" both work.
+_LEAD = re.compile(r"^(?:the\s+)?(?:structure|formula|molecule)\s+of\s+(.+)$",
+                   re.I)
+
+
+def _compound(topic):
+    """The substance this topic is about, or nothing.
+
+    PubChem is a chemical index and will answer for names that are not being
+    used chemically: it has an entry called "Saturn", so a lesson on the
+    planet came back as a structural formula. Anything astronomical is
+    refused here, and a topic with no chemical signal at all has to be a
+    single word before it is even tried.
+    """
+    t = " ".join(str(topic or "").split())
+    if _SPACE.search(t):
+        return ""
+    m = _LEAD.match(t)
+    if m:
+        t = m.group(1)
+    t = t.strip(" .?!")
+    # One or two words, and not a sentence about a process. A long phrase is
+    # a lesson topic, not a compound, and PubChem would either miss or
+    # return something surprising.
+    if not t or len(t) > 40:
+        return ""
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9 ,'()\-]*$", t):
+        return ""
+    words = t.split()
+    # A phrase is only a compound if the topic says so chemically
+    # ("the structure of citric acid"). Without that signal, only a single
+    # word is worth asking about — "the human heart" is not a molecule.
+    if len(words) > 1 and not _CHEM.search(topic or ""):
+        return ""
+    return t if len(words) <= 3 else ""
+
+
+async def _from_pubchem(client, topic):
+    """A structural formula, or nothing. Public domain: no credit required."""
+    name = _compound(topic)
+    if not name:
+        return {}
+    try:
+        r = await client.get(PUBCHEM.format(quote(name, safe="")),
+                             timeout=TIMEOUT, headers={"User-Agent": UA})
+        # PubChem answers 404 for anything it does not recognise as a
+        # compound, which is exactly the filter wanted: no match, no picture.
+        if r.status_code != 200 or "image" not in \
+                r.headers.get("content-type", ""):
+            return {}
+        # A blank canvas is about 300 bytes. Benzene, a plain hexagon, is
+        # only 800 — so the floor has to sit between them, not above both.
+        if len(r.content) < 500:
+            return {}
+    except Exception as e:
+        print(f"PubChem lookup failed for {name!r}: {type(e).__name__}: {e}")
+        return {}
+    return {"url": PUBCHEM.format(quote(name, safe="")), "width": 600,
+            "caption": name, "author": "", "license": "", "page": ""}
+
+
+# ---- astronomy and earth science: NASA's own photographs ----------------
+NASA = "https://images-api.nasa.gov/search"
+_SPACE = re.compile(
+    r"\b(planet\w*|solar system|galax\w*|nebula|star|stellar|astronom\w*|"
+    r"telescope|orbit\w*|satellite|spacecraft|rocket|launch|mars|venus|"
+    r"jupiter|saturn|uranus|neptune|mercury|pluto|moon|lunar|sun|solar|"
+    r"asteroid|comet|meteor|eclipse|cosmic|universe|black hole|supernova|"
+    r"milky way|space station|hubble|webb|apollo|voyager|atmosphere of|"
+    r"hurricane|cyclone|monsoon|glacier|volcano|earth observation)\b", re.I)
+
+
+async def _from_nasa(client, topic):
+    """A NASA photograph. Public domain: no credit required."""
+    if not _SPACE.search(topic or ""):
+        return {}
+    try:
+        r = await client.get(NASA, timeout=TIMEOUT, headers={"User-Agent": UA},
+                             params={"q": str(topic)[:80],
+                                     "media_type": "image"})
+        if r.status_code != 200:
+            return {}
+        items = ((r.json() or {}).get("collection") or {}).get("items") or []
+    except Exception as e:
+        print(f"NASA lookup failed: {type(e).__name__}: {e}")
+        return {}
+    for it in items[:5]:
+        links = it.get("links") or []
+        data = (it.get("data") or [{}])[0]
+        for link in links:
+            href = str(link.get("href") or "")
+            if not href.startswith("https://images-assets.nasa.gov/"):
+                continue
+            # "~thumb" is a postage stamp; ask for the medium rendition.
+            href = href.replace("~thumb.", "~medium.").replace(
+                "~small.", "~medium.")
+            return {"url": href, "width": 800,
+                    "caption": str(data.get("title") or "")[:120],
+                    "author": "", "license": "", "page": ""}
+    return {}
+
+
 async def find(client, topic: str) -> dict:
     """One picture for a topic, or an empty dict.
 
@@ -149,6 +275,22 @@ async def find(client, topic: str) -> dict:
     q = str(topic).strip()[:120]
     if not q:
         return {}
+
+    # Public-domain sources first. They are better pictures for the subjects
+    # they cover — a structural formula is the compound, where an article's
+    # lead image is whatever an editor chose — and they carry no attribution
+    # obligation, so nothing appears under the picture at all.
+    # NASA first. "Saturn" is unambiguously astronomical and ambiguously
+    # chemical, so the more specific signal is asked first.
+    for source in (_from_nasa, _from_pubchem):
+        try:
+            pic = clean(await source(client, q))
+        except Exception as e:
+            print(f"Picture source failed: {type(e).__name__}: {e}")
+            continue
+        if pic:
+            return pic
+
     try:
         r = await client.get(API, timeout=TIMEOUT, headers={"User-Agent": UA},
                              params={
@@ -199,8 +341,10 @@ async def find(client, topic: str) -> dict:
             meta = {}
 
     pic = _parse(body, meta)
-    # Attribution is not optional. Without an author and a licence there is
-    # nothing to credit, so the picture is not used.
+    # Attribution is not optional HERE. Wikimedia's files are licensed on the
+    # condition that the author is named, so one that arrives without an
+    # author or a licence is dropped rather than shown bare. The public-domain
+    # sources above are exempt because there is genuinely nobody to credit.
     if pic and not (pic.get("author") or pic.get("license")):
         return {}
     return pic
