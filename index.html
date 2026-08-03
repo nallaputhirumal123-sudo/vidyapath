@@ -669,6 +669,23 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .sb-code .t-ps{color:#8fe3b0;font-weight:700}
 .sb-code .t-cmd{color:#ffffff;font-weight:600}
 .sb-code .t-out{color:#a9c6b6}
+/* A figure filling the screen, and the fallback for browsers that will not
+   do it natively. */
+.fig-focus{position:fixed;inset:0;z-index:9998;margin:0;border-radius:0;
+  background:var(--bg,#0b0d10);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:14px}
+.fig-focus img,.fig-focus canvas{max-width:100%;max-height:88vh;height:auto}
+:fullscreen{background:var(--bg,#0b0d10)}
+:fullscreen img,:fullscreen canvas{max-width:100%;max-height:88vh}
+.fig-btn{position:absolute;top:8px;right:8px;z-index:3;border:0;
+  border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:14px;
+  line-height:1;padding:7px 9px;cursor:pointer}
+.fig-btn:hover{background:rgba(0,0,0,.75)}
+.sb-photo,.sb-dia,.sb-scene,.sc3dbox{position:relative}
+.sb-trail{display:flex;flex-wrap:wrap;align-items:center;gap:4px 2px;
+  line-height:1.9}
+.sb-trail .ask-chip{max-width:100%;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
 .sb-lang{display:inline-block;font-size:10.5px;letter-spacing:.06em;
   text-transform:uppercase;color:#8fe3b0;margin-bottom:5px}
 .sb-dia{margin:10px 0}
@@ -2594,11 +2611,50 @@ function sbUp(i){
   SB.trail=SB.trail.slice(0,i);
   sbTeach(t,true);
 }
+/* What a topic is about, without the instruction attached to it.
+ *
+ * The six lenses and the follow-up box all extend the topic rather than
+ * replacing it, so SB.topic ends up as "gearbox - walk through one concrete
+ * worked example end to end". That is the right thing to send to the tutor
+ * and the wrong thing to show a reader, who sees a heading that matches
+ * neither the lesson title nor what they asked. */
+const SB_LENS_TAG = {
+  "explain much more simply": "simpler",
+  "go deeper": "in depth",
+  "walk through one concrete": "example",
+  "why does this matter": "why it matters",
+  "the mistakes people make": "mistakes",
+  "practice exercises": "practice",
+  "specifically": ""
+};
+
+function sbSubject(topic){
+  const full = String(topic || "");
+  const cut = full.split(/\s+\u2014\s+|\s+-\s+/)[0].trim();
+  const tail = full.slice(cut.length).toLowerCase();
+  let tag = "";
+  for(const k in SB_LENS_TAG){
+    if(tail.indexOf(k) >= 0){ tag = SB_LENS_TAG[k]; break; }
+  }
+  if(tail.indexOf("specifically:") >= 0){
+    const q = full.split(/specifically:/i)[1] || "";
+    tag = q.trim().slice(0, 22);
+  }
+  return tag ? cut + " \u00b7 " + tag : cut;
+}
+
 function sbTrailHTML(){
   if(!SB.trail.length) return "";
-  return `<div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
-    ${SB.trail.map((t,i)=>`<button class="ask-chip" data-sbup="${i}"
-      style="font-size:11.5px;padding:2px 8px">${esc(t.length>34?t.slice(0,33)+"…":t)}</button>`).join(" › ")}
+  /* The trail wraps and its chips stay whole.
+   *
+   * It was one line with no wrapping, so on a phone the third topic ran off
+   * the edge and the chips were sliced through their text — a heading cut in
+   * half reads as a rendering fault, which is what it was. */
+  return `<div class="sb-trail" style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
+    ${SB.trail.map((t,i)=>{const nm=sbSubject(t);
+      return `<button class="ask-chip" data-sbup="${i}"
+      style="font-size:11.5px;padding:2px 8px" title="${esc(t)}">${
+      esc(nm.length>34?nm.slice(0,33)+"…":nm)}</button>`;}).join(" › ")}
     <span style="color:var(--dim)"> › now</span></div>`;
 }
 
@@ -2815,6 +2871,52 @@ function sbLens(id){
   const l=SB_LENSES.find(x=>x[0]===id); if(!l||!SB.topic) return;
   sbTeach(l[2](SB.topic.replace(/ — .*$/,"")));
 }
+/* Speaking to the Pro board.
+ *
+ * Ask Axle could be spoken to and this could not, which is the wrong way
+ * round: the Pro board is where the long questions get asked and typing one
+ * on a phone is the reason people give up on it. Shares askVoiceStop and the
+ * plain-language errors, so a blocked microphone says the same thing on both
+ * screens rather than failing differently. */
+function sbVoiceInput(){
+  if(SB.listening){ sbVoiceStop(); sbPaint(); return; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){
+    toast("This browser cannot listen. Chrome and Edge can; Firefox cannot.");
+    return;
+  }
+  const r=new SR(); SB.recog=r;
+  r.lang="en-IN"; r.interimResults=false; r.maxAlternatives=1;
+  r.onresult=ev=>{
+    const t=(ev.results[0][0].transcript||"").trim();
+    SB.recog=null; SB.listening=false;
+    if(!t){ toast("I did not catch that. Try once more."); sbPaint(); return; }
+    const el=document.getElementById("sbFollow");
+    if(el) el.value=t;
+    sbPaint();
+    sbAsk();
+  };
+  r.onerror=ev=>{
+    const code=(ev&&ev.error)||"";
+    SB.recog=null; SB.listening=false;
+    const msg=VOICE_TROUBLE[code];
+    if(msg!==undefined ? msg : true)
+      toast(msg!==undefined ? msg
+        : "The microphone stopped unexpectedly. Try again, or type it.");
+    sbPaint();
+  };
+  r.onend=()=>{ SB.recog=null; SB.listening=false; sbPaint(); };
+  SB.listening=true; sbPaint();
+  try{ r.start(); }
+  catch(e){ sbVoiceStop(); toast("The microphone was already busy."); sbPaint(); }
+}
+
+function sbVoiceStop(){
+  const r=SB.recog;
+  SB.recog=null; SB.listening=false;
+  if(r){ try{ r.onend=null; r.onerror=null; r.abort(); }catch(e){} }
+}
+
 function sbAsk(){
   const el=document.getElementById("sbFollow");
   const q=(el&&el.value||"").trim();
@@ -2962,6 +3064,7 @@ function sbPhotoHTML(p){
    * source URL is on the title attribute for anyone who genuinely wants it. */
   const credit=[p.author,p.license].filter(Boolean).map(esc).join(" · ");
   return `<figure class="sb-photo">
+    <button class="fig-btn" data-figfull="1" title="Full screen">⤢</button>
     <img src="${esc(p.url)}" alt="${esc(p.caption||"")}" loading="lazy"
          title="${esc(p.page||"")}"
          onerror="this.closest('figure').style.display='none'">
@@ -3028,13 +3131,13 @@ function sbBoardHTML(){
          the document, by sbMountScene below — the renderer needs a real
          element with a real width, which a template string is not. -->
     ${st.draw?`<div class="sb-scene-cap">✏️ ${esc(st.draw.caption||"")}</div>
-      <div class="sb-scene" id="sbDraw"></div>`:""}
+      <div class="sb-scene" id="sbDraw"><button class="fig-btn" data-figfull="1" title="Full screen">⤢</button></div>`:""}
     ${st.sketch?`<div class="sb-scene-cap">✏️ ${esc(st.sketch.caption
         ||"")}</div>
-      <div class="sb-scene" id="sbSketch"></div>`:""}
+      <div class="sb-scene" id="sbSketch"><button class="fig-btn" data-figfull="1" title="Full screen">⤢</button></div>`:""}
     ${st.scene?`<div class="sb-scene-cap">🧊 ${esc(st.scene.caption
         ||"Drag to turn it, pinch or scroll to zoom")}</div>
-      <div class="sb-scene" id="sbScene"></div>`:""}
+      <div class="sb-scene" id="sbScene"><button class="fig-btn" data-figfull="1" title="Full screen">⤢</button></div>`:""}
     ${SB.i===l.steps.length-1&&l.takeaway
       ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
     <!-- On the board itself, not below it. Full screen hides everything
@@ -3110,8 +3213,11 @@ function sbToolsHTML(){
       <div class="sb-grp">
         <div class="sb-grp-lbl">Still stuck? Ask in your own words</div>
         <div class="row" style="gap:6px;align-items:flex-end">
-          <input id="sbFollow" class="ask-input" style="flex:1"
+          <input id="sbFollow" class="ask-input" style="flex:1;min-width:0"
             placeholder="Anything you did not understand…"/>
+          <button class="btn sm ghost" data-sbvoice="1"
+            title="${SB.listening ? "Listening — tap to stop" : "Ask by voice"}"
+            >${SB.listening ? "⏹" : "🎤"}</button>
           <button class="btn sm" data-sbask="1">Ask</button>
         </div>
       </div>
@@ -3208,6 +3314,40 @@ function sbFocusOff(){
   if(el) el.classList.remove("sb-focus");
   document.body.classList.remove("sb-focused");
 }
+/* Full screen for any figure, not only the board.
+ *
+ * A protein at 340 pixels on a phone is a smudge and a mechanism sketch is
+ * worth the whole display. Same fallback the board uses: iOS refuses element
+ * full screen, so the element takes a class and fills the viewport that way
+ * rather than the button appearing to do nothing. */
+function figFull(el){
+  if(!el) return;
+  if(document.fullscreenElement){ document.exitFullscreen(); return; }
+  if(el.classList.contains("fig-focus")){
+    el.classList.remove("fig-focus");
+    document.body.classList.remove("sb-focused");
+    window.dispatchEvent(new Event("resize"));
+    return;
+  }
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  const fallback = ()=>{
+    el.classList.add("fig-focus");
+    document.body.classList.add("sb-focused");
+    window.dispatchEvent(new Event("resize"));
+  };
+  if(req){
+    try{
+      const p = req.call(el);
+      if(p && p.catch) p.catch(fallback);
+      // Canvas and WebGL both size themselves from their box, so they have
+      // to be told the box changed.
+      setTimeout(()=>window.dispatchEvent(new Event("resize")), 120);
+      return;
+    }catch(e){ /* falls through */ }
+  }
+  fallback();
+}
+
 function sbFull(){
   const el=document.querySelector(".ask-frame");
   if(!el) return;
@@ -6040,6 +6180,9 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-sbpickback]")){ PICK.role=""; PICK.skills=null; return renderAsk(); }
   if(e.target.closest("[data-sbspeak]")) return sbSpeak();
   if(e.target.closest("[data-sbfull]")) return sbFull();
+  if(e.target.closest("[data-sbvoice]")) return sbVoiceInput();
+  const figBtn = e.target.closest("[data-figfull]");
+  if(figBtn) return figFull(figBtn.closest("figure,.sb-dia,.sb-scene,.sb-photo,.scscene,.sc3dbox"));
   const ol=e.target.closest("[data-sbstep]");
   if(ol){ SB.i=+ol.dataset.sbstep; renderAsk(); return; }
   if(e.target.closest("[data-sbexit]")) return sbExit();
