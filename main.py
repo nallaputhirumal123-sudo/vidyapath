@@ -8583,6 +8583,69 @@ _BOARD_LANGS = {
 }
 
 
+async def _real_molecules(client, lesson, topic):
+    """Swap guessed atomic coordinates for measured ones, where they exist.
+
+    The name to look up is the scene's own caption first, then the lesson
+    topic — a caption like "Caffeine molecule" resolves, and if it does not,
+    a lesson called "caffeine" still might.
+
+    Never raises and never removes a scene. A molecule PubChem does not have
+    keeps the one the model drew, because a diagram is still better than a
+    gap; only the geometry is upgraded, never downgraded.
+    """
+    if not isinstance(lesson, dict):
+        return 0
+    swapped = 0
+    for st in (lesson.get("steps") or []):
+        if not isinstance(st, dict):
+            continue
+        sc = st.get("scene")
+        if not isinstance(sc, dict) or sc.get("kind") != "molecule":
+            continue
+        for name in (_molecule_name(sc.get("caption")), topic):
+            if not name:
+                continue
+            try:
+                real = await _molecule.find(client, name)
+            except Exception as e:
+                print(f"Molecule lookup failed: {type(e).__name__}: {e}")
+                real = {}
+            if not real or len(real.get("atoms") or []) < 2:
+                continue
+            # scene.clean caps the payload; anything past it is a protein and
+            # belongs to a different renderer.
+            if len(real["atoms"]) > _scene.MAX_ATOMS:
+                continue
+            sc["atoms"] = [{"el": a["el"], "x": a["x"], "y": a["y"],
+                            "z": a["z"]} for a in real["atoms"]]
+            sc["bonds"] = [list(b) for b in real["bonds"]]
+            if real.get("formula"):
+                base = sc.get("caption") or real.get("name") or ""
+                if real["formula"] not in base:
+                    sc["caption"] = (f"{base} — {real['formula']}").strip(" —")
+            swapped += 1
+            break
+    return swapped
+
+
+# Captions read like "Caffeine molecule (ball and stick)". PubChem wants the
+# substance, so the scaffolding words come off.
+_MOL_NOISE = _re.compile(
+    r"\b(molecule|molecular|structure|model|ball[\s-]and[\s-]stick|"
+    r"space[\s-]filling|3d|three[\s-]dimensional|diagram|showing|shown|"
+    r"view|rendered|representation|atoms?|bonds?|"
+    r"of|the|a|an|in|on|at|with|and|for|its|this|that|is|are|as)\b", _re.I)
+
+
+def _molecule_name(caption):
+    """The substance a scene caption is about, if it names one."""
+    t = _re.sub(r"\(.*?\)", " ", str(caption or ""))
+    t = _MOL_NOISE.sub(" ", t)
+    t = " ".join(t.replace(",", " ").split()).strip(" -\u2014")
+    return t if _molecule.wanted(t) else ""
+
+
 def _check_lesson(lesson, extra_lines=()):
     """Every automatic check, over one finished lesson.
 
@@ -8796,10 +8859,16 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
                 _ai_text(_board_prompt(topic, level), 8000, json_mode=True),
                 _images.find(_pic_client, topic),
             )
-        _tr.phase("model+picture")
-        lesson = _clean_board(_ai_json(text), topic)
-        if photo:
-            lesson["photo"] = photo
+            _tr.phase("model+picture")
+            lesson = _clean_board(_ai_json(text), topic)
+            if photo:
+                lesson["photo"] = photo
+            # Inside the same client, because the molecule can only be looked
+            # up once the lesson says which one it wants.
+            swapped = await _real_molecules(_pic_client, lesson, topic)
+            if swapped:
+                print(f"Molecules on {topic!r}: {swapped} given real "
+                      f"coordinates from PubChem")
         _tr.phase("parse")
     except Exception as e:
         print(f"Smart board failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
@@ -9171,6 +9240,7 @@ import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import images as _images                                            # noqa: E402
+import molecule as _molecule                                        # noqa: E402
 
 
 @app.post("/api/scan")
