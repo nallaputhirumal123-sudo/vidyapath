@@ -3313,14 +3313,34 @@ def _providers_in_order():
     return [p for p in order if _KEYS.get(p)]
 
 
+GEMINI_SAFE_MODEL = "gemini-flash-lite-latest"
+
+
+def _is_missing_model(e):
+    """Did this fail because the model id is wrong, rather than transiently?"""
+    m = str(e).lower()
+    return (("not found" in m and "model" in m)
+            or "is not supported" in m or "unknown model" in m
+            or "does not exist" in m)
+
+
+_gemini_fallback_warned = False
+
+
+def _gemini_model(best=False):
+    """The model to ask for, and the one to fall back to if it is not there."""
+    want = GEMINI_MODEL_BEST if best else GEMINI_MODEL
+    return want, (GEMINI_SAFE_MODEL if want != GEMINI_SAFE_MODEL else None)
+
+
 async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False,
-                             best=False):
+                             best=False, _override=None):
     """One raw generation call to a single provider. Raises on HTTP error."""
     if provider == "gemini":
         gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
         if json_mode:
             gen["responseMimeType"] = "application/json"
-        model = GEMINI_MODEL_BEST if best else GEMINI_MODEL
+        model = _override or (GEMINI_MODEL_BEST if best else GEMINI_MODEL)
         # Gemini models from 2.5 onwards do internal "thinking" that is billed
         # against the same output budget. Left on, it can consume the whole
         # allowance and return no visible text at all — which reaches the user
@@ -3374,7 +3394,8 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
                    if b.get("type") == "text").strip()
 
 
-async def _provider_vision(client, provider, prompt, raw, mime, max_tokens):
+async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
+                           _override=None):
     """One generation call that also carries an image.
 
     Kept apart from _provider_generate because the three wire formats disagree
@@ -3393,7 +3414,7 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens):
             gen["thinkingConfig"] = {"thinkingBudget": 0}
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{GEMINI_MODEL}:generateContent",
+            f"{_override or GEMINI_MODEL}:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY,
                      "content-type": "application/json"},
             json={"contents": [{"parts": [
@@ -3454,8 +3475,17 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                 print(f"AI vision: out of time before trying {prov}")
                 break
             try:
-                txt = await _provider_vision(client, prov, prompt, raw, mime,
-                                             max_tokens)
+                try:
+                    txt = await _provider_vision(client, prov, prompt, raw,
+                                                 mime, max_tokens)
+                except Exception as inner:
+                    _w, _safe = _gemini_model()
+                    if not (prov == "gemini" and _safe
+                            and _is_missing_model(inner)):
+                        raise
+                    txt = await _provider_vision(client, prov, prompt, raw,
+                                                 mime, max_tokens,
+                                                 _override=_safe)
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
@@ -3487,8 +3517,24 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                 print(f"AI: out of time before trying {prov}")
                 break
             try:
-                txt = await _provider_generate(client, prov, prompt, max_tokens,
-                                               json_mode, best)
+                try:
+                    txt = await _provider_generate(client, prov, prompt,
+                                                   max_tokens, json_mode, best)
+                except Exception as inner:
+                    want, safe = _gemini_model(best)
+                    if not (prov == "gemini" and safe
+                            and _is_missing_model(inner)):
+                        raise
+                    global _gemini_fallback_warned
+                    if not _gemini_fallback_warned:
+                        _gemini_fallback_warned = True
+                        print(f"AI CONFIG: GEMINI_MODEL is set to '{want}', "
+                              f"which this key cannot use. Falling back to "
+                              f"'{safe}' for every request. Fix the variable "
+                              f"or check /api/ai/models.")
+                    txt = await _provider_generate(client, prov, prompt,
+                                                   max_tokens, json_mode, best,
+                                                   _override=safe)
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
