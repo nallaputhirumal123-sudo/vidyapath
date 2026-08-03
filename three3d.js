@@ -450,6 +450,14 @@
         new THREE.BufferGeometry().setFromPoints(pts),
         new THREE.LineBasicMaterial({ color: 0x8fa3b0, transparent: true,
                                       opacity: 0.55 })));
+      // The measured figures, where we have them. The ring is drawn on the
+      // square root of the true distance so the system fits a screen, so the
+      // real number has to be written down or the compression becomes the
+      // claim.
+      if (b.au) {
+        label(group, b.name + "  " + b.au + " AU, " + b.years + " yr",
+              r + 0.1, 0.55, 0);
+      }
       var m = new THREE.Mesh(
         new THREE.SphereGeometry(b.size || 0.3, 22, 16),
         new THREE.MeshStandardMaterial({ color: b.color || 0x7fb8ff,

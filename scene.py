@@ -272,6 +272,13 @@ def clean(d):
                     "r": _n(b.get("r"), 1.2, 22, 3),
                     "size": _n(b.get("size"), 0.1, 1.2, 0.3),
                     "speed": _n(b.get("speed"), 0.02, 2.0, 0.4)}
+            # The measured figures, when the body is one we have. Distance
+            # on screen and distance in space are different numbers, and
+            # only the second is a fact — so it travels beside the first
+            # rather than replacing it.
+            if b.get("au"):
+                item["au"] = _n(b.get("au"), 0.001, 1e5, 1)
+                item["years"] = _n(b.get("years"), 0.0001, 1e6, 1)
             c = _colour(b.get("color"))
             if c is not None:
                 item["color"] = c
@@ -280,6 +287,9 @@ def clean(d):
             return None
         out["bodies"] = bodies
         out["centre"] = _label(d.get("centre"), 24)
+        if d.get("measured"):
+            out["measured"] = True
+            out["scale_note"] = _label(d.get("scale_note"), 60)
         out["centre_r"] = _n(d.get("centre_r"), 0.3, 2.5, 0.9)
         c = _colour(d.get("centre_color"))
         if c is not None:
@@ -387,6 +397,11 @@ none.
 "orbit"     {"kind":"orbit","centre":"Sun","bodies":[{"name":"Earth","r":4,
              "size":0.3}]}
             Astronomy, and shell diagrams where the orbit is a convention.
+            Name the planets in the caption — "The solar system", "The inner
+            planets", "Jupiter" — and their real distances in AU, their
+            periods in years and their spacing are filled in from measured
+            values and printed beside each body. Do not write those numbers
+            yourself.
 
 "solid"     {"kind":"solid","shape":"cube|sphere|cylinder|cone|torus|tetra|
              octa|icosa|prism","size":3,"unit":"cm"}

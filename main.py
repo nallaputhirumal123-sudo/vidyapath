@@ -8667,6 +8667,21 @@ async def _real_molecules(client, lesson, topic):
         if not isinstance(sc, dict):
             continue
 
+        # An orbit: the distances and periods are measured. Spacing bodies
+        # by index made every system evenly spread, and the solar system is
+        # the opposite of evenly spread — the four inner planets fit inside
+        # 1.6 AU and Neptune is at 30. That emptiness is the most surprising
+        # true thing about it, and an even diagram teaches it away.
+        if sc.get("kind") == "orbit":
+            for name in (sc.get("caption"), topic):
+                real = _orbits.clean(name)
+                if not real:
+                    continue
+                sc.update(real)
+                swapped += 1
+                break
+            continue
+
         # A crystal: the lattice constant and the basis are measured, and
         # they are in a table rather than behind a request, because the
         # structures that get taught are a short list and a table cannot be
@@ -9407,6 +9422,7 @@ import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import depth as _depth                                              # noqa: E402
 import lattice as _lattice                                          # noqa: E402
+import orbits as _orbits                                            # noqa: E402
 import images as _images                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402
