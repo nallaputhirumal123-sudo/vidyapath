@@ -8667,6 +8667,20 @@ async def _real_molecules(client, lesson, topic):
         if not isinstance(sc, dict):
             continue
 
+        # A layer stack: the thicknesses are measured. A gate oxide and a
+        # wafer differ by a factor of a quarter of a million, and a stack
+        # drawn without that says a MOSFET is a sandwich of comparable
+        # slices — the opposite of what makes one work.
+        if sc.get("kind") == "layers":
+            for name in (sc.get("caption"), topic):
+                real = _layers.clean(name)
+                if not real:
+                    continue
+                sc.update(real)
+                swapped += 1
+                break
+            continue
+
         # An orbit: the distances and periods are measured. Spacing bodies
         # by index made every system evenly spread, and the solar system is
         # the opposite of evenly spread — the four inner planets fit inside
@@ -9423,6 +9437,7 @@ import verify as _verify                                            # noqa: E402
 import depth as _depth                                              # noqa: E402
 import lattice as _lattice                                          # noqa: E402
 import orbits as _orbits                                            # noqa: E402
+import layers as _layers                                            # noqa: E402
 import images as _images                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402

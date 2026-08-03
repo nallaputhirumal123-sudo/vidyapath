@@ -234,7 +234,15 @@
         new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.28,
                                       transparent: true })
       ).translateX(L.x || 0).translateY(y + h / 2));
-      if (L.name) label(group, L.name, (L.x || 0) + W / 2 + 0.55, y + h / 2, 0);
+      // The real thickness, where the stack is a measured one. The drawn
+      // height is a logarithm — a gate oxide and a wafer differ by a factor
+      // of a quarter of a million and cannot share a linear picture — so the
+      // true figure has to be written down or the compression becomes the
+      // claim being made.
+      if (L.name) {
+        label(group, L.real ? (L.name + "  —  " + L.real) : L.name,
+              (L.x || 0) + W / 2 + 0.55, y + h / 2, 0);
+      }
       y += h;
     });
   };

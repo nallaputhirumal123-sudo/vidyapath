@@ -186,6 +186,19 @@ def clean(d):
         if len(layers) < 2:
             return None
         out["layers"] = layers
+        # Filled in from the measured table when the stack is one that
+        # gets taught. The drawn thickness is a logarithm of the real
+        # one; the figure printed beside it is the fact.
+        if d.get("measured"):
+            out["measured"] = True
+            out["scale_note"] = _label(d.get("scale_note"), 60)
+            src = d.get("layers") or []
+            for i, lay in enumerate(out["layers"]):
+                s_i = src[i] if (i < len(src)
+                                 and isinstance(src[i], dict)) else {}
+                if s_i.get("real"):
+                    lay["real"] = _label(s_i.get("real"), 16)
+                    lay["note"] = _label(s_i.get("note"), 40)
         return out
 
     if kind == "lattice":
@@ -383,6 +396,10 @@ none.
             Bottom layer first. Semiconductor and MOSFET cross-sections,
             thin films, PCB stack-ups, geological strata, battery cells,
             skin and tissue layers, anything built up in labelled layers.
+            Name the device in the caption — "MOSFET gate stack", "pn
+            junction", "solar cell", "LED", "PCB", "graphene" — and the
+            real thicknesses are filled in from a table and printed on each
+            layer. Do not write thicknesses yourself for those.
 
 "surface"   {"kind":"surface","expr":"x^2 - y^2","span":4}
             Give "expr", the actual function of x and y this lesson is
