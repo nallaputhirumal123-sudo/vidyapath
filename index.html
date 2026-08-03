@@ -741,6 +741,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   .ask-inrow>.ask-input{flex:1 1 100%;order:-1}
   .ask-inrow>.ask-go,.ask-inrow>.ask-stop{flex:1}
 }
+.sb-checked b{display:block;margin-bottom:5px}
+.sb-checked i{display:block;font-style:normal;font-size:11.5px;opacity:.75;margin-top:6px;font-weight:400}
 .sb-checked{border:1px solid #d9534f;background:rgba(217,83,79,.12);
   border-radius:10px;padding:10px 13px;font-size:13px;line-height:1.6;
   margin-top:10px;font-weight:600}
@@ -2804,7 +2806,7 @@ function sbBoardHTML(){
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?`<div class="ask-line sb-step"><span>${mathText(esc(st.t))}</span></div>`:""}
-    ${l.checked?`<div class="sb-checked">⚠ ${esc(l.checked)}</div>`:""}
+    ${(l.findings&&l.findings.length)?`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${esc(f)}</div>`).join("")}<i>This lesson was not saved for anyone else.</i></div>`:""}
     ${st.code?`<div>
        <!-- The screen this happens on. Without it a console session and a
             shell script look identical, and the lesson stops being credible. -->
@@ -3342,6 +3344,9 @@ function askBoardHTML(){
     const sp = ASK.spoken===step.idx?" spoken":"";
     h+=`<div class="ask-line${sp}" data-ln="${step.idx}"><span class="ask-bullet">›</span><span>${mathText(esc(step.t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>"))}</span></div>`;
   });
+  if(pg===ASK.slides.length-1 && l.findings && l.findings.length){
+    h+=`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${esc(f)}</div>`).join("")}<i>This answer was not saved for anyone else.</i></div>`;
+  }
   if(pg===ASK.slides.length-1 && l.takeaway){
     const sp = ASK.spoken>=l.steps.length?" spoken":"";
     h+=`<div class="ask-take${sp}" data-ln="${l.steps.length}">✦ ${mathText(esc(l.takeaway))}</div>`;

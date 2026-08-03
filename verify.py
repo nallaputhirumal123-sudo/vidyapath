@@ -189,6 +189,10 @@ def schema(lesson):
     out = []
     steps = lesson.get("steps") or []
     for i, st in enumerate(steps):
+        # Ask Axle's steps are strings and carry no drawing, so there is
+        # nothing structural to check on them.
+        if not isinstance(st, dict):
+            continue
         d = st.get("draw")
         if not d:
             continue
@@ -247,9 +251,17 @@ def run(lesson):
         return []
     prose = []
     for st in (lesson.get("steps") or []):
-        for k in ("t", "where", "code"):
-            if st.get(k):
-                prose.append(str(st[k]))
+        # Two lesson shapes reach this. The Pro board's steps are objects with
+        # text, a setting and a screen; Ask Axle's are plain strings. Assuming
+        # the first meant this raised AttributeError on every Ask Axle lesson,
+        # which the caller swallowed — so the checks quietly never ran on the
+        # most-used path in the product.
+        if isinstance(st, dict):
+            for k in ("t", "where", "code"):
+                if st.get(k):
+                    prose.append(str(st[k]))
+        elif st:
+            prose.append(str(st))
     for k in ("title", "takeaway"):
         if lesson.get(k):
             prose.append(str(lesson[k]))

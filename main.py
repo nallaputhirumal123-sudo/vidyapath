@@ -3427,7 +3427,21 @@ GEMINI_SAFE_MODEL = "gemini-flash-lite-latest"
 # setting that is usually an alias: "gemini-flash-lite-latest" has no digits
 # after "gemini-", so it fell through, thinking stayed on, and it quietly ate
 # the output budget of the largest prompt in the product.
-_NO_THINKING = _re.compile(r"^gemini-(1\.|2\.0)")
+# Models that will not take thinkingConfig.
+#
+# The old ones because they predate it, and the "-latest" aliases because the
+# probe matrix settled it directly: gemini-flash-lite-latest returns 400
+# INVALID_ARGUMENT with thinkingConfig and 200 without it, every time. Google
+# never says which argument is invalid, so that was worth measuring rather
+# than reasoning about.
+#
+# The retry below still catches anything this misses. Listing the aliases here
+# only saves a wasted 400 on the first call after each restart — small, but it
+# was the difference between the configured provider working and the whole
+# site quietly running on the fallback.
+# Both branches are anchored: this is used with .match(), so an unanchored
+# "-latest$" would never fire — it has to match from the start of the name.
+_NO_THINKING = _re.compile(r"^gemini-(?:1\.|2\.0)|^gemini-.*-latest$")
 
 
 def _gen_config(model, tokens, temperature, json_mode=False, no_think=False):
@@ -3872,8 +3886,17 @@ async def ask_with_image(image: UploadFile = File(...),
         print(f"Ask with image failed: {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))
 
+    found, verdict = _check_lesson(lesson)
+    if found:
+        print(f"Checks on image question: {verdict['state']} — "
+              f"{found[0]['problem'][:120]}")
+        lesson["findings"] = _note_findings(found)
+        lesson["confidence"] = verdict["confidence"]
+
     _ai_bump(db, user)
     _trial_consume(db, user, "scan")
+    if not verdict["cache"]:
+        return {"lesson": lesson, "cached": False, "checked": verdict["state"]}
     db.add(AskCache(qkey=qkey, subject=subject, level=level,
                     question=(q or "(about an image)")[:2000],
                     lesson=json.dumps(lesson), hits=0))
@@ -5019,9 +5042,25 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
         print(f"Ask Axle call failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         raise HTTPException(status_code=503, detail=_ai_error_message(e))
 
+    found, verdict = _check_lesson(lesson)
+    if found:
+        print(f"Checks on ask {question[:60]!r}: {verdict['state']} — "
+              f"{found[0]['problem'][:120]}")
+        lesson["findings"] = _note_findings(found)
+        lesson["confidence"] = verdict["confidence"]
+    if not verdict["cache"]:
+        # Shown once, never served to anybody else.
+        return {"lesson": lesson, "cached": False, "checked": verdict["state"]}
+
     db.add(AskCache(qkey=qkey, subject=subject, level=level,
                     question=question[:2000], lesson=json.dumps(lesson), hits=0))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The last unguarded commit on the site. Two people asking the same
+        # question in the same second raced, and one of them got a 500 while
+        # the answer they wanted sat in memory.
+        db.rollback()
     return {"lesson": lesson, "cached": False}
 
 
@@ -8531,6 +8570,52 @@ _BOARD_LANGS = {
 }
 
 
+def _check_lesson(lesson, extra_lines=()):
+    """Every automatic check, over one finished lesson.
+
+    Returns (findings, verdict). The verdict decides whether this is fit to
+    cache — which is the decision that actually matters, because caching is
+    what turns one wrong answer into everybody's wrong answer.
+
+    Never raises. A checker that can break a lesson is worse than no checker,
+    since the lesson is the thing the reader came for and the check is not.
+    """
+    try:
+        found = _verify.run(lesson)
+    except Exception as e:
+        print(f"Verify skipped: {type(e).__name__}: {e}")
+        found = []
+    try:
+        found = found + _maths_gate(list(extra_lines) + _lesson_prose(lesson))
+    except Exception as e:
+        print(f"Maths check skipped: {type(e).__name__}: {e}")
+    try:
+        v = _verify.verdict(found)
+    except Exception:
+        v = {"cache": True, "confidence": "medium", "state": "checked"}
+    return found, v
+
+
+def _lesson_prose(lesson):
+    """Every line of a lesson that could carry a claim, as plain strings."""
+    out = []
+    if not isinstance(lesson, dict):
+        return out
+    for st in (lesson.get("steps") or []):
+        if isinstance(st, dict):
+            out += [str(st.get(k) or "") for k in ("t", "code")]
+        else:
+            out.append(str(st or ""))
+    out.append(str(lesson.get("takeaway") or ""))
+    return out
+
+
+def _note_findings(found):
+    """The findings a reader should see, as short sentences."""
+    return [f["problem"][0].upper() + f["problem"][1:]
+            for f in found if f.get("severity") in ("critical", "major")][:3]
+
+
 def _maths_gate(lines):
     """Claimed solutions in these lines that do not satisfy their equations.
 
@@ -8702,14 +8787,25 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         raise HTTPException(502, "That came back empty — try naming the topic "
                                  "more specifically.")
 
-    # Arithmetic the machine can settle, settled before anybody reads it.
-    bad = _maths_gate([st.get("t", "") for st in lesson["steps"]]
-                      + [lesson.get("takeaway", "")])
-    if bad:
-        print(f"Maths gate caught a bad answer on {topic!r}: "
-              f"{bad[0]['problem']}")
-        lesson["checked"] = _maths_note(bad)
+    # Everything the machine can settle without asking anybody: the physical
+    # constants, the arithmetic, the units, and any answer that can be
+    # substituted back into its own equation.
+    found, verdict = _check_lesson(lesson)
+    if found:
+        print(f"Checks on {topic!r}: {verdict['state']} "
+              f"({len(found)} finding(s)) — {found[0]['problem'][:120]}")
+        lesson["findings"] = _note_findings(found)
+        lesson["confidence"] = verdict["confidence"]
+
     _ai_bump(db, user)
+    if not verdict["cache"]:
+        # Shown, but never stored. Caching a lesson with a wrong constant or
+        # arithmetic that does not add up serves that error to everybody who
+        # asks the same question from then on, and it is free to do so, which
+        # is what makes it worse than showing it once.
+        print(f"Not caching {topic!r}: it failed a check that matters.")
+        return {"lesson": lesson, "cached": False, "checked": verdict["state"]}
+
     db.add(AskCache(qkey=qkey, subject="board", level=level,
                     question=topic[:2000], lesson=json.dumps(lesson), hits=0))
     try:
@@ -9047,6 +9143,7 @@ import scene as _scene                                              # noqa: E402
 import sketch as _sketch                                            # noqa: E402
 import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
+import verify as _verify                                            # noqa: E402
 
 
 @app.post("/api/scan")
@@ -9098,18 +9195,27 @@ async def scan(image: UploadFile = File(...),
 
     # The fault that prompted all of this was a scanned maths problem
     # answered with a triple that satisfies one equation and not the other.
-    bad = _maths_gate(
-        [out.get("read", "")]
-        + [part
-           for st in (out.get("steps") or []) if isinstance(st, dict)
-           for part in (st.get("teach", ""), st.get("working", ""))]
-        + [out.get("answer", "")])
-    if bad:
-        print(f"Maths gate caught a bad scan answer: {bad[0]['problem']}")
-        out["checked"] = _maths_note(bad)
+    # A photographed problem is as likely to come back with a wrong constant
+    # as with a wrong answer, so it gets the whole battery, not just the
+    # substitution check that started this.
+    lines = ([out.get("read", "")]
+             + [part
+                for st in (out.get("steps") or []) if isinstance(st, dict)
+                for part in (st.get("teach", ""), st.get("working", ""))]
+             + [out.get("answer", "")])
+    found, verdict = _check_lesson(
+        {"title": "", "steps": lines, "takeaway": out.get("answer", "")})
+    if found:
+        print(f"Checks on a scan: {verdict['state']} — "
+              f"{found[0]['problem'][:120]}")
+        out["checked"] = _note_findings(found)
+        out["confidence"] = verdict["confidence"]
 
     _ai_bump(db, user)
     _trial_consume(db, user, "scan")
+    if not verdict["cache"]:
+        _scan_remember(db, user, digest, out)
+        return {"scan": out, "cached": False, "key": digest[:16]}
     db.add(AskCache(qkey=qkey, subject="scan", level=out["kind"],
                     question=_scan.title(out)[:2000],
                     lesson=json.dumps(out), hits=0))
