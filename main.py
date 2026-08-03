@@ -8576,17 +8576,16 @@ def _board_prompt(topic: str, level: str) -> str:
         '}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
-        "MATCH THE LESSON TO THE QUESTION. A narrow question gets a "
-        "short lesson. \"How do I solve a squared plus b squared\" is "
-        "two or three steps: what the form is, that it does not "
-        "factorise over the reals the way a squared minus b squared "
-        "does, and what to do instead. Six steps on modular arithmetic "
-        "is a different question being answered at length, and length "
-        "is not thoroughness when none of it was asked for.\n"
-        "So: 2 to 4 steps for a single specific question, 4 to 7 for a "
-        "topic with real structure, 7 to 10 only for something "
-        "genuinely broad like a whole process or a subject area. Stop "
-        "when the question is answered.\n"
+        + _depth.instruction(topic) + "\n"
+        "ANSWER THE SENTENCE, NOT THE SUBJECT. \"How do I solve a squared "
+        "plus b squared\" is a question about a form: say that it does not "
+        "factorise over the reals the way a squared minus b squared does, "
+        "and what to do instead. It is not a request for a lesson on "
+        "modular arithmetic, and answering the wider subject at length is "
+        "still not answering what was asked.\n"
+        "Before writing anything, decide what the single thing being asked "
+        "is, and write the answer to that. Everything else you know about "
+        "the area belongs in \"deeper\", which is what that field is for.\n"
         "Each step 120 to 220 words — the same length the "
         "schema asks for above. This said 60 to 110 while the schema "
         "said 120 to 220, and a lesson written to satisfy both came out "
@@ -8816,6 +8815,47 @@ def _maths_gate(lines):
         return []
 
 
+def _trim_to_depth(lesson, topic):
+    """Cut a lesson back to the number of steps the question asked for.
+
+    The prompt carries that number, and a number in a prompt is a request.
+    This is the part that makes it true.
+
+    Trimmed rather than regenerated: steps are written in order and build on
+    each other, so the first N are a coherent lesson and the tail is the part
+    that answered a wider question than the one asked. Regenerating would pay
+    for a second model call to produce something the first one already
+    contains.
+
+    A picture on a step that goes is moved to the last step that stays. It
+    was drawn for this lesson and it still illustrates it, and losing the
+    only diagram to a length rule would be a poor trade.
+    """
+    if not isinstance(lesson, dict):
+        return lesson
+    steps = lesson.get("steps") or []
+    try:
+        _lo, hi, why = _depth.measure(topic)
+    except Exception as e:
+        print(f"Depth check skipped: {type(e).__name__}: {e}")
+        return lesson
+    if len(steps) <= hi:
+        return lesson
+
+    kept, dropped = steps[:hi], steps[hi:]
+    for key in ("draw", "sketch", "scene"):
+        if any(isinstance(st, dict) and st.get(key) for st in kept):
+            continue
+        moved = next((st[key] for st in dropped
+                      if isinstance(st, dict) and st.get(key)), None)
+        if moved and isinstance(kept[-1], dict):
+            kept[-1][key] = moved
+    print(f"Board on {str(topic)[:50]!r}: {len(steps)} steps trimmed to "
+          f"{hi} ({why})")
+    lesson["steps"] = kept
+    return lesson
+
+
 def _clean_board(d, topic):
     """Validate the model's lesson into something safe to render.
 
@@ -8961,11 +9001,12 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         # — so a real photograph costs no waiting at all.
         async with httpx.AsyncClient(follow_redirects=True) as _pic_client:
             text, photo = await asyncio.gather(
-                _ai_text(_board_prompt(topic, level), 8000, json_mode=True),
+                _ai_text(_board_prompt(topic, level), _depth.tokens(topic),
+                        json_mode=True),
                 _images.find(_pic_client, topic),
             )
             _tr.phase("model+picture")
-            lesson = _clean_board(_ai_json(text), topic)
+            lesson = _trim_to_depth(_clean_board(_ai_json(text), topic), topic)
             if photo:
                 lesson["photo"] = photo
             # Inside the same client, because the molecule can only be looked
@@ -9344,6 +9385,7 @@ import sketch as _sketch                                            # noqa: E402
 import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
+import depth as _depth                                              # noqa: E402
 import images as _images                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402
