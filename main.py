@@ -10907,6 +10907,26 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
             j._skills_memo = {w for w in _words(t) if w in _SKILLS}
             j._req_memo = {w for w in _words(_requirement_text(t)) if w in _SKILLS}
 
+        # Keep it. This was computed into an attribute on a transient ORM
+        # object and thrown away when the request ended, so every match
+        # re-read and re-scanned several thousand descriptions — the whole
+        # difference between two seconds and nine.
+        #
+        # Written separately from anything the caller sees, and wrapped: a
+        # caching write must never be able to fail somebody's search. If it
+        # does not commit, the result is exactly what it is today — right,
+        # and slow again next time.
+        try:
+            for j in need_text:
+                j.skills = ",".join(sorted(j._skills_memo))[:2000]
+            db.commit()
+            print(f"jobs match: parsed and stored skills for "
+                  f"{len(need_text)} postings; later matches skip this")
+        except Exception as e:
+            db.rollback()
+            print(f"jobs match: could not store parsed skills "
+                  f"({type(e).__name__}) — matching is unaffected")
+
     # Rarity weights, measured on this very result set: a skill three quarters
     # of postings mention tells us almost nothing about fit.
     df, n = {}, max(len(rows), 1)
