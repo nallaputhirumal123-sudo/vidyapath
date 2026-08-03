@@ -4855,11 +4855,44 @@ async def ai_selftest(user: User = Depends(admin_user)):
                              for p, x in getattr(e, "fails", [])],
         }
 
+    # The endpoint has two things the probe above does not — the paywall and
+    # the cache — and they are the only places left where the board can differ
+    # from Ask Axle, which works. So check both directly rather than infer.
+    gate = {}
+    try:
+        require_paid(user, "The smart board")
+        gate["entitled"] = True
+    except HTTPException as pe:
+        gate["entitled"] = False
+        gate["refused_with"] = pe.detail
+    gate["is_admin"] = bool(getattr(user, "is_admin", False))
+    gate["plan"] = plan_of(user)
+
+    rows = db.query(AskCache).filter(AskCache.qkey.like("board|%")).limit(40).all()
+    bad = []
+    for r in rows:
+        try:
+            les = json.loads(r.lesson)
+            if not isinstance(les, dict) or not les.get("steps"):
+                bad.append({"qkey": r.qkey[:70], "why": "no steps"})
+        except Exception as je:
+            # An unreadable cached row is fatal on every later request for
+            # that topic: the endpoint json.loads it before any try block.
+            bad.append({"qkey": r.qkey[:70], "why": f"{type(je).__name__}"})
+    gate["cached_board_lessons"] = len(rows)
+    gate["unreadable_cached_rows"] = bad
+
+    try:
+        gate["ai_quota"] = ai_quota(db, user)
+    except Exception as qe:
+        gate["ai_quota_error"] = str(qe)[:200]
+
     return {**info,
             "ok": bool(short.get("ok") and long.get("ok") and board.get("ok")),
             "short_call": short,
             "apply_kit_style_call": long,
-            "smart_board_call": board}
+            "smart_board_call": board,
+            "board_endpoint_gates": gate}
 
 
 @app.post("/api/ask")
