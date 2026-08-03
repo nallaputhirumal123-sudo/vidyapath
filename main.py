@@ -4786,8 +4786,53 @@ async def ai_selftest(user: User = Depends(admin_user)):
     long_prompt = ("Return ONLY valid JSON: {\"summary\":\"<two sentences about a "
                    "network engineer>\",\"bullets\":[\"a\",\"b\",\"c\"]}")
     long = await probe("long", GEMINI_MODEL_BEST, 1200, long_prompt)
-    return {**info, "ok": bool(short.get("ok") and long.get("ok")),
-            "short_call": short, "apply_kit_style_call": long}
+
+    # The real thing. A toy prompt proves the key works and proves nothing
+    # about the call that actually fails — the board sends 15,000 characters
+    # and wants 8,000 tokens back, and every difference between those two
+    # requests is a place the failure can live.
+    board = {"skipped": "no"}
+    try:
+        import time as _t
+        t0 = _t.monotonic()
+        raw = await _ai_text(_board_prompt("photosynthesis", "Intermediate"),
+                             8000, json_mode=True)
+        took = _t.monotonic() - t0
+        parsed, lesson, why = None, None, None
+        try:
+            parsed = _ai_json(raw)
+            lesson = _clean_board(parsed, "photosynthesis")
+        except Exception as pe:
+            why = f"{type(pe).__name__}: {pe}"[:300]
+        board = {
+            "prompt_chars": len(_board_prompt("photosynthesis", "Intermediate")),
+            "seconds": round(took, 1),
+            "chars_returned": len(raw or ""),
+            "json_parsed": parsed is not None,
+            "parse_error": why,
+            "steps": len(lesson["steps"]) if lesson else 0,
+            "has_drawing": bool(lesson and any(
+                st.get("draw") or st.get("sketch") or st.get("scene")
+                for st in lesson["steps"])),
+            "tail": (raw or "")[-220:],
+            "ok": bool(lesson and lesson["steps"]),
+        }
+    except Exception as e:
+        board = {
+            "ok": False,
+            "error_type": type(e).__name__,
+            "error": str(e)[:600],
+            "shown_to_user": _ai_error_message(e),
+            "per_provider": [{"provider": p, "type": type(x).__name__,
+                              "message": str(x)[:300]}
+                             for p, x in getattr(e, "fails", [])],
+        }
+
+    return {**info,
+            "ok": bool(short.get("ok") and long.get("ok") and board.get("ok")),
+            "short_call": short,
+            "apply_kit_style_call": long,
+            "smart_board_call": board}
 
 
 @app.post("/api/ask")
