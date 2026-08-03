@@ -2806,7 +2806,7 @@ function sbBoardHTML(){
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?`<div class="ask-line sb-step"><span>${mathText(esc(st.t))}</span></div>`:""}
-    ${(l.findings&&l.findings.length)?`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${esc(f)}</div>`).join("")}<i>This lesson was not saved for anyone else.</i></div>`:""}
+    ${(l.findings&&l.findings.length)?`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${mathText(esc(f))}</div>`).join("")}<i>This lesson was not saved for anyone else.</i></div>`:""}
     ${st.code?`<div>
        <!-- The screen this happens on. Without it a console session and a
             shell script look identical, and the lesson stops being credible. -->
@@ -3345,7 +3345,7 @@ function askBoardHTML(){
     h+=`<div class="ask-line${sp}" data-ln="${step.idx}"><span class="ask-bullet">›</span><span>${mathText(esc(step.t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>"))}</span></div>`;
   });
   if(pg===ASK.slides.length-1 && l.findings && l.findings.length){
-    h+=`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${esc(f)}</div>`).join("")}<i>This answer was not saved for anyone else.</i></div>`;
+    h+=`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${mathText(esc(f))}</div>`).join("")}<i>This answer was not saved for anyone else.</i></div>`;
   }
   if(pg===ASK.slides.length-1 && l.takeaway){
     const sp = ASK.spoken>=l.steps.length?" spoken":"";

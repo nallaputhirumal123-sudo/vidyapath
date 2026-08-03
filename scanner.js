@@ -85,9 +85,14 @@
     "  border:1px solid var(--line,#2a2a2a);border-radius:8px;",
     "  padding:9px 11px;margin:7px 0 0;overflow-x:auto}",
     ".scans{border:1px solid #3fae6a;background:rgba(63,174,106,.10);",
-    ".scwarn{border:1px solid #d9534f;background:rgba(217,83,79,.12);border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.6;margin-top:10px;font-weight:600}",
     "  border-radius:12px;padding:13px;margin-top:14px;font-size:14px;",
     "  line-height:1.65}",
+    ".scwarn{border:1px solid #d9534f;background:rgba(217,83,79,.12);",
+    "  border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.6;",
+    "  margin-top:10px;font-weight:600}",
+    ".scwarn b{display:block;margin-bottom:5px}",
+    ".scwarn i{display:block;font-style:normal;font-size:11.5px;opacity:.75;",
+    "  margin-top:6px;font-weight:400}",
     ".sctag{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;",
     "  border-radius:999px;background:rgba(255,176,32,.14);",
     "  color:var(--accent,#ffb020);margin-right:6px}",
@@ -429,8 +434,17 @@
     /* Substitution disagreed with the stated answer. Said plainly, and next
        to the answer rather than at the bottom, because the moment that
        matters is the one just before somebody writes it down. */
-    if (s.checked) {
-      h += '<div class="scwarn">\u26a0 ' + esc(s.checked) + "</div>";
+    /* Substitution or a constant check disagreed with what is written above.
+       Said plainly, and next to the answer rather than at the bottom, because
+       the moment that matters is the one just before somebody writes it down.
+       A list, not a sentence: there can be more than one, and joining them
+       with commas ran two different problems into a single unreadable line. */
+    if (s.findings && s.findings.length) {
+      h += '<div class="scwarn"><b>\u26a0 Checked automatically \u2014 these ' +
+        "did not add up:</b>" +
+        s.findings.map(function (f) { return "<div>\u2022 " + mt(f) + "</div>"; })
+          .join("") +
+        "<i>This answer was not saved for anyone else.</i></div>";
     }
     if (s.next) {
       h += '<p style="font-size:12.5px;color:var(--muted);margin-top:9px">' +

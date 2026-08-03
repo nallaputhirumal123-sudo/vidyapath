@@ -8644,16 +8644,6 @@ def _maths_gate(lines):
         return []
 
 
-def _maths_note(findings):
-    """The correction, as one line a student can act on."""
-    if not findings:
-        return ""
-    first = findings[0]
-    return ("Check this before you use it: " + first["problem"] +
-            ". Substituting the stated answer back into the equation does "
-            "not balance, so at least one of the two is wrong.")
-
-
 def _clean_board(d, topic):
     """Validate the model's lesson into something safe to render.
 
@@ -9217,7 +9207,7 @@ async def scan(image: UploadFile = File(...),
     if found:
         print(f"Checks on a scan: {verdict['state']} — "
               f"{found[0]['problem'][:120]}")
-        out["checked"] = _note_findings(found)
+        out["findings"] = _note_findings(found)
         out["confidence"] = verdict["confidence"]
 
     _ai_bump(db, user)
