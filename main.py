@@ -10416,6 +10416,134 @@ class SimIn(BaseModel):
     values: dict = {}
 
 
+import net as _net                                                  # noqa: E402
+
+
+class PacketIn(BaseModel):
+    src: str = Field(default="", max_length=40)
+    dst: str = Field(default="", max_length=40)
+    proto: str = Field(default="tcp", max_length=8)
+    dport: int = Field(default=443, ge=0, le=65535)
+    established: bool = False
+    routes: list = []
+    rules: list = []
+
+
+# What a firewall lesson starts from, so nobody faces an empty form. The
+# order is the point: a permissive rule above a restrictive one makes the
+# restrictive one dead, and this list demonstrates it.
+NET_PRESET = {
+    "routes": [
+        {"network": "192.168.1.0/24", "via": "", "dev": "eth1"},
+        {"network": "10.0.0.0/8", "via": "192.168.1.1", "dev": "eth1"},
+        {"network": "0.0.0.0/0", "via": "203.0.113.1", "dev": "eth0"},
+    ],
+    "rules": [
+        {"action": "accept", "proto": "tcp", "src": "any",
+         "dst": "10.0.0.5", "port": 443},
+        {"action": "drop", "proto": "tcp", "src": "203.0.113.0/24",
+         "dst": "any", "port": "any"},
+        {"action": "accept", "proto": "tcp", "src": "192.168.1.0/24",
+         "dst": "any", "port": 22},
+    ],
+    "packet": {"src": "203.0.113.7", "dst": "10.0.0.5",
+               "proto": "tcp", "dport": 443},
+}
+
+
+@app.get("/api/net")
+def net_index(user: User = Depends(current_user)):
+    """A network to start from."""
+    return NET_PRESET
+
+
+@app.post("/api/net/trace")
+def net_trace(body: PacketIn, user: User = Depends(current_user)):
+    """Walk one packet through the routes and the rules.
+
+    No model call, so it is free, instant and the same for everybody — and
+    incapable of inventing a firewall decision, which is the point. A model
+    asked why a packet was dropped gives a fluent and plausible reason; this
+    gives the actual one.
+    """
+    try:
+        _net.ip_to_int(body.src)
+        _net.ip_to_int(body.dst)
+    except _net.BadAddress as e:
+        raise HTTPException(400, str(e))
+
+    pkt = {"src": body.src, "dst": body.dst,
+           "proto": (body.proto or "tcp").lower()[:8],
+           "dport": int(body.dport)}
+
+    routes = [r for r in (body.routes or []) if isinstance(r, dict)]
+    rules = [r for r in (body.rules or []) if isinstance(r, dict)]
+
+    best, others = _net.route_for(body.dst, routes)
+    verdict, trace, matched = _net.evaluate(rules, pkt, body.established)
+
+    steps = []
+    # 1. Is the destination on this wire, or does it need a router?
+    local = best is not None and not best.get("via")
+    steps.append({
+        "stage": "Where does this go?",
+        "detail": (f"{body.dst} is on the directly connected network "
+                   f"{best['network']}, so it goes straight out "
+                   f"{best.get('dev') or 'the interface'} \u2014 no router "
+                   f"involved." if local and best else
+                   (f"{body.dst} is not on any directly connected network, "
+                    f"so it is sent to the gateway {best['via']} via "
+                    f"{best.get('dev') or 'the interface'}."
+                    if best else
+                    f"No route matches {body.dst}. The packet is dropped "
+                    f"here with 'network unreachable' \u2014 nothing "
+                    f"downstream ever sees it.")),
+        "ok": best is not None,
+    })
+
+    # 2. Why that route and not another.
+    if best:
+        steps.append({
+            "stage": "Which route won, and why",
+            "detail": (f"{best['network']} was chosen because it is the "
+                       f"longest prefix that matches. Longest prefix wins \u2014 "
+                       f"not first listed, not most recently added."),
+            "beaten": [f"{o['network']} (/{o['bits']})" for o in others],
+            "ok": True,
+        })
+
+    # 3. ARP, but only when the next hop is on this wire.
+    if best:
+        nexthop = best.get("via") or body.dst
+        steps.append({
+            "stage": "Who has that address?",
+            "detail": (f"The packet needs a MAC address for {nexthop}, not "
+                       f"an IP. If it is not in the ARP cache the host "
+                       f"broadcasts 'who has {nexthop}?' and waits for the "
+                       f"reply before anything is sent."),
+            "ok": True,
+        })
+
+    # 4. The firewall, rule by rule.
+    steps.append({
+        "stage": "The firewall",
+        "detail": ("This packet belongs to a connection already established, "
+                   "so the rule list is never read. That is why a firewall "
+                   "with only outbound rules still lets replies back in."
+                   if body.established else
+                   f"Rules are read in order and the first match wins. "
+                   f"Rule {matched['n']} decided it."
+                   if matched.get("n") else
+                   "No rule matched, so the default policy applied."),
+        "rules": trace,
+        "verdict": verdict,
+        "ok": verdict == "ACCEPT",
+    })
+
+    return {"verdict": verdict, "steps": steps, "packet": pkt,
+            "route": best, "matched": matched}
+
+
 @app.get("/api/lab")
 def lab_index(user: User = Depends(current_user)):
     """The shelf and the bench."""

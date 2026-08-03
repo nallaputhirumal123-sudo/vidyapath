@@ -1111,6 +1111,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=df48c07ae5"></script>
+<script src="net.js?v=fb9437a505"></script>
 <script src="scanner.js?v=24daa2ab69"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
@@ -1602,7 +1603,7 @@ async function logout(){
  * with no lesson id would be worse than landing on home.
  */
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
-  "resources", "ask", "scan", "lab", "sqlboard", "class", "careers",
+  "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
   "resume", "plans", "hiring", "studio"]);
 
 function restoreView(){
@@ -1826,6 +1827,7 @@ function renderNav(){
    + nav("ask","💬","Ask Axle anything")
    + nav("scan","📷","Scan a problem")
    + nav("lab","🧪","The lab")
+   + nav("net","🌐","Packet walkthrough")
    + nav("sqlboard","🗄️","SQL board");
 
   h+=`<div class="navsec">Get hired</div>`
@@ -7352,6 +7354,7 @@ function render(){
   else if(v.page==="sqlboard")  renderSqlBoard();
   else if(v.page==="scan")      renderScanner();
   else if(v.page==="lab")       renderLab();
+  else if(v.page==="net")       renderNet();
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
