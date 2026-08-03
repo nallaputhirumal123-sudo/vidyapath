@@ -8562,7 +8562,7 @@ def _board_prompt(topic: str, level: str) -> str:
         "outage, the ticket, the migration, the audit finding — so the "
         "learner sees when this comes up at work, not just what it is.\n\n"
         '{"title":"<topic in 2-6 words>",'
-        '"steps":[{"t":"<TEACH this step: 120-220 words. Say what it is, how '
+        '"steps":[{"t":"<TEACH this step: 120-220 words, written as SEVERAL SHORT LINES separated by newlines, one idea per line. Not a paragraph: a paragraph of six claims run together gives the eye nowhere to rest and no way to find one point again. Each line stands on its own and is a full sentence or two. Say what it is, how '
         'it works underneath, why it is done this way, and what breaks when it '
         'is done wrong. Never one line, never a definition on its own.>",'
         '"where":"<where this step happens — a screen, a bench, a ward, a '
@@ -8593,6 +8593,8 @@ def _board_prompt(topic: str, level: str) -> str:
         "enough to actually teach the step: what it is, the mechanism "
         "underneath, why it is done this way, and what breaks when it "
         "is not.\n"
+        "ONE IDEA PER LINE. Break every step into separate lines with a newline between them \u2014 one claim, one mechanism, one consequence, one number each. Six sentences run together as a block is the same content nobody can scan, and a reader looking for the one line that mattered cannot find it again.\n"
+        "Sharp lines. Say the thing and stop: no throat-clearing, no \"it is important to note that\", no sentence whose only job is to introduce the next one.\n"
         "FINISH EVERY STEP. A step that introduces an idea and moves on "
         "before explaining it has taught nothing — the reader is left "
         "holding a heading. If a step needs the whole 220 words, use "
@@ -8644,6 +8646,91 @@ _BOARD_LANGS = {
     "yaml", "hcl", "terraform", "json", "xml", "ini", "dockerfile",
     "kubectl", "kql", "splunk", "spl", "regex", "text", "log",
 }
+
+
+async def _offer_scene(client, lesson, topic):
+    """Attach a 3D scene when a measured one exists and the lesson has none.
+
+    A scene only ever appeared if the model asked for one, so whether a
+    lesson on caffeine showed the molecule depended on how the prompt read
+    that day rather than on whether the structure exists. If a real one is
+    available the lesson should have it; the model leaving it out is an
+    omission, not a decision about the subject.
+
+    Sources are tried most specific first, and the order is the whole
+    correctness of this function. The three tables in this repo only match
+    what they actually contain. PubChem checks the name against its canonical
+    title. The Protein Data Bank comes last and only for names on the curated
+    list, because its full-text search returns a chitinase for "caffeine" —
+    a real structure that happens to contain it — and a protein called SPA-2
+    for "git". Correct search results, entirely wrong pictures.
+
+    Nothing is invented: a topic with nothing measured behind it still gets
+    no scene.
+    """
+    if not isinstance(lesson, dict):
+        return False
+    steps = [st for st in (lesson.get("steps") or []) if isinstance(st, dict)]
+    if not steps or any(st.get("scene") for st in steps):
+        return False
+
+    name = _depth.subject_of(topic)
+    if not name:
+        return False
+    scene_out = None
+
+    # 1. Tables: no request, no waiting, no failure mode.
+    got = _lattice.clean(name)
+    if got:
+        scene_out = dict(got, kind="lattice", caption=name.title(),
+                         a=2.0, a_angstrom=got["a"], repeat=2)
+    if scene_out is None:
+        got = _layers.clean(name)
+        if got:
+            scene_out = dict(got, kind="layers", caption=name.title())
+    if scene_out is None:
+        got = _orbits.clean(name)
+        if got:
+            scene_out = dict(got, kind="orbit", caption=name.title())
+
+    # 2. A compound, verified against PubChem's own canonical name.
+    if scene_out is None:
+        try:
+            got = await _molecule.find(client, name)
+        except Exception:
+            got = {}
+        if got and 2 <= len(got.get("atoms") or []) <= _scene.MAX_ATOMS:
+            formula = got.get("formula") or ""
+            scene_out = {
+                "kind": "molecule",
+                "caption": (name.title() + (" - " + formula if formula else "")),
+                "atoms": [{"el": a["el"], "x": a["x"], "y": a["y"],
+                           "z": a["z"]} for a in got["atoms"]],
+                "bonds": [list(b) for b in got["bonds"]],
+            }
+
+    # 3. A macromolecule, and only one we have chosen deliberately.
+    if scene_out is None and _protein.canonical(name):
+        try:
+            got = await _protein.find(client, name)
+        except Exception:
+            got = {}
+        if got:
+            scene_out = dict(got, kind="protein",
+                             caption=(got.get("title") or name.title())[:110])
+
+    if scene_out is None:
+        return False
+    cleaned = _scene.clean(scene_out)
+    if not cleaned:
+        return False
+    # Onto the step with the most to say, which is where a picture is most
+    # likely to have belonged.
+    host = max(steps, key=lambda st: len(st.get("t") or ""))
+    host["scene"] = cleaned
+    print(f"Offered a {cleaned['kind']} scene for {name!r}, which the lesson "
+          f"did not ask for")
+    return True
 
 
 async def _real_molecules(client, lesson, topic):
@@ -9061,6 +9148,11 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
             # Inside the same client, because the molecule can only be looked
             # up once the lesson says which one it wants.
             swapped = await _real_molecules(_pic_client, lesson, topic)
+            try:
+                if await _offer_scene(_pic_client, lesson, topic):
+                    swapped += 1
+            except Exception as e:
+                print(f"Scene offer skipped: {type(e).__name__}: {e}")
             if swapped:
                 print(f"Molecules on {topic!r}: {swapped} given real "
                       f"coordinates from PubChem")

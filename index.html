@@ -3159,6 +3159,27 @@ function sceneSource(sc){
   return "schematic — drawn to explain, not to scale";
 }
 
+/* A step, broken where its ideas break.
+ *
+ * Steps are written as several short lines with newlines between them, and
+ * rendering them as one block was the "information is bundled" complaint:
+ * six distinct claims run together, the eye with nowhere to rest, and no way
+ * to find again the one line that mattered.
+ *
+ * Splitting here rather than changing the stored shape means every lesson
+ * already in the cache renders the new way without being rebuilt — an older
+ * one with no newlines in it simply comes out as a single line, which is
+ * what it always was. */
+function stepLinesHTML(text){
+  const lines = String(text == null ? "" : text)
+    .split(/\n+/).map(s => s.trim()).filter(Boolean);
+  if(!lines.length) return "";
+  return lines.map(ln =>
+    `<div class="ask-line sb-step"><span class="ask-bullet">\u203a</span>` +
+    `<span>${mathText(esc(ln).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>"))}` +
+    `</span></div>`).join("");
+}
+
 function sbBoardHTML(){
   if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
@@ -3168,7 +3189,7 @@ function sbBoardHTML(){
     <h3 class="ask-title">${mathText(esc(l.title))}</h3>
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
-    ${st.t?`<div class="ask-line sb-step"><span>${mathText(esc(st.t))}</span></div>`:""}
+    ${st.t?stepLinesHTML(st.t):""}
     ${(SB.i===0&&l.photo&&l.photo.url)?sbPhotoHTML(l.photo):""}
     ${(l.findings&&l.findings.length)?`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${mathText(esc(f))}</div>`).join("")}<i>This lesson was not saved for anyone else.</i></div>`:""}
     ${st.code?`<div>
