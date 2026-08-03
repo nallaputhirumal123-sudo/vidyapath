@@ -2709,6 +2709,28 @@ function sbMountScene(){
   if(el&&st.scene&&window.Three3D) Three3D.mount(el,st.scene).then(d=>{ SB_SCENE=d; });
 }
 
+/* The six ways to be taught the same thing again.
+ *
+ * Deleted by a dead-code sweep in 3.86.0 while still referenced twice, and
+ * that is the whole story of the board that would not load: the render threw
+ * ReferenceError on the first of those references, the assignment to
+ * innerHTML never ran, and the DOM kept whatever it had — which was
+ * "Building your lesson…". The lesson had already arrived. The server had
+ * already answered, in ten milliseconds, from cache.
+ *
+ * Nothing pointed at it. No error reached the screen, the request looked
+ * perfect in the network tab, and every other surface kept working because
+ * each one has its own render. It cost days of looking at the wrong end. */
+const SB_LENS_ICON={simpler:"◔",deeper:"⌄",example:"▶",why:"?",
+                    mistakes:"!",practice:"✎"};
+const SB_LENSES=[
+  ["simpler",  "Explain it simpler",   t=>t+" — explain much more simply, for a beginner"],
+  ["deeper",   "Go deeper",            t=>t+" — go deeper, with the details an expert would want"],
+  ["example",  "Show an example",      t=>t+" — walk through one concrete worked example end to end"],
+  ["why",      "Why does it matter?",  t=>t+" — why does this matter in real work, and when is it used"],
+  ["mistakes", "Common mistakes",      t=>t+" — the mistakes people make with this and how to avoid them"],
+  ["practice", "Give me practice",     t=>t+" — practice exercises with the answers explained"],
+];
 function sbLens(id){
   const l=SB_LENSES.find(x=>x[0]===id); if(!l||!SB.topic) return;
   sbTeach(l[2](SB.topic.replace(/ — .*$/,"")));
@@ -3424,7 +3446,79 @@ function askGoSlide(d){
   askPaintSlide();
 }
 
+/* Painting, with a floor under it.
+ *
+ * Every view here builds one big template literal and assigns it to
+ * innerHTML in a single statement. That is fine until an expression inside
+ * the literal throws: the assignment never runs, the DOM keeps the previous
+ * screen, and the failure is invisible. A board whose lesson had already
+ * arrived sat on "Building your lesson..." for exactly this reason.
+ *
+ * So a render that throws replaces the screen with the fact that it threw.
+ * Losing a view is bad; showing a stale one that says something untrue about
+ * what the site is doing is worse, because nobody can tell it is stale. */
+function paintInto(sel, build, what){
+  const host = document.querySelector(sel);
+  if(!host) return false;
+  try{
+    host.innerHTML = build();
+    return true;
+  }catch(err){
+    console.error("Render failed for " + (what || sel), err);
+    host.innerHTML = '<div class="card" style="border-color:#d9534f">'
+      + '<b>Something went wrong drawing this ' + esc(what || "page") + '.</b>'
+      + '<p style="font-size:13px;line-height:1.6;margin:8px 0 10px">'
+      + 'Your request finished \u2014 this is a fault in the page, not the '
+      + 'server, so trying again usually works.</p>'
+      + '<code style="font-size:11.5px;opacity:.75;word-break:break-word">'
+      + esc(String((err && err.message) || err)) + '</code>'
+      + '<div style="margin-top:11px">'
+      + '<button class="btn ghost sm" data-nav="home">Back to home</button>'
+      + '</div></div>';
+    return false;
+  }
+}
+
+/* Anything that escapes everywhere else. Without this an error inside a
+   listener or an unawaited promise reaches only the console, and the person
+   looking at the page is left with a screen that has quietly stopped being
+   true. */
+window.addEventListener("error", e=>{
+  console.error("Uncaught:", e && e.error);
+  if(typeof toast==="function" && e && e.message)
+    toast("Something went wrong on this page. Try again, or reload.");
+});
+window.addEventListener("unhandledrejection", e=>{
+  console.error("Unhandled promise rejection:", e && e.reason);
+  if(typeof toast==="function")
+    toast("A request failed unexpectedly. Try again, or reload.");
+});
+
+/* The board's own render, wrapped.
+ *
+ * This is the view that stranded people. Its body assigns one large template
+ * literal to #main.innerHTML; if any expression in that literal throws, the
+ * assignment never happens, the previous screen stays, and a lesson that had
+ * already arrived looked like a request that never came back. Now a failure
+ * says so. */
 function renderAsk(){
+  try{
+    renderAskInner();
+  }catch(err){
+    console.error("Ask/board render failed:", err);
+    SB.busy=false; ASK.loading=false;
+    paintInto("#main", ()=>
+      '<div class="h1">⚠ That did not draw</div>'
+      + '<p class="sub">The lesson arrived, but the page could not show it. '
+      + 'This is a fault here rather than on the server — asking again '
+      + 'usually works.</p>'
+      + '<div class="card"><code style="font-size:12px;word-break:break-word">'
+      + esc(String((err&&err.message)||err)) + '</code></div>',
+      "board");
+  }
+}
+
+function renderAskInner(){
   const a=ASK;
   /* Opening a page is not asking for anything. This used to probe
      /api/ask/config on every render just to decide whether to show a notice,
