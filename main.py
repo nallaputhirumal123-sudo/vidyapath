@@ -3284,7 +3284,11 @@ class AIProvidersFailed(Exception):
 
 def _one_provider_reason(prov, e):
     """What went wrong at one provider, in that provider's own dialect."""
-    m = str(e).lower()
+    # The class name as well as the message. Every httpx timeout stringifies
+    # to "" — so reading only str(e) found nothing to match and fell through
+    # to "could not be reached", which describes a network fault at the
+    # provider rather than a deadline set on this side.
+    m = (type(e).__name__ + " " + str(e)).lower()
     # Google first, because its rate-limit message is "You exceeded your
     # current quota, please check your plan and billing details" — which
     # contains both "quota" and "billing" while meaning neither. Gemini has no
@@ -3311,8 +3315,11 @@ def _one_provider_reason(prov, e):
                             "free tier allows only a few per minute and a "
                             "capped number per day, and it resets")
         return ("rate", f"{prov} is rate-limiting requests for now")
-    if "timeout" in m or "timed out" in m:
-        return ("slow", f"{prov} did not answer in time")
+    if "timeout" in m or "timed out" in m or "readtimeout" in m:
+        return ("slow", f"{prov} did not answer within the time allowed — a "
+                        f"long lesson can genuinely take a while")
+    if "connecterror" in m or "connect" in m and "error" in m:
+        return ("net", f"{prov} could not be reached from the server")
     if "no text" in m:
         return ("empty", f"{prov} returned nothing usable")
     return ("other", f"{prov} could not be reached")
@@ -3336,7 +3343,7 @@ def _ai_error_message(e):
         if "credit" in kinds or "key" in kinds or "model" in kinds:
             body += (" Nothing is wrong with your account — this is the "
                      "site's own AI configuration.")
-        elif kinds <= {"rate", "slow", "empty", "other"}:
+        elif kinds <= {"rate", "slow", "empty", "other", "net"}:
             body += " Nothing has been used up on your account; try again "\
                     "shortly."
         return body
@@ -3546,8 +3553,12 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
         raise RuntimeError("No AI provider that can read images is configured")
     last, fails = None, []
     import time as _t
+    # A photo has to be uploaded before anything starts reading it, so the
+    # floor is higher here than for text. The client allows 120 seconds for
+    # an upload, so the chain stays under that.
+    per_try = max(40.0, min(75.0, 30.0 + max_tokens / 90.0))
     _deadline = _t.monotonic() + 100
-    async with httpx.AsyncClient(timeout=45) as client:
+    async with httpx.AsyncClient(timeout=per_try) as client:
         for prov in order:
             if _t.monotonic() > _deadline:
                 print(f"AI vision: out of time before trying {prov}")
@@ -3586,14 +3597,19 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
     if not providers:
         raise RuntimeError("No AI provider key is configured")
     last, fails = None, []
-    # 60s each across four providers is four minutes — longer than the client
-    # waits, longer than Railway's proxy holds a connection, and long enough
-    # that the page sat on "Building your lesson..." until somebody gave up.
-    # Per-provider cap, plus a budget for the whole chain so a slow first
-    # provider cannot eat the time the others needed.
+    # Sized to the request rather than flat. A flat 25 seconds is generous for
+    # a 1,500-token reply and nowhere near enough for a board lesson, which
+    # sends a 15,000-character prompt and wants 8,000 tokens of JSON back —
+    # so the board timed out on every single attempt while plain Ask, asking
+    # for a fraction as much, looked perfectly healthy.
+    #
+    # Still bounded, and still under the browser's own 75-second deadline:
+    # the client must be the one that gives up last, or it reports a hang for
+    # a request the server already abandoned.
     import time as _t
-    _deadline = _t.monotonic() + 55
-    async with httpx.AsyncClient(timeout=25) as client:
+    per_try = max(25.0, min(55.0, 18.0 + max_tokens / 110.0))
+    _deadline = _t.monotonic() + 65
+    async with httpx.AsyncClient(timeout=per_try) as client:
         for prov in providers:
             if _t.monotonic() > _deadline:
                 print(f"AI: out of time before trying {prov}")
