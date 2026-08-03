@@ -4806,7 +4806,8 @@ async def ai_models(user: User = Depends(admin_user)):
 
 
 @app.get("/api/ai/selftest")
-async def ai_selftest(user: User = Depends(admin_user)):
+async def ai_selftest(user: User = Depends(admin_user),
+                      db: Session = Depends(get_db)):
     """Admin-only: make one tiny AI call and return the RAW result or the RAW
     upstream error, so we can see exactly what the provider says (e.g. the real
     Gemini rate-limit/quota reason). Visit /api/ai/selftest while signed in as
