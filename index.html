@@ -2492,6 +2492,10 @@ function askStop(){
   ASK.cancel=true;
   if(window.speechSynthesis) window.speechSynthesis.cancel();
   ASK.speaking=false;
+  // Stop meant stop talking but not stop listening, so the mic carried on
+  // with its light on after the one button that looks like it should end
+  // everything had been pressed.
+  askVoiceStop();
   renderAsk();
 }
 
@@ -3259,14 +3263,74 @@ async function askPhotoSend(file){
   ASK.loading=false; renderAsk();
 }
 
+/* Why the mic could get stuck.
+ *
+ * Pressing it always built a new recogniser and called start(). Press it a
+ * second time — which is what anybody does when they want to stop talking —
+ * and the browser throws InvalidStateError because one is already running.
+ * Nothing caught that, so the button stayed lit with no way back short of
+ * reloading the page. It is a toggle now.
+ *
+ * And every failure was swallowed: onerror set listening=false and said
+ * nothing, so a blocked microphone permission looked exactly like a mic that
+ * does not work. Each cause now says what it is and what to do about it. */
+function askVoiceStop(){
+  const r=ASK.recog;
+  ASK.recog=null;
+  ASK.listening=false;
+  if(r){ try{ r.onend=null; r.onerror=null; r.abort(); }catch(e){} }
+}
+
+const VOICE_TROUBLE={
+  "not-allowed":"Your browser is blocking the microphone. Allow mic access "
+    +"for this site — the padlock in the address bar — then try again.",
+  "service-not-allowed":"Your browser is blocking the microphone. Allow mic "
+    +"access for this site, then try again.",
+  "no-speech":"I did not catch anything. Tap the mic and speak straight after.",
+  "audio-capture":"No microphone was found. Check it is plugged in and not "
+    +"in use by another app.",
+  "network":"Speech recognition needs the network and could not reach it. "
+    +"Check your connection, or type the question instead.",
+  "aborted":""            // the user stopped it on purpose; say nothing
+};
+
 function askVoiceInput(){
+  // Second press means stop. This is the whole fix for a mic that would not
+  // let go: previously it tried to start a second recogniser and threw.
+  if(ASK.listening){ askVoiceStop(); renderAsk(); return; }
+
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){ ASK.error="Voice input is not supported in this browser. Please type your question."; renderAsk(); return; }
-  const r=new SR(); ASK.recog=r; r.lang="en-IN"; r.interimResults=false; r.maxAlternatives=1;
-  r.onresult=ev=>{ const t=ev.results[0][0].transcript; ASK.question=t; ASK.listening=false; askSubmit(t); };
-  r.onerror=()=>{ ASK.listening=false; renderAsk(); };
-  r.onend=()=>{ ASK.listening=false; renderAsk(); };
-  ASK.listening=true; renderAsk(); r.start();
+  if(!SR){
+    ASK.error="This browser cannot listen. Chrome and Edge can; Firefox "
+      +"cannot. Please type your question instead.";
+    renderAsk(); return;
+  }
+  const r=new SR(); ASK.recog=r;
+  r.lang="en-IN"; r.interimResults=false; r.maxAlternatives=1;
+  r.onresult=ev=>{
+    const t=(ev.results[0][0].transcript||"").trim();
+    ASK.recog=null; ASK.listening=false;
+    if(!t){ ASK.error="I did not catch that. Try once more."; renderAsk(); return; }
+    ASK.question=t; askSubmit(t);
+  };
+  r.onerror=ev=>{
+    const code=(ev&&ev.error)||"";
+    ASK.recog=null; ASK.listening=false;
+    const msg=VOICE_TROUBLE[code];
+    ASK.error = msg!==undefined ? msg
+      : "The microphone stopped unexpectedly. Try again, or type it instead.";
+    renderAsk();
+  };
+  r.onend=()=>{ ASK.recog=null; ASK.listening=false; renderAsk(); };
+  ASK.error="";
+  ASK.listening=true; renderAsk();
+  try{ r.start(); }
+  catch(e){
+    // start() on an already-running recogniser. Recover rather than stick.
+    askVoiceStop();
+    ASK.error="The microphone was already busy. Try again.";
+    renderAsk();
+  }
 }
 
 function askBoardHTML(){
@@ -3376,7 +3440,7 @@ function renderAsk(){
 
   <div class="ask-box" style="${sbOn?"display:none":""}">
     <div class="ask-inrow">
-      <button class="ask-btn ask-mic ${a.listening?"on":""}" data-ask="voice" ${a.loading||a.speaking?"disabled":""} title="Ask by voice">${a.listening?"●":"🎤"}</button>
+      <button class="ask-btn ask-mic ${a.listening?"on":""}" data-ask="voice" ${a.loading||a.speaking?"disabled":""} title="${a.listening?"Listening — tap to stop":"Ask by voice"}">${a.listening?"⏹":"🎤"}</button>
       <!-- Two ways in beyond typing: hold a conversation, or show it
            something. The mic above dictates one question; "Talk" keeps the
            exchange going without a button between turns. -->
