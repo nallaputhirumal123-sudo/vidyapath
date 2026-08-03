@@ -745,9 +745,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   border-radius:12px;overflow:hidden;background:var(--panel2,#0f0f0f)}
 .sb-photo img{display:block;width:100%;height:auto;max-height:340px;
   object-fit:contain;background:#fff}
-.sb-photo figcaption{font-size:11.5px;line-height:1.5;padding:7px 11px;
-  color:var(--muted,#8a8a8a)}
-.sb-photo figcaption a{color:inherit;text-decoration:underline;margin-left:6px}
+.sb-photo figcaption{font-size:10.5px;line-height:1.4;padding:5px 10px;
+  color:var(--dim,#666);opacity:.8}
 .sb-checked b{display:block;margin-bottom:5px}
 .sb-checked i{display:block;font-style:normal;font-size:11.5px;opacity:.75;margin-top:6px;font-weight:400}
 .sb-checked{border:1px solid #d9534f;background:rgba(217,83,79,.12);
@@ -2867,13 +2866,26 @@ function sbPrint(){
  * with the picture and the link goes back to the source. Loading is lazy and
  * a failure hides the whole figure rather than leaving a broken frame. */
 function sbPhotoHTML(p){
+  /* The credit, kept small and kept here.
+   *
+   * It used to end in a "source" link, which read like a citation and sent
+   * people off to Wikipedia mid-lesson — the one thing this board exists to
+   * stop them needing to do. The picture is meant to be part of the
+   * explanation, not a footnote pointing somewhere better.
+   *
+   * The attribution itself stays, because it is not decoration: these are
+   * other people's photographs used under CC BY-SA, and naming the author
+   * and the licence is the condition we hold them under. Removing it would
+   * not make the lesson look more original, it would make the image
+   * unlicensed. So it is quiet, one grey line, no outbound button — the
+   * source URL is on the title attribute for anyone who genuinely wants it. */
   const credit=[p.author,p.license].filter(Boolean).map(esc).join(" · ");
   return `<figure class="sb-photo">
     <img src="${esc(p.url)}" alt="${esc(p.caption||"")}" loading="lazy"
+         title="${esc(p.page||"")}"
          onerror="this.closest('figure').style.display='none'">
-    <figcaption>${esc(p.caption||"")}${credit?` — ${credit}`:""}
-      ${p.page?`<a href="${esc(p.page)}" target="_blank" rel="noopener nofollow">source</a>`:""}
-    </figcaption></figure>`;
+    ${credit?`<figcaption>${credit}</figcaption>`:""}
+    </figure>`;
 }
 
 function sbBoardHTML(){
