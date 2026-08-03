@@ -2879,6 +2879,40 @@ class AskIn(BaseModel):
     level: str = Field("School", max_length=60)
 
 
+def _cached_json(db, row, what="lesson", need="steps"):
+    """A cached row's payload, or None if it cannot be used.
+
+    Reading a cache must not be able to fail. A row that will not parse, or
+    that parses into something without the field the caller needs, is treated
+    as though it had never been written: dropped, and reported as a miss.
+
+    Deleting it matters. A row that raises on every read but stays in the
+    table means the next request regenerates and pays for a model call again,
+    which turns a display bug into a recurring cost.
+    """
+    if row is None:
+        return None
+    try:
+        data = json.loads(row.lesson)
+    except Exception as e:
+        print(f"Cache row {getattr(row, 'qkey', '?')!r} will not parse "
+              f"({type(e).__name__}) — dropping it and rebuilding")
+        data = None
+    else:
+        if not isinstance(data, dict) or (need and not data.get(need)):
+            print(f"Cache row {getattr(row, 'qkey', '?')!r} has no {need!r} "
+                  f"— dropping it and rebuilding")
+            data = None
+    if data is None:
+        try:
+            db.delete(row)
+            db.commit()
+        except Exception:
+            db.rollback()
+        return None
+    return data
+
+
 def _norm_q(s: str) -> str:
     """Collapse a question to a stable cache key so trivial differences in
     spacing, case or punctuation all hit the same stored answer."""
@@ -2903,6 +2937,7 @@ def _ask_prompt(question: str, subject: str, level: str) -> str:
         f"You are Axle, a warm, patient teacher in India explaining on a "
         f"blackboard. The subject is: {subject}. The learner's level is: "
         f"{level}. A learner asked: \"{question}\"\n\n"
+        'NO GREETING, NO PREAMBLE. The first line is the first real thing you have to say. Never open with "Welcome", "Dear students", "Let us look at this together", "Great question" or any other pleasantry, and never spend a line restating the question back — the learner has it in front of them and the board only shows a few lines at a time, so a line that carries nothing is a line of the lesson thrown away. Begin with the substance and keep going.\n\nANSWER THE QUESTION THAT WAS ASKED. Read it closely enough to notice what it is really asking, then answer that. If it is a problem to solve, solve it and reach the actual answer — do not restate the setup, describe an approach, and stop. Work each step so the reader can follow the arithmetic or the argument, and finish. If the question has no clean answer, or the answer is that no solution exists, say so and show what rules the others out. Every claimed answer gets substituted back into the original problem and checked before you state it.\n\nINDIA FIRST, WHEN AN EXAMPLE IS NEEDED. Set examples here: rupees rather than dollars, Indian cities, Indian firms, the exams and boards people here actually sit, Indian regulations and Indian case law. Use a foreign example only when the subject genuinely is foreign — a US statute in a lesson on US law, a landmark experiment done where it was done. Never reach for another country\'s setting when a local one would serve.\n\n'
         f"Explain it the way a good teacher writes on the board: short lines, "
         f"one idea per line, language matched to the stated level, with a "
         f"small real-life Indian example where natural. Be accurate. If the "
@@ -3815,10 +3850,11 @@ async def ask_with_image(image: UploadFile = File(...),
     digest = hashlib.sha256(raw).hexdigest()[:32]
     qkey = f"askimg|{digest}|{_norm_q(level)}|{_norm_q(q)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
-    if row:
+    cached = _cached_json(db, row)
+    if cached:
         row.hits = (row.hits or 0) + 1
         db.commit()
-        return {"lesson": json.loads(row.lesson), "cached": True}
+        return {"lesson": cached, "cached": True}
 
     _ai_enforce_limit(db, user)
     prompt = _ask_prompt(
@@ -8334,6 +8370,7 @@ def _board_prompt(topic: str, level: str) -> str:
         "and computing among them. Do not steer the lesson towards "
         "programming, and do not assume the learner is a programmer "
         "unless the topic itself is.\n\n"
+        'NO GREETING, NO PREAMBLE. The first line is the first real thing you have to say. Never open with "Welcome", "Dear students", "Let us look at this together", "Great question" or any other pleasantry, and never spend a line restating the question back — the learner has it in front of them and the board only shows a few lines at a time, so a line that carries nothing is a line of the lesson thrown away. Begin with the substance and keep going.\n\nANSWER THE QUESTION THAT WAS ASKED. Read it closely enough to notice what it is really asking, then answer that. If it is a problem to solve, solve it and reach the actual answer — do not restate the setup, describe an approach, and stop. Work each step so the reader can follow the arithmetic or the argument, and finish. If the question has no clean answer, or the answer is that no solution exists, say so and show what rules the others out. Every claimed answer gets substituted back into the original problem and checked before you state it.\n\nINDIA FIRST, WHEN AN EXAMPLE IS NEEDED. Set examples here: rupees rather than dollars, Indian cities, Indian firms, the exams and boards people here actually sit, Indian regulations and Indian case law. Use a foreign example only when the subject genuinely is foreign — a US statute in a lesson on US law, a landmark experiment done where it was done. Never reach for another country\'s setting when a local one would serve.\n\n'
         "Teach it as a sequence of steps that build on each other, the way a "
         "good teacher works through a board: one idea per step, in order, "
         "nothing assumed that has not already been shown.\n\n"
@@ -8545,9 +8582,27 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
     qkey = f"board|{_norm_q(level)}|{_norm_q(topic)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
-        row.hits = (row.hits or 0) + 1
-        db.commit()
-        return {"lesson": json.loads(row.lesson), "cached": True}
+        # Read defensively. This was a bare json.loads outside any try block,
+        # so one unreadable or outdated cached row produced a 500 on every
+        # later request for that topic — permanently broken for one question
+        # and fine for the next, which is a very good impression of "the board
+        # is not responding". A row we cannot use is a cache miss, not a
+        # failure, so it is dropped and the lesson is built again.
+        try:
+            cached = json.loads(row.lesson)
+            if not isinstance(cached, dict) or not cached.get("steps"):
+                raise ValueError("cached lesson has no steps")
+            row.hits = (row.hits or 0) + 1
+            db.commit()
+            return {"lesson": cached, "cached": True}
+        except Exception as ce:
+            print(f"Board cache row unusable ({qkey}): "
+                  f"{type(ce).__name__}: {ce} — regenerating")
+            try:
+                db.delete(row)
+                db.commit()
+            except Exception:
+                db.rollback()
 
     _ai_enforce_limit(db, user)
     try:
@@ -8566,7 +8621,14 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
     _ai_bump(db, user)
     db.add(AskCache(qkey=qkey, subject="board", level=level,
                     question=topic[:2000], lesson=json.dumps(lesson), hits=0))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two people asked the same thing in the same second. The lesson in
+        # hand is perfectly good; only the bookkeeping raced. Unguarded, this
+        # was the other way the board could return a 500 while holding a
+        # complete answer.
+        db.rollback()
     return {"lesson": lesson, "cached": False}
 
 
@@ -8921,10 +8983,10 @@ async def scan(image: UploadFile = File(...),
     digest = hashlib.sha256(raw).hexdigest()
     qkey = f"scan|{digest}"
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
-    if row:
+    out = _cached_json(db, row, need=None)
+    if out:
         row.hits = (row.hits or 0) + 1
         db.commit()
-        out = json.loads(row.lesson)
         _scan_remember(db, user, digest, out)
         return {"scan": out, "cached": True, "key": digest[:16]}
 
@@ -9011,9 +9073,10 @@ def scan_one(key: str, user: User = Depends(current_user),
         raise HTTPException(404, "Not one of yours")
     row = db.query(AskCache).filter(
         AskCache.qkey.like(f"scan|{key[:16]}%")).first()
-    if not row:
+    out = _cached_json(db, row, need=None)
+    if not out:
         raise HTTPException(404, "That answer is no longer stored")
-    return {"scan": json.loads(row.lesson), "key": key[:16]}
+    return {"scan": out, "key": key[:16]}
 
 
 @app.delete("/api/scan/recent")
@@ -9253,10 +9316,11 @@ async def build_course(body: CourseIn, user: User = Depends(current_user),
     topic = body.topic.strip()
     qkey = f"course|{_norm_q(body.level)}|{_norm_q(topic)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
-    if row:
+    course = _cached_json(db, row, need=None)
+    if course:
         row.hits = (row.hits or 0) + 1
         db.commit()
-        return {"course": json.loads(row.lesson), "cached": True}
+        return {"course": course, "cached": True}
 
     _ai_enforce_limit(db, user)
     try:
@@ -10977,10 +11041,11 @@ async def interview_guide(category: str = "", job_id: int = 0,
                    + hashlib.sha256(rtext.encode("utf-8", "ignore")).hexdigest()[:12]
                    + "|" + _norm_q(rn))
             row = db.query(AskCache).filter(AskCache.qkey == key).first()
-            if row:
+            got = _cached_json(db, row, need=None)
+            if got:
                 row.hits = (row.hits or 0) + 1
                 db.commit()
-                return {"round": json.loads(row.lesson), "cached": True}
+                return {"round": got, "cached": True}
             skills, _kw = _profile(rtext)
             missing = sorted(_job_req_skills(job) - skills) or \
                 sorted(_job_skills(job) - skills)
@@ -11009,10 +11074,11 @@ async def interview_guide(category: str = "", job_id: int = 0,
             key = ("iv|" + str(job.id) + "|"
                    + hashlib.sha256(rtext.encode("utf-8", "ignore")).hexdigest()[:16])
             row = db.query(AskCache).filter(AskCache.qkey == key).first()
-            if row:
+            got = _cached_json(db, row, need=None)
+            if got:
                 row.hits = (row.hits or 0) + 1
                 db.commit()
-                return {"guide": json.loads(row.lesson), "cached": True}
+                return {"guide": got, "cached": True}
             skills, _kw = _profile(rtext)
             missing = sorted(_job_req_skills(job) - skills) or \
                 sorted(_job_skills(job) - skills)

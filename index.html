@@ -741,6 +741,12 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   .ask-inrow>.ask-input{flex:1 1 100%;order:-1}
   .ask-inrow>.ask-go,.ask-inrow>.ask-stop{flex:1}
 }
+/* A stacked fraction, which is the one thing inline text cannot do. */
+.mfrac{display:inline-flex;flex-direction:column;vertical-align:-0.45em;
+  text-align:center;margin:0 .18em;line-height:1.15}
+.mnum{border-bottom:1.5px solid currentColor;padding:0 .28em}
+.mden{padding:0 .28em}
+.ask-line sup,.ask-line sub,.sb-step sup,.sb-step sub{font-size:.72em}
 .recentwrap{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:22px}
 .recentchip{display:flex;align-items:center;gap:7px;font-size:12.5px;
   padding:7px 13px;border-radius:999px;cursor:pointer;max-width:100%;
@@ -1217,6 +1223,116 @@ function runJS(code){
 
 /* ===================== HELPERS ===================== */
 const $=s=>document.querySelector(s);
+/* ---- maths, written as maths ----------------------------------------
+   Models emit LaTeX for anything mathematical no matter what the prompt
+   says, because that is how maths is written. Printing the source at a
+   student — "$\frac{a^2+b^2}{ab+1} = k$" — is worse than useless, so it is
+   translated into characters the board can show.
+
+   Runs AFTER escaping, so everything it inserts is markup we wrote and the
+   model's own text can never become an element. */
+const MATH_SYM={
+  times:"\u00d7",cdot:"\u00b7",div:"\u00f7",pm:"\u00b1",mp:"\u2213",
+  leq:"\u2264",le:"\u2264",geq:"\u2265",ge:"\u2265",neq:"\u2260",ne:"\u2260",
+  approx:"\u2248",equiv:"\u2261",sim:"\u223c",propto:"\u221d",
+  infty:"\u221e",partial:"\u2202",nabla:"\u2207",
+  sum:"\u2211",prod:"\u220f",int:"\u222b",oint:"\u222e",
+  rightarrow:"\u2192",to:"\u2192",leftarrow:"\u2190",leftrightarrow:"\u2194",
+  Rightarrow:"\u21d2",Leftrightarrow:"\u21d4",mapsto:"\u21a6",
+  in:"\u2208",notin:"\u2209",subset:"\u2282",subseteq:"\u2286",
+  cup:"\u222a",cap:"\u2229",emptyset:"\u2205",forall:"\u2200",exists:"\u2203",
+  alpha:"\u03b1",beta:"\u03b2",gamma:"\u03b3",delta:"\u03b4",epsilon:"\u03b5",
+  zeta:"\u03b6",eta:"\u03b7",theta:"\u03b8",lambda:"\u03bb",mu:"\u03bc",
+  nu:"\u03bd",xi:"\u03be",pi:"\u03c0",rho:"\u03c1",sigma:"\u03c3",tau:"\u03c4",
+  phi:"\u03c6",chi:"\u03c7",psi:"\u03c8",omega:"\u03c9",
+  Gamma:"\u0393",Delta:"\u0394",Theta:"\u0398",Lambda:"\u039b",Pi:"\u03a0",
+  Sigma:"\u03a3",Phi:"\u03a6",Psi:"\u03a8",Omega:"\u03a9",
+  ldots:"\u2026",dots:"\u2026",cdots:"\u22ef",angle:"\u2220",degree:"\u00b0",
+  circ:"\u00b0",perp:"\u22a5",parallel:"\u2225",therefore:"\u2234",
+  because:"\u2235",sqrt:"\u221a"
+};
+const SUP={"0":"\u2070","1":"\u00b9","2":"\u00b2","3":"\u00b3","4":"\u2074",
+  "5":"\u2075","6":"\u2076","7":"\u2077","8":"\u2078","9":"\u2079",
+  "+":"\u207a","-":"\u207b","n":"\u207f","i":"\u2071"};
+const SUB={"0":"\u2080","1":"\u2081","2":"\u2082","3":"\u2083","4":"\u2084",
+  "5":"\u2085","6":"\u2086","7":"\u2087","8":"\u2088","9":"\u2089",
+  "+":"\u208a","-":"\u208b"};
+
+function mathText(html){
+  let t=String(html==null?"":html);
+
+  /* The delimiters go first. A model wraps maths in $...$, \(...\) or
+     \[...\] and the wrapper carries no meaning for a reader. */
+  t=t.replace(/\\\[|\\\]|\\\(|\\\)/g,"");
+
+  /* $ is a delimiter and a currency symbol, and telling them apart is not
+     optional: stripping both turned "profit is $3" into "profit is 3". So a
+     $...$ pair is only unwrapped when what it contains actually looks like
+     maths — a LaTeX command, a power, a subscript, or a short expression
+     with no ordinary prose in it. Everything else keeps its dollars. */
+  t=t.replace(/\$([^$\n]{1,200})\$/g,(m,inner)=>looksMathy(inner)?inner:m);
+
+  /* \frac{a}{b} becomes a real stacked fraction — the one construction that
+     genuinely cannot be written on a line without losing clarity. Nested
+     twice, which covers everything short of a continued fraction. */
+  const frac=/\\[dt]?frac\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
+  for(let i=0;i<3;i++) t=t.replace(frac,
+    (m,a,b)=>`<span class="mfrac"><span class="mnum">${a}</span>`
+            +`<span class="mden">${b}</span></span>`);
+
+  t=t.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g,"$1\u221a($2)");
+  t=t.replace(/\\sqrt\s*\{([^{}]*)\}/g,"\u221a($1)");
+  t=t.replace(/\\mathbb\s*\{([^{}]*)\}/g,
+    (m,g)=>({R:"\u211d",N:"\u2115",Z:"\u2124",Q:"\u211a",C:"\u2102",
+             P:"\u2119",H:"\u210d"}[g.trim()]||g));
+  t=t.replace(/\\(?:text|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathfrak|operatorname|boldsymbol)\s*\{([^{}]*)\}/g,"$1");
+  t=t.replace(/\\left|\\right|\\,|\\;|\\!|\\quad|\\qquad/g," ");
+  t=t.replace(/\\begin\{[^}]*\}|\\end\{[^}]*\}/g," ");
+
+  /* Superscripts and subscripts as real characters where they exist, and as
+     a styled span where they do not — x^{n+1} has no unicode form. */
+  t=t.replace(/\^\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUP,"msup"));
+  t=t.replace(/\^\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUP,"msup"));
+  t=t.replace(/_\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUB,"msub"));
+  t=t.replace(/_\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUB,"msub"));
+
+  t=t.replace(/\\([A-Za-z]+)/g,(m,name)=>
+    Object.prototype.hasOwnProperty.call(MATH_SYM,name)?MATH_SYM[name]:name);
+  return t.replace(/\{|\}/g,"");
+}
+
+/* Is what sits between two dollar signs maths, or is it a sentence with
+   prices in it? Anything with a backslash, a power or a subscript is maths
+   outright. Otherwise it is maths only if it is short and free of ordinary
+   words — "(ab + 1)" qualifies, "5 and profit is " does not. */
+const MATH_WORDS=/^(sin|cos|tan|log|ln|exp|sqrt|max|min|lim|det|mod|and|or)$/;
+function looksMathy(inner){
+  // A LaTeX command, a power or a subscript settles it outright.
+  if(/[\\^_]/.test(inner)) return true;
+  // Otherwise, an opening "$" followed straight by a digit is money: prices,
+  // salaries and revenues all look like that, and "$5 to $3 lakh" has no
+  // three-letter word in it to give itself away. Real maths that starts with
+  // a number nearly always carries a command or a power too, and that has
+  // already been checked above.
+  if(/^\d/.test(inner)) return false;
+  if(inner.length>60) return false;
+  // One ordinary word is enough. Keeping a dollar sign that was a delimiter
+  // is untidy; removing one that was a price changes the number, so the
+  // doubt is always resolved in favour of the money.
+  const words=(inner.match(/[A-Za-z]{3,}/g)||[])
+    .filter(w=>!MATH_WORDS.test(w.toLowerCase()));
+  if(words.length>=1) return false;
+  // A lone number between dollars is a price, not an equation.
+  if(/^\s*-?[\d.,]+\s*$/.test(inner)) return false;
+  return /[=+\-*/<>()]|[a-zA-Z]/.test(inner);
+}
+
+function upDown(txt,table,cls){
+  const all=[...txt].every(c=>table[c]!==undefined);
+  if(all) return [...txt].map(c=>table[c]).join("");
+  return `<${cls==="msup"?"sup":"sub"}>${txt}</${cls==="msup"?"sup":"sub"}>`;
+}
+
 const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const langPill=l=> l==="py"?'<span class="pill hot">Python · runs live</span>'
   : l==="js"?'<span class="pill hot">JavaScript · runs live</span>'
@@ -2470,16 +2586,27 @@ function sbPickHTML(){
 async function sbTeach(topic,keepTrail){
   if(!keepTrail) SB.trail=[];
   if(SB.speaking){ SB.speaking=false; window.speechSynthesis&&window.speechSynthesis.cancel(); }
+  /* Which question this reply belongs to.
+   *
+   * Two lessons can be in flight at once — ask something, get impatient, ask
+   * something else — and they do not come back in the order they were sent.
+   * Without this the slower FIRST answer lands last and overwrites the
+   * second, so the heading says the new question and the board shows the old
+   * answer. A reply that is no longer the current question is dropped. */
+  const seq = (SB.seq = (SB.seq || 0) + 1);
   SB.topic=(topic||"").trim(); SB.lesson=null; SB.i=0; SB.error=""; SB.busy=true;
   recordAsk(SB.topic,"board");
   renderAsk();
   try{
     const r=await api.post("/api/board/lesson",{topic:SB.topic,level:ASK.level||"Intermediate"});
+    if(seq!==SB.seq) return;          // a newer question is already on the board
     SB.lesson=r.lesson; SB.i=0;
   }catch(e){
+    if(seq!==SB.seq) return;
     SB.error=e.message||"Could not build that lesson.";
     if(/not switched on|GEMINI_API_KEY/i.test(SB.error)) ASK.enabled=false;
   }
+  if(seq!==SB.seq) return;
   SB.busy=false; renderAsk();
 }
 /* While full screen, repaint the board in place instead of re-rendering the
@@ -2589,7 +2716,7 @@ function sbPrint(){
   }
   const nl=String.fromCharCode(10);
   const steps=l.steps.map((st,k)=>
-    `<h3>Step ${k+1}</h3><p>${esc(st.t||"")}</p>`+
+    `<h3>Step ${k+1}</h3><p>${mathText(esc(st.t||""))}</p>`+
     (st.where?`<div class="wh">🖥 ${esc(st.where)}</div>`:"")+
     (st.code?`<pre>${esc(st.code)}</pre>`:"")+
     (st.scene?`<p><i>[3D scene: ${esc(st.scene.caption||st.scene.kind)}]</i></p>`:"")+
@@ -2617,6 +2744,10 @@ function sbPrint(){
       .hd .nm span{color:#ff9933}
       .hd .rt{margin-left:auto;font-size:11px;color:#777;text-align:right}
       h1{font-size:24px;margin:0 0 2px}h3{margin:20px 0 4px;font-size:15px}
+      .mfrac{display:inline-flex;flex-direction:column;text-align:center;
+        vertical-align:-.45em;margin:0 .18em;line-height:1.15}
+      .mnum{border-bottom:1.4px solid currentColor;padding:0 .28em}
+      .mden{padding:0 .28em}
       pre{background:#f4f4f6;padding:11px 13px;border-radius:7px;overflow:auto;
         font:13px/1.55 SF Mono,Menlo,Consolas,monospace;white-space:pre-wrap;
         page-break-inside:avoid}
@@ -2640,13 +2771,13 @@ function sbPrint(){
       <div class="nm">Crax<span>le</span></div>
       <div class="rt">craxle.com<br>${esc(when)}</div>
     </div>
-    <h1>${esc(l.title)}</h1>
+    <h1>${mathText(esc(l.title))}</h1>
     ${SB.topic&&SB.topic.toLowerCase()!==String(l.title||"").toLowerCase()
       ?`<p style="color:#666;font-size:12pt;margin:-6px 0 14px">
           You asked: ${esc(SB.topic)}</p>`:""}
     <div style="color:#666;font-size:13px">${esc(SB.topic||"")}</div>
     ${steps}
-    ${l.takeaway?`<div class="tk"><b>Takeaway:</b> ${esc(l.takeaway)}</div>`:""}
+    ${l.takeaway?`<div class="tk"><b>Takeaway:</b> ${mathText(esc(l.takeaway))}</div>`:""}
     ${note?`<div class="nt"><b>My notes:</b><br>${esc(note)}</div>`:""}
     <div class="ft"><span><b>Craxle</b> · craxle.com</span>
       <span>Learn the skills real job postings ask for</span></div>
@@ -2662,10 +2793,10 @@ function sbBoardHTML(){
   const l=SB.lesson; if(!l) return "";
   const st=l.steps[SB.i]||{};
   return `${sbTrailHTML()}
-    <h3 class="ask-title">${esc(l.title)}</h3>
+    <h3 class="ask-title">${mathText(esc(l.title))}</h3>
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
-    ${st.t?`<div class="ask-line sb-step"><span>${esc(st.t)}</span></div>`:""}
+    ${st.t?`<div class="ask-line sb-step"><span>${mathText(esc(st.t))}</span></div>`:""}
     ${st.code?`<div>
        <!-- The screen this happens on. Without it a console session and a
             shell script look identical, and the lesson stops being credible. -->
@@ -3105,7 +3236,9 @@ function askTalkToggle(){
    it; this asks Axle something *about* a picture — a diagram, a graph in a
    paper, a slide, a page in a language you cannot read. */
 async function askPhotoSend(file){
-  if(!file) return;
+  // Same rule the typed path already follows: one question at a time, or the
+  // slower answer lands last and replaces the one that was actually asked.
+  if(!file||ASK.loading) return;
   const el=document.getElementById("askInput");
   const q=((el&&el.value)||ASK.question||"").trim();
   ASK.loading=true; ASK.error=""; renderAsk();
@@ -3136,14 +3269,14 @@ function askBoardHTML(){
   if(ASK.loading) return `<div class="ask-empty">Axle is thinking…</div>`;
   if(!ASK.lesson) return `<div class="ask-empty">Namaste! I am Axle.<br>Pick a subject, then ask anything —<br>I'll explain it on the board.</div>`;
   const l=ASK.lesson, pg=Math.min(ASK.page||0,ASK.slides.length-1), slide=ASK.slides[pg]||[];
-  let h=`<div class="ask-title">${esc(l.title)}</div>`;
+  let h=`<div class="ask-title">${mathText(esc(l.title))}</div>`;
   slide.forEach(step=>{
     const sp = ASK.spoken===step.idx?" spoken":"";
-    h+=`<div class="ask-line${sp}" data-ln="${step.idx}"><span class="ask-bullet">›</span><span>${esc(step.t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>")}</span></div>`;
+    h+=`<div class="ask-line${sp}" data-ln="${step.idx}"><span class="ask-bullet">›</span><span>${mathText(esc(step.t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>"))}</span></div>`;
   });
   if(pg===ASK.slides.length-1 && l.takeaway){
     const sp = ASK.spoken>=l.steps.length?" spoken":"";
-    h+=`<div class="ask-take${sp}" data-ln="${l.steps.length}">✦ ${esc(l.takeaway)}</div>`;
+    h+=`<div class="ask-take${sp}" data-ln="${l.steps.length}">✦ ${mathText(esc(l.takeaway))}</div>`;
   }
   return h;
 }
