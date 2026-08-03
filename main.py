@@ -3796,7 +3796,66 @@ def _ai_json(text):
                 return json.loads(clean[start:end + 1])
             except Exception:
                 continue
+    # Truncated rather than malformed: the model ran out of room mid-object.
+    # Rather than lose the whole lesson, cut back to the last complete element
+    # and close what is still open — seven steps of eight is a lesson; a
+    # parse error is nothing.
+    salvaged = _close_truncated_json(clean)
+    if salvaged is not None:
+        print("AI: reply was truncated; salvaged the complete part of it")
+        return salvaged
     raise ValueError(f"Model did not return JSON. First 200 chars: {raw[:200]!r}")
+
+
+def _close_truncated_json(text):
+    """Repair an object that was cut off part-way, or return None.
+
+    Walks the string tracking string state and nesting, rewinds to the last
+    point where a value had just finished, and closes the containers that are
+    still open. Deliberately conservative: it never invents a value, so the
+    worst case is a lesson with fewer steps than the model intended.
+    """
+    if not text.startswith("{") and not text.startswith("["):
+        i = min([x for x in (text.find("{"), text.find("[")) if x != -1]
+                or [-1])
+        if i < 0:
+            return None
+        text = text[i:]
+
+    stack, in_str, esc, safe = [], False, False, -1
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+                safe = i          # a string just closed: a clean place to cut
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            safe = i
+        elif ch in "0123456789":
+            safe = i              # a number may have just finished here
+
+    if not stack or safe < 0:
+        return None
+    head = text[:safe + 1]
+    # Drop a dangling key or comma left over from the cut.
+    head = _re.sub(r',\s*"[^"]*"\s*:\s*$', "", head)
+    head = head.rstrip().rstrip(",")
+    for closer in reversed(stack):
+        head += closer
+    try:
+        return json.loads(head)
+    except Exception:
+        return None
 
 
 class BulletsIn(BaseModel):
@@ -8253,7 +8312,11 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
 
     _ai_enforce_limit(db, user)
     try:
-        text = await _ai_text(_board_prompt(topic, level), 2600, json_mode=True)
+        # 8000, not 2600. A lesson is now steps plus a scene plus a sketch,
+        # and the old cap cut the JSON off mid-object — which surfaces as a
+        # parse failure, not as "too long", so it looked like the board was
+        # broken rather than short of room.
+        text = await _ai_text(_board_prompt(topic, level), 8000, json_mode=True)
         lesson = _clean_board(_ai_json(text), topic)
     except Exception as e:
         print(f"Smart board failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
@@ -8955,7 +9018,7 @@ async def build_course(body: CourseIn, user: User = Depends(current_user),
     _ai_enforce_limit(db, user)
     try:
         course = _clean_course(_ai_json(await _ai_text(
-            _course_prompt(topic, body.level, body.context), 7000,
+            _course_prompt(topic, body.level, body.context), 9000,
             json_mode=True, best=True)))
     except Exception as e:
         print(f"Course failed: {type(e).__name__}: {e}")
