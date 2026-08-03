@@ -19,6 +19,7 @@
      merely named: almost nobody has it installed, so the stack silently fell
      through to Segoe UI. display=swap so text paints immediately in the
      fallback and never blocks on the network. -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="stylesheet" media="print" onload="this.media='all'"
@@ -1020,11 +1021,11 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=df48c07ae5"></script>
-<script src="scanner.js?v=a13da0e2bf"></script>
+<script src="scanner.js?v=24daa2ab69"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
-<script src="three3d.js?v=736602e037"></script>
+<script src="three3d.js?v=b8f4081956"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
 <script src="bot.js?v=94cda8d571"></script>
 <script>
@@ -2623,6 +2624,16 @@ async function sbTeach(topic,keepTrail){
    *
    * So the screen gets its own clock. If it is still building well after the
    * request should have settled, it says so and offers the way out. */
+
+  /* Start the diagram library downloading now.
+   *
+   * three.js is a few hundred kilobytes from a CDN and was only requested
+   * when a scene mounted — that is, once the reader was already looking at
+   * the empty space where the diagram belonged, so its download time was
+   * added to the wait rather than hidden inside it. Building a lesson takes
+   * several seconds at the server; the library lands well within that. */
+  if(window.Three3D && Three3D.preload) Three3D.preload();
+
   clearTimeout(SB.watchdog);
   SB.watchdog = setTimeout(()=>{
     if(SB.seq===seq && SB.busy){

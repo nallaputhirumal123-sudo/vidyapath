@@ -18,9 +18,10 @@ thousand atoms is a hung tab on a phone, so counts are cut hard.
 # The surface grid is computed with the same allowlisted evaluator that
 # checks a lesson's arithmetic. Nothing here executes a string.
 import maths as _maths
+import protein as _protein
 
-KINDS = ("molecule", "layers", "lattice", "surface", "orbit", "solid",
-         "process", "flow")
+KINDS = ("molecule", "protein", "layers", "lattice", "surface", "orbit",
+         "solid", "process", "flow")
 
 MAX_STAGES = 8
 MAX_FLOWS = 4
@@ -156,6 +157,13 @@ def clean(d):
         # Cubed, so this is the difference between 8 spheres and 500.
         out["repeat"] = int(_n(d.get("repeat"), 1, 4, 2))
         return out
+
+    if kind == "protein":
+        # Backbone traces, filled in from the Protein Data Bank rather than
+        # from the model. Everything here is rebuilt by protein.clean, which
+        # treats coordinates as numbers and drops anything that is not one.
+        out.update(_protein.clean(d))
+        return out if out.get("traces") else None
 
     if kind == "surface":
         fn = str(d.get("fn") or "").strip().lower()

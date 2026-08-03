@@ -268,6 +268,50 @@
 
   /* z = f(x, y). Every optimisation surface, every wave, every potential
      well, and the only honest way to show a saddle point. */
+  /* A macromolecule, drawn the way structural biology draws one.
+   *
+   * Every atom as a sphere is right for caffeine and useless for
+   * haemoglobin: four and a half thousand spheres arrive as an indistinct
+   * ball, and the thing worth seeing — four folded chains around four haem
+   * groups — is exactly what disappears.
+   *
+   * So this is a backbone trace: one point per residue, from the server,
+   * pulled through a smooth curve and swept into a tube. One colour per
+   * chain, because the chains are usually the lesson.
+   *
+   * The coordinates are crystallographic. Nothing here invents a position;
+   * the curve only decides how to travel between measured points. */
+  BUILD.protein = function (spec, group) {
+    var traces = spec.traces || [];
+    // Scale the whole assembly to a consistent size on screen. A ribosome
+    // and a ubiquitin differ by a factor of thirty in ångström and should
+    // arrive looking like objects of comparable size on a board.
+    var span = spec.span || 20;
+    var k = 9 / span;
+    // A thinner tube for a big structure, or the folds merge into a blob.
+    var radius = Math.max(0.10, Math.min(0.42, 26 / (spec.residues || 200)));
+
+    traces.forEach(function (t, i) {
+      var pts = (t.points || []).map(function (p) {
+        return new THREE.Vector3(p[0] * k, p[1] * k, p[2] * k);
+      });
+      if (pts.length < 3) return;
+      var curve = new THREE.CatmullRomCurve3(pts, false, "centripetal", 0.5);
+      // Enough segments to follow a helix, capped so a large assembly does
+      // not build a hundred thousand triangles on a phone.
+      var seg = Math.max(24, Math.min(pts.length * 4, 1600));
+      var geo = new THREE.TubeGeometry(curve, seg, radius, 8, false);
+      group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: t.color === undefined ? 0x4FC3F7 : t.color,
+        roughness: 0.45, metalness: 0.05
+      })));
+      // Where each chain starts, so a four-chain assembly can be read.
+      if (t.chain && traces.length > 1) {
+        label(group, t.chain, pts[0].x, pts[0].y + 0.6, pts[0].z);
+      }
+    });
+  };
+
   BUILD.surface = function (spec, group) {
     /* Two ways to get a height, and the first is the real one.
      *
@@ -904,6 +948,23 @@
   /* ---- the viewer ---------------------------------------------------- */
   window.Three3D = {
     kinds: Object.keys(BUILD),
+
+    /* Start fetching three.js before anything needs it.
+     *
+     * The library is a few hundred kilobytes from a CDN and was only
+     * requested when a scene mounted — which is the moment the reader is
+     * looking at the space where the diagram should be. Building a lesson
+     * takes several seconds at the server, so calling this when the request
+     * goes out lets the download finish inside that time and the scene
+     * appears immediately instead of after a second wait the reader has to
+     * sit through.
+     *
+     * Safe to call as often as you like: load() returns the same promise
+     * after the first call, and a failure here is ignored because mount()
+     * handles it properly and this is only a head start. */
+    preload() {
+      try { load().catch(function () {}); } catch (e) { /* never fatal */ }
+    },
 
     /* Mount a scene into an element. Returns a disposer, because a page with
        five lessons on it would otherwise keep five WebGL contexts and five

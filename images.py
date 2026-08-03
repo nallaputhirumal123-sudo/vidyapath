@@ -64,6 +64,96 @@ _NO_PHOTO = re.compile(
     r"axiom|conjecture|polynomial|logarithm)\b", re.I)
 
 
+# Words that carry no subject. A title matching only these is not a match.
+_STOP = {
+    "the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or",
+    "with", "from", "by", "is", "are", "was", "were", "be", "how", "what",
+    "why", "when", "which", "who", "does", "do", "did", "its", "it", "this",
+    "that", "these", "those", "as", "into", "than", "then", "there", "here",
+    "explain", "example", "examples", "simply", "simpler", "deeper", "detail",
+    "details", "walk", "through", "concrete", "worked", "end", "step",
+    "steps", "show", "give", "me", "us", "you", "your", "learn", "lesson",
+    "topic", "about", "more", "much", "one", "specifically", "beginner",
+    "expert", "practice", "exercises", "mistakes", "common", "avoid",
+    "matter", "matters", "real", "work", "used", "answers", "explained",
+    "want", "would", "need", "know", "understand", "please",
+}
+
+
+def subject_of(topic: str) -> str:
+    """What the lesson is actually about, without the instruction on the end.
+
+    "Show an example" and its five siblings do not ask a new question, they
+    extend the old one — the topic becomes "aircraft gearbox - walk through
+    one concrete worked example end to end". Searching for a picture of that
+    sentence is how a gearbox lesson ended up illustrated with a crane.
+    """
+    t = str(topic or "")
+    # The tutor's own separator, and the follow-up form.
+    for sep in ("\u2014", " - ", " \u2013 "):
+        if sep in t:
+            t = t.split(sep)[0]
+    for sep in ("specifically:", "Specifically:"):
+        if sep in t:
+            t = t.split(sep)[0]
+    return " ".join(t.split()).strip(" -\u2014:,.")
+
+
+def _words(text):
+    """The words in a phrase that carry any subject at all."""
+    return {w for w in re.findall(r"[a-z0-9]+", str(text or "").lower())
+            if len(w) > 2 and w not in _STOP}
+
+
+def _matches(word, words):
+    """Is this word present in that set, allowing plurals and stems?"""
+    for other in words:
+        if word.rstrip("s") == other.rstrip("s"):
+            return True
+        if len(word) >= 5 and len(other) >= 5 and word[:4] == other[:4]:
+            return True
+    return False
+
+
+def relevant(query: str, title: str) -> bool:
+    """Does this article have anything to do with what was asked?
+
+    Wikimedia always returns its best match, and its best match for a poor
+    query is still a confident article with a good photograph. Requiring one
+    real word in common is a low bar that a crane fails for a gearbox.
+    """
+    q, t = _words(query), _words(title)
+    if not q:
+        return False
+
+    # The head noun has to match, not just any word.
+    #
+    # English puts the head of a compound last: an "aircraft gearbox" is a
+    # gearbox, and "Nimitz-class aircraft carrier" shares "aircraft" with it
+    # while being an entirely different object. Requiring the head means a
+    # gearbox lesson gets a gearbox or nothing, which is the right trade —
+    # no picture is ordinary, the wrong machine teaches the wrong machine.
+    ordered = [w for w in re.findall(r"[a-z0-9]+", str(query or "").lower())
+               if len(w) > 2 and w not in _STOP]
+    head = ordered[-1] if ordered else ""
+    if head and not _matches(head, t):
+        return False
+    if q & t:
+        return True
+    # Plurals and shared stems, so "gears" matches "gear" and "gearbox"
+    # matches "gearing" — an article on epicyclic gearing is a good picture
+    # for an aircraft gearbox, and rejecting it would throw away a real
+    # match to avoid a crane. Four characters of a five-letter-plus word is
+    # a stem in practice; anything shorter starts matching by accident.
+    for a in q:
+        for b in t:
+            if a.rstrip("s") == b.rstrip("s"):
+                return True
+            if len(a) >= 5 and len(b) >= 5 and a[:4] == b[:4]:
+                return True
+    return False
+
+
 def wanted(topic: str) -> bool:
     """Is this a topic where a photograph would actually help?
 
@@ -272,8 +362,9 @@ async def find(client, topic: str) -> dict:
     """
     if not wanted(topic):
         return {}
-    q = str(topic).strip()[:120]
-    if not q:
+    # Search what the lesson is about, not the instruction appended to it.
+    q = subject_of(topic)[:120]
+    if not q or not wanted(q):
         return {}
 
     # Public-domain sources first. They are better pictures for the subjects
@@ -341,6 +432,13 @@ async def find(client, topic: str) -> dict:
             meta = {}
 
     pic = _parse(body, meta)
+    # The article Wikimedia liked best may have nothing to do with the
+    # question. A lesson with no photograph is ordinary; a lesson illustrated
+    # with the wrong machine teaches the wrong machine.
+    if pic and not relevant(q, pic.get("caption")):
+        print(f"Picture for {q!r} discarded: "
+              f"{pic.get('caption')!r} is not about it")
+        return {}
     # Attribution is not optional HERE. Wikimedia's files are licensed on the
     # condition that the author is named, so one that arrives without an
     # author or a licence is dropped rather than shown bare. The public-domain

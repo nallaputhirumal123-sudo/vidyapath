@@ -274,6 +274,11 @@
   async function buildCourse() {
     if (!SC.scan) return;
     SC.courseBusy = true; SC.msg = ""; paint();
+    // A course takes many seconds to build and usually contains a 3D lesson.
+    // Fetching the diagram library now means it is ready when the reader
+    // reaches that lesson, rather than starting the download at the moment
+    // they are looking at the space where the diagram should be.
+    if (window.Three3D && window.Three3D.preload) window.Three3D.preload();
     try {
       var r = await api.post("/api/course", {
         topic: SC.scan.subject || SC.scan.read.slice(0, 120),

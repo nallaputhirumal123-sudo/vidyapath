@@ -8552,12 +8552,41 @@ def _board_prompt(topic: str, level: str) -> str:
         '}],'
         '"takeaway":"<one sentence to remember>",'
         '"deeper":["<narrower sub-topic>","<another>"]}\n\n'
-        "6 to 10 steps of 60 to 110 words each. Tight. A step that reads like a glossary entry has failed — the learner found the definition before coming here, and what they lack is why it works that way and what breaks without it. Use a concrete number, name or scenario in most steps rather than speaking generally.\n"
+        "6 to 10 steps, each 120 to 220 words — the same length the "
+        "schema asks for above. This said 60 to 110 while the schema "
+        "said 120 to 220, and a lesson written to satisfy both came out "
+        "as an outline of the topic instead of the topic itself. Long "
+        "enough to actually teach the step: what it is, the mechanism "
+        "underneath, why it is done this way, and what breaks when it "
+        "is not.\n"
+        "FINISH EVERY STEP. A step that introduces an idea and moves on "
+        "before explaining it has taught nothing — the reader is left "
+        "holding a heading. If a step needs the whole 220 words, use "
+        "them. Never write 'beyond the scope of this lesson', 'as we "
+        "will see later', or 'there are several factors' without "
+        "naming them: say the thing.\n"
+        "A step that reads like a glossary entry has failed — the "
+        "learner found the definition before coming here, and what they "
+        "lack is why it works that way and what breaks without it. Use "
+        "a concrete number, name or scenario in most steps rather than "
+        "speaking generally.\n"
         "SHOW IT RATHER THAN DESCRIBE IT. Nobody takes in two thousand words of prose about a thing they cannot see. Every step should carry something to look at where one exists — the real screen or worked calculation in \"code\", or a scene. Cut a sentence before you cut the picture: if a paragraph is explaining what something looks like or how it is arranged, the scene is doing that job and the paragraph should say what it MEANS instead.\n\n"
         "At least half the steps carry a real screen, bench or document "
         "in \"code\" with the matching \"where\" — the actual commands and "
         "the output they return, the worked calculation line by line, the "
         "text of the clause. Never prose in that field.\n\n"
+        "THE PICTURE MUST BE OF WHAT THE STEP SAYS. A drawing, sketch "
+        "or scene belongs to one step and illustrates THAT step, not "
+        "the topic in general. Every label in it must be a term the "
+        "step's own sentences use, and every part the step names should "
+        "appear in it. Then refer to it in the text — 'the shaded "
+        "region', 'the second stage' — so the reader knows which "
+        "part to look at while reading which sentence.\n"
+        "A picture whose labels are not the words in the paragraph "
+        "beside it is a stock illustration of the subject, and the "
+        "reader can tell. If a step's content cannot be drawn, leave "
+        "that step without a picture rather than attaching a general "
+        "one.\n"
         "EVERY LESSON GETS A DRAWING. Put a sketch on the step where seeing "
         "it does the most work, and on any other step where a different one "
         "genuinely earns its place. A lesson that arrives as nothing but "
@@ -8601,7 +8630,32 @@ async def _real_molecules(client, lesson, topic):
         if not isinstance(st, dict):
             continue
         sc = st.get("scene")
-        if not isinstance(sc, dict) or sc.get("kind") != "molecule":
+        if not isinstance(sc, dict):
+            continue
+
+        # A macromolecule: the backbone comes from the Protein Data Bank,
+        # measured by crystallography. The model names the structure; it
+        # does not place the atoms.
+        if sc.get("kind") == "protein":
+            for name in (_protein_name(sc.get("caption")), topic):
+                if not name:
+                    continue
+                try:
+                    got = await _protein.find(client, name)
+                except Exception as e:
+                    print(f"Protein lookup failed: {type(e).__name__}: {e}")
+                    got = {}
+                if not got:
+                    continue
+                sc.update(got)
+                if got.get("pdb") and got["pdb"] not in (sc.get("caption") or ""):
+                    sc["caption"] = (f"{sc.get('caption') or got.get('title')}"
+                                     f" — PDB {got['pdb']}").strip(" —")
+                swapped += 1
+                break
+            continue
+
+        if sc.get("kind") != "molecule":
             continue
         for name in (_molecule_name(sc.get("caption")), topic):
             if not name:
@@ -8636,6 +8690,22 @@ _MOL_NOISE = _re.compile(
     r"space[\s-]filling|3d|three[\s-]dimensional|diagram|showing|shown|"
     r"view|rendered|representation|atoms?|bonds?|"
     r"of|the|a|an|in|on|at|with|and|for|its|this|that|is|are|as)\b", _re.I)
+
+
+def _protein_name(caption):
+    """The structure a scene caption names, if it names one.
+
+    The scaffolding comes off first. "Haemoglobin ribbon" is not in the
+    curated list of taught structures, so it fell through to full-text
+    search and returned a real haemoglobin that is not the one anybody
+    teaches; "Haemoglobin" resolves to 1HHO, which is.
+    """
+    t = _re.sub(r"\(.*?\)", " ", str(caption or ""))
+    t = _re.sub(r"\b(3d|structure|model|backbone|ribbon|cartoon|fold|"
+               r"of|the|a|an|in|with|and|shown|showing|diagram|"
+               r"molecule|protein)\b", " ", t, flags=_re.I)
+    t = " ".join(t.replace(",", " ").split()).strip(" -—")
+    return t if _protein.wanted(t) else ""
 
 
 def _molecule_name(caption):
@@ -9241,6 +9311,7 @@ import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import images as _images                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
+import protein as _protein                                          # noqa: E402
 
 
 @app.post("/api/scan")
