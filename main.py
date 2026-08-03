@@ -3497,7 +3497,11 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
     """One raw generation call to a single provider. Raises on HTTP error."""
     if provider == "gemini":
         model = _override or (GEMINI_MODEL_BEST if best else GEMINI_MODEL)
-        gen = _gen_config(model, max_tokens, 0.4, json_mode, _no_think)
+        # 0.15, not 0.4. A lesson is a reference, not creative writing: at
+        # 0.4 the same question produces a different derivation each time and
+        # one of those variations is the one that invents a step. Lower is
+        # duller, and gives more nearly the same answer twice.
+        gen = _gen_config(model, max_tokens, 0.15, json_mode, _no_think)
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
@@ -3506,7 +3510,12 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
         return "".join(p.get("text", "") for c in r.json().get("candidates", [])
                        for p in c.get("content", {}).get("parts", [])).strip()
     if provider == "groq":
-        body = {"model": GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.4,
+        # 0.15, not 0.4. A lesson is not creative writing: at 0.4 the
+        # same question gives a different derivation each time, and one
+        # of those variations is the one that invents a step. Lower is
+        # duller and more nearly the same answer twice, which is what a
+        # reference is for.
+        body = {"model": GROQ_MODEL, "max_tokens": max_tokens, "temperature": 0.15,
                 "messages": [{"role": "user", "content": prompt}]}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -3522,7 +3531,7 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
         # messages are all different, and merging them would mean a Groq
         # rate-limit error reported as an OpenAI one.
         body = {"model": OPENAI_MODEL, "max_tokens": max_tokens,
-                "temperature": 0.4,
+                "temperature": 0.15,
                 "messages": [{"role": "user", "content": prompt}]}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -3559,7 +3568,7 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
     """
     b64 = base64.b64encode(raw).decode()
     if provider == "gemini":
-        gen = _gen_config(_override or GEMINI_MODEL, max_tokens, 0.3, True)
+        gen = _gen_config(_override or GEMINI_MODEL, max_tokens, 0.15, True)
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{_override or GEMINI_MODEL}:generateContent",
@@ -3578,7 +3587,7 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
             headers={"Authorization": f"Bearer {OPENAI_API_KEY}",
                      "content-type": "application/json"},
             json={"model": OPENAI_MODEL, "max_tokens": max_tokens,
-                  "temperature": 0.3,
+                  "temperature": 0.15,
                   "response_format": {"type": "json_object"},
                   "messages": [{"role": "user", "content": [
                       {"type": "text", "text": prompt},
@@ -3904,6 +3913,13 @@ async def ask_with_image(image: UploadFile = File(...),
         raise HTTPException(503, _ai_error_message(e))
 
     found, verdict = _check_lesson(lesson)
+    review = await _review_lesson(q or "this image", lesson)
+    if review:
+        found = review + found
+        if any(r["severity"] == "critical" for r in review):
+            verdict = {"cache": False, "confidence": "low", "state": "flagged"}
+        elif verdict["confidence"] == "high":
+            verdict = dict(verdict, confidence="medium", state="checked")
     if found:
         print(f"Checks on image question: {verdict['state']} — "
               f"{found[0]['problem'][:120]}")
@@ -5072,6 +5088,15 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
         raise HTTPException(status_code=503, detail=_ai_error_message(e))
 
     found, verdict = _check_lesson(lesson)
+    # The same second pass the board gets. This is the most-used surface on
+    # the site, so guarding only the board would be guarding the wrong one.
+    review = await _review_lesson(question, lesson)
+    if review:
+        found = review + found
+        if any(r["severity"] == "critical" for r in review):
+            verdict = {"cache": False, "confidence": "low", "state": "flagged"}
+        elif verdict["confidence"] == "high":
+            verdict = dict(verdict, confidence="medium", state="checked")
     if found:
         print(f"Checks on ask {question[:60]!r}: {verdict['state']} — "
               f"{found[0]['problem'][:120]}")
@@ -9708,8 +9733,19 @@ async def scan(image: UploadFile = File(...),
                 for st in (out.get("steps") or []) if isinstance(st, dict)
                 for part in (st.get("teach", ""), st.get("working", ""))]
              + [out.get("answer", "")])
-    found, verdict = _check_lesson(
-        {"title": "", "steps": lines, "takeaway": out.get("answer", "")})
+    as_lesson = {"title": "", "steps": lines,
+                 "takeaway": out.get("answer", "")}
+    found, verdict = _check_lesson(as_lesson)
+    # The scanner most of all. This is where somebody photographs a problem
+    # they are stuck on and copies the answer into their book — the wrong
+    # answer here is the one that reaches an exam.
+    review = await _review_lesson(out.get("read") or "this problem", as_lesson)
+    if review:
+        found = review + found
+        if any(r["severity"] == "critical" for r in review):
+            verdict = {"cache": False, "confidence": "low", "state": "flagged"}
+        elif verdict["confidence"] == "high":
+            verdict = dict(verdict, confidence="medium", state="checked")
     if found:
         print(f"Checks on a scan: {verdict['state']} — "
               f"{found[0]['problem'][:120]}")
