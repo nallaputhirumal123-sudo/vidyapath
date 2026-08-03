@@ -4846,6 +4846,58 @@ async def ai_selftest(user: User = Depends(admin_user),
             return {"model": model, "ok": False,
                     "error": f"{type(e).__name__}: {e}"[:300]}
 
+    # ---- which argument is invalid? --------------------------------
+    # "Request contains an invalid argument" names nothing, so vary one
+    # thing at a time and let Google's own answers say which it is. This
+    # exists because the alternative — reading the sentence and guessing —
+    # has already cost several deploys and been wrong every time.
+    async def raw_call(model, gen):
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.post(
+                    "https://generativelanguage.googleapis.com/v1beta/"
+                    f"models/{model}:generateContent",
+                    headers={"x-goog-api-key": GEMINI_API_KEY,
+                             "content-type": "application/json"},
+                    json={"contents": [{"parts": [{"text": "Reply: OK"}]}],
+                          "generationConfig": gen})
+            body = r.json()
+            if r.status_code >= 300:
+                return {"http": r.status_code,
+                        "error": str(body.get("error", {}).get("message"))[:160]}
+            cands = body.get("candidates") or []
+            txt = "".join(p.get("text", "") for c_ in cands
+                          for p in c_.get("content", {}).get("parts", []))
+            return {"http": 200, "chars": len(txt.strip()),
+                    "ok": bool(txt.strip())}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"[:160]}
+
+    base = {"maxOutputTokens": 20, "temperature": 0.4}
+    matrix = {
+        # The configured model, stripped back one field at a time.
+        "as sent now":
+            await raw_call(GEMINI_MODEL,
+                           dict(base, thinkingConfig={"thinkingBudget": 0})),
+        "without thinkingConfig":
+            await raw_call(GEMINI_MODEL, dict(base)),
+        "nothing but a prompt":
+            await raw_call(GEMINI_MODEL, {}),
+        # Pinned ids, to separate a bad model name from a bad field.
+        "2.5-flash, no thinking":
+            await raw_call("gemini-2.5-flash", dict(base)),
+        "2.0-flash, no thinking":
+            await raw_call("gemini-2.0-flash", dict(base)),
+        "2.5-flash-lite, no thinking":
+            await raw_call("gemini-2.5-flash-lite", dict(base)),
+    }
+    works = [k for k, v in matrix.items() if v.get("ok")]
+    matrix["VERDICT"] = (
+        "Every variation failed — the key itself is refused, not the payload."
+        if not works else
+        f"These work: {works}. Use one of them."
+    )
+
     short = await probe("short", GEMINI_MODEL, 20, "Reply with exactly: OK")
     long_prompt = ("Return ONLY valid JSON: {\"summary\":\"<two sentences about a "
                    "network engineer>\",\"bullets\":[\"a\",\"b\",\"c\"]}")
@@ -4925,6 +4977,7 @@ async def ai_selftest(user: User = Depends(admin_user),
         gate["ai_quota_error"] = str(qe)[:200]
 
     return {**info,
+            "which_argument_is_invalid": matrix,
             "ok": bool(short.get("ok") and long.get("ok") and board.get("ok")),
             "short_call": short,
             "apply_kit_style_call": long,
