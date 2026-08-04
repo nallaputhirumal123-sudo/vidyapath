@@ -5599,6 +5599,73 @@ def notice_file(nid: int, user: User = Depends(current_user),
                  f'inline; filename="{(n.file_name or "notice")[:80]}"'})
 
 
+class AssignIn(BaseModel):
+    class_id: int
+    subject: str = Field(min_length=1, max_length=80)
+    user_id: int = 0          # 0 detaches whoever holds it
+
+
+@app.post("/api/head/assign")
+def head_assign_subject(body: AssignIn, user: User = Depends(head_user),
+                        db: Session = Depends(get_db)):
+    """Put a named teacher on a subject, without the code round trip.
+
+    A subject slot has always carried a code the teacher redeems, which is
+    right when the school is handing codes to people it has not enrolled yet.
+    It is wrong once the admin has already created the staff account: they
+    know exactly who teaches Physics in 8-A, and reading a code down the
+    corridor to somebody sitting in the staffroom is a step that exists only
+    because the software could not do the obvious thing.
+
+    No restriction on how many. A teacher may hold several subjects in one
+    class and teach across as many classes as the timetable says, which is
+    what a real timetable looks like — both were already allowed and are
+    asserted so they stay that way.
+    """
+    k = _own_class(db, body.class_id, user)
+    subject = body.subject.strip()[:80]
+    slot = (db.query(SubjectSlot)
+              .filter(SubjectSlot.class_id == k.id,
+                      func.lower(SubjectSlot.subject) == subject.lower())
+              .first())
+    if not slot:
+        slot = SubjectSlot(class_id=k.id, subject=subject,
+                           code=_gen_slot_code(db), teacher_id=0,
+                           status="open")
+        db.add(slot)
+
+    if not body.user_id:
+        # Detach. The slot and its code survive, so the subject still exists
+        # on the timetable while the school works out who is covering it.
+        slot.teacher_id = 0
+        slot.status = "open"
+        db.commit()
+        return {"ok": True, "subject": slot.subject, "teacher": "",
+                "code": slot.code}
+
+    target = db.get(User, body.user_id)
+    if not target:
+        raise HTTPException(404, "No such member of staff")
+    t = teacher_row(target, db)
+    # Somebody who is not staff anywhere is a new hire, and assigning them a
+    # subject is exactly how they become staff here — refusing them was the
+    # bug: the guard rejected precisely the person you would be assigning.
+    # What must still be refused is somebody who already works at ANOTHER
+    # school, which would quietly move them between schools.
+    if (t is not None and not user.is_admin
+            and t.school_id != _school_of(user, db)):
+        raise HTTPException(403, "That is not your member of staff")
+    if t is None:
+        # Assigning somebody a subject is what makes them a teacher here.
+        _grant_teacher(db, target, k.school or "", k.school_id or 0, "teacher")
+
+    slot.teacher_id = target.id
+    slot.status = "claimed"
+    db.commit()
+    return {"ok": True, "subject": slot.subject,
+            "teacher": target.name or target.email, "code": slot.code}
+
+
 @app.get("/api/head/people")
 def head_find_people(q: str = "", kind: str = "",
                      user: User = Depends(notice_author_user),
