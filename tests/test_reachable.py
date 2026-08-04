@@ -56,6 +56,10 @@ ALLOWED = {
     "/api/admin/jobs/out-of-scope": "operator dry run before pruning",
     "/api/admin/jobs/prune": "operator tool, deliberately not a button",
     "/api/admin/jobs/schedule": "operator tool",
+    "/api/admin/corpus/build": "operator tool: a two-and-a-half hour NCERT "
+                               "ingestion, started with curl on the server "
+                               "that has the volume, not from a button",
+    "/api/admin/corpus": "operator tool: watching that build",
     "/api/admin/alerts/run": "operator tool",
     "/api/admin/reports": "operator tool",
     "/api/hire/search": "employer surface, not built yet",
