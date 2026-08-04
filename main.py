@@ -111,6 +111,15 @@ GOOGLE_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 # Optional explicit public URL for the OAuth redirect; else derived per-request.
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL").rstrip("/")
 
+# Where the searchable corpus lives.
+#
+# It is a few hundred megabytes of NCERT and is deliberately not in the repo —
+# committing it would be committing a download. On Railway the container
+# filesystem is thrown away on every deploy, so it has to sit on a mounted
+# volume or it is rebuilt from nothing each time. CORPUS_PATH points at that
+# volume; unset, it falls back to the repo, which is right for a laptop.
+CORPUS_PATH = env("CORPUS_PATH") or str(BASE_DIR / "corpus.db")
+
 # ---- Ask Axle (the "ask anything" AI teacher) ---------------------------
 # The API key lives ONLY on the server. The browser never sees it. Every
 # answer is cached in the database, so a repeated question costs nothing and
@@ -12413,6 +12422,97 @@ def _out_of_scope_ids(db):
     return out
 
 
+_CORPUS_BUILD = {"running": False, "log": [], "started": ""}
+
+
+def _corpus_build_now(only_class=None, limit=0):
+    """Fetch NCERT and rebuild the corpus, in a background thread.
+
+    On a laptop you run tools/build_corpus.py. On Railway there is no laptop:
+    the container is replaced on every deploy and the corpus has to be built
+    where it will live, onto the mounted volume. Same code either way — this
+    calls the same corpus.ingest — so the two cannot drift.
+
+    Writes to a temporary file beside the real one and swaps at the end. Two
+    and a half hours is long enough that a deploy or a crash will sometimes
+    land in the middle of it, and a half-written corpus that the app believes
+    is whole is worse than no corpus at all.
+    """
+    import corpus as _corpus
+    st = _CORPUS_BUILD
+    st.update({"running": True, "log": [], "started": now().isoformat()})
+
+    def log(line):
+        st["log"].append(str(line)[:200])
+        del st["log"][:-400]          # the tail is what anybody reads
+        print(f"corpus: {line}")
+
+    tmp = CORPUS_PATH + ".building"
+    try:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        ix = _rag.build_fts([], tmp)
+        db = SessionLocal()
+        try:
+            rows = [(l.content or "", l.title or "", tr.name or "",
+                     l.slug or "")
+                    for l, tr in db.query(Lesson, Track)
+                    .join(Track, Track.id == Lesson.track_id)
+                    .filter(Lesson.published == True).all()]   # noqa: E712
+        finally:
+            db.close()
+        for content, title, track, slug in rows:
+            if content:
+                ix.add(content, title, track, slug)
+        ix.finish()
+        log(f"curriculum: {len(rows)} lessons, {ix.n} passages")
+
+        want = _corpus.chapters(only_class=only_class)
+        if limit:
+            want = want[:limit]
+        log(f"ncert: {len(want)} chapters to fetch")
+        rep = _corpus.ingest(ix, want, log=log)
+        ix.finish()
+        log(f"done: {ix.n} passages, {rep['indexed']} chapters, "
+            f"{len(rep['failed'])} failed")
+        ix.db.close()
+        os.replace(tmp, CORPUS_PATH)
+        log(f"wrote {CORPUS_PATH}")
+        global _RAG_INDEX
+        _RAG_INDEX = None            # reopened, read-only, on the next question
+    except Exception as e:
+        log(f"build failed: {type(e).__name__}: {e}")
+    finally:
+        st["running"] = False
+
+
+@app.post("/api/admin/corpus/build")
+def admin_build_corpus(only_class: int = 0, limit: int = 0,
+                       user: User = Depends(admin_user)):
+    """Start the corpus build on this server. Hours, so it runs detached."""
+    if _CORPUS_BUILD["running"]:
+        raise HTTPException(409, "A build is already running. Watch it at "
+                                 "/api/admin/corpus.")
+    import threading
+    threading.Thread(target=_corpus_build_now,
+                     kwargs={"only_class": only_class or None,
+                             "limit": limit},
+                     daemon=True).start()
+    return {"ok": True, "watch": "/api/admin/corpus"}
+
+
+@app.get("/api/admin/corpus")
+def admin_corpus_status(user: User = Depends(admin_user)):
+    """What the corpus holds, and what a running build is doing."""
+    ix = _rag.open_fts(CORPUS_PATH)
+    return {"path": CORPUS_PATH,
+            "exists": os.path.exists(CORPUS_PATH),
+            "passages": (ix.n if ix else 0),
+            "building": _CORPUS_BUILD["running"],
+            "started": _CORPUS_BUILD["started"],
+            "log": _CORPUS_BUILD["log"][-60:]}
+
+
 @app.get("/api/admin/jobs/out-of-scope")
 def count_out_of_scope(user: User = Depends(admin_user),
                        db: Session = Depends(get_db)):
@@ -13352,7 +13452,7 @@ def _rag_ready(db):
     #
     # Opened read-only and never rebuilt here: building it fetches a few
     # hundred PDFs and takes hours, which is a batch job, not a startup step.
-    built = _rag.open_fts(str(BASE_DIR / "corpus.db"))
+    built = _rag.open_fts(CORPUS_PATH)
     if built is not None:
         _RAG_INDEX = built
         print(f"corpus: {built.n} passages from corpus.db")
