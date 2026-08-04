@@ -946,17 +946,27 @@ var TILES = [
     sub:"Drive this board from your phone, so you can teach facing the room." }
 ];
 
+/* What a teacher reaches for WHILE TEACHING, and nothing else.
+ *
+ * Your classes, the register, work to review and what the class is asking have
+ * moved to the teacher dashboard on craxle.com, where they are now actually
+ * built — with roll numbers, search, per-row editing, and attendance and fees
+ * around them, none of which these tiles ever had. Two places to type a
+ * register is one too many: the one you are not standing at goes stale, and a
+ * teacher in front of thirty children should not be working out which screen
+ * is the real one.
+ *
+ * Pulling things up stays. Material is here because reaching for a chapter
+ * mid-lesson is teaching, and sources are here because "where did that come
+ * from" is asked during the lesson, not afterwards.
+ *
+ * The pages themselves are untouched and still routable — a bookmark from last
+ * term keeps working. Only the tiles come off the home screen, which is the
+ * difference between moving a door and bricking up a room.
+ */
 var TEACHER_TILES = [
-  { page:"roll",     ic:"👥", name:"Your classes",
-    sub:"The classrooms you teach, who is in them, and how each one is doing." },
   { page:"materials", ic:"📎", name:"Study material",
-    sub:"Links, PDFs and slides your class can open." },
-  { page:"roster",   ic:"📋", name:"Class register",
-    sub:"Type the names once, and they sign in with the class code alone." },
-  { page:"inbox",    ic:"📥", name:"To review",
-    sub:"Work your students have handed in, across every class." },
-  { page:"activity", ic:"📊", name:"What the class is asking",
-    sub:"The topics your learners have been stuck on, as counts." },
+    sub:"Chapters, slides and links — pull one up mid-lesson." },
   { page:"sources",  ic:"📚", name:"Where answers come from",
     sub:"Every source we teach from, with its licence." }
 ];
