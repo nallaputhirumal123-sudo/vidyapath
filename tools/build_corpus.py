@@ -45,9 +45,20 @@ def main():
     ap.add_argument("--skip-ncert", action="store_true")
     args = ap.parse_args()
 
-    if os.path.exists(TEMP):
-        os.remove(TEMP)
-    ix = rag.build_fts([], TEMP)
+    # A leftover from a build that was interrupted must not block the next
+    # one. On Windows a killed process can leave the file locked for a while,
+    # and os.remove then raises PermissionError — so the script died with a
+    # stack trace and no corpus, over a corpse. Take a fresh name instead:
+    # the swap at the end is what matters, not which temporary file it came
+    # from.
+    temp = TEMP
+    try:
+        if os.path.exists(temp):
+            os.remove(temp)
+    except OSError:
+        temp = f"{TEMP}.{os.getpid()}"
+        print(f"note: {TEMP} is locked by another process, using {temp}")
+    ix = rag.build_fts([], temp)
     started = time.time()
 
     # The curriculum first: it is local, it takes a moment, and if the NCERT
@@ -87,7 +98,7 @@ def main():
     # reading half a corpus while believing it is whole.
     if os.path.exists(FINAL):
         os.replace(FINAL, FINAL + ".old")
-    os.replace(TEMP, FINAL)
+    os.replace(temp, FINAL)
     print(f"\nwrote {FINAL} — restart the app to pick it up")
 
 
