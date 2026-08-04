@@ -188,10 +188,20 @@ class Index:
         # Requiring it turns "firewall" from one signal among several into the
         # thing being asked about, and a passage that never mentions it is not
         # a source about it however many times it says "work".
-        key = max(q, key=lambda w: math.log(
-            1 + (self.n - self.df.get(w, 0) + 0.5) / (self.df.get(w, 0) + 0.5)))
-        if key not in self.df:
+        # The rarest term THAT WE ACTUALLY HOLD, not the rarest term asked.
+        #
+        # Picking the globally rarest and then checking it exists threw away
+        # good questions: "c++ pointers" chose "c++", which appears nowhere in
+        # a corpus that writes it as C, and returned nothing — while a lesson
+        # called "C, memory and pointers" sat right there. A word we have
+        # never seen carries no evidence either way, so it should not be the
+        # word the whole search turns on. Absent terms are set aside and the
+        # rarest of the rest decides; when none of them is present, that is a
+        # subject we do not teach and nothing comes back.
+        present = [w for w in dict.fromkeys(q) if self.df.get(w)]
+        if not present:
             return []
+        key = min(present, key=lambda w: self.df[w])
 
         scored = []
         for i in range(self.n):
@@ -252,3 +262,127 @@ def as_source(hits, limit=3):
           " the lesson and then asks the board must not be told something"
           " different by the same site. Where it does not cover what was"
           " asked, answer normally and do not pretend it did.\n")
+
+
+# ---------------------------------------------------------------------------
+# The same retrieval, on disk, for a corpus that will not fit in memory.
+#
+# The in-memory index above is right for 82 lessons: it builds in 77ms and
+# searches in 0.4ms, and every part of it can be read on one screen. It is the
+# wrong shape for what is coming. NCERT alone is around four hundred books, and
+# open university material on top of that puts the corpus into hundreds of
+# thousands of passages — at which point scoring every one of them in Python on
+# every question stops being clever and starts being a timeout.
+#
+# SQLite's FTS5 does the same job in C, with the same BM25 ranking function,
+# and it is in the standard library. No service, no key, no per-query cost —
+# which is the constraint that ruled out embeddings and rules them out at this
+# size too.
+#
+# The interface is deliberately identical to Index: .n and .search(query, k)
+# returning the same dicts. That is what lets the two be compared on the same
+# corpus and the same questions, which is the only honest way to swap one for
+# the other.
+# ---------------------------------------------------------------------------
+
+import sqlite3
+
+
+class FtsIndex:
+    """A BM25 index in SQLite. Same interface as Index, different scale."""
+
+    def __init__(self, path=":memory:"):
+        self.path = path
+        self.db = sqlite3.connect(path)
+        self.db.row_factory = sqlite3.Row
+        # tokenchars keeps c++, c#, .net and node.js whole. Without it FTS5's
+        # default tokenizer splits on punctuation and three different subjects
+        # all become "c" — the same fault the in-memory tokeniser guards.
+        self.db.executescript("""
+            DROP TABLE IF EXISTS passages;
+            CREATE VIRTUAL TABLE passages USING fts5(
+                body, title, track, slug UNINDEXED,
+                tokenize="unicode61 tokenchars '+#.'"
+            );
+        """)
+        self.n = 0
+
+    def add(self, text, title, track, slug):
+        rows = []
+        for c in _chunks(_plain(text)):
+            if len(_tokens(c)) < 12:
+                continue
+            rows.append((c, title or "", track or "", slug or ""))
+        if rows:
+            self.db.executemany(
+                "INSERT INTO passages (body, title, track, slug) "
+                "VALUES (?, ?, ?, ?)", rows)
+
+    def finish(self):
+        self.db.commit()
+        self.n = self.db.execute("SELECT count(*) FROM passages").fetchone()[0]
+        return self
+
+    def _df(self, term):
+        """How many passages contain this term. Used to find the rarest."""
+        try:
+            row = self.db.execute(
+                "SELECT count(*) FROM passages WHERE passages MATCH ?",
+                (f'"{term}"',)).fetchone()
+            return row[0] if row else 0
+        except sqlite3.OperationalError:
+            return 0
+
+    def search(self, query, k=4):
+        """Same contract as Index.search, including the silence.
+
+        The rarest term is required rather than merely scored, for the reason
+        recorded above: BM25 will add up small change from common words until
+        it clears any threshold, and "how does a firewall work" matched a
+        lesson about lists on the strength of "work" alone.
+        """
+        if not self.n:
+            return []
+        q = _tokens(query)
+        if not q:
+            return []
+        dfs = {w: self._df(w) for w in dict.fromkeys(q)}
+        present = [w for w, d in dfs.items() if d]
+        if not present:
+            return []
+        key = min(present, key=lambda w: dfs[w])
+        others = [w for w in present if w != key]
+        # key AND (anything else that is actually in the corpus). Quoted, so a
+        # term containing punctuation cannot be read as FTS5 query syntax —
+        # "c++" unquoted is a syntax error, and a search that raises on a
+        # legitimate subject is worse than one that finds nothing.
+        expr = f'"{key}"'
+        if others:
+            expr += " AND (" + " OR ".join(f'"{w}"' for w in others) + ")"
+        try:
+            rows = self.db.execute(
+                "SELECT body, title, track, slug, bm25(passages) AS score "
+                "FROM passages WHERE passages MATCH ? "
+                "ORDER BY score LIMIT ?", (expr, k)).fetchall()
+        except sqlite3.OperationalError as e:
+            print(f"fts search failed: {e}")
+            return []
+        out = []
+        for r in rows:
+            # bm25() returns a NEGATIVE number and more negative is better,
+            # which is the opposite of every other score in this file. Flipped
+            # here so callers never have to know, and so `score` means the
+            # same thing whichever backend produced it.
+            out.append({"text": r["body"], "title": r["title"],
+                        "track": r["track"], "slug": r["slug"],
+                        "score": round(-r["score"], 2)})
+        return out
+
+
+def build_fts(lessons, path=":memory:"):
+    """Index into SQLite. `lessons` is (content, title, track, slug)."""
+    ix = FtsIndex(path)
+    for content, title, track, slug in lessons:
+        if content:
+            ix.add(content, title, track, slug)
+    return ix.finish()

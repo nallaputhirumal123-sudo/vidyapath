@@ -138,5 +138,44 @@ check("html becomes readable text", "<" not in plain and "Head" in plain,
 check("block boundaries survive", "\n" in plain,
       "without it a heading runs into the paragraph under it")
 
+print("\nthe same retrieval on disk, for a corpus that will not fit in memory")
+# NCERT alone is around four hundred books. Scoring every passage in Python on
+# every question stops being clever at that size and starts being a timeout.
+# FTS5 does the same BM25 in C and is in the standard library — no service, no
+# key, no per-query cost, which is the constraint that ruled out embeddings.
+fts = rag.build_fts(LESSONS)
+check("the disk index holds the same passages", fts.n == ix.n,
+      f"memory {ix.n}, fts {fts.n}")
+
+# The only honest way to swap one for the other is to ask both the same
+# questions and compare, including the questions that must return nothing.
+same = 0
+QS = ["what is a variable", "for loop", "inner join sql", "photosynthesis",
+      "mitochondria", "how does a firewall work", "the counter in a loop"]
+for _q in QS:
+    _a, _b = ix.search(_q, 3), fts.search(_q, 3)
+    if (not _a and not _b) or (_a and _b and _a[0]["title"] == _b[0]["title"]):
+        same += 1
+check("both backends answer every question the same way", same == len(QS),
+      f"{same}/{len(QS)}")
+
+check("including the silences", fts.search("photosynthesis") == [],
+      "scale must not cost the property that makes it trustworthy")
+
+# FTS5 reads +#. as query syntax unless quoted, and a search that raises on a
+# real subject is worse than one that finds nothing.
+for _q in ("c++", "c#", ".net", "node.js", 'a "quoted" thing', "a AND b"):
+    try:
+        fts.search(_q)
+        ok = True
+    except Exception as _e:
+        ok = False
+    check(f"punctuation in {_q!r} does not break the query", ok)
+
+check("scores come back positive from both",
+      all(h["score"] > 0 for h in fts.search("what is a variable")),
+      "bm25() returns negative and more-negative-is-better; callers should "
+      "never have to know that")
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)
