@@ -2752,9 +2752,39 @@ def join_class(body: JoinIn, user: User = Depends(current_user),
     exists = db.query(ClassMember).filter(
         ClassMember.class_id == k.id, ClassMember.user_id == user.id).first()
     if not exists:
+        _one_class_only(db, user, k)
         db.add(ClassMember(class_id=k.id, user_id=user.id))
         db.commit()
     return {"ok": True, "class": k.name, "role": "student"}
+
+
+def _one_class_only(db, user, k):
+    """A learner belongs to ONE classroom, and this is where that is decided.
+
+    A teacher holds several classes — that is what a timetable is. A student
+    holds one, and it is the thing everything else about them hangs off: the
+    subjects they are taught, who teaches each one, whose register they are
+    on, whose attendance they are in. A second class does not add a room; it
+    makes every one of those questions have two answers, and the screens that
+    ask them show whichever came back first.
+
+    Institutions only. Outside one, "class" means a study group somebody
+    joined off their own bat and there is no reason to hold them to one.
+    """
+    if not _cl.is_institution(_scope_of(db, user)):
+        return
+    other = (db.query(ClassMember)
+               .join(Klass, Klass.id == ClassMember.class_id)
+               .filter(ClassMember.user_id == user.id,
+                       ClassMember.class_id != k.id)
+               .first())
+    if other is None:
+        return
+    where = db.get(Klass, other.class_id)
+    raise HTTPException(409,
+        f"You are already in {where.name if where else 'a class'}. A student "
+        f"belongs to one classroom — ask a teacher to move you if that is "
+        f"the wrong one.")
 
 
 @app.post("/api/class/leave/{cid}")
@@ -4681,12 +4711,44 @@ def craxlearn_me(user: User = Depends(current_user),
             .filter(TeacherAccess.user_id == user.id).first())
     gate = _learning_only(db, user)
 
-    classes = (db.query(Klass)
-                 .join(ClassMember, ClassMember.class_id == Klass.id)
-                 .filter(ClassMember.user_id == user.id).all())
+    # Three ways to be attached to a classroom, and all three have to be here.
+    # A learner is IN one. A head teacher CREATED some. A subject teacher
+    # CLAIMED a subject in some — and that third one was missing, so a subject
+    # teacher signed in and saw no classes at all, which meant no register, no
+    # way to set work, and no way to file a lesson she had just taught.
+    seen, classes = set(), []
+    def _add(rows):
+        for k in rows:
+            if k.id not in seen:
+                seen.add(k.id)
+                classes.append(k)
+
+    _add(db.query(Klass)
+           .join(ClassMember, ClassMember.class_id == Klass.id)
+           .filter(ClassMember.user_id == user.id).all())
     if ta:
-        classes = (classes + db.query(Klass).filter(
-            Klass.teacher_id == user.id).all())
+        _add(db.query(Klass).filter(Klass.teacher_id == user.id).all())
+        slot_ids = {sl.class_id for sl in db.query(SubjectSlot)
+                    .filter(SubjectSlot.teacher_id == user.id).all()}
+        if slot_ids:
+            _add(db.query(Klass).filter(Klass.id.in_(list(slot_ids))).all())
+
+    # What each class is actually made of: its subjects, and who teaches each.
+    # A student has one class and several subjects with a different teacher in
+    # front of each; without this the page can only say the room's name.
+    slots = (db.query(SubjectSlot)
+               .filter(SubjectSlot.class_id.in_(list(seen))).all()
+             if seen else [])
+    tids = {sl.teacher_id for sl in slots if sl.teacher_id}
+    tnames = {u.id: u.name for u in
+              db.query(User).filter(User.id.in_(list(tids))).all()} if tids else {}
+    by_class: dict = {}
+    for sl in sorted(slots, key=lambda x: (x.subject or "").lower()):
+        by_class.setdefault(sl.class_id, []).append({
+            "name": sl.subject,
+            "teacher": tnames.get(sl.teacher_id, ""),
+            "mine": sl.teacher_id == user.id,
+        })
 
     dob = getattr(user, "dob", None)
     return {
@@ -4705,8 +4767,22 @@ def craxlearn_me(user: User = Depends(current_user),
         "deployment_only": CRAXLEARN_ONLY,
         "adult": _cl.adult(dob, dt.date.today()),
         "dob": dob.isoformat() if dob else "",
-        "classes": [{"id": k.id, "name": k.name,
-                     "mine": k.teacher_id == user.id} for k in classes],
+        "classes": [{
+            "id": k.id, "name": k.name, "school": k.school or "",
+            # "mine" means I teach here — as the head who made the class, or
+            # as the teacher of a subject in it. Both put the same blocks on
+            # the board, and only one of them used to.
+            "mine": (k.teacher_id == user.id
+                     or any(x["mine"] for x in by_class.get(k.id, []))),
+            "head": k.teacher_id == user.id,
+            "subjects": by_class.get(k.id, []),
+            "my_subjects": [x["name"] for x in by_class.get(k.id, [])
+                            if x["mine"]] or (
+                # A head teacher runs the school and may file under any of
+                # the class's subjects.
+                [x["name"] for x in by_class.get(k.id, [])]
+                if k.teacher_id == user.id else []),
+        } for k in classes],
         "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
     }
 
@@ -5709,6 +5785,58 @@ def _lesson_to_body(lesson, task):
     return "\n".join(out).strip()[:20000]
 
 
+def _board_subject(db, cid, user, asked):
+    """Which subject a lesson is filed under, checked rather than typed.
+
+    A class has subjects and each subject has a teacher: that is what a
+    SubjectSlot is, and it is the connection the whole classroom hangs off.
+    A free-text box beside it lets the same subject be filed as "Biology",
+    "biology" and "Bio" in one term, and lets a maths teacher file a lesson
+    under somebody else's science — neither of which anybody notices until
+    a class cannot find last week's work.
+
+    A head teacher runs the school and may file under any subject the class
+    actually has. A subject teacher may file under theirs. Nobody may invent
+    one here — subjects are created with the class, by the head teacher.
+    """
+    want = (asked or "").strip()[:80]
+    have = sorted({s.subject for s in db.query(SubjectSlot)
+                   .filter(SubjectSlot.class_id == cid).all()})
+    mine = _my_subjects(db, cid, user)          # None = head, all of them
+
+    # A school that has not set its subjects up yet is not a school doing
+    # something wrong, it is a school on its first afternoon. The rule gets
+    # stricter the moment there is something to be strict about, rather than
+    # locking a head teacher out of her own board on day one.
+    if not have:
+        if mine is None:
+            return want
+        raise HTTPException(403,
+            "You have no subject in this class yet. A head teacher creates "
+            "the subjects for a class and gives each one its code; claim "
+            "yours with that code and it will be here.")
+
+    allowed = have if mine is None else sorted(set(have) & set(mine))
+    if not allowed:
+        raise HTTPException(403,
+            "You do not teach any of this class's subjects ("
+            + ", ".join(have) + "). Claim yours with the code your head "
+            "teacher gave you.")
+    if not want:
+        # One subject and no ambiguity: do not make somebody choose from a
+        # list of one every time they save a lesson.
+        if len(allowed) == 1:
+            return allowed[0]
+        raise HTTPException(400,
+            "Say which subject this belongs to: " + ", ".join(allowed) + ".")
+    for s in allowed:                            # case-insensitive, exact set
+        if s.lower() == want.lower():
+            return s
+    raise HTTPException(403,
+        f"You do not teach {want} in this class. You teach: "
+        + ", ".join(allowed) + ".")
+
+
 class BoardSaveIn(BaseModel):
     class_id: int
     topic: str = Field(min_length=2, max_length=200)
@@ -5738,9 +5866,10 @@ def craxlearn_board_save(body: BoardSaveIn,
     text = _lesson_to_body(body.lesson or {}, "")
     if not text:
         raise HTTPException(400, "There is nothing in that lesson to save.")
+    subject = _board_subject(db, body.class_id, user, body.subject)
     title = (body.title or body.topic).strip()[:240]
     m = Material(class_id=body.class_id, teacher_id=user.id,
-                 subject=(body.subject or "").strip()[:80],
+                 subject=subject,
                  title=title, note=(body.note or "").strip()[:2000],
                  body=text)
     db.add(m)
@@ -6002,21 +6131,11 @@ def craxlearn_board_assign(body: BoardAssignIn,
     """
     _own_class(db, body.class_id, user)
 
-    subject = body.subject.strip()[:80]
-    # A subject teacher is locked to the subject they hold in this class,
-    # the same as when they type one by hand. The board does not become a
-    # way round that.
-    allowed = _my_subjects(db, body.class_id, user)
-    if allowed is not None:
-        if not allowed:
-            raise HTTPException(403, "You have no subject in this class yet")
-        if subject not in allowed:
-            if not subject and len(allowed) == 1:
-                subject = next(iter(allowed))
-            else:
-                raise HTTPException(
-                    403, "You can only set assignments for: "
-                         + ", ".join(sorted(allowed)))
+    # A subject teacher is locked to the subject they hold in this class, the
+    # same as when they type one by hand — the board does not become a way
+    # round that. The same check as saving a lesson, so a teacher cannot set
+    # work under a subject she could not file a lesson under.
+    subject = _board_subject(db, body.class_id, user, body.subject)
 
     topic = _cl.redact(body.topic)[:200]
     text = _lesson_to_body(body.lesson if isinstance(body.lesson, dict) else {},

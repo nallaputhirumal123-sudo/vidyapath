@@ -264,6 +264,15 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .lessonKept{margin-top:.6rem;padding-top:.6rem;
   border-top:1px solid var(--line)}
 .lessonKept p{margin:.4rem 0}
+
+/* A classroom's subjects, and who teaches each. */
+.subjects{display:grid;gap:.4rem;margin-top:.6rem;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,11rem),1fr))}
+.subject{background:var(--panel2);border:1px solid var(--line);
+  border-radius:12px;padding:.55rem .7rem;display:flex;
+  flex-direction:column;gap:.15rem}
+.subject.mine{border-color:var(--accent)}
+.subject span{font-size:.66rem}
 @keyframes pageIn{from{opacity:.4}}
 @media(prefers-reduced-motion:reduce){.lessonPage{animation:none}}
 
@@ -1013,6 +1022,38 @@ function home(){
              : "") +
          "</div></div>";
   }
+
+  /* A student has one classroom, and that classroom has several subjects
+     with a different teacher in front of each. Naming the room alone left a
+     learner unable to answer the only two questions they ever ask about it:
+     what am I taught here, and who do I ask. */
+  var rooms = (ME.classes || []).filter(function(c){
+    return teacher ? c.mine : true; });
+  if(rooms.length){
+    h += '<div class="eyebrow">' +
+      (teacher ? "The classrooms you teach" : "Your classroom") + "</div>";
+    h += rooms.map(function(c){
+      var subs = c.subjects || [];
+      return '<div class="card"><b>' + esc(c.name) + "</b>" +
+        (c.school ? '<span class="muted"> · ' + esc(c.school) + "</span>" : "") +
+        (subs.length
+          ? '<div class="subjects">' + subs.map(function(x){
+              return '<div class="subject' + (x.mine ? " mine" : "") + '">' +
+                "<b>" + esc(x.name) + "</b>" +
+                '<span class="muted">' +
+                  (x.mine ? "you teach this"
+                          : (x.teacher ? esc(x.teacher)
+                                       : "no teacher yet")) +
+                "</span></div>";
+            }).join("") + "</div>"
+          : '<div class="muted" style="margin-top:.4rem">' +
+            (teacher
+              ? "No subjects in this class yet. A head teacher creates them."
+              : "Your school has not listed this class's subjects yet.") +
+            "</div>") +
+        "</div>";
+    }).join("");
+  }
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
        TILES.map(tile).join("") + "</div>";
   if(!teacher && (ME.classes || []).length){
@@ -1340,6 +1381,26 @@ async function show3D(host, scene){
       "network may be blocking it.</div>";
     return false;
   }
+}
+
+/* The subjects a teacher may file under in one class. Not a text box: a
+   class has subjects and each subject has a teacher, and typing the name
+   lets the same subject be filed as "Biology", "biology" and "Bio" in one
+   term — which nobody notices until a class cannot find last week's work.
+   The server checks this again; this is so the screen offers the truth. */
+function subjectsFor(cid){
+  var c = (ME.classes || []).filter(function(x){ return x.id === +cid; })[0];
+  return (c && c.my_subjects) || [];
+}
+function subjectPicker(id, cid){
+  var subs = subjectsFor(cid);
+  if(!subs.length){
+    return '<span class="muted" id="' + id + 'Note">' +
+      "no subject here yet</span>" +
+      '<input id="' + id + '" type="hidden" value="">';
+  }
+  return '<select id="' + id + '">' + subs.map(function(x){
+    return '<option>' + esc(x) + "</option>"; }).join("") + "</select>";
 }
 
 /* ---------- the phone as a remote control ----------
@@ -2987,6 +3048,23 @@ function paintLesson(){
 /* Turning a taught lesson into the work a class takes away, without anybody
    retyping it. Teachers only, and only for classes they hold. */
 function wireAssign(){
+  /* The subjects offered belong to the class chosen, so they change with
+     it — a teacher who holds Biology in 9-A and nothing in 9-B must not be
+     shown Biology while 9-B is selected. */
+  [["asgClass", "asgSubject"], ["savClass", "savSubject"]].forEach(function(p){
+    var pick = el(p[0]);
+    if(!pick) return;
+    pick.onchange = function(){
+      var box = el(p[1]);
+      if(!box || !box.parentNode) return;
+      var span = document.createElement("span");
+      span.innerHTML = subjectPicker(p[1], pick.value);
+      box.parentNode.replaceChild(span.firstChild, box);
+      var note = el(p[1] + "Note");
+      if(note) note.remove();
+    };
+  });
+
   var save = el("savGo");
   if(save && LESSON) save.onclick = async function(){
     var msg = el("savMsg");
@@ -3016,6 +3094,7 @@ function wireAssign(){
         class_id: +el("asgClass").value,
         topic: LESSON.topic,
         title: LESSON.title,
+        subject: (el("asgSubject") || {}).value || "",
         due_date: el("asgDue").value || "",
         task: el("asgTask").value || "",
         lesson: LESSON.raw
@@ -3053,6 +3132,7 @@ async function teach(){
         '<select id="asgClass">' + mine.map(function(c){
           return '<option value="' + c.id + '">' + esc(c.name) + "</option>";
         }).join("") + "</select>" +
+        subjectPicker("asgSubject", mine[0].id) +
         '<input id="asgDue" type="date" title="Due date (optional)">' +
         '<input id="asgTask" style="flex:1 1 14rem" ' +
           'placeholder="What they have to do (optional)">' +
@@ -3072,7 +3152,7 @@ async function teach(){
         '<select id="savClass">' + mine.map(function(c){
           return '<option value="' + c.id + '">' + esc(c.name) + "</option>";
         }).join("") + "</select>" +
-        '<input id="savSubject" style="flex:1 1 8rem" placeholder="Subject">' +
+        subjectPicker("savSubject", mine[0].id) +
         '<input id="savNote" style="flex:1 1 12rem" ' +
           'placeholder="A line about it (optional)">' +
         '<button class="btn" id="savGo">Save it</button>' +
