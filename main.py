@@ -2421,10 +2421,10 @@ def notice_author_user(user: User = Depends(current_user),
     Deleting is deliberately the same permission. Somebody who can put a
     notice up and not take it down leaves a wrong one on every child's screen.
     """
-    if is_school_admin(user, db) or is_head(user, db):
+    if is_school_admin(user, db) or teacher_row(user, db) is not None:
         return user
     raise HTTPException(
-        403, "Only the school office or the head teacher can put up a notice.")
+        403, "Only the school admin or a teacher can post an update.")
 
 
 def _school_of(user: User, db: Session):
@@ -2954,6 +2954,20 @@ def _head_or_admin(db, cid, user):
 def add_assignment(cid: int, body: AssignmentIn, user: User = Depends(teacher_user),
                    db: Session = Depends(get_db)):
     _own_class(db, cid, user)
+    # Work is set by whoever teaches the subject, and the school admin does
+    # not teach. They can see every assignment, every submission and every
+    # mark — running the school needs that — but setting the work is the
+    # teacher's judgement about their own class, and an admin who can set it
+    # is an admin who will be asked to.
+    #
+    # An admin who genuinely teaches a subject holds a slot for it like
+    # anybody else, and _my_subjects returns it; this only refuses the ones
+    # who hold none.
+    if is_school_admin(user, db) and not user.is_admin:
+        if not _my_subjects(db, cid, user):
+            raise HTTPException(
+                403, "Work is set by the subject teacher. You can see "
+                     "everything that is set and everything handed in.")
     subject = body.subject.strip()[:80]
     # A subject teacher is LOCKED to the subject(s) they hold in this class.
     allowed = _my_subjects(db, cid, user)   # None = head/admin, any subject
@@ -5239,9 +5253,22 @@ class NoticeIn(BaseModel):
     class_id: int = 0
 
 
-def _audience_of(body):
-    """Validate the target, refusing one that would silently reach nobody."""
+def _audience_of(body, user=None, db=None):
+    """Validate the target, refusing one that would silently reach nobody.
+
+    A subject teacher may address their own class or named people, and that is
+    all. "Everyone", "all teachers" and "all students" are school-wide
+    announcements — closures, fee dates, exam timetables — and a school cannot
+    have thirty people able to send those. A teacher who needs one asks the
+    school admin, which is a slower path on purpose.
+    """
     aud = (body.audience or "all").strip().lower()
+    if user is not None and db is not None and not is_school_admin(user, db):
+        if aud not in ("class", "people"):
+            raise HTTPException(
+                403, "A teacher posts to their own class or to chosen "
+                     "students. For an update to the whole school, ask your "
+                     "school admin.")
     if aud not in NOTICE_AUDIENCES:
         raise HTTPException(400, "Send it to everybody, the teachers, the "
                                  "students, one class, or named people.")
@@ -5395,7 +5422,7 @@ def head_remove_staff(uid: int, user: User = Depends(head_user),
 @app.post("/api/office/notice")
 def add_notice(body: NoticeIn, user: User = Depends(notice_author_user),
                db: Session = Depends(get_db)):
-    aud, ids, cid = _audience_of(body)
+    aud, ids, cid = _audience_of(body, user, db)
     n = SchoolNotice(school_id=_school_of(user, db), author_id=user.id,
                      title=body.title.strip()[:240],
                      body=body.body.strip()[:8000], urgent=bool(body.urgent),
@@ -5503,7 +5530,7 @@ def edit_notice(nid: int, body: NoticeIn,
     n.urgent = bool(body.urgent)
     n.starts_on = body.starts_on.strip()[:20]
     n.ends_on = body.ends_on.strip()[:20]
-    n.audience, n.audience_ids, n.class_id = _audience_of(body)
+    n.audience, n.audience_ids, n.class_id = _audience_of(body, user, db)
     db.commit()
     db.refresh(n)
     return {"ok": True, "notice": _notice_json(n)}
@@ -5592,7 +5619,26 @@ def head_find_people(q: str = "", kind: str = "",
     want = (kind or "").strip().lower()
     out = []
 
-    if want in ("", "teacher", "teachers"):
+    # A subject teacher sees the children they teach and nobody else.
+    #
+    # They can address an update to named students, so they need to find
+    # them — but a register is a list of children's names, and "can post to
+    # my class" must not become "can read every name in the school". The
+    # school admin sees all of it, because running the school is the job
+    # that needs it.
+    mine = None
+    if not is_school_admin(user, db):
+        mine = {r[0] for r in db.query(SubjectSlot.class_id)
+                                .filter(SubjectSlot.teacher_id == user.id).all()}
+        mine |= {r[0] for r in db.query(Klass.id)
+                                .filter(Klass.teacher_id == user.id).all()}
+        if not mine:
+            return {"people": [], "count": 0}
+
+    # Staff are listed for the school admin only. A teacher's updates go to
+    # their students; addressing colleagues is what the admin's school-wide
+    # notice is for.
+    if mine is None and want in ("", "teacher", "teachers"):
         rows = (db.query(TeacherAccess, User)
                   .join(User, User.id == TeacherAccess.user_id))
         if not user.is_admin:
@@ -5608,6 +5654,8 @@ def head_find_people(q: str = "", kind: str = "",
                   .filter(RosterName.claimed_by != 0))
         if not user.is_admin:
             rows = rows.filter(Klass.school_id == sid)
+        if mine is not None:
+            rows = rows.filter(Klass.id.in_(mine))
         for r, k in rows.limit(2000).all():
             out.append({"id": r.claimed_by, "name": r.name,
                         "kind": "student", "role": "student",
@@ -6011,6 +6059,11 @@ def get_roster(cid: int, user: User = Depends(teacher_user),
 
 class RenameIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+    # The school's own roll number. Optional, because a school that does not
+    # use one should not be made to invent one — but where it exists it is
+    # how staff actually refer to a child, and searching the register by it
+    # is faster than scrolling four hundred names.
+    student_code: str = Field(default="", max_length=40)
 
 
 @app.patch("/api/teacher/roster/{rid}")
@@ -6042,6 +6095,17 @@ def rename_roster_name(rid: int, body: RenameIn,
         raise HTTPException(409, "Another child in this class is already "
                                  "called that.")
     r.name = new
+    code = (body.student_code or "").strip()[:40]
+    if code:
+        clash_code = (db.query(RosterName)
+                        .filter(RosterName.class_id == r.class_id,
+                                func.lower(RosterName.student_code)
+                                == code.lower(),
+                                RosterName.id != r.id).first())
+        if clash_code:
+            raise HTTPException(409, "Another child in this class already has "
+                                     "that roll number.")
+    r.student_code = code
     # The account keeps its own display name in step, or a child sees one
     # name on the register and another at the top of the screen.
     if r.claimed_by:
@@ -6050,6 +6114,7 @@ def rename_roster_name(rid: int, body: RenameIn,
             u.name = new
     db.commit()
     return {"ok": True, "id": r.id, "name": r.name,
+            "student_code": r.student_code or "",
             "signed_in": bool(r.claimed_by)}
 
 

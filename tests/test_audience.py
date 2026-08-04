@@ -200,10 +200,16 @@ check("so does the id typed straight in",
 r = admin.get("/api/head/people", params={"kind": "teachers"})
 check("staff can be listed on their own",
       all(p["kind"] == "teacher" for p in r.json()["people"]))
+# A teacher can now post to their own class or to named students, so they
+# reach this search — but only for the children they actually teach. "Can
+# post to my class" must not become "can read every name in the school".
 r = teacher.get("/api/head/people")
-check("an ordinary teacher cannot search the school",
-      r.status_code == 403,
-      f"got {r.status_code} — these are children's names")
+check("a teacher with no class of their own sees nobody",
+      r.status_code == 200 and r.json()["people"] == [],
+      f"got {r.status_code} {r.text[:60]} — a register is children's names")
+check("and no staff list either",
+      all(p["kind"] != "teacher" for p in r.json()["people"]),
+      "addressing colleagues is what the admin's school-wide notice is for")
 
 print("\nan attachment is only for whoever the notice was for")
 r = post("people", "Private with a form", audience_ids=str(pupil_user))

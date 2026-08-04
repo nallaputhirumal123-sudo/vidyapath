@@ -5228,30 +5228,118 @@ async function hAddSlot(cid){
  * to remove somebody. Fetched after the screen is drawn so a slow register
  * never holds up the class.
  */
+let ROSTER = {rows: [], q: "", editing: 0, cid: 0};
+
 async function rosterPaint(cid){
   const box=document.getElementById("rosterList");
   if(!box) return;
+  ROSTER.cid=cid;
   let d;
   try{ d=await api.get("/api/teacher/class/"+cid+"/roster"); }
   catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
     `${esc(e.message)}</div>`; return; }
-  const rows=d.roster||[];
-  if(!rows.length){
+  ROSTER.rows=d.roster||[];
+  rosterDraw();
+}
+
+/* Drawn from what is already loaded, so typing in the search box does not go
+   back to the server on every keystroke. */
+function rosterDraw(){
+  const box=document.getElementById("rosterList");
+  if(!box) return;
+  const all=ROSTER.rows;
+  if(!all.length){
     box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
       `Nobody on the register yet.</div>`;
     return;
   }
-  box.innerHTML=
-    `<div style="font-size:11.5px;color:var(--dim);margin-bottom:6px">`+
-    `${d.total} on the register · ${d.free} not signed in yet</div>`+
-    rows.map(r=>`<div class="row" style="justify-content:space-between;`+
-      `align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid `+
-      `var(--line,#2a2a2a)">
-      <span>${esc(r.name)} ${r.claimed
-        ?`<span style="font-size:11px;color:var(--dim)">· signed in</span>`
-        :`<span style="font-size:11px;color:var(--accent)">· free</span>`}</span>
-      <button class="btn ghost sm" data-cls="rosdel" data-id="${r.id}"
-        data-cid="${cid}">Remove</button></div>`).join("");
+  const q=(ROSTER.q||"").trim().toLowerCase();
+  /* Either column. Staff have whichever one is in front of them — a name
+     read off a form, or a roll number read off a mark sheet. */
+  const rows=q ? all.filter(r=>
+      (r.name||"").toLowerCase().includes(q) ||
+      (r.student_code||"").toLowerCase().includes(q)) : all;
+  const signed=all.filter(r=>r.claimed).length;
+
+  const head=`<div class="row" style="gap:8px;align-items:center;margin-bottom:8px">
+      <input id="rosFind" class="ask-input" style="flex:1;min-width:140px"
+        placeholder="Find by name or roll number" value="${esc(ROSTER.q||"")}"/>
+      <span style="font-size:11.5px;color:var(--dim);white-space:nowrap">
+        ${all.length} on the register · ${all.length-signed} not signed in</span>
+    </div>`;
+
+  if(!rows.length){
+    box.innerHTML=head+`<div style="color:var(--dim);font-size:13px;padding:8px 0">`+
+      `Nobody matches “${esc(ROSTER.q)}”.</div>`;
+    rosterWire();
+    return;
+  }
+
+  const cols="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) auto";
+  box.innerHTML=head+
+    `<div style="display:grid;${cols};gap:10px;padding:0 0 6px;
+      font-size:11px;color:var(--dim);letter-spacing:.4px">
+      <span>NAME</span><span>ROLL NUMBER</span><span></span></div>`+
+    rows.map(r=>{
+      if(ROSTER.editing===r.id){
+        return `<div style="display:grid;${cols};gap:10px;padding:7px 0;
+          border-top:1px solid var(--line,#2a2a2a);align-items:center">
+          <input class="ask-input" id="rosName${r.id}" value="${esc(r.name)}"/>
+          <input class="ask-input" id="rosCode${r.id}"
+            value="${esc(r.student_code||"")}" placeholder="e.g. 21001"/>
+          <span style="display:flex;gap:5px">
+            <button class="btn sm" data-cls="rossave" data-id="${r.id}">Save</button>
+            <button class="btn ghost sm" data-cls="roscancel">Cancel</button>
+          </span></div>`;
+      }
+      return `<div style="display:grid;${cols};gap:10px;padding:8px 0;
+        border-top:1px solid var(--line,#2a2a2a);align-items:center">
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
+          ${esc(r.name)} ${r.claimed
+            ?`<span style="font-size:11px;color:var(--dim)">· signed in</span>`
+            :`<span style="font-size:11px;color:var(--accent)">· free</span>`}</span>
+        <span style="font-size:13px;color:${r.student_code?"inherit":"var(--dim)"};
+          font-variant-numeric:tabular-nums">${
+          r.student_code?esc(r.student_code):"—"}</span>
+        <span style="display:flex;gap:5px">
+          <button class="btn ghost sm" data-cls="rosedit" data-id="${r.id}">Edit</button>
+          <button class="btn ghost sm" data-cls="rosdel" data-id="${r.id}"
+            data-cid="${ROSTER.cid}">Remove</button>
+        </span></div>`;
+    }).join("");
+  rosterWire();
+}
+
+/* The search box is redrawn with the rows, so its handler is rebound each
+   time and the caret has to be put back where the person left it. */
+function rosterWire(){
+  const f=document.getElementById("rosFind");
+  if(!f) return;
+  f.oninput=()=>{
+    ROSTER.q=f.value;
+    const at=f.selectionStart;
+    rosterDraw();
+    const again=document.getElementById("rosFind");
+    if(again){ again.focus();
+               try{ again.setSelectionRange(at,at); }catch(e){} }
+  };
+}
+
+function rosEdit(rid){ ROSTER.editing=+rid; rosterDraw(); }
+function rosCancel(){ ROSTER.editing=0; rosterDraw(); }
+
+async function rosSave(rid){
+  const n=document.getElementById("rosName"+rid);
+  const c=document.getElementById("rosCode"+rid);
+  const name=(n&&n.value||"").trim();
+  if(name.length<2){ toast("A name needs at least two letters."); return; }
+  try{
+    await api.patch("/api/teacher/roster/"+rid,
+      {name:name, student_code:(c&&c.value||"").trim()});
+  }catch(e){ toast(e.message); return; }
+  ROSTER.editing=0;
+  await rosterPaint(ROSTER.cid);
+  toast("Saved.");
 }
 
 async function rosAdd(cid){
@@ -5309,7 +5397,10 @@ async function renderTeacherClass(cid){
       <div id="rosterList" style="margin-bottom:10px">Loading…</div>
       <textarea id="rosterAdd" class="pj-note"
         style="width:100%;min-height:78px"
-        placeholder="Asha Rao&#10;Vikram Singh&#10;Meera Pillai"></textarea>
+        placeholder="Asha Rao, 21001&#10;Vikram Singh, 21002&#10;Meera Pillai"></textarea>
+      <div style="font-size:11.5px;color:var(--dim);margin-top:5px">
+        Add the roll number after a comma if your school uses one. It pastes
+        straight out of a spreadsheet, and you can search the register by it.</div>
       <div class="row" style="gap:6px;margin-top:7px">
         <button class="btn sm" data-cls="rosadd" data-id="${cid}">Add to
           register</button>
@@ -5433,6 +5524,9 @@ document.addEventListener("click",e=>{
   else if(k==="rosadd") rosAdd(id);
   else if(k==="notices") renderNotices();
   else if(k==="rosdel") rosDel(id, cid);
+  else if(k==="rosedit") rosEdit(id);
+  else if(k==="rossave") rosSave(id);
+  else if(k==="roscancel") rosCancel();
   else if(k==="hrotslot"){ api.post("/api/head/slot/"+id+"/rotate",{}).then(()=>renderHead()).catch(e=>alert(e.message)); }
   else if(k==="hdelslot"){ if(confirm("Remove this subject? Its teacher loses access.")) api.del("/api/head/slot/"+id).then(()=>renderHead()).catch(()=>{}); }
   else if(k==="hrotclass"){ if(confirm("New student code? Students must re-enter the new code.")) api.post("/api/head/class/"+id+"/rotate",{}).then(()=>renderHead()).catch(()=>{}); }
