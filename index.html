@@ -3567,6 +3567,59 @@ function askSavedList(){
  * The lesson's own cache key goes with it, so the report names the exact text
  * that was on screen rather than a topic that may have been regenerated
  * since — and so the server can drop that cached answer immediately. */
+/* Sending a lesson to the board in the classroom.
+ *
+ * The board shows a six-character code on its Remote tab. That code is the
+ * credential — anyone who can read the board can drive it, which is the right
+ * threat model for a screen everybody in the room is looking at, and it is
+ * why the endpoint takes no login.
+ *
+ * Kept in this browser rather than on the account: a teacher uses the same
+ * board every day and a different one when they cover a colleague's class,
+ * so "which room am I in" belongs to the machine, not the person.
+ */
+function boardCode(){
+  return (localStorage.getItem("craxle_board_code") || "").toUpperCase();
+}
+
+async function askToClass(){
+  const topic = (SB.topic || ASK.question || "").trim();
+  if(!topic){ toast("Ask something first."); return; }
+
+  let code = boardCode();
+  if(!code){
+    const typed = prompt(
+      "Six-character code from your board.\n\n" +
+      "On the board: Remote \u2192 the code is on screen. " +
+      "It is remembered after this.");
+    if(typed === null) return;
+    code = (typed || "").trim().toUpperCase();
+    if(code.length < 4){ toast("That does not look like a board code."); return; }
+    localStorage.setItem("craxle_board_code", code);
+  }
+
+  try{
+    await api.post("/api/craxlearn/remote/cmd", {
+      code: code,
+      kind: "teach",
+      payload: { topic: topic.slice(0, 200),
+                 level: ASK.level || "Intermediate" }
+    });
+    toast("Sent to the board \u2014 it is teaching " +
+          (topic.length > 40 ? topic.slice(0, 40) + "\u2026" : topic) + ".");
+  }catch(e){
+    const m = (e && e.message) || "";
+    // A board that has been switched off, or a code from yesterday's room.
+    if(/no longer listening|not responding/i.test(m)){
+      localStorage.removeItem("craxle_board_code");
+      toast("That board is not listening. Open Remote on the board and try "
+            + "again \u2014 you will be asked for the code.");
+    }else{
+      toast(m || "Could not reach the board.");
+    }
+  }
+}
+
 async function askReport(){
   const l = (SB.lesson || ASK.lesson);
   if(!l){ toast("Ask something first."); return; }
@@ -4002,6 +4055,11 @@ function renderAskInner(){
          nobody anticipated is caught by the person reading it, and until now
          they had nowhere to put that. -->
     <button class="ask-abtn" data-ask="report" title="Tell us this answer is wrong">⚠ Report an error</button>
+    <!-- A teacher looks a lesson up at a desk and then types it again
+         into the board in the classroom. The board already listens on
+         a six-character code; this carries the topic to it. -->
+    ${USER.is_teacher||USER.is_admin
+      ?`<button class="ask-abtn" data-ask="toclass" title="Teach this on your classroom board">⚡ Explain this in class</button>`:""}
     <button class="ask-abtn" data-ask="pdf">⬇ Download PDF</button>
     ${a.fromCache?`<span class="ask-saved">💾 from memory · free</span>`:""}
   </div>`:""}
@@ -4100,6 +4158,7 @@ document.addEventListener("click",e=>{
   else if(kind==="more"){ const q=(ASK.question||"").replace(/ \(in more detail.*$/,""); askSubmit(q+" (in more detail, step by step)"); }
   else if(kind==="save"){ askSaveCurrent(); }
   else if(kind==="report"){ askReport(); }
+  else if(kind==="toclass"){ askToClass(); }
   else if(kind==="pdf"){ if(ASK.lesson)askPDF({q:ASK.question,subject:ASK.subject,level:ASK.level,title:ASK.lesson.title,steps:ASK.lesson.steps,takeaway:ASK.lesson.takeaway}); }
   else if(kind==="opensaved"){ askOpenSaved(key); }
   else if(kind==="pdfsaved"){ try{ askPDF(JSON.parse(S.notes[key])); }catch(err){} }
