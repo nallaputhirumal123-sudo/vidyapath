@@ -1833,7 +1833,7 @@ async function logout(){
  */
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
   "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
-  "notices", "fees",
+  "notices", "fees", "attend", "learners",
   "resume", "plans", "hiring", "studio"]);
 
 function restoreView(){
@@ -2107,8 +2107,11 @@ function renderNav(){
        This was staff-only, which meant the entire targeting system delivered
        to an inbox that did not exist. */
     h+=nav("notices","📢","Updates");
-    if(USER.role==="head"||USER.role==="schooladmin"||USER.is_admin)
+    if(USER.role==="head"||USER.role==="schooladmin"||USER.is_admin){
+      h+=nav("attend","📋","Attendance");
+      h+=nav("learners","🎒","All learners");
       h+=nav("fees","💳","Fees");
+    }
     if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
   }
   h+=`<div style="height:14px"></div>`;
@@ -5060,6 +5063,185 @@ function noticeReset(){
  * Never "what does Ila owe" — always "what is outstanding, who is overdue,
  * what is coming". So: totals, then overdue, then what falls due next.
  */
+/* Taking the register.
+ *
+ * Idempotent per learner per day: saving again corrects the day rather than
+ * adding a second opinion of it. So the form loads what was already recorded
+ * and saves over it, which makes correcting exactly as easy as marking —
+ * "marked absent by mistake" being the thing a parent actually rings about.
+ */
+let ATT = {cid:0, day:"", rows:[], busy:false};
+
+function attToday(){ return new Date().toISOString().slice(0,10); }
+
+async function renderAttend(){
+  $("#main").innerHTML=`<div class="h1">📋 Attendance</div>
+    <p class="sub">Take the register, or correct one already taken. Saving
+      again fixes the day rather than adding to it.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end;
+      margin-bottom:14px">
+      <div class="field" style="margin:0;min-width:170px"><label>Class</label>
+        <select id="atClass" class="ask-input"><option value="0">Loading…</option></select></div>
+      <div class="field" style="margin:0"><label>Day</label>
+        <input id="atDay" class="ask-input" type="date" value="${
+          ATT.day||attToday()}"/></div>
+      <button class="btn sm" data-cls="atload">Open the register</button>
+    </div>
+    <div id="atBody"></div>`;
+  try{
+    const d=await api.get("/api/teacher/classes");
+    HEAD_CLASSES=(d && (d.classes||d.rows))||[];
+  }catch(e){ HEAD_CLASSES=[]; }
+  const sel=document.getElementById("atClass");
+  if(sel) sel.innerHTML = HEAD_CLASSES.length
+    ? HEAD_CLASSES.map(c=>`<option value="${c.id}" ${
+        ATT.cid===c.id?"selected":""}>${esc(c.name)}</option>`).join("")
+    : `<option value="0">No classes yet</option>`;
+  if(HEAD_CLASSES.length) attLoad();
+}
+
+async function attLoad(){
+  const cid=+((document.getElementById("atClass")||{}).value||0);
+  const day=((document.getElementById("atDay")||{}).value||attToday());
+  if(!cid){ toast("No class to take a register for."); return; }
+  ATT.cid=cid; ATT.day=day;
+  const box=document.getElementById("atBody");
+  if(box) box.innerHTML="Loading…";
+  let d;
+  try{ d=await api.get("/api/office/attendance?class_id="+cid+"&day="+day); }
+  catch(e){ if(box) box.innerHTML=`<div class="card" style="color:var(--dim)">`+
+    `${esc(e.message)}</div>`; return; }
+  ATT.rows=(d&&d.students)||[];
+  attPaint();
+}
+
+function attPaint(){
+  const box=document.getElementById("atBody");
+  if(!box) return;
+  if(!ATT.rows.length){
+    box.innerHTML=`<div class="card" style="color:var(--dim);font-size:13px">`+
+      `Nobody has signed in to this class yet, so there is no register to
+       take. Add them to the class register first — attendance follows
+       accounts, not names on a list.</div>`;
+    return;
+  }
+  const taken=ATT.rows.some(r=>r.present!==null);
+  box.innerHTML=`
+    <div class="row" style="justify-content:space-between;align-items:center;
+      gap:8px;margin-bottom:8px">
+      <span style="font-size:12.5px;color:var(--dim)">${ATT.rows.length}
+        in this class · ${taken?"already taken for this day":"not taken yet"}</span>
+      <span style="display:flex;gap:6px">
+        <button class="btn ghost sm" data-cls="atall" data-id="1">All present</button>
+        <button class="btn ghost sm" data-cls="atall" data-id="0">All absent</button>
+      </span>
+    </div>
+    <div class="card" style="padding:12px">
+      ${ATT.rows.map((r,i)=>`<div class="row"
+        style="justify-content:space-between;align-items:center;gap:10px;
+        padding:8px 0;border-bottom:1px solid var(--line,#2a2a2a)">
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
+          ${esc(r.name)}
+          <span style="font-size:11.5px;color:var(--dim)">· ${
+            r.days_recorded?r.attendance_pct+"% so far":"no record yet"}</span></span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;
+          white-space:nowrap">
+          <input type="checkbox" data-atp="${i}" ${
+            /* Present is the default. A register that starts unmarked is one a
+               distracted teacher saves as a class of absences, and thirty
+               parents hear about it that evening. */
+            r.present===false?"":"checked"}/> present</label>
+      </div>`).join("")}
+      <button class="btn sm" data-cls="atsave" style="margin-top:12px">
+        ${taken?"Save corrections":"Save the register"}</button>
+    </div>`;
+}
+
+function attAll(present){
+  ATT.rows.forEach(r=>{ r.present = !!+present; });
+  attPaint();
+}
+
+async function attSave(){
+  if(ATT.busy) return;
+  const present={};
+  document.querySelectorAll("[data-atp]").forEach(cb=>{
+    const r=ATT.rows[+cb.dataset.atp];
+    if(r) present[r.user_id]=cb.checked;
+  });
+  ATT.busy=true;
+  try{
+    await api.post("/api/office/attendance",
+      {class_id:ATT.cid, day:ATT.day, present:present, notes:{}});
+    toast("Register saved.");
+    await attLoad();
+  }catch(e){ toast(e.message); }
+  ATT.busy=false;
+}
+
+/* Every learner in the school, which could only be seen one class at a time. */
+async function renderLearners(){
+  $("#main").innerHTML=`<div class="h1">🎒 All learners</div>
+    <p class="sub">Everybody on every register in this school, and who has
+      actually signed in.</p>
+    <div id="lnBody">Loading…</div>`;
+  let d, book={learners:[]};
+  try{ d=await api.get("/api/head/students"); }
+  catch(e){ document.getElementById("lnBody").innerHTML=
+    `<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; return; }
+  /* Two views of the same children, because they answer different questions.
+     head/students says who is on which register and who has signed in;
+     office/learners says how they are attending and what they owe. An admin
+     asks both, and asking them on two screens is how one of them stops being
+     asked. */
+  try{ book=await api.get("/api/office/learners"); }catch(e){}
+  const classes=(d&&d.classes)||[];
+  const money=(book&&book.learners)||[];
+  document.getElementById("lnBody").innerHTML=`
+    <div class="two" style="gap:10px;margin-bottom:16px">
+      <div class="card" style="padding:12px">
+        <div style="font-size:11px;color:var(--dim)">ON THE REGISTERS</div>
+        <div style="font-size:19px;font-weight:700">${d.total||0}</div></div>
+      <div class="card" style="padding:12px">
+        <div style="font-size:11px;color:var(--dim)">SIGNED IN</div>
+        <div style="font-size:19px;font-weight:700">${d.signed_in||0}
+          <span style="font-size:12px;color:var(--dim)">of ${d.total||0}</span></div></div>
+    </div>
+    ${money.length?`<div class="eyebrow">Attendance and what is owed</div>
+      <div class="card" style="padding:12px;margin-bottom:16px;overflow-x:auto">
+        <table class="ctab" style="min-width:420px">
+          <thead><tr><th>Learner</th><th>Class</th><th>Attendance</th>
+            <th style="text-align:right">Owed</th></tr></thead>
+          <tbody>${money.map(l=>`<tr>
+            <td style="padding:6px">${esc(l.name)}</td>
+            <td style="font-size:12.5px;color:var(--dim)">${esc(l.class_name)}</td>
+            <td style="font-size:12.5px">${l.days_recorded
+              ? l.attendance_pct+"% <span style='color:var(--dim)'>of "
+                +l.days_recorded+" days</span>"
+              : "<span style='color:var(--dim)'>no record</span>"}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums;color:${
+              l.owed?"inherit":"var(--dim)"}">${l.owed?rupees(l.owed):"—"}</td>
+          </tr>`).join("")}</tbody></table></div>`:""}
+
+    ${classes.length ? classes.map(c=>`
+      <div class="eyebrow">${esc(c.class_name)}
+        <span style="color:var(--dim)">· code ${esc(c.join_code)}</span></div>
+      <div class="card" style="padding:12px;margin-bottom:14px">
+        ${(c.students||[]).length
+          ? c.students.map(st=>`<div class="row"
+              style="justify-content:space-between;gap:8px;padding:6px 0;
+              border-bottom:1px solid var(--line,#2a2a2a)">
+              <span>${esc(st.name)}</span>
+              <span style="font-size:11.5px;color:${
+                st.signed_in?"var(--dim)":"var(--accent)"}">${
+                st.signed_in?"signed in":"not yet"}</span></div>`).join("")
+          : `<div style="color:var(--dim);font-size:13px">Nobody on this
+              register yet.</div>`}
+      </div>`).join("")
+      : `<div class="card" style="color:var(--dim);font-size:13px">No classes
+          yet.</div>`}`;
+}
+
 let FEES = {book:null, busy:false};
 
 /* Stored in paise, shown in rupees, converted in exactly two places. Doing
@@ -6170,6 +6352,9 @@ document.addEventListener("click",e=>{
   else if(k==="staffclear") staffClear();
   else if(k==="notices") renderNotices();
   else if(k==="feeplan") feePlan();
+  else if(k==="atload") attLoad();
+  else if(k==="atall") attAll(id);
+  else if(k==="atsave") attSave();
   else if(k==="feepaid") feeMarkPaid(id, b.dataset.amt);
   else if(k==="rosdel") rosDel(id, cid);
   else if(k==="rosedit") rosEdit(id);
@@ -9150,6 +9335,8 @@ function render(){
   else if(v.page==="net")       renderNet();
   else if(v.page==="notices")   renderNotices();
   else if(v.page==="fees")      renderFees();
+  else if(v.page==="attend")    renderAttend();
+  else if(v.page==="learners")  renderLearners();
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
@@ -9241,6 +9428,8 @@ document.addEventListener("click",e=>{
   else if(n==="teacher")   S.view={page:"teacher"};
   else if(n==="notices")   S.view={page:"notices"};
   else if(n==="fees")      S.view={page:"fees"};
+  else if(n==="attend")    S.view={page:"attend"};
+  else if(n==="learners")  S.view={page:"learners"};
   else if(n==="track")     S.view={page:"track",track:b.dataset.id};
   else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};
   else if(n==="quiz")      S.view={page:"quiz",track:b.dataset.id};

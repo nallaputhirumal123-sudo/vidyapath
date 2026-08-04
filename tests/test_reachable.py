@@ -61,12 +61,12 @@ ALLOWED = {
     "/api/hire/search": "employer surface, not built yet",
     "/api/apply/licence": "employer surface, not built yet",
     "/api/apply/profile": "employer surface, not built yet",
-    "/api/office/attendance": "attendance has no screen yet — a real gap",
-    "/api/office/learners": "attendance has no screen yet — a real gap",
-    "/api/head/students": "school-wide learner list has no screen yet",
     "/api/class/leave/{cid}": "no way to leave a class in the UI yet",
     "/api/craxlearn/dob": "age gate is collected at signup instead",
-    "/api/invites/unread": "invites have no screen yet",
+    "/api/invites/unread": "redundant: the Employer invites tab already "
+                           "shows a pending count and the bell carries "
+                           "invite notifications. A third counter nobody "
+                           "reads is worse than none",
     "/api/jobs/categories": "filters endpoint carries these instead",
     "/api/jobs/detail/{job_id}": "the list carries the detail already",
     "/api/lab/photo": "not wired into the lab yet",
