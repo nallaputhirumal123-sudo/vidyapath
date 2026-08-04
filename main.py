@@ -3155,6 +3155,44 @@ def admin_delete_school(sid: int, user: User = Depends(admin_user),
     return {"ok": True}
 
 
+class ProductIn(BaseModel):
+    product: str = Field(default="craxlearn", max_length=16)
+
+
+@app.post("/api/admin/school/{sid}/product")
+def admin_set_product(sid: int, body: ProductIn,
+                      user: User = Depends(admin_user),
+                      db: Session = Depends(get_db)):
+    """Turn the job board on or off for one institution.
+
+    The switch a school actually asks about, and the reason School.product
+    exists. Admin only: a head teacher deciding their own pupils may see a
+    job board is the one person who should not be able to.
+
+    Takes effect on the institution's next request — the gate reads this
+    row every time rather than caching it, precisely so a mistake here can
+    be undone in one press.
+    """
+    sc = db.get(School, sid)
+    if not sc:
+        raise HTTPException(404, "No such school")
+    want = (body.product or "").strip().lower()
+    if want not in ("craxlearn", "both"):
+        raise HTTPException(
+            400, 'Product must be "craxlearn" (teaching only) or "both" '
+                 '(teaching and the job board).')
+    sc.product = want
+    db.commit()
+    n = (db.query(func.count(ClassMember.id))
+           .join(Klass, Klass.id == ClassMember.class_id)
+           .filter(Klass.school_id == sid).scalar() or 0)
+    return {"ok": True, "product": want, "learners_affected": n,
+            "note": ("The job board is now open to learners here who are 18 "
+                     "or over. Under-18s and class-code logins still cannot "
+                     "reach it." if want == "both" else
+                     "The job board is closed to everybody at this school.")}
+
+
 class ResetUsersIn(BaseModel):
     # Typed out in full, by hand, every time. A confirm flag is a checkbox
     # somebody ticks without reading; a sentence they have to type is a
@@ -3258,6 +3296,7 @@ def admin_list_schools(user: User = Depends(admin_user), db: Session = Depends(g
             TeacherCode.active == True).order_by(TeacherCode.created_at.desc()).first()  # noqa: E712
         out.append({
             "id": sc.id, "name": sc.name, "city": sc.city, "country": sc.country,
+            "product": sc.product or "craxlearn",
             "head_code": active_code.code if active_code else None,
             "heads": [{"id": u.id, "name": u.name, "email": u.email} for ta, u in heads],
             "classrooms": [{"id": k.id, "name": k.name, "code": k.join_code} for k in classes],
@@ -15074,8 +15113,23 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
                       .group_by(Job.category)
                       .order_by(func.count(Job.id).desc()).limit(12).all()]
 
-    # signups per day, last 30 days (cast works on both SQLite and Postgres)
-    day = cast(User.created_at, Date).label("d")
+    # Signups per day, last 30 days.
+    #
+    # CAST(x AS DATE) is NOT portable, whatever the comment here used to
+    # say. SQLite has no DATE type, so it applies numeric affinity and hands
+    # back an integer; SQLAlchemy's Date processor then calls fromisoformat
+    # on it and raises "argument must be str", which 500s this whole
+    # dashboard. Postgres does the right thing, so the fault only ever
+    # appeared locally — which is to say, only ever to whoever was working
+    # on it.
+    #
+    # On SQLite the stored value is already an ISO string, so the first ten
+    # characters ARE the date. Both branches are consumed with str() below,
+    # so the two shapes do not reach the response differently.
+    if engine.dialect.name == "sqlite":
+        day = func.substr(cast(User.created_at, String), 1, 10).label("d")
+    else:
+        day = cast(User.created_at, Date).label("d")
     signups = db.query(day, func.count(User.id)) \
         .filter(User.created_at >= now() - dt.timedelta(days=30)) \
         .group_by(day).all()

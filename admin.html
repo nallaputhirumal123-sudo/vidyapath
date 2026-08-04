@@ -128,6 +128,7 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
       <button class="nv" data-p="content"><span>📝</span> Content</button>
       <button class="nv" data-p="employers"><span>🏢</span> Employers</button>
       <button class="nv" data-p="schools"><span>🏫</span> Schools &amp; teachers</button>
+      <button class="nv" data-p="reset"><span>⚠️</span> Start everybody again</button>
       <a class="nv" href="/api/admin/export.csv"><span>⬇️</span> Export CSV</a>
       <a class="nv" href="/"><span>🎓</span> Student view</a>
       <button class="nv" id="signout"><span>↪</span> Sign out</button>
@@ -194,7 +195,7 @@ function go(p){
   PAGE=p;
   document.querySelectorAll(".nv[data-p]").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
   $("#main").innerHTML='<div class="empty">Loading…</div>';
-  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,employers:renderEmployers,schools:renderSchools}[p])();
+  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,employers:renderEmployers,schools:renderSchools,reset:renderReset}[p])();
   window.scrollTo(0,0);
 }
 
@@ -686,6 +687,58 @@ async function openStudent(uid){
 }
 
 /* ===================== FUNNEL ===================== */
+/* Deleting every non-admin account.
+ *
+ * Given its own card, at the bottom, in red, behind a preview it makes you
+ * read and a sentence it makes you type. Everything about this is meant to
+ * be slower than the buttons around it: it is the one control here that
+ * cannot be undone, and the fastest way to press it should still involve
+ * having read what it does.
+ */
+async function renderReset(){
+  const m=$("#main");
+  m.innerHTML='<h2 style="margin:0 0 4px">Start everybody again</h2><div class="empty">Checking what this would delete…</div>';
+  let p;
+  try{ p=await api.get("/api/admin/reset-users/preview"); }
+  catch(e){ m.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; return; }
+
+  m.innerHTML=`
+    <h2 style="margin:0 0 4px">Start everybody again</h2>
+    <p style="color:var(--muted);font-size:13.5px;margin:0 0 18px">Deletes every account except administrators, so everyone signs up again. Schools, classrooms and class codes are kept — otherwise nobody could get back in.</p>
+
+    <div class="card" style="max-width:640px;border-color:var(--bad,#e05a5a)">
+      <b style="color:var(--bad,#e05a5a)">This cannot be undone</b>
+      <div class="tbl" style="margin:12px 0"><table><tbody>
+        <tr><td>Accounts deleted</td><td style="text-align:right"><b>${p.users}</b></td></tr>
+        <tr><td>…of which are paying</td><td style="text-align:right"><b style="color:var(--bad,#e05a5a)">${p.paying}</b></td></tr>
+        <tr><td>Submitted work destroyed</td><td style="text-align:right"><b>${p.submissions}</b></td></tr>
+        <tr><td>Saved resumes destroyed</td><td style="text-align:right"><b>${p.resumes}</b></td></tr>
+        <tr><td>Teacher profiles removed</td><td style="text-align:right"><b>${p.teachers}</b></td></tr>
+      </tbody></table></div>
+      <p style="font-size:13px;color:var(--muted)">${esc(p.warning)}</p>
+      ${p.paying>0?`<p style="font-size:13px;color:var(--bad,#e05a5a)"><b>${p.paying} subscription(s) are live.</b> Cancel them in Stripe first — deleting the account here does not stop the billing.</p>`:""}
+      <p style="font-size:13px;margin-bottom:6px">To confirm, type this exactly:</p>
+      <div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:var(--accent);margin-bottom:8px">${esc(p.phrase)}</div>
+      <input class="inp" id="rsPhrase" style="max-width:420px" placeholder="Type it here" autocomplete="off"/>
+      <div style="margin-top:10px"><button class="btn danger" id="rsGo">Delete ${p.users} accounts</button></div>
+      <div id="rsMsg" style="font-size:12.5px;color:var(--muted);margin-top:10px"></div>
+    </div>`;
+
+  $("#rsGo").onclick=async()=>{
+    const typed=($("#rsPhrase").value||"").trim();
+    if(typed.toUpperCase()!==p.phrase.toUpperCase()){
+      $("#rsMsg").textContent="That is not the sentence. Nothing has been deleted.";
+      return;
+    }
+    if(!confirm("Last check.\n\nDelete "+p.users+" accounts, including "+p.paying+" paying? This cannot be undone.")) return;
+    $("#rsMsg").textContent="Deleting…";
+    try{
+      const r=await api.post("/api/admin/reset-users",{confirm:typed});
+      $("#rsMsg").textContent=r.deleted+" accounts deleted. "+r.roster_names_freed+" register names freed. Kept: "+r.kept+".";
+    }catch(e){ $("#rsMsg").textContent=e.message; }
+  };
+}
+
 async function renderFunnel(){
   const s=STATS||await api.get("/api/admin/stats");
   const f=s.funnel;
@@ -927,16 +980,21 @@ async function renderSchools(){
       <div id="scMsg" style="font-size:12.5px;color:var(--muted);margin-top:8px"></div>
     </div>
     <div class="tbl" style="margin-bottom:24px"><table>
-      <thead><tr><th>School</th><th>Head code</th><th>Head(s)</th><th>Classrooms</th><th></th></tr></thead>
+      <thead><tr><th>School</th><th>What they have</th><th>Head code</th><th>Head(s)</th><th>Classrooms</th><th></th></tr></thead>
       <tbody>${schools.length?schools.map(s=>`<tr>
         <td>${esc(s.name)}<div style="font-size:11px;color:var(--muted)">${esc([s.city,s.country].filter(Boolean).join(", "))}</div></td>
+        <td>${s.product==="both"
+            ? '<span class="pill">Craxlearn + job board</span>'
+            : '<span class="pill ok">Craxlearn only</span>'}
+          <div><button class="btn ghost sm" data-prod="${s.id}" data-to="${s.product==="both"?"craxlearn":"both"}" style="margin-top:5px">
+            ${s.product==="both"?"Turn the job board off":"Turn the job board on"}</button></div></td>
         <td><b style="color:var(--accent)">${esc(s.head_code||"—")}</b></td>
         <td>${s.heads.length?s.heads.map(h=>esc(h.name)).join(", "):'<span style="color:var(--muted)">not signed up yet</span>'}</td>
         <td>${s.classrooms.length}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn ghost sm" data-newhead="${s.id}">New head code</button>
           <button class="btn danger sm" data-delschool="${s.id}">Delete</button></td>
-      </tr>`).join(""):`<tr><td colspan="5" style="color:var(--muted);padding:14px">No schools enrolled yet.</td></tr>`}</tbody>
+      </tr>`).join(""):`<tr><td colspan="6" style="color:var(--muted);padding:14px">No schools enrolled yet.</td></tr>`}</tbody>
     </table></div>
 
     <h3 style="margin:0 0 8px">Generic teacher codes (optional)</h3>
@@ -997,6 +1055,18 @@ async function renderSchools(){
     if(!confirm("Make a new head code? The old one stops working, and you can then remove the previous head's account.")) return;
     try{ const r=await api.post("/api/admin/school/"+b.dataset.newhead+"/head-code",{}); alert("New head code: "+r.head_code); renderSchools(); }
     catch(e){ alert(e.message); }
+  });
+  document.querySelectorAll("[data-prod]").forEach(b=>b.onclick=async()=>{
+    const to=b.dataset.to;
+    const msg = to==="both"
+      ? "Turn the job board ON for this school?\n\nLearners here who are 18 or over will see it. Under-18s and class-code logins still will not."
+      : "Turn the job board OFF for this school?\n\nNobody enrolled here will see it, at any age.";
+    if(!confirm(msg)) return;
+    try{
+      const r=await api.post("/api/admin/school/"+b.dataset.prod+"/product",{product:to});
+      alert(r.note+"\n\n"+r.learners_affected+" learner(s) at this school.");
+      renderSchools();
+    }catch(e){ alert(e.message); }
   });
   document.querySelectorAll("[data-delschool]").forEach(b=>b.onclick=async()=>{
     if(!confirm("Delete this school? Classrooms stay but lose their school link.")) return;

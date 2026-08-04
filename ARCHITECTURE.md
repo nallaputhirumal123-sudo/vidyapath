@@ -122,6 +122,13 @@ tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
 
+**`CAST(x AS DATE)` is not portable.** SQLite has no DATE type, so it applies
+numeric affinity and returns an integer; SQLAlchemy's Date processor then
+calls `fromisoformat` on it and raises. Postgres does the right thing — so
+this 500ed the entire admin dashboard locally and nowhere else, which is to
+say only for whoever was working on it. Branch on `engine.dialect.name` and
+take the first ten characters of the stored ISO string on SQLite.
+
 **A board module captures `window.$` at LOAD time.** `net.js`, `lab.js`,
 `sqlboard.js` and `scanner.js` each do `var $ = window.$ || document.querySelector`
 once, when the file runs. So a host that installs its own `$` must do it in a
