@@ -47,7 +47,15 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
     });
   };
-  var $ = function (s) { return document.querySelector(s); };
+  /* The host's selector when it offers one, or the document's.
+   *
+   * index.html has a single #main and answers this with querySelector, so
+   * nothing changes there. craxlearn.html has up to four spaces and no
+   * element called #main at all — it answers "#main" with whichever space
+   * is being drawn into, which is what lets this module render into a pane
+   * without knowing panes exist. Without this the module quietly found
+   * nothing and drew nothing. */
+  var $ = window.$ || function (s) { return document.querySelector(s); };
 
   var CSS = [
     ".scwrap{max-width:760px}",
