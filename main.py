@@ -746,6 +746,13 @@ class Assignment(Base):
     pdf_data = Column(Text, default="")            # base64 PDF of uploaded pages
     pdf_name = Column(String(160), default="")
     due_date = Column(String(20), default="")      # ISO date string, optional
+    # Closed work is still readable and no longer accepts a hand-in. A due
+    # date is a request; closing is the decision, and a teacher takes it —
+    # some classes hand in late and are marked anyway, which is the teacher's
+    # call and not a date's. Nullable, because _migrate_columns adds this to
+    # a table that already has assignments in it.
+    closed_at = Column(DateTime(timezone=True))
+    closed_by = Column(Integer, default=0)
     # The board topic this was set from, when it was set from the board.
     # Kept so a student who is stuck can have the same lesson taught to them
     # again instead of only being told to do it. Nullable: assignments typed
@@ -2941,6 +2948,14 @@ def _asg_json(a, done=None):
          "body": a.body or "", "due_date": a.due_date or "",
          "has_pdf": bool(a.pdf_data), "pdf_name": a.pdf_name or "",
          "teacher_id": a.teacher_id or 0,
+         # Open or closed, and who closed it. A class looking at a list of
+         # work needs to know which of it can still be handed in, and a
+         # staffroom needs to know who decided that — "why is this shut" has
+         # an answer with a name on it.
+         "closed": bool(getattr(a, "closed_at", None)),
+         "closed_by": getattr(a, "closed_by", 0) or 0,
+         "closed_at": (a.closed_at.isoformat()
+                       if getattr(a, "closed_at", None) else ""),
          "board_topic": getattr(a, "board_topic", "") or "",
          "kind": a.kind, "lesson_slug": a.lesson_slug or ""}
     if done is not None:
@@ -3381,6 +3396,14 @@ def submit_assignment(aid: int, body: SubmitIn, user: User = Depends(current_use
         ClassMember.class_id == a.class_id, ClassMember.user_id == user.id).first()
     if not member:
         raise HTTPException(403, "Not in this class")
+    # Closed means closed, or the status is decoration. It is checked here
+    # rather than only drawn on the page, because a button that is hidden is
+    # not a rule — and a learner who hands in through a stale tab would
+    # otherwise land work on a teacher who had finished marking.
+    if getattr(a, "closed_at", None):
+        raise HTTPException(
+            403, "Your teacher has closed this one. You can still read it and "
+                 "what you wrote, but it cannot be handed in now.")
     text = body.response.strip()
     sub = db.query(Submission).filter(
         Submission.assignment_id == aid, Submission.user_id == user.id).first()
@@ -3488,6 +3511,44 @@ def assignment_submissions(aid: int, user: User = Depends(teacher_user),
                                  r["name"].lower()))
     return {"id": a.id, "subject": a.subject, "title": a.title, "body": a.body,
             "students": students}
+
+
+class AsgCloseIn(BaseModel):
+    closed: bool = True
+
+
+@app.post("/api/teacher/assignment/{aid}/close")
+def close_assignment(aid: int, body: AsgCloseIn,
+                     user: User = Depends(teacher_user),
+                     db: Session = Depends(get_db)):
+    """Close work, or open it again.
+
+    A due date is a request. Closing is the decision, and it is a teacher's:
+    plenty of classes hand in late and are marked anyway, and a date that shut
+    the door by itself would take that judgement away from the person who
+    should have it.
+
+    Closed work stays readable. A learner can still see what was asked and
+    what they wrote — taking the questions away the moment the deadline passes
+    would punish the person revising from them.
+    """
+    a = db.get(Assignment, aid)
+    if not a:
+        raise HTTPException(404, "Not found")
+    _own_class(db, a.class_id, user)
+    mine = _my_subjects(db, a.class_id, user)
+    if mine is not None and (a.subject or "") not in mine:
+        raise HTTPException(
+            403, f"{a.subject or 'That subject'} is taught by somebody else.")
+    if body.closed:
+        a.closed_at = now()
+        a.closed_by = user.id
+    else:
+        a.closed_at = None
+        a.closed_by = 0
+    db.commit()
+    return {"ok": True, "closed": bool(a.closed_at),
+            "closed_by": a.closed_by or 0}
 
 
 @app.get("/api/teacher/messages")

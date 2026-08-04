@@ -1842,7 +1842,7 @@ async function logout(){
  */
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
   "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
-  "notices", "fees", "attend", "learners",
+  "notices", "fees", "attend", "learners", "tmsgs",
   "resume", "plans", "hiring", "studio"]);
 
 function restoreView(){
@@ -2118,6 +2118,10 @@ function renderNav(){
   if(USER.is_teacher||USER.is_admin){
     h+=`<div class="navsec">Manage</div>`;
     if(USER.is_teacher) h+=nav("teacher","🧑‍🏫","Teacher dashboard");
+    /* Messages from students, across every class. The route existed and had
+       no screen, so a child's question sat unread because their teacher had
+       no page on which to see it. */
+    if(USER.is_teacher) h+=nav("tmsgs","✉️","Student messages");
     /* Anybody who teaches can send an update; only whoever runs the
        school keeps the fees. Both screens existed and neither had a way
        in, which is the third time this session. */
@@ -5706,6 +5710,58 @@ async function feeMarkPaid(fid, amt){
   toast("Marked paid.");
 }
 
+/* Every message waiting for this teacher, in one place.
+ *
+ * They hang off assignments, so finding them meant opening assignments one at
+ * a time and hoping. A question asked on Tuesday sat unanswered because nobody
+ * thought to look at that particular worksheet — which is not a teacher
+ * ignoring a child, it is a product hiding one.
+ */
+async function renderTeacherMessages(){
+  $("#main").innerHTML=`<div class="h1">✉️ Student messages</div>
+    <p class="sub">Everything your students have asked, across every class you
+      take. The ones waiting for you come first.</p>
+    <div id="tmBody">Loading…</div>`;
+  let d;
+  try{ d=await api.get("/api/teacher/messages"); }
+  catch(e){ document.getElementById("tmBody").innerHTML=
+    `<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; return; }
+  const rows=(d&&d.threads)||[];
+  const box=document.getElementById("tmBody");
+  if(!rows.length){
+    box.innerHTML=`<div class="card" style="color:var(--dim);font-size:13px">`+
+      `Nobody has messaged you yet.</div>`;
+    return;
+  }
+  box.innerHTML=
+    (d.waiting?`<div class="card" style="border-color:var(--accent);
+      padding:11px;margin-bottom:14px;font-size:13.5px">
+      <b>${d.waiting}</b> waiting for a reply.</div>`:"")
+    + rows.map(t=>`<button class="card" data-cls="tmopen"
+        data-id="${t.assignment_id}" data-cid="${t.student_id}"
+        style="display:block;width:100%;text-align:left;cursor:pointer;
+        margin-bottom:10px;padding:13px${
+          t.waiting?";border-color:var(--accent)":""}">
+        <div class="row" style="justify-content:space-between;gap:8px">
+          <span style="font-weight:650">${esc(t.student)}</span>
+          <span style="font-size:11.5px;color:${
+            t.waiting?"var(--accent)":"var(--dim)"};white-space:nowrap">${
+            t.waiting?"waiting":"answered"}</span></div>
+        <div style="font-size:11.5px;color:var(--dim);margin-top:2px">
+          ${esc(t.class_name)} · ${esc(t.subject||"—")} · ${esc(t.title)}</div>
+        <div style="font-size:12.5px;margin-top:6px;overflow:hidden;
+          text-overflow:ellipsis;white-space:nowrap">${esc(t.last)}</div>
+      </button>`).join("");
+}
+
+/* Opening one goes to the assignment it belongs to, where the thread and the
+   reply box already live. A second copy of that conversation here would be a
+   second place to answer it and a second place to keep in step. */
+function tmOpen(aid, studentId){
+  S.view={page:"tassign", id:+aid, student:+studentId};
+  render();
+}
+
 async function renderNotices(){
   /* Staff see the composer and what they have sent. Everybody, staff
      included, sees what was sent TO them — which had no screen at all, so
@@ -6655,6 +6711,7 @@ document.addEventListener("click",e=>{
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
+  else if(k==="tmopen") tmOpen(id, b.dataset.cid);
   else if(k==="dobsave") dobSave();
   else if(k==="opensubj") renderSubject(id);
   else if(k==="mysubjects") renderClassSubjects(+id, cid);
@@ -9654,6 +9711,7 @@ function render(){
   else if(v.page==="lab")       renderLab();
   else if(v.page==="net")       renderNet();
   else if(v.page==="notices")   renderNotices();
+  else if(v.page==="tmsgs")     renderTeacherMessages();
   else if(v.page==="fees")      renderFees();
   else if(v.page==="attend")    renderAttend();
   else if(v.page==="learners")  renderLearners();
@@ -9747,6 +9805,7 @@ document.addEventListener("click",e=>{
   else if(n==="studio")    S.view={page:"studio"};
   else if(n==="teacher")   S.view={page:"teacher"};
   else if(n==="notices")   S.view={page:"notices"};
+  else if(n==="tmsgs")     S.view={page:"tmsgs"};
   else if(n==="fees")      S.view={page:"fees"};
   else if(n==="attend")    S.view={page:"attend"};
   else if(n==="learners")  S.view={page:"learners"};
