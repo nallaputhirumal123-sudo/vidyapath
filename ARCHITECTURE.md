@@ -17,11 +17,12 @@ A job board and learning platform. Two products in one codebase:
 | Path | What it is |
 |---|---|
 | `main.py` | The entire backend. ~7,000 lines, FastAPI + SQLAlchemy. |
+| `dalia.py` | Who the tutor is: the grade-band adapter, the system prompt, and the allowlist of panels she may open. No model call, no network. |
 | `index.html` | The learner/candidate app. One page, ~300KB, inline CSS and JS. |
 | `admin.html` | Admin panel. Separate page, same pattern. |
 | `terms.html`, `privacy.html` | Legal. Read them before changing anything that touches personal data. |
 | `extension/` | Manifest V3 autofill extension. |
-| `tests/` | Five suites, plain Python scripts. No pytest. |
+| `tests/` | Six headline suites, plain Python scripts. No pytest. |
 
 `main.py` is one file on purpose. It is a single deployable with no import
 graph to reason about, and everything is greppable. If you split it, split it
@@ -48,13 +49,15 @@ default in code.
 .venv/Scripts/python.exe -X utf8 tests/test_sweep.py
 ```
 
-Five suites, all runnable directly, all must pass before committing:
+Six suites, all runnable directly, all must pass before committing:
 
 - `test_sweep.py` — end-to-end pass over every user-facing path
 - `test_security.py` — auth boundaries, tampering, injection shapes
 - `test_regressions.py` — every bug previously fixed, so it stays fixed
 - `test_billing.py` — Stripe checkout and webhooks, against an intercepted call
 - `test_free_trial.py` — what the free plan does and does not include
+- `test_dalia.py` — the tutor's grade band, the panels she may open, and
+  the four network labs, each run through the real packet engine
 
 They run against the local SQLite database and create real rows. That is
 deliberate: matching quality is only meaningful against real job data.

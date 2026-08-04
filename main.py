@@ -336,6 +336,37 @@ class AskCache(Base):
     created_at = Column(DateTime(timezone=True), default=now)
 
 
+class SkillUnlock(Base):
+    """Something a learner actually finished, kept in the matcher's words.
+
+    The tutor marks a skill as unlocked when the learner has done the thing
+    — solved the problem, read the capture, got the query right — and this
+    is where those land, so the resume builder and the job matcher can use
+    them.
+
+    Two columns rather than one, and that is the whole design. `label` is
+    what the learner sees on their resume, in the words a person writes:
+    "TCP three-way handshake". `tokens` is what the matcher can act on, in
+    the only words it knows: `tcp`. A single column would have to be one or
+    the other, and a table full of "Computer Networking Protocols" is a
+    table that looks like progress and moves nobody one place up a match
+    list.
+
+    `tokens` may be blank, and often is. Plenty of real skills — balancing
+    redox equations, reading a balance sheet — have no word on a technology
+    job board, and an honest empty column is better than filing them under
+    the nearest thing that does.
+    """
+    __tablename__ = "skill_unlocks"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    label = Column(String(60), default="", index=True)
+    tokens = Column(String(120), default="")   # comma-joined, matcher words
+    times = Column(Integer, default=1)         # how often it has come up
+    created_at = Column(DateTime(timezone=True), default=now)
+    last_at = Column(DateTime(timezone=True), default=now)
+
+
 class JobAlert(Base):
     """A background alert about someone's job search.
 
@@ -2919,6 +2950,12 @@ def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = De
 # ---------------------------- Ask Axle -----------------------------------
 import re as _re
 
+# Who the tutor is, what grade she is pitching at, and the short list of
+# panels she is allowed to open. Kept out of this file because the same
+# persona has to reach the board, the voice and the corner bot, and three
+# copies of it drifted into three different teachers.
+import dalia as _dalia                                              # noqa: E402
+
 
 class AskIn(BaseModel):
     question: str = Field(..., min_length=2, max_length=500)
@@ -3798,6 +3835,90 @@ async def _call_model(question: str, subject: str, level: str) -> dict:
     return _parse_lesson(text, question)
 
 
+def _spoken(text: str) -> str:
+    """A reply fit to be read aloud.
+
+    Belt and braces: the prompt says no markdown, but a stray asterisk or
+    hash read out as "asterisk" is the kind of thing that makes a voice
+    sound broken, and it only takes one.
+    """
+    text = _re.sub(r"[*#`_]+", "", text or "")
+    return _re.sub(r"\s{2,}", " ", text).strip()[:1200]
+
+
+def _record_skills(db, user, skills):
+    """Store what the learner just finished, and hand it back to the page.
+
+    Idempotent on (user, label): a learner who works through the same idea
+    twice has one skill, not two, and the count of how often it came up is
+    worth more than a second row saying the same thing.
+
+    Never raises. A skill that fails to store is a missing line on a resume;
+    a skill that fails to store and takes the answer down with it is a tutor
+    that stopped talking. The commit is guarded for exactly that reason.
+    """
+    out = []
+    for sk in skills or []:
+        label, tokens = sk["label"], ",".join(sk["tokens"])
+        row = (db.query(SkillUnlock)
+                 .filter(SkillUnlock.user_id == user.id,
+                         SkillUnlock.label == label).first())
+        if row:
+            row.times = (row.times or 0) + 1
+            row.last_at = now()
+            # A later lesson may know words the earlier one did not.
+            if tokens and not row.tokens:
+                row.tokens = tokens
+        else:
+            db.add(SkillUnlock(user_id=user.id, label=label, tokens=tokens,
+                               times=1))
+        out.append({"skill": label, "tokens": list(sk["tokens"])})
+    if out:
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Skill unlock not stored: {type(e).__name__}: {e}")
+    return out
+
+
+@app.get("/api/skills/unlocked")
+def skills_unlocked(user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Everything this learner has finished, and who is hiring for it.
+
+    The count beside each skill is the argument for having learned it, and
+    it is the same count the careers page shows — read from the live board
+    rather than from a claim in a syllabus. A skill with no matcher word
+    still appears, with no count: the learner earned it, and a résumé line
+    is worth having whether or not a job board has a word for it.
+    """
+    rows = (db.query(SkillUnlock)
+              .filter(SkillUnlock.user_id == user.id)
+              .order_by(SkillUnlock.last_at.desc()).limit(200).all())
+    out = []
+    for r in rows:
+        tokens = [t for t in (r.tokens or "").split(",") if t]
+        jobs = 0
+        for t in tokens:
+            # The skills column is a comma-joined list written at ingest, so
+            # a bare LIKE would match "sql" inside "postgresql". The commas
+            # are what make the boundary.
+            #
+            # Concatenated with Python's + rather than func.concat: that
+            # compiles to the || operator, which both SQLite and Postgres
+            # have. CONCAT() only arrived in SQLite 3.44, and the local
+            # database is whatever the machine happens to ship.
+            padded = "," + func.coalesce(Job.skills, "") + ","
+            jobs = max(jobs, db.query(func.count(Job.id)).filter(
+                Job.is_open == True,                            # noqa: E712
+                padded.like(f"%,{t},%")).scalar() or 0)
+        out.append({"skill": r.label, "tokens": tokens, "jobs": jobs,
+                    "times": r.times or 1,
+                    "since": r.created_at.isoformat() if r.created_at else ""})
+    return {"skills": out, "total": len(out)}
+
+
 class TalkIn(BaseModel):
     said: str = Field(min_length=1, max_length=600)
     subject: str = Field(default="General", max_length=60)
@@ -3827,52 +3948,28 @@ async def ask_talk(body: TalkIn, user: User = Depends(current_user),
     # Cached on the question plus the immediate context. Everyone asks "what
     # is a JOIN" out loud eventually, and the second person should not cost
     # anything.
+    #
+    # The key says "dalia" rather than "talk" on purpose. The rows under the
+    # old key were written by a different prompt with a different persona and
+    # no control tags in it; served under this endpoint they would be a
+    # tutor who can never open anything, for as long as the cache lives.
     tail = " | ".join(body.history[-2:])[:300]
-    qkey = f"talk|{_norm_q(level)}|{_norm_q(tail)}|{_norm_q(said)}"[:500]
+    qkey = f"dalia|{_norm_q(level)}|{_norm_q(tail)}|{_norm_q(said)}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
         db.commit()
-        return {"say": row.lesson, "cached": True}
+        # Parsed on the way out rather than stored parsed: the raw reply is
+        # what was cached, so a cache hit opens the same panels the first
+        # asker got. Storing only the spoken half meant the second person to
+        # ask about the handshake heard about a packet capture that never
+        # appeared.
+        say, controls, skills = _dalia.parse(row.lesson)
+        return {"say": _spoken(say), "board": controls,
+                "skills": _record_skills(db, user, skills), "cached": True}
 
     _ai_enforce_limit(db, user)
-    hist = ("\n".join(f"- {h}" for h in body.history[-4:])
-            if body.history else "(this is the first thing they said)")
-    prompt = (
-        "You are Axle, talking out loud with someone who is learning. This is "
-        "speech, not writing — they will hear it, not read it.\n"
-        f"They are studying at this level: {level}.\n"
-        f"WHAT HAS BEEN SAID SO FAR:\n{hist}\n"
-        f"THEY JUST SAID: {said}\n\n"
-        "Reply the way a good tutor talks. Rules:\n"
-        "- Two to five sentences. Stop, so they can answer.\n"
-        "- Answer the question actually asked, and refer back to what was "
-        "said before when it matters.\n"
-        "- No lists, no bullet points, no headings, no markdown, no code "
-        "blocks, no asterisks. It is being read by a voice.\n"
-        "- Say numbers and symbols as words: 'x squared', not 'x^2'.\n"
-        "- ANSWER THE QUESTION. That is what you are for. A general "
-        "question has a general answer: asked how to solve a squared "
-        "plus b squared, say that it does not factorise over the reals "
-        "the way a squared minus b squared does, and what that means "
-        "for them. Do not ask for values you do not need.\n"
-        "- Ask a question back only when the question genuinely cannot "
-        "be answered at all without it, and never twice in a row. If "
-        "you asked something last turn and they answered, answer them "
-        "now — a second question in place of a reply is how somebody "
-        "ends up having a conversation with no answer in it.\n"
-        "- Never quiz them. Do not ask what two times two is on the way "
-        "to a result. Socratic questioning is for checking that "
-        "something you already taught has landed, not for making "
-        "somebody who asked for help work for the answer.\n"
-        "- If a number would make the answer concrete and they have not "
-        "given one, pick a sensible one and say you are picking it: "
-        "\"take a as 2 and b as 4\" is an answer, \"which values did "
-        "you mean?\" is a delay.\n"
-        "- If you do not know, say so. Do not invent a fact, a citation or a "
-        "number.\n"
-        "- Plain speech. No 'Great question!' and no summarising what they "
-        "just said back at them.")
+    prompt = _dalia.talk_prompt(said, body.history, level, body.subject)
     try:
         text = (await _ai_text(prompt, 400)).strip()
     except Exception as e:
@@ -3881,20 +3978,23 @@ async def ask_talk(body: TalkIn, user: User = Depends(current_user),
     if not text:
         raise HTTPException(502, "Nothing came back — say that again?")
 
-    # Belt and braces: the model was told not to, but a stray asterisk or hash
-    # read aloud as "asterisk" is the kind of thing that makes a voice sound
-    # broken.
-    text = _re.sub(r"[*#`_]+", "", text)
-    text = _re.sub(r"\s{2,}", " ", text).strip()[:1200]
+    say, controls, skills = _dalia.parse(text)
+    if not say:
+        # Every word of it was tags. Nothing to say and nothing to play.
+        raise HTTPException(502, "Nothing came back — say that again?")
 
     _ai_bump(db, user)
+    # The raw reply, tags and all. What is spoken is derived from it on
+    # every read, so changing how a tag is handled changes every cached
+    # answer too instead of only the ones asked after the deploy.
     db.add(AskCache(qkey=qkey, subject=body.subject[:60], level=level,
-                    question=said[:2000], lesson=text, hits=0))
+                    question=said[:2000], lesson=text[:4000], hits=0))
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-    return {"say": text, "cached": False}
+    return {"say": _spoken(say), "board": controls,
+            "skills": _record_skills(db, user, skills), "cached": False}
 
 
 @app.post("/api/ask/image")

@@ -100,6 +100,34 @@
     paint();
   }
 
+  /* Load one named lab instead of the starting network.
+   *
+   * The tutor picks the topology and the server hands over the whole thing
+   * — routes, rules and the packet — already checked. Nothing is derived
+   * here from the name, because a client that decided what "dmz" meant
+   * would be a second opinion about a network the packet engine is the only
+   * authority on.
+   *
+   * The board is replaced rather than added to. A lab whose point is that
+   * rule order matters does not survive having the previous lab's rules
+   * still sitting above it.
+   */
+  function open(preset) {
+    if (!preset || !preset.rules || !preset.routes) return false;
+    styles();
+    NW.pre = { routes: preset.routes, rules: preset.rules,
+               packet: preset.packet };
+    NW.routes = preset.routes.slice();
+    NW.rules = preset.rules.slice();
+    NW.packet = Object.assign({}, preset.packet);
+    NW.established = !!preset.established;
+    NW.out = null;
+    NW.lab = preset.title ? { title: preset.title, teaches: preset.teaches }
+                          : null;
+    paint();
+    return true;
+  }
+
   function routeRow(r, i) {
     return '<div class="nwrow">' +
       '<input data-nr="' + i + '" data-f="network" value="' + esc(r.network || "") +
@@ -140,6 +168,14 @@
       'the rules on this page — nothing is guessed, so it cannot invent a ' +
       'reason a packet was dropped. Free and unlimited: change a rule and ' +
       'send it again as often as you like.</p>' +
+
+      // What this particular network is here to teach, when the tutor
+      // handed one over. Without it a lab is a form full of addresses and
+      // the point it was chosen to make is invisible.
+      (NW.lab ? '<div class="nwbox" style="margin-bottom:14px">' +
+          '<h4>' + esc(NW.lab.title) + "</h4>" +
+          '<p style="font-size:13px;color:var(--muted);margin:0;' +
+          'max-width:62ch">' + esc(NW.lab.teaches || "") + "</p></div>" : "") +
 
       '<div class="nwgrid">' +
         '<div class="nwbox"><h4>Routing table</h4>' +
@@ -249,7 +285,7 @@
     }
   });
 
-  window.NetBoard = { load: load };
+  window.NetBoard = { load: load, open: open };
   // Same shape as the lab, so the router calls it the same way.
   window.renderNet = load;
 })();

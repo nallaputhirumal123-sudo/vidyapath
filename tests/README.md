@@ -26,6 +26,17 @@ unsigned webhooks are rejected so nobody can grant themselves a plan, expired
 and reused reset tokens fail, hostile input never 500s, limits are enforced
 rather than suggested, and source files and the database are not served.
 
+**test_dalia.py** — who the tutor thinks she is teaching, and what she is
+allowed to put on the screen. The grade band read out of a free-text level
+("Class 8", "B.Tech 2nd year", "PhD"), the control tags parsed back out of a
+reply, and — the bulk of it — everything that gets DROPPED: a sandbox language
+nothing here runs, a network topology nobody built, markup smuggled in as a
+topic. The four network labs are each run through the real packet engine and
+their verdicts compared with the ones documented beside them, so a lab cannot
+quietly start teaching the wrong answer. Ends with the talk endpoint end to
+end against a stubbed model, including that a cached reply still opens the
+same panels the first asker got.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,

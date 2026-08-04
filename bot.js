@@ -1,4 +1,4 @@
-/* Axle, in the corner of every page.
+/* Dalia, in the corner of every page.
  *
  * This replaces the scripted mascot that used to sit here. That thing had a
  * list of written tips and picked one — which is fine until somebody asks it
@@ -8,7 +8,7 @@
  * This one takes a question by typing or by talking, on any subject, from
  * anywhere on the site. Replies are short on purpose: this is the corner of
  * the screen, not the board. Anything that wants a diagram, runnable code or
- * a worked derivation gets handed to Ask Axle, which is built for it.
+ * a worked derivation gets handed to the smart board, which is built for it.
  *
  * Cost: every reply goes through /api/ask/talk, which is cached on the
  * question. The first person to ask what a foreign key is pays for it and
@@ -17,11 +17,22 @@
 (function () {
   "use strict";
 
+  // The tutor's name, in one place. It is written into the prompt by
+  // dalia.py on the server, and the label the learner reads has to be the
+  // same word — a reply that introduces itself as Dalia under a heading
+  // saying Axle reads as two different things talking.
+  var NAME = "Dalia";
+
   var B = {
     open: false,
     turns: [],        // {who: "you"|"ax", text}
     busy: false,
-    unread: false
+    unread: false,
+    // What the last reply offered to open, and what it says the learner
+    // finished. Both come from the server already checked against things
+    // that exist — nothing here decides what a topology or a skill is.
+    opens: [],
+    earned: []
   };
   window.Bot = B;
 
@@ -99,7 +110,7 @@
     if (!p) return;
     var log = B.turns.map(function (t) {
       return '<div class="botT ' + (t.who === "you" ? "you" : "ax") + '">' +
-        "<small>" + (t.who === "you" ? "You" : "Axle") + "</small>" +
+        "<small>" + (t.who === "you" ? "You" : NAME) + "</small>" +
         esc(t.text) + "</div>";
     }).join("");
     // What it is hearing, as it hears it. Without this you cannot tell "it
@@ -113,8 +124,24 @@
     // Every answer can be taken to the board, where it gets the room for
     // steps, code and a diagram that this corner does not have.
     if (B.turns.length && B.turns[B.turns.length - 1].who === "ax" && !B.busy) {
+      // What the reply itself asked to open, before the generic offer. A
+      // button rather than a jump: the page moving on its own while
+      // somebody is still reading the sentence that caused it is the most
+      // reliable way to lose them.
+      log += B.opens.map(function (c, i) {
+        return '<button class="botChip" data-botopen="' + i + '">' +
+          esc(OPEN_LABEL(c)) + "</button>";
+      }).join("");
       log += '<button class="botChip" id="botBoard">⚡ Explain this on the ' +
         "smart board</button>";
+      // Quietly, and only once per turn. This is the thing that ends up on
+      // a resume, so it is worth showing — and worth not celebrating, as a
+      // banner every third sentence teaches people to ignore banners.
+      if (B.earned.length) {
+        log += '<div class="botHint" style="margin-top:9px">✓ Added to your ' +
+          "skills: " + esc(B.earned.map(function (s) { return s.skill; })
+            .join(", ")) + "</div>";
+      }
     }
     if (!B.turns.length) {
       log = '<div class="botHint">Ask me anything — any subject, not just ' +
@@ -129,6 +156,47 @@
     l.innerHTML = log;
     l.scrollTop = l.scrollHeight;
     wire();
+  }
+
+  /* ---- what the tutor asked to open --------------------------------
+   *
+   * The server has already thrown away anything that does not exist — a
+   * language nothing runs, a topology nobody built — so everything that
+   * arrives here is openable. This file's whole job is the button and the
+   * navigation; it never decides what a control means.
+   */
+  function OPEN_LABEL(c) {
+    if (c.open === "network") return "🌐 Open " + (c.title || "the network");
+    if (c.open === "sandbox") return "▸ Open the SQL board";
+    if (c.kind === "3d_model") return "◍ See " + c.topic + " in 3D";
+    return "✎ Draw " + c.topic;
+  }
+
+  function openControl(c) {
+    if (!c) return false;
+    if (typeof S === "undefined" || typeof render !== "function") return false;
+
+    if (c.open === "board") return B.toBoard(c.topic);
+
+    if (B.open) toggle();
+    if (typeof Voice !== "undefined" && Voice.on) Voice.stop();
+
+    if (c.open === "network") {
+      if (!window.NetBoard || !NetBoard.open) return false;
+      // Loaded BEFORE the view changes. renderNet() skips its fetch when a
+      // network is already in hand, so setting it first is what stops the
+      // starting network arriving late and painting over the lab.
+      NetBoard.open(c);
+      S.view = { page: "net" };
+      render();
+      return true;
+    }
+    if (c.open === "sandbox") {
+      S.view = { page: "sqlboard" };
+      render();
+      return true;
+    }
+    return false;
   }
 
   /* ---- "explain that on the board" ---------------------------------
@@ -177,7 +245,7 @@
   /* The last thing worth explaining properly — used when somebody says "put
      that on the board", where "that" is the previous exchange, not the
      sentence containing the word "that". */
-  /* A bare reply to Axle's own question: "2 and 4", "yes", "the second one".
+  /* A bare reply to the tutor's own question: "2 and 4", "yes", "the second one".
      Short, and carrying no subject of its own. */
   function isReply(t) {
     var w = String(t || "").trim().split(/\s+/);
@@ -192,7 +260,7 @@
 
   /* What the conversation is actually about.
    *
-   * Not the most recent thing typed. Axle asks follow-up questions — "which
+   * Not the most recent thing typed. The tutor asks follow-up questions — "which
    * numbers are a and b?" — and the replies to those are short and carry no
    * subject: taking one as the topic sent "2 and 4" to the board, which
    * built a lesson called "Division of 2 and 4" for somebody who had asked
@@ -243,6 +311,10 @@
 
     B.turns.push({ who: "you", text: text });
     B.busy = true;
+    // Last turn's offers go now, not when the new ones arrive. A button
+    // left sitting under a question that has moved on opens the wrong thing.
+    B.opens = [];
+    B.earned = [];
     draw();
     // Same history as everything else, tagged by how it was asked so
     // reopening it lands back in the right place.
@@ -260,6 +332,8 @@
         })
       });
       say = r.say;
+      B.opens = Array.isArray(r.board) ? r.board : [];
+      B.earned = Array.isArray(r.skills) ? r.skills : [];
     } catch (e) {
       say = e.message || "I could not answer that just now.";
     }
@@ -277,6 +351,9 @@
     p.querySelectorAll("[data-botq]").forEach(function (el) {
       el.onclick = function () { send(el.dataset.botq); };
     });
+    p.querySelectorAll("[data-botopen]").forEach(function (el) {
+      el.onclick = function () { openControl(B.opens[+el.dataset.botopen]); };
+    });
     var b = p.querySelector("#botBoard");
     if (b) b.onclick = function () { B.toBoard(lastTopic()); };
   }
@@ -287,9 +364,9 @@
     var p = document.createElement("div");
     p.id = "botPanel";
     p.setAttribute("role", "dialog");
-    p.setAttribute("aria-label", "Ask Axle");
+    p.setAttribute("aria-label", "Ask " + NAME);
     p.innerHTML =
-      '<div id="botHead">⚡ Axle' +
+      '<div id="botHead">⚡ ' + NAME +
         '<span class="sub">any subject</span>' +
         '<span style="flex:1"></span>' +
         '<button class="botIcon" id="botFull" title="Open the full board">⤢</button>' +
@@ -408,7 +485,7 @@
     f.id = "botFab";
     f.type = "button";
     f.textContent = "⚡";
-    f.setAttribute("aria-label", "Ask Axle");
+    f.setAttribute("aria-label", "Ask " + NAME);
     f.onclick = toggle;
     document.body.appendChild(f);
 
