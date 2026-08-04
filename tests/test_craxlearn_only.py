@@ -380,7 +380,13 @@ TEACHING = ("/api/ask", "/api/board", "/api/class", "/api/course",
             "/api/craxlearn", "/api/curriculum", "/api/lab", "/api/net",
             "/api/progress", "/api/quiz", "/api/scan", "/api/skills",
             "/api/sql", "/api/assignment", "/api/teacher", "/api/head",
-            "/api/material", "/api/office")
+            "/api/material", "/api/office",
+            # Added since: the inbox a learner reads their school's updates
+            # in, reporting a wrong answer, and turning a teacher's own PDF
+            # into a lesson. All three are teaching and none of them touch
+            # the job half — which is the thing this test exists to keep
+            # true for a school that bought only the teaching product.
+            "/api/my/notices", "/api/report", "/api/teach")
 unfiled = []
 for r_ in main.app.routes:
     p = getattr(r_, "path", "")

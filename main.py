@@ -5480,12 +5480,24 @@ MAX_NOTICE_MB = 8
 
 
 def _my_notice(db, nid, user):
-    """One notice, if it belongs to the school this person runs."""
+    """One notice this person may change.
+
+    Letting teachers post updates quietly let them edit and delete anybody's,
+    including the school-wide closure the admin put up an hour earlier. The
+    permission to write one is not the permission to unwrite somebody else's.
+
+    So: the school admin may change any notice at their own school, because
+    taking down something wrong is part of running it. A teacher may change
+    only what they wrote.
+    """
     n = db.get(SchoolNotice, nid)
     if not n:
         raise HTTPException(404, "Not found")
-    if not user.is_admin and n.school_id != _school_of(user, db):
+    if not user.is_admin and n.school_id != _school_of_anyone(user, db):
         raise HTTPException(403, "That notice belongs to another school")
+    if not (user.is_admin or is_school_admin(user, db))             and n.author_id != user.id:
+        raise HTTPException(403, "That update was posted by somebody else. "
+                                 "Ask your school admin to change it.")
     return n
 
 
@@ -5810,11 +5822,15 @@ def head_list_students(user: User = Depends(head_user),
 @app.delete("/api/office/notice/{nid}")
 def drop_notice(nid: int, user: User = Depends(notice_author_user),
                 db: Session = Depends(get_db)):
-    n = db.get(SchoolNotice, nid)
-    if not n:
-        raise HTTPException(404, "Not found")
-    if not user.is_admin and n.school_id != _school_of(user, db):
-        raise HTTPException(403, "That notice belongs to another school")
+    """Take one down. Yours always; anybody's if you run the school.
+
+    This had its own copy of the ownership check, written when only the
+    office could post and so needing only to compare schools. Letting
+    teachers post left that copy behind, and a subject teacher could delete
+    the school-wide closure the admin put up an hour earlier — the permission
+    to write one is not the permission to unwrite somebody else's.
+    """
+    n = _my_notice(db, nid, user)
     db.delete(n)
     db.commit()
     return {"ok": True}

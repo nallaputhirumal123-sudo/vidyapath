@@ -34,7 +34,8 @@ print("\na head teacher who already has an account")
 head, hu = acct("head")
 r = head.post("/api/class/join", json={"code": hc})
 ck("can redeem a HEAD- code by signing in", r.status_code==200, r.text[:80])
-ck("and is recognised as head", "head" in r.text.lower(), r.text[:60])
+ck("and is recognised as the school admin",
+   "school admin" in r.text.lower(), r.text[:60])
 t = main.teacher_row(hu, db)
 ck("the teacher row says head", t is not None and t.role=="head", t.role if t else "none")
 
