@@ -11854,6 +11854,27 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
                                      Job.category.is_(None)))
         else:
             query = query.filter(Job.category == cat)
+    # The board's own country scope, applied to every query that returns jobs
+    # — search, match, categories and suggestions alike.
+    #
+    # This was missing, and I said it was here. _job_in_scope ran when a
+    # posting was CRAWLED and when the filter dropdown was built, and nowhere
+    # in between — so every US row already in the table was served to
+    # everybody, whatever JOB_COUNTRIES said. Changing the setting did nothing
+    # to the thousands of rows already stored, and the board went on offering
+    # Oklahoma and Arizona to learners in Hyderabad.
+    #
+    # Enforced at the query it cannot be got round: an out-of-scope row is not
+    # returned by search, by match, by a category count or by a suggestion,
+    # whatever is in the table. Deleting those rows becomes tidying rather
+    # than the only thing standing between a learner and a job they cannot
+    # take.
+    #
+    # Blank countries go with them: that is the bare "Remote" case, which a US
+    # employer means as remote-within-the-US.
+    if ALLOWED_COUNTRIES:
+        query = query.filter(func.upper(func.coalesce(Job.country, ""))
+                             .in_(list(ALLOWED_COUNTRIES)))
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     if location:
@@ -12105,6 +12126,10 @@ def jobs_categories(country: str = "", user: User = Depends(current_user),
     """Categories we actually hold open jobs for, largest first."""
     query = db.query(Job.category, func.count(Job.id)).filter(
         Job.is_open == True)                                # noqa: E712
+    # Same scope guard as _jobs_query. See the reasoning there.
+    if ALLOWED_COUNTRIES:
+        query = query.filter(func.upper(func.coalesce(Job.country, ""))
+                             .in_(list(ALLOWED_COUNTRIES)))
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     rows = query.group_by(Job.category).all()
@@ -12145,6 +12170,12 @@ def jobs_suggest(q: str = "", country: str = "", limit: int = 10,
         return {"suggestions": []}
     query = db.query(Job.title, func.count(Job.id)).filter(
         Job.is_open == True, func.lower(Job.title).like(f"%{term}%"))  # noqa: E712
+    # Same scope guard as _jobs_query. See the reasoning there. A suggestion
+    # is a promise that searching it returns something, so suggesting a title
+    # that only exists on out-of-scope rows is its own small lie.
+    if ALLOWED_COUNTRIES:
+        query = query.filter(func.upper(func.coalesce(Job.country, ""))
+                             .in_(list(ALLOWED_COUNTRIES)))
     if country:
         query = query.filter(func.lower(Job.country) == country.strip().lower())
     rows = query.group_by(Job.title).order_by(func.count(Job.id).desc()) \

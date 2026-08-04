@@ -3798,7 +3798,14 @@ function sbBoardHTML(){
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?stepLinesHTML(st.t):""}
     ${(SB.i===0&&l.photo&&l.photo.url)?sbPhotoHTML(l.photo):""}
-    ${(l.findings&&l.findings.length)?`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${mathText(esc(f))}</div>`).join("")}<i>This lesson was not saved for anyone else.</i></div>`:""}
+    <!-- The checker's findings are not shown here any more. They were
+         printed as a red band in the middle of the lesson, between the
+         explanation and the diagram it referred to, and most of what
+         they said was a reviewer quibbling with wording rather than a
+         fault a learner could act on. A class reads the band, not the
+         lesson. The findings still do their real work on the server:
+         they lower confidence and stop a doubtful lesson being cached
+         for anybody else, which is the decision that matters. -->
     ${st.code?`<div>
        <!-- The screen this happens on. Without it a console session and a
             shell script look identical, and the lesson stops being credible. -->
@@ -4482,9 +4489,9 @@ function askBoardHTML(){
     const sp = ASK.spoken===step.idx?" spoken":"";
     h+=`<div class="ask-line${sp}" data-ln="${step.idx}"><span class="ask-bullet">›</span><span>${mathText(esc(step.t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>"))}</span></div>`;
   });
-  if(pg===ASK.slides.length-1 && l.findings && l.findings.length){
-    h+=`<div class="sb-checked"><b>⚠ Checked automatically — these did not add up:</b>${l.findings.map(f=>`<div>• ${mathText(esc(f))}</div>`).join("")}<i>This answer was not saved for anyone else.</i></div>`;
-  }
+  /* No findings band here either — same reason as the Pro board. It still
+     blocks caching server-side, which is what actually protects the next
+     person to ask. */
   if(pg===ASK.slides.length-1 && l.takeaway){
     const sp = ASK.spoken>=l.steps.length?" spoken":"";
     h+=`<div class="ask-take${sp}" data-ln="${l.steps.length}">✦ ${mathText(esc(l.takeaway))}</div>`;
@@ -4923,8 +4930,8 @@ async function renderTeacher(cid){
   catch(e){ $("#main").innerHTML=`<div class="h1">🧑‍🏫 Teacher dashboard</div><p class="sub">${esc(e.message)}</p>`; return; }
   const cls=data.classes||[];
   $("#main").innerHTML=`<div class="h1">🧑‍🏫 Teacher dashboard</div>
-    <p class="sub">You teach the subject(s) your head teacher assigned you. Enter the code they gave you to open your subject in a classroom. You can't create classrooms or new subjects yourself — ask your head teacher.</p>
-    <div class="card" style="margin-bottom:18px"><b>Open your subject</b> <span style="font-size:12px;color:var(--dim)">(enter the code your head teacher gave you)</span>
+    <p class="sub">You teach the subject(s) your school admin assigned you. Enter the code they gave you to open your subject in a classroom. You can't create classrooms or new subjects yourself — ask your school admin.</p>
+    <div class="card" style="margin-bottom:18px"><b>Open your subject</b> <span style="font-size:12px;color:var(--dim)">(enter the code your school admin gave you)</span>
       <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
         <input id="tcJoin" class="ask-input" style="max-width:200px" placeholder="Your subject code"/>
         <button class="btn sm" data-cls="tjoin">Open →</button></div>
@@ -4934,7 +4941,7 @@ async function renderTeacher(cid){
         <div style="min-width:0"><div style="font-size:16px;font-weight:650">${esc(c.name)}</div>
           <div style="font-size:12.5px;color:var(--dim);margin-top:2px">Your subject${(c.my_subjects||[]).length>1?"s":""}: <b style="color:var(--accent)">${esc((c.my_subjects||[]).join(", ")||"—")}</b> · ${c.students} students</div></div>
         <button class="btn sm ghost" data-cls="openclass" data-id="${c.id}">Open →</button></div>
-    </div>`).join(""):`<div class="card" style="color:var(--dim)">No subjects yet. Enter the code your head teacher gave you.</div>`}`;
+    </div>`).join(""):`<div class="card" style="color:var(--dim)">No subjects yet. Enter the code your school admin gave you.</div>`}`;
   const j=$("#tcJoin"); if(j)j.onkeydown=e=>{ if(e.key==="Enter")tcJoin(); };
 }
 async function tcJoin(){
@@ -5164,11 +5171,11 @@ async function noticeDelete(id){
 }
 
 async function renderHead(){
-  $("#main").innerHTML=`<div class="h1">🏫 Head teacher</div><p class="sub">Loading…</p>`;
+  $("#main").innerHTML=`<div class="h1">🏫 School admin</div><p class="sub">Loading…</p>`;
   let d; try{ d=await api.get("/api/head/overview"); }
-  catch(e){ $("#main").innerHTML=`<div class="h1">🏫 Head teacher</div><p class="sub">${esc(e.message)}</p>`; return; }
+  catch(e){ $("#main").innerHTML=`<div class="h1">🏫 School admin</div><p class="sub">${esc(e.message)}</p>`; return; }
   const cr=d.classrooms||[], reqs=d.requests||[];
-  $("#main").innerHTML=`<div class="h1">🏫 Head teacher${d.school?" · "+esc(d.school):""}</div>
+  $("#main").innerHTML=`<div class="h1">🏫 School admin${d.school?" · "+esc(d.school):""}</div>
     <p class="sub">Create classrooms, add a subject for each teacher (each subject gets its own code you give that teacher), and share the one class code with students. You see everything in your school.</p>
     <div class="card" style="margin-bottom:18px"><b>Create a classroom</b>
       <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
@@ -5431,7 +5438,7 @@ document.addEventListener("click",e=>{
   else if(k==="hrotclass"){ if(confirm("New student code? Students must re-enter the new code.")) api.post("/api/head/class/"+id+"/rotate",{}).then(()=>renderHead()).catch(()=>{}); }
   else if(k==="hdelclass"){ if(confirm("Delete this whole classroom?")) api.del("/api/teacher/class/"+id).then(()=>renderHead()).catch(e=>alert(e.message)); }
   else if(k==="reqdone"){ api.post("/api/head/request/"+id+"/done",{}).then(()=>renderHead()).catch(()=>{}); }
-  else if(k==="reqnew"){ const msg=prompt("What do you need from your head teacher? (e.g. add me to Maths in 6-B)"); if(msg) api.post("/api/teacher/request",{message:msg}).then(()=>alert("Request sent to your head teacher.")).catch(e=>alert(e.message)); }
+  else if(k==="reqnew"){ const msg=prompt("What do you need from your school admin? (e.g. add me to Maths in 6-B)"); if(msg) api.post("/api/teacher/request",{message:msg}).then(()=>alert("Request sent to your school admin.")).catch(e=>alert(e.message)); }
   else if(k==="openclass"){ S.view={page:"teacher",cid:id}; render(); }
   else if(k==="backteacher"){ S.view={page:"teacher"}; render(); }
   else if(k==="addasg") tcAddAsg(id);
