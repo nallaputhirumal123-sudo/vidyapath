@@ -3038,35 +3038,204 @@ function sbNewTopic(){
   renderAsk();
 }
 
-function sbPrint(){
+/* Keeping an explanation, and finding it again.
+ *
+ * Two categories, because they are two different things:
+ *   Class notes         what you typed against a lesson.
+ *   Saved explanations  the lesson itself, kept on purpose.
+ *
+ * A person hunting for something the night before an exam should not have to
+ * open three things to work out which kind each one is.
+ */
+const SAVED_PREFIX="sbsave_";
+let LIB={open:false,tab:"saved",saved:null,busy:false};
+
+function sbKeep(){
+  if(SB.busy){ toast("Still building that lesson — one moment."); return; }
+  const l=SB.lesson;
+  if(!l){ toast("There is no explanation on the board to keep."); return; }
+  const topic=(SB.topic||l.title||"").slice(0,80);
+  const key=SAVED_PREFIX+topic.toLowerCase().replace(/[^a-z0-9]+/g,"-")
+    .replace(/^-|-$/g,"").slice(0,100);
+  const payload={title:l.title||topic,topic:topic,
+    when:new Date().toISOString(),lesson:l};
+  const body=JSON.stringify(payload);
+  /* The server caps a saved explanation at 80,000 characters. Past that it
+     would be stored truncated, and truncated JSON fails when it is READ —
+     long after the person was told it saved. Better to say so now. */
+  if(body.length>79000){
+    toast("That lesson is too long to keep. Save it as a PDF instead.");
+    return;
+  }
+  api.post("/api/note",{key:key,value:body})
+    .then(()=>{ LIB.saved=null; toast("Kept. Find it under My notes."); })
+    .catch(()=>toast("That did not save. Check your connection."));
+}
+
+function libOpen(tab){
+  LIB.open=true; LIB.tab=tab||"saved";
+  libPaint();
+  if(LIB.saved===null) libLoad();
+}
+function libClose(){ LIB.open=false; const e=document.getElementById("libWrap");
+  if(e) e.remove(); }
+
+function libLoad(){
+  LIB.busy=true; libPaint();
+  api.get("/api/notes/saved")
+    .then(d=>{ LIB.saved=(d&&d.items)||[]; })
+    .catch(()=>{ LIB.saved=[]; toast("Could not load your saved explanations."); })
+    .then(()=>{ LIB.busy=false; libPaint(); });
+}
+
+/* Your own typed notes, newest key first. These already live in S.notes and
+   arrive with progress, so there is nothing to fetch. */
+function libClassNotes(){
+  return Object.keys(S.notes||{})
+    .filter(k=>k.indexOf("sbnote_")===0 && String(S.notes[k]||"").trim())
+    .map(k=>({key:k,topic:k.slice(7),text:String(S.notes[k]||"").trim()}));
+}
+
+function libPaint(){
+  let w=document.getElementById("libWrap");
+  if(!LIB.open){ if(w) w.remove(); return; }
+  if(!w){
+    w=document.createElement("div"); w.id="libWrap";
+    w.style.cssText="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);"+
+      "display:flex;align-items:center;justify-content:center;padding:16px";
+    document.body.appendChild(w);
+  }
+  const notes=libClassNotes();
+  const saved=LIB.saved||[];
+  const tab=LIB.tab;
+  const rows = tab==="saved"
+    ? (LIB.busy?"<div style='padding:22px;color:var(--dim)'>Loading…</div>"
+      : !saved.length
+      ? "<div style='padding:22px;color:var(--dim)'>Nothing kept yet. Open a "+
+        "lesson and press <b>Keep this explanation</b>.</div>"
+      : saved.map(it=>`<div class="librow">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:650">${esc(it.title)}</div>
+            <div style="font-size:11.5px;color:var(--dim)">${esc(
+              it.when?new Date(it.when).toLocaleDateString():"")}</div>
+          </div>
+          <button class="btn ghost sm" data-libpdf="${esc(it.key)}">⬇ PDF</button>
+          <button class="btn ghost sm" data-libdel="${esc(it.key)}">Remove</button>
+        </div>`).join(""))
+    : (!notes.length
+      ? "<div style='padding:22px;color:var(--dim)'>You have not written any "+
+        "notes yet. There is a note box under every lesson.</div>"
+      : notes.map(n=>`<div class="librow">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:650">${esc(n.topic)}</div>
+            <div style="font-size:11.5px;color:var(--dim);overflow:hidden;
+              text-overflow:ellipsis;white-space:nowrap">${esc(
+              n.text.slice(0,90))}</div>
+          </div>
+          <button class="btn ghost sm" data-libnpdf="${esc(n.key)}">⬇ PDF</button>
+          <button class="btn ghost sm" data-libndel="${esc(n.key)}">Remove</button>
+        </div>`).join(""));
+
+  const on="background:rgba(255,176,32,.14);color:var(--accent);"+
+    "border-color:var(--accent)";
+  w.innerHTML=`<div style="background:var(--card,#141414);border:1px solid
+      var(--line,#2a2a2a);border-radius:14px;max-width:620px;width:100%;
+      max-height:82vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:14px 16px;
+      border-bottom:1px solid var(--line,#2a2a2a)">
+      <b style="font-size:16px">My notes</b>
+      <button class="btn ghost sm" data-libx="1"
+        style="margin-left:auto">Close</button>
+    </div>
+    <div style="display:flex;gap:8px;padding:12px 16px 0">
+      <button class="btn ghost sm" data-libtab="saved"
+        style="${tab==="saved"?on:""}">Saved explanations</button>
+      <button class="btn ghost sm" data-libtab="notes"
+        style="${tab==="notes"?on:""}">Class notes</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--dim);padding:8px 16px 0">${
+      tab==="saved"?"Lessons you kept, in Axle's words."
+                   :"What you typed yourself, against a lesson."}</div>
+    <div style="overflow:auto;padding:10px 16px 16px">${rows}</div>
+  </div>`;
+  w.querySelectorAll(".librow").forEach(r=>{
+    r.style.cssText="display:flex;align-items:center;gap:8px;padding:11px 0;"+
+      "border-bottom:1px solid var(--line,#2a2a2a)";
+  });
+}
+
+/* A typed note reaches the same printer as a lesson by being handed to it in
+   the same shape — a title and one step. Its newlines become the bullets. */
+function libPrintNote(key){
+  const text=String((S.notes||{})[key]||"").trim();
+  if(!text) return toast("That note is empty.");
+  sbPrint({lesson:{title:key.slice(7)||"Class note",
+    steps:[{t:text,where:"",code:"",lang:""}],takeaway:""},
+    topic:key.slice(7),note:""});
+}
+
+function libPrintSaved(key){
+  api.get("/api/notes/saved/"+encodeURIComponent(key))
+    .then(d=>{
+      if(!d||!d.lesson||!d.lesson.steps) return toast("That one would not open.");
+      sbPrint({lesson:d.lesson,topic:d.topic||"",note:""});
+    })
+    .catch(()=>toast("That one would not open."));
+}
+
+function libRemove(key,isNote){
+  api.post("/api/note",{key:key,value:""})
+    .then(()=>{
+      if(isNote){ delete S.notes[key]; }
+      else { LIB.saved=(LIB.saved||[]).filter(x=>x.key!==key); }
+      libPaint(); toast("Removed.");
+    })
+    .catch(()=>toast("Could not remove that."));
+}
+
+function sbPrint(opts){
+  const nl=String.fromCharCode(10);
+  /* Defaults to the board's own lesson. A saved explanation passes its
+     own, so that keeping something and printing it are the same sheet. */
+  opts = opts || {};
+  const fromSaved = !!opts.lesson;
   /* Not while a new lesson is on its way. Asking a second question and
      pressing download before it lands printed the PREVIOUS lesson under the
      new heading — one topic's title over another topic's steps, which is
      exactly what "both topics are mixed" looks like. */
-  if(SB.busy){ toast("Still building that lesson — one moment."); return; }
-  const l=SB.lesson; if(!l) return;
-  if(SB.topic && l.title &&
-     !l.title.toLowerCase().includes(SB.topic.toLowerCase().slice(0,12)) &&
-     !SB.topic.toLowerCase().includes(l.title.toLowerCase().slice(0,12))){
+  if(!fromSaved && SB.busy){
+    toast("Still building that lesson — one moment."); return; }
+  const l=opts.lesson||SB.lesson; if(!l) return;
+  const topic=opts.topic!==undefined?opts.topic:(SB.topic||"");
+  if(topic && l.title &&
+     !l.title.toLowerCase().includes(topic.toLowerCase().slice(0,12)) &&
+     !topic.toLowerCase().includes(l.title.toLowerCase().slice(0,12))){
     /* The model titles its own lesson, and sometimes titles it something
        broader than what was asked. Print both so the sheet always says which
        question produced it. */
-    l.asked = SB.topic;
+    l.asked = topic;
   }
-  const nl=String.fromCharCode(10);
+  /* Lessons are written one idea per line — that is what the prompt asks
+     for and how the board shows them. Joining those lines back into a
+     paragraph on paper undoes the only thing making them readable. */
+  const bullets=(t)=>{
+    const parts=String(t||"").split(nl).map(x=>x.trim()).filter(Boolean);
+    if(parts.length<2) return `<p>${mathText(esc(parts[0]||""))}</p>`;
+    return "<ul>"+parts.map(x=>`<li>${mathText(esc(x))}</li>`).join("")+"</ul>";
+  };
   const steps=l.steps.map((st,k)=>
-    `<h3>Step ${k+1}</h3><p>${mathText(esc(st.t||""))}</p>`+
+    `<h3>Step ${k+1}</h3>${bullets(st.t)}`+
     (st.where?`<div class="wh">🖥 ${esc(st.where)}</div>`:"")+
     (st.code?`<pre>${esc(st.code)}</pre>`:"")+
     (st.scene?`<p><i>[3D scene: ${esc(st.scene.caption||st.scene.kind)}]</i></p>`:"")+
     (st.sketch?`<p><i>[sketch: ${esc(st.sketch.caption||st.sketch.kind)}]</i></p>`:"")
   ).join(nl);
-  const note=(S.notes[sbNoteKey()]||"").trim();
+  const note=opts.note!==undefined?opts.note:(S.notes[sbNoteKey()]||"").trim();
   const w=window.open("","_blank");
   if(!w) return toast("Allow pop-ups to save this as a PDF.");
   const when=new Date().toLocaleDateString(undefined,
     {year:"numeric",month:"long",day:"numeric"});
-  w.document.write(`<html><head><title>${esc(SB.topic||l.title)} — Craxle</title>
+  w.document.write(`<html><head><title>${esc(topic||l.title)} — Craxle</title>
     <style>
       @page{margin:18mm 16mm 20mm;
         /* Printed pages get separated from where they came from. The running
@@ -3083,6 +3252,8 @@ function sbPrint(){
       .hd .nm span{color:#ff9933}
       .hd .rt{margin-left:auto;font-size:11px;color:#777;text-align:right}
       h1{font-size:24px;margin:0 0 2px}h3{margin:20px 0 4px;font-size:15px}
+      ul{margin:4px 0 0;padding-left:20px}
+      li{margin:0 0 5px;page-break-inside:avoid}
       .mfrac{display:inline-flex;flex-direction:column;text-align:center;
         vertical-align:-.45em;margin:0 .18em;line-height:1.15}
       .mnum{border-bottom:1.4px solid currentColor;padding:0 .28em}
@@ -3111,10 +3282,9 @@ function sbPrint(){
       <div class="rt">craxle.com<br>${esc(when)}</div>
     </div>
     <h1>${mathText(esc(l.title))}</h1>
-    ${SB.topic&&SB.topic.toLowerCase()!==String(l.title||"").toLowerCase()
+    ${topic&&topic.toLowerCase()!==String(l.title||"").toLowerCase()
       ?`<p style="color:#666;font-size:12pt;margin:-6px 0 14px">
-          You asked: ${esc(SB.topic)}</p>`:""}
-    <div style="color:#666;font-size:13px">${esc(SB.topic||"")}</div>
+          You asked: ${esc(topic)}</p>`:""}
     ${steps}
     ${l.takeaway?`<div class="tk"><b>Takeaway:</b> ${mathText(esc(l.takeaway))}</div>`:""}
     ${note?`<div class="nt"><b>My notes:</b><br>${esc(note)}</div>`:""}
@@ -3374,6 +3544,8 @@ function sbToolsHTML(){
           <div class="row" style="gap:6px;margin-top:6px">
             <button class="btn ghost sm" data-sbnote="1">Save note</button>
             <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
+            <button class="btn ghost sm" data-sbkeep="1">★ Keep this explanation</button>
+            <button class="btn ghost sm" data-sblib="1">📚 My notes</button>
       <!-- Explicit, because the alternative was ambiguous: typing into the
            follow-up box continues the same lesson, and there was nothing that
            plainly said "this is a different question now". -->
@@ -6456,6 +6628,20 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-sbask]")) return sbAsk();
   if(e.target.closest("[data-sbnote]")) return sbSaveNote();
   if(e.target.closest("[data-sbpdf]")) return sbPrint();
+  if(e.target.closest("[data-sbkeep]")) return sbKeep();
+  if(e.target.closest("[data-sblib]")) return libOpen("saved");
+  { const t=e.target.closest("[data-libtab]");
+    if(t){ LIB.tab=t.dataset.libtab; libPaint();
+           if(LIB.tab==="saved"&&LIB.saved===null) libLoad(); return; } }
+  if(e.target.closest("[data-libx]")) return libClose();
+  { const b=e.target.closest("[data-libpdf]");
+    if(b) return libPrintSaved(b.dataset.libpdf); }
+  { const b=e.target.closest("[data-libnpdf]");
+    if(b) return libPrintNote(b.dataset.libnpdf); }
+  { const b=e.target.closest("[data-libdel]");
+    if(b) return libRemove(b.dataset.libdel,false); }
+  { const b=e.target.closest("[data-libndel]");
+    if(b) return libRemove(b.dataset.libndel,true); }
   if(e.target.closest("[data-sbnew]")) return sbNewTopic();
 });
 document.addEventListener("keydown",e=>{

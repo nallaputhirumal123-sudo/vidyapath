@@ -3836,7 +3836,11 @@ def get_progress(user: User = Depends(current_user), db: Session = Depends(get_d
         "done": {r.lesson_slug: True for r in rows if r.completed},
         "code": {r.lesson_slug: r.code for r in rows if r.code},
         "quiz": {q.track_slug: True for q in all_quizzes if q.passed},
-        "notes": {n.k: n.v for n in notes},
+        # Saved explanations are whole lessons and are deliberately
+        # absent here. This payload is sent on every page load; their
+        # bodies are fetched by the notes page when it is opened.
+        "notes": {n.k: n.v for n in notes
+                  if not n.k.startswith(SAVED_PREFIX)},
         "path": user.path,
         "stats": _compute_stats(rows, all_quizzes, notes),
     }
@@ -3869,6 +3873,48 @@ def post_quiz(body: QuizIn, user: User = Depends(current_user), db: Session = De
     return {"passed": passed}
 
 
+SAVED_PREFIX = "sbsave_"
+
+
+@app.get("/api/notes/saved")
+def saved_list(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """What a person has kept, without the keeping.
+
+    Titles and dates only. The bodies are whole lessons and there is no reason
+    to send twenty of them to draw a list of twenty titles.
+    """
+    rows = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k.startswith(SAVED_PREFIX)).all()
+    out = []
+    for r in rows:
+        try:
+            d = json.loads(r.v)
+        except Exception:
+            continue          # truncated or hand-edited; not worth a 500
+        out.append({"key": r.k,
+                    "title": d.get("title") or "Untitled",
+                    "topic": d.get("topic") or "",
+                    "when": d.get("when") or ""})
+    out.sort(key=lambda x: x["when"], reverse=True)
+    return {"items": out}
+
+
+@app.get("/api/notes/saved/{key}")
+def saved_one(key: str, user: User = Depends(current_user),
+              db: Session = Depends(get_db)):
+    """One saved explanation, opened on purpose."""
+    if not key.startswith(SAVED_PREFIX):
+        raise HTTPException(400, "Not a saved explanation.")
+    row = db.query(Note).filter(Note.user_id == user.id, Note.k == key).first()
+    if not row:
+        raise HTTPException(404, "That one is not saved any more.")
+    try:
+        return json.loads(row.v)
+    except Exception:
+        raise HTTPException(422, "That saved explanation did not survive "
+                                 "storage and cannot be opened.")
+
+
 @app.post("/api/note")
 def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if body.key == "__path__":
@@ -3887,7 +3933,16 @@ def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = De
     # Resume payloads (which can include a base64 photo and a full positional
     # layout) are much larger than a checklist note, so give resume keys plenty
     # of room; everything else stays modest.
-    cap = 600_000 if body.key.startswith("resume") else 5000
+    # A saved explanation is a whole lesson, not a checklist line. At
+    # 5000 it was truncated into invalid JSON, which fails when it is
+    # read back rather than when it is saved — the worst place to
+    # find out that something did not keep.
+    if body.key.startswith("resume"):
+        cap = 600_000
+    elif body.key.startswith(SAVED_PREFIX):
+        cap = 80_000
+    else:
+        cap = 5000
     row.v = body.value[:cap]
     db.commit()
     return {"ok": True}
