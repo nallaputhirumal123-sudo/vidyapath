@@ -375,6 +375,10 @@ async function submit(up){
 var TILES = [
   { page:"board",  ic:"⚡", name:"Ask the board",
     sub:"Any subject, taught step by step, with a diagram where one helps." },
+  { page:"write",  ic:"✍️", name:"Writing space",
+    sub:"A blank surface to work on by hand. Save it as a picture." },
+  { page:"calc",   ic:"🧮", name:"Calculator",
+    sub:"Arithmetic, powers and roots, worked on screen where the room can see it." },
   { page:"net",    ic:"🌐", name:"Packet walkthrough",
     sub:"Send a packet through real routes and firewall rules and watch the decision." },
   { page:"lab",    ic:"🧪", name:"The lab",
@@ -384,6 +388,8 @@ var TILES = [
 ];
 
 var TEACHER_TILES = [
+  { page:"roll",     ic:"👥", name:"Your classes",
+    sub:"The classrooms you teach, who is in them, and how each one is doing." },
   { page:"materials", ic:"📎", name:"Study material",
     sub:"Links, PDFs and slides your class can open." },
   { page:"roster",   ic:"📋", name:"Class register",
@@ -550,6 +556,191 @@ function home(){
   main().innerHTML = h;
 }
 
+/* ---------- a surface to write on ----------
+ *
+ * The thing a smart board is for. Everything else here is the platform
+ * teaching; this is the teacher teaching, and a classroom display without
+ * somewhere to write by hand is a television.
+ *
+ * Pointer events rather than mouse or touch, because a board is used with a
+ * finger, a stylus and sometimes a mouse in the same lesson, and three
+ * separate handlers is three chances for one of them to be the broken one.
+ * Coalesced events are read where the browser offers them: a stylus reports
+ * far faster than the screen repaints, and dropping those samples is what
+ * makes handwriting look like a polygon.
+ */
+var PENS = [
+  { name:"White", colour:"#e8eef6" }, { name:"Amber", colour:"#ff9933" },
+  { name:"Green", colour:"#3fae6a" }, { name:"Red", colour:"#e05a5a" },
+  { name:"Blue",  colour:"#5aa9e0" }
+];
+
+function write(){
+  main().innerHTML =
+    '<div class="eyebrow">Writing space</div>' +
+    '<div class="card" style="padding:.7rem">' +
+      '<div id="wTools" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem">' +
+        PENS.map(function(p, i){
+          return '<button class="iconbtn" data-pen="' + i + '" title="' + p.name + '" ' +
+            'style="background:' + p.colour + ';border-color:' + p.colour +
+            ';width:2rem"></button>';
+        }).join("") +
+        '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
+        '<input type="range" id="wSize" min="2" max="28" value="5" ' +
+          'title="Thickness" style="width:7rem">' +
+        '<span class="grow"></span>' +
+        '<button class="btn ghost" id="wClear">Clear</button>' +
+        '<button class="btn ghost" id="wShot">Save as picture</button>' +
+      "</div>" +
+      '<canvas id="wCanvas" style="width:100%;height:62vh;touch-action:none;' +
+        'background:var(--panel2);border-radius:12px;display:block"></canvas>' +
+      '<div class="muted" id="wMsg" style="margin-top:.4rem">' +
+        "Write with a finger, a stylus or a mouse.</div>" +
+    "</div>";
+
+  var cv = el("wCanvas");
+  var ctx = cv.getContext("2d");
+  var pen = PENS[0].colour, size = 5, erasing = false, drawing = false;
+
+  /* Sized to the device's real pixels, or a 4K board draws a blurry line
+     over a stretched bitmap. Redrawn from a saved copy so resizing (or
+     rotating the board) does not wipe what is on it. */
+  function fit(){
+    var keep = null;
+    try{ keep = cv.width ? ctx.getImageData(0, 0, cv.width, cv.height) : null; }
+    catch(e){ keep = null; }
+    var r = cv.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = Math.max(1, Math.round(r.width * dpr));
+    cv.height = Math.max(1, Math.round(r.height * dpr));
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if(keep) try{ ctx.putImageData(keep, 0, 0); }catch(e){}
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  function at(e){
+    var r = cv.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    return { x:(e.clientX - r.left) * dpr, y:(e.clientY - r.top) * dpr };
+  }
+  function stroke(from, to, e){
+    ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
+    ctx.strokeStyle = pen;
+    /* A stylus that reports pressure is used with it; everything else draws
+       at the chosen thickness. */
+    var p = (e && e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
+    ctx.lineWidth = (erasing ? size * 3 : size) * (window.devicePixelRatio || 1)
+                    * (0.6 + p * 0.8);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+
+  var last = null;
+  cv.addEventListener("pointerdown", function(e){
+    drawing = true;
+    last = at(e);
+    cv.setPointerCapture(e.pointerId);
+    stroke(last, { x:last.x + 0.01, y:last.y }, e);   // a dot is a mark too
+  });
+  cv.addEventListener("pointermove", function(e){
+    if(!drawing) return;
+    var pts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null) || [e];
+    for(var i = 0; i < pts.length; i++){
+      var now_ = at(pts[i]);
+      stroke(last, now_, pts[i]);
+      last = now_;
+    }
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
+    cv.addEventListener(ev, function(){ drawing = false; last = null; });
+  });
+
+  el("wTools").querySelectorAll("[data-pen]").forEach(function(b){
+    b.onclick = function(){
+      if(b.dataset.pen === "erase"){ erasing = true; return; }
+      erasing = false;
+      pen = PENS[+b.dataset.pen].colour;
+    };
+  });
+  el("wSize").oninput = function(){ size = +el("wSize").value; };
+  el("wClear").onclick = function(){
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, cv.width, cv.height);
+  };
+  /* A picture of what is on the board, which is what "screenshot" means in
+     a classroom — the working, not the browser chrome around it. Drawn onto
+     a solid background first, or a transparent PNG opens as black on black
+     in half the apps a teacher will send it to. */
+  el("wShot").onclick = function(){
+    var out = document.createElement("canvas");
+    out.width = cv.width;
+    out.height = cv.height;
+    var o = out.getContext("2d");
+    o.fillStyle = "#0e1621";
+    o.fillRect(0, 0, out.width, out.height);
+    o.drawImage(cv, 0, 0);
+    var a = document.createElement("a");
+    a.href = out.toDataURL("image/png");
+    a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
+                   .replace(/[:T]/g, "-") + ".png";
+    a.click();
+    el("wMsg").textContent = "Saved as a picture.";
+  };
+}
+
+/* ---------- a calculator the back row can read ---------- */
+function calc(){
+  main().innerHTML =
+    '<div class="eyebrow">Calculator</div>' +
+    '<div class="card" style="max-width:26rem">' +
+      '<input id="cIn" placeholder="12 * (3 + 4) - 2^5" ' +
+        'style="width:100%;font-size:1rem;text-align:right" autocomplete="off">' +
+      '<div id="cOut" class="big" style="text-align:right;margin:.6rem 0;' +
+        'min-height:1.6rem;color:var(--accent)"></div>' +
+      '<div class="muted" id="cErr"></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin-top:.7rem">' +
+        ["7","8","9","/","4","5","6","*","1","2","3","-","0",".","(",")",
+         "^","sqrt(","%","+"].map(function(k){
+          return '<button class="btn ghost" data-k="' + k + '">' + k + "</button>";
+        }).join("") +
+        '<button class="btn ghost" data-k="back">←</button>' +
+        '<button class="btn ghost" data-k="clear">C</button>' +
+        '<button class="btn" data-k="eq" style="grid-column:span 2">=</button>' +
+      "</div></div>" +
+    '<div class="muted" style="max-width:26rem">Worked on the server with the ' +
+      "same checker the lessons use, so it cannot run anything but arithmetic.</div>";
+
+  var inp = el("cIn");
+  function press(k){
+    if(k === "clear"){ inp.value = ""; el("cOut").textContent = ""; el("cErr").textContent = ""; return; }
+    if(k === "back"){ inp.value = inp.value.slice(0, -1); return; }
+    if(k === "eq"){ run(); return; }
+    inp.value += k;
+    inp.focus();
+  }
+  async function run(){
+    var expr = (inp.value || "").trim();
+    if(!expr) return;
+    el("cErr").textContent = "";
+    try{
+      var d = await api.post("/api/craxlearn/calc", { expression: expr });
+      el("cOut").textContent = d.result;
+    }catch(e){
+      el("cOut").textContent = "";
+      el("cErr").textContent = e.message;
+    }
+  }
+  main().querySelectorAll("[data-k]").forEach(function(b){
+    b.onclick = function(){ press(b.dataset.k); };
+  });
+  inp.onkeydown = function(e){ if(e.key === "Enter") run(); };
+  inp.focus();
+}
+
 /* ---------- study material ----------
  *
  * One screen, two audiences. A student gets a list they can open; a teacher
@@ -673,6 +864,131 @@ async function materials(){
       materials();
     }catch(e){ el("mFMsg").textContent = e.message; }
   };
+}
+
+/* ---------- my classrooms, and only mine ----------
+ *
+ * A teacher's own first screen: the classes the head put them in and the
+ * learners the head enrolled. Not a search across the school — a list of
+ * exactly what is theirs, which is both the useful thing and the safe one.
+ * The server enforces it; this only draws what came back.
+ */
+async function roll(){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/roll"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<div class="eyebrow">Your classrooms</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="sCode" placeholder="Look up a student id" style="flex:1 1 12rem">' +
+      '<button class="btn" id="sGo">Find</button>' +
+    '</div><div class="muted" id="sMsg" style="margin-top:.4rem">' +
+      "Only students in your own classes." +
+    "</div></div>";
+
+  if(!(d.classes || []).length){
+    h += '<div class="card muted">' + esc(d.note ||
+      "You have not been given a class yet. Your head teacher assigns them.") +
+      "</div>";
+  }
+  (d.classes || []).forEach(function(c){
+    h += '<div class="card"><b>' + esc(c.name) + "</b>" +
+      (c.my_subjects && c.my_subjects.length
+        ? ' <span class="muted">· ' + esc(c.my_subjects.join(", ")) + "</span>" : "") +
+      ' <span class="muted">· code ' + esc(c.join_code) + "</span>" +
+      (c.students.length
+        ? '<div class="wrap" style="margin-top:.6rem"><table>' +
+          "<tr><th>Student</th><th>Id</th><th>Attendance</th><th></th></tr>" +
+          c.students.map(function(s){
+            return "<tr><td>" + esc(s.name) + "</td><td>" +
+              esc(s.student_code || "—") + "</td><td>" +
+              (s.attendance_pct === null || s.attendance_pct === undefined
+                ? "—" : s.attendance_pct + "%") + "</td><td>" +
+              '<button class="btn ghost" data-stu="' + s.user_id +
+              '">Progress</button></td></tr>';
+          }).join("") + "</table></div>"
+        : '<div class="muted" style="margin-top:.5rem">Nobody has joined yet. ' +
+          "Add the register, then give out the class code.</div>") +
+      "</div>";
+  });
+  main().innerHTML = h;
+
+  main().querySelectorAll("[data-stu]").forEach(function(b){
+    b.onclick = function(){ go("student", b.dataset.stu); };
+  });
+  el("sGo").onclick = async function(){
+    var code = (el("sCode").value || "").trim();
+    if(!code) return;
+    el("sMsg").textContent = "Looking…";
+    try{
+      var got = await api.get("/api/teacher/student-by-code?code=" +
+                              encodeURIComponent(code));
+      go("student", got.student.user_id);
+    }catch(e){ el("sMsg").textContent = e.message; }
+  };
+}
+
+async function student(uid){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/student/" + uid); }
+  catch(e){ main().innerHTML = '<button class="btn ghost" data-go="roll">← Back</button>' +
+    '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var s = d.student;
+  var h = '<button class="btn ghost" data-go="roll">← Back to your classes</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(s.name) + "</h1>" +
+    '<p class="muted">' +
+      (s.student_code ? esc(s.student_code) + " · " : "") +
+      (d.classes || []).map(function(c){ return esc(c.name); }).join(", ") +
+      (s.class_login ? " · signs in with the class code" : "") + "</p>";
+
+  h += '<div style="display:flex;gap:1rem;flex-wrap:wrap">' +
+    '<div class="card" style="flex:1 1 9rem"><div class="muted">Attendance</div>' +
+      '<span class="big">' +
+      (d.attendance_pct === null || d.attendance_pct === undefined
+        ? "—" : d.attendance_pct + "%") + "</span></div>" +
+    '<div class="card" style="flex:1 1 9rem"><div class="muted">Lessons finished</div>' +
+      '<span class="big">' + (d.lessons_completed || 0) + "</span></div>" +
+    '<div class="card" style="flex:1 1 9rem"><div class="muted">Handed in</div>' +
+      '<span class="big">' + (d.handed_in || []).length + "</span></div>" +
+    "</div>";
+
+  function list(title, rows, render, empty){
+    return '<div class="eyebrow">' + title + "</div>" +
+      (rows.length ? '<div class="card">' + rows.map(render).join("") + "</div>"
+                   : '<div class="card muted">' + empty + "</div>");
+  }
+
+  h += list("What they have learnt", d.learnt || [], function(x){
+    return "<div>" + esc(x.skill) +
+      (x.times > 1 ? ' <span class="muted">· ' + x.times + " times</span>" : "") +
+      "</div>";
+  }, "Nothing recorded yet.");
+
+  h += list("Exams and quizzes", d.exams || [], function(x){
+    return "<div>" + esc(x.track) + " — <b>" + x.score + "/" + x.total + "</b> " +
+      (x.passed ? '<span style="color:var(--ok)">passed</span>'
+                : '<span class="muted">not passed</span>') +
+      ' <span class="muted">· ' + esc((x.at || "").slice(0,10)) + "</span></div>";
+  }, "No exam has been taken.");
+
+  h += list("Work handed in", d.handed_in || [], function(x){
+    return "<div>" + esc(x.title) + " " +
+      (x.reviewed ? '<span style="color:var(--ok)">✓ marked</span>'
+                  : '<span class="muted">waiting</span>') +
+      (x.feedback ? '<div class="muted">' + esc(x.feedback) + "</div>" : "") +
+      "</div>";
+  }, "Nothing handed in yet.");
+
+  h += list("What they searched for", d.searched || [], function(x){
+    return "<div>" + esc(x.text) +
+      ' <span class="muted">· ' + esc(x.kind) + " · " +
+      esc((x.at || "").slice(0,10)) + "</span></div>";
+  }, "Nothing yet.");
+
+  main().innerHTML = h;
 }
 
 /* ---------- the class register ---------- */
@@ -1033,6 +1349,10 @@ function go(page, arg){
   else if(page === "sources")   sources();
   else if(page === "inbox")     inbox();
   else if(page === "materials") materials();
+  else if(page === "write")     write();
+  else if(page === "calc")      calc();
+  else if(page === "roll")      roll();
+  else if(page === "student")   student(arg);
   else if(page === "roster")    roster();
   else if(page === "assignment") assignment(arg);
   else if(page === "review")    review(arg && arg.aid, arg && arg.sid);

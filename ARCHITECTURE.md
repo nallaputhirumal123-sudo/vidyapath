@@ -68,6 +68,8 @@ Six suites, all runnable directly, all must pass before committing:
 - `test_classwork.py` — board → assignment → submission → review, end to end
 - `test_office.py` — attendance, fees and notices, and the staff who may not
   touch them
+- `test_roll.py` — which learners a teacher may see, and the calculator's
+  allowlist
 - `test_classcode.py` — code-only login, materials, and the account reset
   (runs against its own database)
 
@@ -119,6 +121,14 @@ else — see `craxlearn.age_ok`. Making silence mean "child" everywhere was
 tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
+
+**Who may see a learner is one function.** `_may_see_learner` — the rule is
+the CLASSROOM, not the school. Everything showing a learner's detail goes
+through it, written once, because two copies would drift until one let
+somebody through. A subject teacher sees the rooms they hold a subject in; a
+head and the office see their school. Lookup by student id searches only
+inside that set and answers 404 for a code that exists elsewhere: "exists but
+not yours" is still a fact about somebody's child.
 
 **Three school roles, and the split is deliberate.** `teacher` is the class
 and nothing else; `head` runs the teaching and creates staff profiles;

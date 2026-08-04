@@ -790,6 +790,12 @@ class RosterName(Base):
     class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
                       nullable=False, index=True)
     name = Column(String(80), nullable=False)
+    # The school's own identifier for this child, typed by the teacher next
+    # to the name. Optional: a class of thirty first-names is fine without
+    # one, and a school with two Asha Raos is not. It is what a teacher
+    # types to look somebody up, because it is what is already written on
+    # everything else in the building.
+    student_code = Column(String(40), default="", index=True)
     claimed_by = Column(Integer, default=0, index=True)   # User.id, 0 = free
     claimed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), default=now)
@@ -3490,6 +3496,11 @@ import dalia as _dalia                                              # noqa: E402
 # happen to enforce them.
 import craxlearn as _cl                                             # noqa: E402
 
+# The allowlisted arithmetic evaluator. Imported again further down for the
+# lesson checks; imported here too so the classroom calculator's dependency
+# is visible beside the endpoint that uses it rather than 7,000 lines away.
+import maths as _maths                                              # noqa: E402
+
 
 def _scope_of(db, user):
     """Which pool this person's questions and answers belong to.
@@ -5023,10 +5034,15 @@ def set_roster(cid: int, body: RosterIn, user: User = Depends(teacher_user),
             .filter(RosterName.class_id == cid).all()}
     added = 0
     for line in (body.names or "").splitlines():
-        name = " ".join(line.split())[:80]
+        # "Asha Rao, 8A-014" — the name, then the school's own id for them.
+        # Comma-separated because that is how a register pastes out of a
+        # spreadsheet, which is where every one of these lists comes from.
+        parts = [p.strip() for p in line.split(",", 1)]
+        name = " ".join(parts[0].split())[:80]
+        code = (parts[1] if len(parts) > 1 else "")[:40]
         if len(name) < 2 or name.lower() in have:
             continue
-        db.add(RosterName(class_id=cid, name=name))
+        db.add(RosterName(class_id=cid, name=name, student_code=code))
         have[name.lower()] = True
         added += 1
     db.commit()
@@ -5037,6 +5053,8 @@ def _roster_json(db, cid):
     rows = (db.query(RosterName).filter(RosterName.class_id == cid)
               .order_by(RosterName.name.asc()).all())
     return {"roster": [{"id": r.id, "name": r.name,
+                        "student_code": r.student_code or "",
+                        "user_id": r.claimed_by or 0,
                         "claimed": bool(r.claimed_by)} for r in rows],
             "free": sum(1 for r in rows if not r.claimed_by),
             "total": len(rows)}
@@ -5064,6 +5082,193 @@ def drop_roster_name(rid: int, user: User = Depends(teacher_user),
     db.delete(r)
     db.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Which learners a member of staff may look at
+# --------------------------------------------------------------------------
+# One function answers it, and everything that shows a learner's detail goes
+# through it. Written once on purpose: this is the rule that keeps a teacher
+# out of another teacher's pupils' records, and two copies of it would drift
+# until one of them let somebody through.
+#
+# The rule is the classroom, not the school. A teacher may teach in several
+# classrooms and sees the learners in those; a head sees their whole school
+# because they are responsible for it; the office sees their whole school
+# because attendance and fees are theirs to keep. Nobody sees outside it.
+
+def _my_class_ids(db, user) -> set:
+    """Every classroom this member of staff may look into."""
+    if user.is_admin:
+        return None                     # None means "no restriction"
+    t = teacher_row(user, db)
+    if not t:
+        return set()
+    if t.role in ("head", "schooladmin"):
+        return {k.id for k in db.query(Klass)
+                .filter(Klass.school_id == t.school_id).all()} or {
+                    k.id for k in db.query(Klass)
+                    .filter(Klass.teacher_id == user.id).all()}
+    # A subject teacher: the classrooms where they hold a subject, plus any
+    # they were made the owning teacher of.
+    ids = {s.class_id for s in db.query(SubjectSlot)
+           .filter(SubjectSlot.teacher_id == user.id).all()}
+    ids |= {k.id for k in db.query(Klass)
+            .filter(Klass.teacher_id == user.id).all()}
+    return ids
+
+
+def _may_see_learner(db, user, learner_id) -> bool:
+    """Is this learner in one of my classrooms?"""
+    mine = _my_class_ids(db, user)
+    if mine is None:
+        return True
+    if not mine:
+        return False
+    return db.query(ClassMember).filter(
+        ClassMember.user_id == learner_id,
+        ClassMember.class_id.in_(list(mine))).first() is not None
+
+
+@app.get("/api/teacher/roll")
+def teacher_roll(user: User = Depends(teacher_user),
+                 db: Session = Depends(get_db)):
+    """My classrooms and who is in them. Nothing outside them.
+
+    A teacher's own first screen: the classes the head put them in, and the
+    learners the head enrolled. Not a search over the school — a list of
+    exactly what is theirs, which is both the useful thing and the safe one.
+    """
+    mine = _my_class_ids(db, user)
+    q = db.query(Klass)
+    if mine is not None:
+        if not mine:
+            return {"classes": [], "note": "You have not been given a class yet."}
+        q = q.filter(Klass.id.in_(list(mine)))
+    out = []
+    for k in q.order_by(Klass.name.asc()).limit(100).all():
+        codes = {r.claimed_by: r.student_code for r in db.query(RosterName)
+                 .filter(RosterName.class_id == k.id).all() if r.claimed_by}
+        learners = (db.query(User)
+                      .join(ClassMember, ClassMember.user_id == User.id)
+                      .filter(ClassMember.class_id == k.id)
+                      .order_by(User.name.asc()).all())
+        subs = sorted({s.subject for s in db.query(SubjectSlot)
+                       .filter(SubjectSlot.class_id == k.id,
+                               SubjectSlot.teacher_id == user.id).all()})
+        out.append({
+            "id": k.id, "name": k.name, "school": k.school or "",
+            "join_code": k.join_code, "my_subjects": subs,
+            "students": [{"user_id": u.id, "name": u.name,
+                          "student_code": codes.get(u.id, ""),
+                          **_attendance_totals(db, u.id)} for u in learners],
+        })
+    return {"classes": out}
+
+
+@app.get("/api/teacher/student/{uid}")
+def teacher_student(uid: int, user: User = Depends(teacher_user),
+                    db: Session = Depends(get_db)):
+    """One learner's progress — but only one of mine.
+
+    What they have finished, what they searched for, what they scored, what
+    they have handed in. A teacher asking after a child they teach is the
+    ordinary case; the same request for a child in another teacher's class,
+    or another school, is refused rather than filtered, so there is no
+    version of this that returns a partial record and looks like an answer.
+    """
+    if not _may_see_learner(db, user, uid):
+        raise HTTPException(
+            403, "That learner is not in any of your classes.")
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "Not found")
+
+    mine = _my_class_ids(db, user)
+    classes = (db.query(Klass)
+                 .join(ClassMember, ClassMember.class_id == Klass.id)
+                 .filter(ClassMember.user_id == uid).all())
+    if mine is not None:
+        classes = [k for k in classes if k.id in mine]
+
+    code = (db.query(RosterName.student_code)
+              .filter(RosterName.claimed_by == uid).first())
+
+    # What they searched and asked. Only their own records, and only from
+    # inside this school's scope — the same rows the aggregate view counts,
+    # named here because a teacher asking about one child they teach is a
+    # different question from browsing the school.
+    asked = (db.query(LearnRecord)
+               .filter(LearnRecord.user_id == uid)
+               .order_by(LearnRecord.created_at.desc()).limit(60).all())
+
+    quizzes = (db.query(QuizResult).filter(QuizResult.user_id == uid)
+                 .order_by(QuizResult.created_at.desc()).limit(60).all())
+
+    done = (db.query(func.count(Progress.id))
+              .filter(Progress.user_id == uid,
+                      Progress.completed == True).scalar() or 0)  # noqa: E712
+
+    subs = (db.query(Submission, Assignment)
+              .join(Assignment, Assignment.id == Submission.assignment_id)
+              .filter(Submission.user_id == uid)
+              .order_by(Submission.updated_at.desc()).limit(60).all())
+    if mine is not None:
+        subs = [(s, a) for s, a in subs if a.class_id in mine]
+
+    skills = (db.query(SkillUnlock).filter(SkillUnlock.user_id == uid)
+                .order_by(SkillUnlock.last_at.desc()).limit(60).all())
+
+    return {
+        "student": {"user_id": u.id, "name": u.name,
+                    "student_code": (code[0] if code else "") or "",
+                    "class_login": (u.kind or "") == "classcode"},
+        "classes": [{"id": k.id, "name": k.name} for k in classes],
+        **_attendance_totals(db, uid),
+        "lessons_completed": done,
+        "learnt": [{"skill": s.label, "times": s.times or 1} for s in skills],
+        "searched": [{"text": r.text, "kind": r.kind,
+                      "subject": r.subject or "",
+                      "at": r.created_at.isoformat() if r.created_at else ""}
+                     for r in asked],
+        "exams": [{"track": q.track_slug, "score": q.score, "total": q.total,
+                   "passed": bool(q.passed),
+                   "at": q.created_at.isoformat() if q.created_at else ""}
+                  for q in quizzes],
+        "handed_in": [{"assignment_id": a.id, "title": a.title,
+                       "subject": a.subject or "",
+                       "reviewed": bool(s.reviewed_at),
+                       "feedback": s.feedback or "",
+                       "at": s.updated_at.isoformat() if s.updated_at else ""}
+                      for s, a in subs],
+    }
+
+
+@app.get("/api/teacher/student-by-code")
+def teacher_student_by_code(code: str, user: User = Depends(teacher_user),
+                            db: Session = Depends(get_db)):
+    """Look a learner up by the school's own id for them.
+
+    Searched only inside the classrooms this member of staff teaches. A code
+    that exists elsewhere in the school comes back as "not found" and not as
+    "not allowed" — telling a teacher that a code is real but off limits is
+    still telling them something about a child they have no business with.
+    """
+    code = (code or "").strip()
+    if len(code) < 1:
+        raise HTTPException(400, "Type a student id")
+    mine = _my_class_ids(db, user)
+    q = db.query(RosterName).filter(
+        func.upper(RosterName.student_code) == code.upper(),
+        RosterName.claimed_by != 0)
+    if mine is not None:
+        if not mine:
+            raise HTTPException(404, "No learner of yours has that id")
+        q = q.filter(RosterName.class_id.in_(list(mine)))
+    r = q.first()
+    if not r:
+        raise HTTPException(404, "No learner of yours has that id")
+    return teacher_student(r.claimed_by, user, db)
 
 
 class CodeIn(BaseModel):
@@ -5517,6 +5722,39 @@ def teacher_inbox(user: User = Depends(teacher_user),
         })
     return {"waiting": waiting, "classes": len(by_class),
             "total": len(waiting), "reviewed": reviewed}
+
+
+class CalcIn(BaseModel):
+    expression: str = Field(min_length=1, max_length=300)
+
+
+@app.post("/api/craxlearn/calc")
+def craxlearn_calc(body: CalcIn, user: User = Depends(current_user)):
+    """A calculator, worked by the same evaluator that checks the lessons.
+
+    Not eval, and not a model. `maths.evaluate` parses to a syntax tree and
+    walks it against an allowlist — numbers, arithmetic and a short list of
+    functions — so an expression typed on a classroom board by whoever is
+    standing at it can contain only arithmetic. That matters more here than
+    anywhere else in the product: this is the one input box in a room full
+    of teenagers who have just been taught what a sandbox is.
+
+    Signed in, because it is a classroom tool and not a free API to point a
+    load generator at.
+    """
+    expr = body.expression.strip()
+    got = _maths.evaluate(expr, {})
+    if got is None:
+        raise HTTPException(
+            400, "That is not arithmetic this can work out. Numbers, "
+                 "+ - * / ^, brackets, and sqrt, log, sin, cos, tan.")
+    # Trailing zeros off a float that is really an integer: a calculator
+    # that answers 12.0 to "6*2" reads as broken to the room.
+    if isinstance(got, float) and got.is_integer() and abs(got) < 1e15:
+        shown = str(int(got))
+    else:
+        shown = f"{got:.10g}"
+    return {"expression": expr, "result": shown, "value": got}
 
 
 @app.get("/api/craxlearn/sources")

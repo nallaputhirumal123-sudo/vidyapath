@@ -78,6 +78,14 @@ from day rows rather than stored, by correcting a wrongly marked day and
 watching the percentage move, and that one login means the previous device is
 signed out with a reason.
 
+**test_roll.py** — which learners a member of staff may look at. The rule is
+the classroom, not the school, and every refusal here is a real teacher at the
+right school asking about the wrong child. Includes the one that matters most:
+looking up a student id that exists in another teacher's room answers "no
+learner of yours has that id", because "exists but not yours" is still a fact
+about somebody's child. Also the calculator, against a list of injection
+attempts — it is the one input box in a room full of teenagers.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,
