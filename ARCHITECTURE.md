@@ -122,6 +122,15 @@ tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
 
+**"Never raises" means the `except` never fires.** `molecule.find` and
+`images.find` are documented to answer `{}` rather than raise when a source
+is unreachable — so the `try/except` both suites wrapped their live lookups
+in was guarding against something that cannot happen. Offline, the empty
+dict fell straight through into the assertions: `test_molecule` died on
+`real["benzene"]["atoms"]`, and worse, four checks in `test_images` that
+assert a topic returns NOTHING passed for the wrong reason. Detect the empty
+answer and skip the block, using a positive assertion as the probe.
+
 **`CAST(x AS DATE)` is not portable.** SQLite has no DATE type, so it applies
 numeric affinity and returns an integer; SQLAlchemy's Date processor then
 calls `fromisoformat` on it and raises. Postgres does the right thing — so
