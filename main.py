@@ -9333,8 +9333,15 @@ _GREENHOUSE = ("postman,razorpaysoftwareprivatelimited,phonepe,groww,"
                # Automation Engineer, kentik Network Intelligence
                # Advisor, cribl Site Reliability Engineer.
                "netbrain,kentik,cribl")
-# cred 4/4 and meesho 44/46 in India, both re-verified.
-_LEVER = ("cred,meesho,palantir,nium,matchgroup,alloy,veeva,shieldai,"
+# cred 3/3, meesho 44/46 and fampay 14/14 in India, all verified live.
+#
+# fampay is the only new name from a second sweep of 153 Indian
+# candidates across six ATSes, which is the finding rather than the
+# disappointment: employers here overwhelmingly post to Naukri or their
+# own careers pages, and neither has a public API we are willing to use.
+# More coverage has to come from aggregators with real APIs, not from
+# guessing more company slugs.
+_LEVER = ("cred,meesho,fampay,palantir,nium,matchgroup,alloy,veeva,shieldai,"
           "relay,d2l,wattpad,knix")
 # sarvam 57/57 and atlan 5/5 in India.
 _ASHBY = ("sarvam,atlan,"
