@@ -32,8 +32,13 @@ print("\nwho may set work")
 a={"subject":"Maths","title":"Ch 3","body":"do it","due_date":""}
 r=tch.post(f"/api/teacher/class/{CID}/assignment",json=a)
 ck("the subject teacher can set work", r.status_code==200, r.text[:70])
+# The admin may set work too. This once refused them — work being the
+# teacher's judgement about their own class — but an admin who cannot cover a
+# class on the morning a teacher is off keeps a second system for the days
+# that matter, and they already see every assignment and mark, so the
+# restriction bought no privacy. It only removed a capability.
 r=adm.post(f"/api/teacher/class/{CID}/assignment",json=a)
-ck("the school admin cannot", r.status_code==403, f"got {r.status_code}")
+ck("the school admin can too", r.status_code==200, f"got {r.status_code}")
 
 print("\nwho may address what")
 def post(cl,aud,title,**kw):

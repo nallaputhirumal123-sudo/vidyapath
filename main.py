@@ -2974,20 +2974,12 @@ def _head_or_admin(db, cid, user):
 def add_assignment(cid: int, body: AssignmentIn, user: User = Depends(teacher_user),
                    db: Session = Depends(get_db)):
     _own_class(db, cid, user)
-    # Work is set by whoever teaches the subject, and the school admin does
-    # not teach. They can see every assignment, every submission and every
-    # mark — running the school needs that — but setting the work is the
-    # teacher's judgement about their own class, and an admin who can set it
-    # is an admin who will be asked to.
-    #
-    # An admin who genuinely teaches a subject holds a slot for it like
-    # anybody else, and _my_subjects returns it; this only refuses the ones
-    # who hold none.
-    if is_school_admin(user, db) and not user.is_admin:
-        if not _my_subjects(db, cid, user):
-            raise HTTPException(
-                403, "Work is set by the subject teacher. You can see "
-                     "everything that is set and everything handed in.")
+    # The school admin may set work like anybody else. This briefly refused
+    # them, on the reasoning that work is the teacher's judgement about their
+    # own class — but a school admin who cannot cover a class on the morning a
+    # teacher is off is an admin who keeps a second system for the days that
+    # actually matter. They already see every assignment and every mark, so
+    # the restriction bought no privacy either; it only removed a capability.
     subject = body.subject.strip()[:80]
     # A subject teacher is LOCKED to the subject(s) they hold in this class.
     allowed = _my_subjects(db, cid, user)   # None = head/admin, any subject

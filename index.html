@@ -5392,6 +5392,93 @@ async function hAddSlot(cid){
  * to remove somebody. Fetched after the screen is drawn so a slow register
  * never holds up the class.
  */
+/* Staff in this class, and a way to add one.
+ *
+ * Students could be typed straight in; teachers needed a subject created, a
+ * code copied, and the person to redeem it. Same screen, same shape now.
+ */
+async function staffPaint(cid){
+  const box=document.getElementById("staffList");
+  if(!box) return;
+  let d;
+  try{ d=await api.get("/api/teacher/class/"+cid); }
+  catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+    `${esc(e.message)}</div>`; return; }
+  const rows=(d&&d.teachers)||[];
+  if(!rows.length){
+    box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+      `Nobody teaching this class yet.</div>`;
+    return;
+  }
+  box.innerHTML=rows.map(t=>`<div class="row"
+      style="justify-content:space-between;align-items:center;gap:8px;
+      padding:7px 0;border-bottom:1px solid var(--line,#2a2a2a)">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
+        ${esc(t.name||"(unnamed)")}
+        <span style="font-size:11.5px;color:var(--dim)">· ${
+          esc(t.role||"teacher")}</span></span>
+    </div>`).join("");
+}
+
+async function staffAdd(cid){
+  const name=($("#stName").value||"").trim();
+  const email=($("#stEmail").value||"").trim();
+  const subject=($("#stSubject").value||"").trim();
+  if(name.length<2){ toast("Give their name."); return; }
+  if(email.indexOf("@")<1){ toast("Give their email."); return; }
+  if(subject.length<1){ toast("Which subject do they teach here?"); return; }
+
+  let made;
+  try{ made=await api.post("/api/head/staff",
+                           {name:name, email:email, role:"teacher"}); }
+  catch(e){ toast(e.message); return; }
+
+  try{
+    await api.post("/api/head/assign",
+      {class_id:+cid, subject:subject, user_id:made.user_id});
+  }catch(e){
+    /* The account exists either way, so say what did happen rather than
+       leaving them thinking nothing did. */
+    toast("Account made, but the subject did not attach: "+e.message);
+  }
+
+  $("#stName").value=""; $("#stEmail").value=""; $("#stSubject").value="";
+  await staffPaint(cid);
+
+  /* Shown once and never again — it is not stored readably — so it stays put
+     until dismissed rather than vanishing on the next repaint with the only
+     copy of it. */
+  const out=document.getElementById("staffMade");
+  if(out){
+    out.innerHTML = made.temporary_password
+      ? `<div class="card" style="padding:11px;margin-bottom:10px;
+           border-color:var(--accent)">
+           <b>${esc(made.name)} can sign in now.</b>
+           <div style="font-size:12.5px;margin-top:5px">Email
+             <b>${esc(made.email||email)}</b><br>Password
+             <b style="letter-spacing:1px">${esc(made.temporary_password)}</b></div>
+           <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
+             Write this down or read it to them now. It is shown once and is
+             not kept anywhere we can look it up. They should change it after
+             signing in.</div>
+           <button class="btn ghost sm" data-cls="staffclear"
+             style="margin-top:8px">Done</button></div>`
+      : `<div class="card" style="padding:11px;margin-bottom:10px">
+           <b>${esc(made.name)} was added.</b>
+           <div style="font-size:12.5px;color:var(--dim);margin-top:4px">${
+             esc(made.note||"They already had an account, so their existing "+
+                 "password still works.")}</div>
+           <button class="btn ghost sm" data-cls="staffclear"
+             style="margin-top:8px">Done</button></div>`;
+  }
+  toast("Teacher added.");
+}
+
+function staffClear(){
+  const out=document.getElementById("staffMade");
+  if(out) out.innerHTML="";
+}
+
 let ROSTER = {rows: [], q: "", editing: 0, cid: 0};
 
 async function rosterPaint(cid){
@@ -5553,6 +5640,25 @@ async function renderTeacherClass(cid){
       <table class="ctab" style="min-width:${180+asg.length*64}px"><thead><tr><th>Student</th>${head}<th>Done</th></tr></thead>
       <tbody>${rrows}</tbody></table></div>
 
+    <div class="eyebrow">Teachers</div>
+    <p class="sub" style="margin:-2px 0 8px">Add a teacher and put them on a
+      subject in one go. They sign in with the password you are shown — no
+      code to pass on.</p>
+    <div class="card" style="padding:12px;margin-bottom:6px">
+      <div id="staffList" style="margin-bottom:10px">Loading…</div>
+      <div id="staffMade"></div>
+      <div class="two">
+        <div class="field"><label>Their name</label>
+          <input id="stName" class="ask-input" placeholder="e.g. Latha R"/></div>
+        <div class="field"><label>Their email</label>
+          <input id="stEmail" class="ask-input" type="email"
+            placeholder="latha@school.in"/></div>
+      </div>
+      <div class="field"><label>Subject they teach here</label>
+        <input id="stSubject" class="ask-input" placeholder="e.g. Physics"/></div>
+      <button class="btn sm" data-cls="staffadd" data-id="${cid}">Add teacher</button>
+    </div>
+
     <div class="eyebrow">Class register</div>
     <p class="sub" style="margin:-2px 0 8px">Type each name on its own line.
       A student signs in with the class code and taps their own name — so
@@ -5612,6 +5718,7 @@ async function renderTeacherClass(cid){
   /* After the screen is on the page, not before: the register needs its own
      call for the roster ids, and a slow one must not hold up the class. */
   rosterPaint(cid);
+  staffPaint(cid);
 }
 async function tcAddAsg(cid){
   const subject=$("#asSub").value, title=($("#asTitle").value||"").trim(), body=$("#asBody").value, due=$("#asDue").value;
@@ -5686,6 +5793,8 @@ document.addEventListener("click",e=>{
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
+  else if(k==="staffadd") staffAdd(id);
+  else if(k==="staffclear") staffClear();
   else if(k==="notices") renderNotices();
   else if(k==="feeplan") feePlan();
   else if(k==="feepaid") feeMarkPaid(id, b.dataset.amt);
