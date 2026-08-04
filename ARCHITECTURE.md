@@ -122,6 +122,18 @@ tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
 
+**A board module captures `window.$` at LOAD time.** `net.js`, `lab.js`,
+`sqlboard.js` and `scanner.js` each do `var $ = window.$ || document.querySelector`
+once, when the file runs. So a host that installs its own `$` must do it in a
+`<script>` *above* the module tags — `craxlearn.html` defines it in the head
+for exactly this reason. Installing it in the app script below them meant all
+four modules captured the fallback, looked for a literal `#main` that no longer
+exists, and rendered into nothing while throwing no error at all.
+
+**In `paint()`, every branch must `return`.** Three of them called their
+renderer and fell through to `return home()`, which overwrote what had just
+been drawn. Silent, and it looked like the module was broken.
+
 **Craxlearn's spaces: `main()` is not `#main`.** Up to four tools open at
 once, and the board modules ask for `#main` by name — so `window.$` answers
 that with whichever space is being drawn into. Two traps came out of it and

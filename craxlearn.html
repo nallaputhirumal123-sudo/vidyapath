@@ -219,10 +219,31 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 
 <div id="app" hidden><div id="panes"></div></div>
 
-<script src="sqlboard.js?v=df48c07ae5"></script>
-<script src="net.js?v=02a45f7443"></script>
-<script src="lab.js?v=a3e731b9ba"></script>
+<script>
+/* The things the board modules need from a host page, defined BEFORE they
+ * load. Each of them captures window.$ once, at load time — so this has to
+ * be here rather than in the app script below, and putting it there is
+ * exactly why net, lab, sqlboard and the scanner all rendered into nothing
+ * the first time. The app script hands this shim its real pane resolver
+ * once it runs.
+ */
+window.__paneBody = null;
+window.$ = function (sel) {
+  if (sel === "#main" && window.__paneBody) return window.__paneBody();
+  return document.querySelector(sel);
+};
+window.esc = function (s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;",
+             '"': "&quot;", "'": "&#39;" }[c];
+  });
+};
+</script>
+<script src="sqlboard.js?v=7c5033791d"></script>
+<script src="net.js?v=0338e61617"></script>
+<script src="lab.js?v=63294b493d"></script>
 <script src="three3d.js?v=252535ecb2"></script>
+<script src="scanner.js?v=2f02744728"></script>
 <script>
 /* Craxlearn — the institution app.
  *
@@ -251,15 +272,11 @@ function esc(s){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
   });
 }
-window.esc = esc;
-/* The board modules were written for a page with one #main and they ask for
-   it by name. Rather than editing three of them, "#main" is answered with
-   whichever space is being drawn into right now — so net.js, lab.js and
-   sqlboard.js each land in their own pane without knowing panes exist. */
-window.$ = function(sel){
-  if(sel === "#main") return paneBody();
-  return document.querySelector(sel);
-};
+/* The head of this file already installed window.$ and window.esc so the
+   modules could capture them. This hands that shim the real resolver — the
+   modules keep the function they captured and it starts answering "#main"
+   with whichever space is being drawn into. */
+window.__paneBody = function(){ return paneBody(); };
 
 async function req(method, path, body){
   var opt = { method:method, credentials:"same-origin",
@@ -317,7 +334,8 @@ var main = paneBody;
 var TOOL_NAMES = {
   home:"Home", board:"Ask the board", write:"Writing space",
   calc:"Calculator", structure:"3D structures", find:"Search the sources",
-  phet:"Simulations",
+  phet:"Simulations", scan:"Scan a problem", tracks:"Courses and exams",
+  lesson:"A lesson", track:"A course", exam:"An exam",
   net:"Packet walkthrough", lab:"The lab", sqlboard:"SQL board",
   materials:"Study material", roster:"Class register", roll:"Your classes",
   inbox:"To review", activity:"What the class is asking",
@@ -346,7 +364,8 @@ function paintPanes(){
       '<div class="paneHead">' +
         '<select data-pick="' + i + '">' +
           Object.keys(TOOL_NAMES).filter(function(k){
-            if(["assignment","student","review"].indexOf(k) >= 0) return false;
+            if(["assignment","student","review","lesson","track",
+                "exam"].indexOf(k) >= 0) return false;
             /* Each tool names its own fields by id, so two copies of one
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
@@ -618,6 +637,10 @@ var TILES = [
     sub:"A photograph or a structure from the open catalogues, with its licence." },
   { page:"phet",   ic:"🔬", name:"Simulations",
     sub:"PhET: build an atom, wire a circuit, balance an equation. Free and open." },
+  { page:"scan",   ic:"📷", name:"Scan a problem",
+    sub:"Photograph a question from a book or the board and have it worked through." },
+  { page:"tracks", ic:"🎓", name:"Courses and exams",
+    sub:"The lessons, the labs you type into, and the track exams." },
   { page:"net",    ic:"🌐", name:"Packet walkthrough",
     sub:"Send a packet through real routes and firewall rules and watch the decision." },
   { page:"lab",    ic:"🧪", name:"The lab",
@@ -1047,6 +1070,285 @@ async function find(term){
   el("fGo").onclick = run;
   el("fq").onkeydown = function(e){ if(e.key === "Enter") run(); };
   if(t) run();
+}
+
+/* ---------- the courses, the lessons and the exams ----------
+ *
+ * Fetched once and kept. The curriculum is 19 tracks and 82 lessons of
+ * mostly static text; re-fetching it every time somebody opens a lesson is
+ * a megabyte a lesson on a school connection shared by thirty devices.
+ */
+var CURRICULUM = null;
+async function curriculum(){
+  if(CURRICULUM) return CURRICULUM;
+  CURRICULUM = (await api.get("/api/curriculum")).tracks || [];
+  return CURRICULUM;
+}
+var PROGRESS = {}, QUIZ_PASSED = {};
+async function progress(){
+  try{
+    /* The endpoint answers {done:{slug:true}, code:{slug:"..."}, quiz:{...}},
+       not a list of rows. Reading it as a list left every lesson looking
+       unfinished and threw away saved lab work on the way. */
+    var d = await api.get("/api/progress");
+    PROGRESS = {};
+    Object.keys(d.done || {}).forEach(function(slug){
+      PROGRESS[slug] = { completed:true };
+    });
+    Object.keys(d.code || {}).forEach(function(slug){
+      PROGRESS[slug] = PROGRESS[slug] || {};
+      PROGRESS[slug].code = d.code[slug];
+    });
+    QUIZ_PASSED = d.quiz || {};
+  }catch(e){ PROGRESS = {}; QUIZ_PASSED = {}; }
+  return PROGRESS;
+}
+
+async function tracks(){
+  main().innerHTML = '<div class="muted">Loading the courses…</div>';
+  var ts = await curriculum();
+  await progress();
+  if(!ts.length){
+    main().innerHTML = '<div class="card muted">No courses are loaded on ' +
+      "this server yet.</div>";
+    return;
+  }
+  var byAud = {};
+  ts.forEach(function(t){ (byAud[t.audience] = byAud[t.audience] || []).push(t); });
+  var h = "";
+  Object.keys(byAud).sort().forEach(function(aud){
+    h += '<div class="eyebrow">' + esc(aud === "school" ? "School" : aud) +
+      "</div><div class=\"tiles\">" +
+      byAud[aud].map(function(t){
+        var done = (t.lessons || []).filter(function(l){
+          return PROGRESS[l.id] && PROGRESS[l.id].completed; }).length;
+        return '<button class="tile" data-track="' + esc(t.id) + '">' +
+          '<span class="ic">' + esc(t.icon || "📘") + "</span><b>" +
+          esc(t.name) + "</b><span>" + esc(t.desc || "") + "</span>" +
+          '<span class="muted">' + done + " of " + (t.lessons || []).length +
+          " lessons" + ((t.quiz || []).length ? " · has an exam" : "") +
+          "</span></button>";
+      }).join("") + "</div>";
+  });
+  main().innerHTML = h;
+  main().querySelectorAll("[data-track]").forEach(function(b){
+    b.onclick = function(){ go("track", b.dataset.track); };
+  });
+}
+
+function findTrack(id){
+  return (CURRICULUM || []).filter(function(t){ return t.id === id; })[0];
+}
+
+async function track(id){
+  await curriculum();
+  await progress();
+  var t = findTrack(id);
+  if(!t){ return tracks(); }
+  var h = '<button class="btn ghost" data-go="tracks">← All courses</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(t.icon || "") + " " + esc(t.name) + "</h1>" +
+    '<p class="muted">' + esc(t.desc || "") + "</p>";
+  if((t.outcomes || []).length){
+    h += '<div class="card"><b>By the end you can</b>' +
+      t.outcomes.map(function(o){ return "<div>· " + esc(o) + "</div>"; }).join("") +
+      "</div>";
+  }
+  h += (t.lessons || []).map(function(l, i){
+    var done = PROGRESS[l.id] && PROGRESS[l.id].completed;
+    return '<button class="card" data-lesson="' + esc(l.id) +
+      '" style="width:100%;text-align:left;cursor:pointer">' +
+      (done ? '<span style="color:var(--ok)">✓</span> ' : (i + 1) + ". ") +
+      "<b>" + esc(l.title) + "</b>" +
+      '<span class="muted"> · ' + (l.mins || 10) + " min" +
+      ((l.lab && l.lab.prompt) ? " · has a lab" : "") + "</span></button>";
+  }).join("");
+  if((t.quiz || []).length){
+    h += '<button class="btn" data-exam="' + esc(t.id) + '">Take the exam · ' +
+      t.quiz.length + " questions</button>";
+  }
+  main().innerHTML = h;
+  main().querySelectorAll("[data-lesson]").forEach(function(b){
+    b.onclick = function(){ go("lesson", { track:id, lesson:b.dataset.lesson }); };
+  });
+  var ex = main().querySelector("[data-exam]");
+  if(ex) ex.onclick = function(){ go("exam", id); };
+}
+
+/* Python runs through Pyodide, JavaScript through the browser itself.
+ * Both fail out loud: a lab that silently does nothing is a lesson a
+ * learner decides is broken and skips. */
+var PY = null, PY_FAILED = false;
+async function pyodide(){
+  if(PY) return PY;
+  if(PY_FAILED) return null;
+  try{
+    if(!window.loadPyodide){
+      await new Promise(function(res, rej){
+        var s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js";
+        s.onload = res;
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+    }
+    PY = await window.loadPyodide({
+      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/" });
+    return PY;
+  }catch(e){ PY_FAILED = true; return null; }
+}
+
+async function runCode(lang, code){
+  if(lang === "js"){
+    var out = [];
+    var log = console.log;
+    console.log = function(){ out.push([].slice.call(arguments).join(" ")); };
+    try{ new Function(code)(); }
+    catch(e){ out.push(String(e)); }
+    finally{ console.log = log; }
+    return out.join("\n") || "(nothing printed)";
+  }
+  var py = await pyodide();
+  if(!py){
+    return "Python could not start on this board. It is downloaded from a " +
+           "public CDN — this board may be offline or the network may be " +
+           "blocking it.";
+  }
+  py.runPython("import sys, io\n_b = io.StringIO()\nsys.stdout = _b\nsys.stderr = _b");
+  try{ py.runPython(code); }
+  catch(e){ py.runPython("import traceback; traceback.print_exc()"); }
+  return py.runPython(
+    "sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__\n_b.getvalue()")
+    || "(nothing printed)";
+}
+
+async function lesson(arg){
+  await curriculum();
+  await progress();
+  var t = findTrack(arg && arg.track);
+  var l = t && (t.lessons || []).filter(function(x){
+    return x.id === (arg && arg.lesson); })[0];
+  if(!l) return tracks();
+
+  var done = PROGRESS[l.id] && PROGRESS[l.id].completed;
+  var h = '<button class="btn ghost" data-back="' + esc(t.id) + '">← ' +
+      esc(t.name) + "</button>" +
+    "<h1 style=\"margin-top:.8rem\">" + esc(l.title) + "</h1>" +
+    '<div class="card" style="white-space:pre-wrap">' + esc(l.content || "") +
+    "</div>";
+
+  if(l.lab && l.lab.prompt){
+    h += '<div class="eyebrow">Try it</div><div class="card">' +
+      '<div class="muted" style="margin-bottom:.5rem">' + esc(l.lab.prompt) + "</div>" +
+      '<textarea id="labCode" rows="10" spellcheck="false" ' +
+        'style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;' +
+        'font-size:.66rem;padding:.6rem;border-radius:12px;border:1px solid ' +
+        'var(--line);background:var(--panel2);color:var(--text)">' +
+        esc((PROGRESS[l.id] && PROGRESS[l.id].code) || l.lab.starter || "") +
+      "</textarea>" +
+      '<div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap">' +
+        '<button class="btn" id="labRun">Run it</button>' +
+        '<button class="btn ghost" id="labSave">Save my work</button>' +
+        (l.lab.solution ? '<button class="btn ghost" id="labSol">Show one answer</button>' : "") +
+      "</div>" +
+      '<pre id="labOut" class="wrap" style="margin-top:.6rem;font-size:.64rem;' +
+        'background:var(--panel2);padding:.6rem;border-radius:12px;' +
+        'min-height:2rem;white-space:pre-wrap"></pre>' +
+      "</div>";
+  }
+
+  if((l.exercises || []).length){
+    h += '<div class="eyebrow">Questions</div>' +
+      l.exercises.map(function(x, i){
+        return '<div class="card"><b>' + (i + 1) + ".</b> " +
+          esc(x.q || x.prompt || "") +
+          (x.a ? '<details style="margin-top:.4rem"><summary class="muted">' +
+            "Show the answer</summary><div style=\"white-space:pre-wrap\">" +
+            esc(x.a) + "</div></details>" : "") + "</div>";
+      }).join("");
+  }
+
+  h += '<button class="btn" id="lDone">' +
+    (done ? "✓ Finished — mark it unfinished" : "Mark this lesson finished") +
+    '</button> <span class="muted" id="lMsg"></span>';
+  main().innerHTML = h;
+
+  main().querySelector("[data-back]").onclick = function(){ go("track", t.id); };
+  el("lDone").onclick = async function(){
+    try{
+      await api.post("/api/progress", { lesson: l.id, completed: !done });
+      await progress();
+      lesson(arg);
+    }catch(e){ el("lMsg").textContent = e.message; }
+  };
+  var run = el("labRun");
+  if(run) run.onclick = async function(){
+    el("labOut").textContent = "Running…";
+    el("labOut").textContent = await runCode(l.lang === "js" ? "js" : "py",
+                                             el("labCode").value || "");
+  };
+  var save = el("labSave");
+  if(save) save.onclick = async function(){
+    try{
+      await api.post("/api/progress", { lesson: l.id,
+                                        code: el("labCode").value || "" });
+      el("labOut").textContent = "Saved.";
+    }catch(e){ el("labOut").textContent = e.message; }
+  };
+  var sol = el("labSol");
+  if(sol) sol.onclick = function(){ el("labCode").value = l.lab.solution; };
+}
+
+/* The exam. Marked here and recorded on the server, which is where the
+   teacher's view of "what exams they did take" comes from. */
+async function exam(id){
+  await curriculum();
+  var t = findTrack(id);
+  if(!t || !(t.quiz || []).length) return tracks();
+  var picks = {};
+
+  main().innerHTML =
+    '<button class="btn ghost" data-back="' + esc(t.id) + '">← ' +
+      esc(t.name) + "</button>" +
+    "<h1 style=\"margin-top:.8rem\">" + esc(t.name) + " — exam</h1>" +
+    '<p class="muted">' + t.quiz.length + " questions. Every one has to be " +
+      "right to pass, and you may retake it as often as you like.</p>" +
+    t.quiz.map(function(q, qi){
+      return '<div class="card"><b>' + (qi + 1) + ".</b> " + esc(q.q) +
+        '<div style="margin-top:.5rem">' + (q.o || []).map(function(o, oi){
+          return '<button class="btn ghost" data-q="' + qi + '" data-o="' + oi +
+            '" style="display:block;width:100%;text-align:left;margin-bottom:.3rem">' +
+            esc(o) + "</button>";
+        }).join("") + "</div></div>";
+    }).join("") +
+    '<button class="btn" id="exGo">Hand it in</button> ' +
+    '<span class="muted" id="exMsg"></span>';
+
+  main().querySelector("[data-back]").onclick = function(){ go("track", t.id); };
+  main().querySelectorAll("[data-q]").forEach(function(b){
+    b.onclick = function(){
+      var qi = b.dataset.q;
+      main().querySelectorAll('[data-q="' + qi + '"]').forEach(function(x){
+        x.className = "btn ghost";
+        x.style.display = "block"; x.style.width = "100%";
+        x.style.textAlign = "left"; x.style.marginBottom = ".3rem";
+      });
+      b.className = "btn";
+      b.style.display = "block"; b.style.width = "100%";
+      b.style.textAlign = "left"; b.style.marginBottom = ".3rem";
+      picks[qi] = +b.dataset.o;
+    };
+  });
+  el("exGo").onclick = async function(){
+    var score = 0;
+    t.quiz.forEach(function(q, qi){ if(picks[qi] === q.a) score++; });
+    try{
+      var r = await api.post("/api/quiz", { track: t.id, score: score,
+                                            total: t.quiz.length });
+      el("exMsg").textContent = score + " of " + t.quiz.length + " — " +
+        (r.passed ? "passed. It is on your record."
+                  : "not passed yet. Look again at the ones you missed.");
+    }catch(e){ el("exMsg").textContent = e.message; }
+  };
 }
 
 /* ---------- PhET simulations ----------
@@ -1776,12 +2078,17 @@ function paint(page, arg){
   else if(page === "assignment") return assignment(arg);
   else if(page === "review")    return review(arg && arg.aid, arg && arg.sid);
   else if(page === "board")     return board(arg);
-  else if(page === "net"       && window.renderNet)      window.renderNet();
-  else if(page === "lab"       && window.renderLab)      window.renderLab();
-  else if(page === "sqlboard"  && window.renderSqlBoard) window.renderSqlBoard();
+  else if(page === "net"       && window.renderNet)      return window.renderNet();
+  else if(page === "lab"       && window.renderLab)      return window.renderLab();
+  else if(page === "sqlboard"  && window.renderSqlBoard) return window.renderSqlBoard();
   else if(page === "structure") return structure(arg);
   else if(page === "find")      return find(arg);
   else if(page === "phet")      return phet(arg);
+  else if(page === "tracks")    return tracks();
+  else if(page === "track")     return track(arg);
+  else if(page === "lesson")    return lesson(arg);
+  else if(page === "exam")      return exam(arg);
+  else if(page === "scan" && window.renderScanner) return window.renderScanner();
   return home();
 }
 window.render = function(){ paint(VIEW.page, null); };
