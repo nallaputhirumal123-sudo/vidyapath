@@ -4914,6 +4914,62 @@ async function hAddSlot(cid){
 }
 
 /* ---------- teacher: one class ---------- */
+/* The register: who is expected in this class.
+ *
+ * Separate from the class payload because that one carries a row per student
+ * per assignment for the hand-in grid, and this needs the roster id in order
+ * to remove somebody. Fetched after the screen is drawn so a slow register
+ * never holds up the class.
+ */
+async function rosterPaint(cid){
+  const box=document.getElementById("rosterList");
+  if(!box) return;
+  let d;
+  try{ d=await api.get("/api/teacher/class/"+cid+"/roster"); }
+  catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+    `${esc(e.message)}</div>`; return; }
+  const rows=d.roster||[];
+  if(!rows.length){
+    box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+      `Nobody on the register yet.</div>`;
+    return;
+  }
+  box.innerHTML=
+    `<div style="font-size:11.5px;color:var(--dim);margin-bottom:6px">`+
+    `${d.total} on the register · ${d.free} not signed in yet</div>`+
+    rows.map(r=>`<div class="row" style="justify-content:space-between;`+
+      `align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid `+
+      `var(--line,#2a2a2a)">
+      <span>${esc(r.name)} ${r.claimed
+        ?`<span style="font-size:11px;color:var(--dim)">· signed in</span>`
+        :`<span style="font-size:11px;color:var(--accent)">· free</span>`}</span>
+      <button class="btn ghost sm" data-cls="rosdel" data-id="${r.id}"
+        data-cid="${cid}">Remove</button></div>`).join("");
+}
+
+async function rosAdd(cid){
+  const el=document.getElementById("rosterAdd");
+  const names=(el&&el.value||"").trim();
+  if(!names){ toast("Type at least one name."); return; }
+  try{
+    await api.post("/api/teacher/class/"+cid+"/roster",{names:names});
+    el.value="";
+    await rosterPaint(cid);
+    toast("Register updated.");
+  }catch(e){ toast(e.message); }
+}
+
+/* Removing is deliberate and says what it costs. A name somebody has already
+   signed in under belongs to an account with work in it. */
+async function rosDel(rid, cid){
+  if(!confirm("Remove this name from the register?")) return;
+  try{
+    await api.del("/api/teacher/roster/"+rid);
+    await rosterPaint(cid);
+    toast("Removed.");
+  }catch(e){ toast(e.message); }
+}
+
 async function renderTeacherClass(cid){
   $("#main").innerHTML=`<p class="sub">Loading…</p>`;
   let d; try{ d=await api.get("/api/teacher/class/"+cid); }
@@ -4937,6 +4993,21 @@ async function renderTeacherClass(cid){
     <div class="card" style="overflow-x:auto;padding:12px;margin-bottom:6px">
       <table class="ctab" style="min-width:${180+asg.length*64}px"><thead><tr><th>Student</th>${head}<th>Done</th></tr></thead>
       <tbody>${rrows}</tbody></table></div>
+
+    <div class="eyebrow">Class register</div>
+    <p class="sub" style="margin:-2px 0 8px">Type each name on its own line.
+      A student signs in with the class code and taps their own name — so
+      until a name is here, there is nothing for them to tap.</p>
+    <div class="card" style="padding:12px;margin-bottom:6px">
+      <div id="rosterList" style="margin-bottom:10px">Loading…</div>
+      <textarea id="rosterAdd" class="pj-note"
+        style="width:100%;min-height:78px"
+        placeholder="Asha Rao&#10;Vikram Singh&#10;Meera Pillai"></textarea>
+      <div class="row" style="gap:6px;margin-top:7px">
+        <button class="btn sm" data-cls="rosadd" data-id="${cid}">Add to
+          register</button>
+      </div>
+    </div>
 
     <div class="eyebrow">Assignments</div>
     ${asg.length?asg.map(a=>`<div class="card" style="margin-bottom:10px">
@@ -4976,6 +5047,9 @@ async function renderTeacherClass(cid){
       </div>
       <button class="btn sm" data-cls="addsched" data-id="${cid}">Add to schedule</button>
     </div>`;
+  /* After the screen is on the page, not before: the register needs its own
+     call for the roster ids, and a slow one must not hold up the class. */
+  rosterPaint(cid);
 }
 async function tcAddAsg(cid){
   const subject=$("#asSub").value, title=($("#asTitle").value||"").trim(), body=$("#asBody").value, due=$("#asDue").value;
@@ -5049,6 +5123,8 @@ document.addEventListener("click",e=>{
   else if(k==="tjoin") tcJoin();
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
+  else if(k==="rosadd") rosAdd(id);
+  else if(k==="rosdel") rosDel(id, cid);
   else if(k==="hrotslot"){ api.post("/api/head/slot/"+id+"/rotate",{}).then(()=>renderHead()).catch(e=>alert(e.message)); }
   else if(k==="hdelslot"){ if(confirm("Remove this subject? Its teacher loses access.")) api.del("/api/head/slot/"+id).then(()=>renderHead()).catch(()=>{}); }
   else if(k==="hrotclass"){ if(confirm("New student code? Students must re-enter the new code.")) api.post("/api/head/class/"+id+"/rotate",{}).then(()=>renderHead()).catch(()=>{}); }
