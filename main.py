@@ -911,6 +911,12 @@ class Material(Base):
     # words themselves, so they open on the subject page rather than
     # downloading something a phone may not be able to read.
     body = Column(Text, default="")
+    # And the pictures. A lesson whose whole point was the molecule the class
+    # turned around is not that lesson with the molecule taken out — it is a
+    # paragraph about a molecule. Stored as the same validated JSON the board
+    # was given, so the subject page mounts it with the same renderers and
+    # nothing new has to be trusted.
+    figures = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
@@ -5584,9 +5590,20 @@ def _material_json(m, with_url=True, by=""):
     already has to touch the user table once to get them all.
     """
     kind = "lesson" if (m.body or "") else ("link" if m.url else "file")
+    figs = []
+    if kind == "lesson" and (m.figures or ""):
+        try:
+            figs = json.loads(m.figures)
+            if not isinstance(figs, list):
+                figs = []
+        except Exception:
+            # A row we cannot read is a lesson without its pictures, not a
+            # broken page. The words are the part that must always arrive.
+            figs = []
     d = {"id": m.id, "title": m.title, "note": m.note or "",
          "subject": m.subject or "", "kind": kind,
          "body": (m.body or "") if kind == "lesson" else "",
+         "figures": figs,
          "file_name": m.file_name or "", "size": m.size or 0,
          "mime": m.mime or "",
          # Who put it there. A class given a reading list by nobody in
@@ -5785,6 +5802,32 @@ def _lesson_to_body(lesson, task):
     return "\n".join(out).strip()[:20000]
 
 
+def _lesson_figures(lesson):
+    """The drawings and the 3D out of a lesson, as JSON to keep beside it.
+
+    Put through the same cleaners the board's own reply goes through rather
+    than stored as sent. What arrives here has been round a browser, and a
+    scene is mounted by a renderer that trusts its input; the cleaners are
+    the only reason that is safe, so nothing skips them on the way to a page
+    thirty children will open.
+    """
+    out = []
+    for i, st in enumerate((lesson.get("steps") or [])[:14]):
+        if not isinstance(st, dict):
+            continue
+        for key, cleaner in (("draw", _draw.clean), ("sketch", _sketch.clean),
+                             ("scene", _scene.clean)):
+            spec = cleaner(st.get(key))
+            if spec:
+                out.append({"how": key, "step": i, "spec": spec})
+    if not out:
+        return ""
+    text = json.dumps(out)
+    # A lesson with a protein in it is large. Past this it is not worth a row
+    # in every class's material list, and the words still save.
+    return text if len(text) <= 400000 else ""
+
+
 def _board_subject(db, cid, user, asked):
     """Which subject a lesson is filed under, checked rather than typed.
 
@@ -5871,7 +5914,7 @@ def craxlearn_board_save(body: BoardSaveIn,
     m = Material(class_id=body.class_id, teacher_id=user.id,
                  subject=subject,
                  title=title, note=(body.note or "").strip()[:2000],
-                 body=text)
+                 body=text, figures=_lesson_figures(body.lesson or {}))
     db.add(m)
     db.commit()
     db.refresh(m)

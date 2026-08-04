@@ -333,6 +333,7 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
       <button role="tab" id="tabIn" aria-selected="false">Sign in</button>
       <button role="tab" id="tabUp" aria-selected="false">New account</button>
       <button role="tab" id="tabRemote" aria-selected="false">Remote</button>
+      <button role="tab" id="tabOpen" aria-selected="false">Just the board</button>
     </div>
     <div id="gateForm"></div>
     <div id="gateMsg" class="muted" style="margin-top:.7rem"></div>
@@ -566,6 +567,12 @@ function paintPanes(){
           Object.keys(TOOL_NAMES).filter(function(k){
             if(["assignment","student","review","lesson","track",
                 "exam"].indexOf(k) >= 0) return false;
+            /* An open board offers what works without an account, and the
+               Remote — which is where it explains what signing in would
+               add. Offering the rest would be a menu of things that all
+               answer "sign in first". */
+            if(OPEN && OPEN_TOOLS.indexOf(k) < 0
+               && k !== "home" && k !== "remote") return false;
             /* Each tool names its own fields by id, so two copies of one
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
@@ -1054,8 +1061,18 @@ function home(){
         "</div>";
     }).join("");
   }
+  /* Remote stays on an open board even though it needs an account: it is
+     where "use your phone" lives, and a teacher looking for it must find
+     the answer rather than find nothing. */
+  var offer = OPEN
+    ? TILES.filter(function(t){
+        return OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote"; })
+    : TILES;
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
-       TILES.map(tile).join("") + "</div>";
+       offer.map(tile).join("") + "</div>";
+  if(OPEN){
+    h += signInPrompt("teach a topic, keep a lesson, or use your phone");
+  }
   if(!teacher && (ME.classes || []).length){
     h += '<div class="eyebrow">From your teacher</div><div class="tiles">' +
       tile({ page:"materials", ic:"📎", name:"Study material",
@@ -1143,7 +1160,8 @@ function write(){
           "Write with a finger, a stylus or a mouse." +
         "</div>" +
       "</div>" +
-    "</div>";
+    "</div>" +
+    (OPEN ? signInPrompt("keep this on your subject's page") : "");
 
   var cv = el("wCanvas"), surf = el("wSurf");
   var ctx = cv.getContext("2d");
@@ -1403,6 +1421,64 @@ function subjectPicker(id, cid){
     return '<option>' + esc(x) + "</option>"; }).join("") + "</select>";
 }
 
+/* ---------- the board anybody can teach on ----------
+ *
+ * A board in a classroom is used by whoever is standing in front of it, and
+ * making the first thing it says be "sign in" is how a smart board becomes
+ * the thing nobody switches on. So the writing space and the calculator open
+ * with no account at all: pick up the pen, teach, rub it out.
+ *
+ * Signing in is what makes the board YOURS for that lesson, and it buys the
+ * two things that need to know who you are — keeping what you taught on your
+ * subject's page, and driving the board from your phone. Nothing is saved
+ * anywhere until somebody has said who they are, which is also the right
+ * answer for a machine a hundred children walk past every day.
+ *
+ * What is on the board survives signing in, because the ink is kept in the
+ * page and not in the element: a teacher who starts writing and then signs in
+ * to keep it does not lose the thing she signed in to keep.
+ */
+var OPEN = false;                    // running with no account
+
+var OPEN_TOOLS = ["write", "calc"];  // everything that needs no server
+
+function openBoard(){
+  OPEN = true;
+  ME = { user:{ name:"This board" }, role:"guest", classes:[],
+         institution:null, open:true };
+  el("gate").hidden = true;
+  el("app").hidden = false;
+  el("who").innerHTML = "<b>This board</b>not signed in";
+  PANES = [{ page:"write", arg:null }];
+  LIVE = 0;
+  paintPanes();
+}
+
+/* The one thing an open board says about itself: what signing in would add.
+   Shown where the Keep and Remote blocks would be, so the answer is in the
+   place the question is asked rather than in a menu. */
+function signInPrompt(what){
+  return '<div class="note">' +
+    "<b>Sign in to " + esc(what) + ".</b> This board is open — anybody can " +
+    "teach on it, and nothing is kept. Signing in puts what you teach on " +
+    "your own subject's page and lets your phone drive the board." +
+    ' <button class="btn" data-signin="1" style="margin-top:.6rem">' +
+    "Sign in</button></div>";
+}
+
+function wireSignIn(host){
+  (host || document).querySelectorAll("[data-signin]").forEach(function(b){
+    b.onclick = function(){
+      /* Straight to the sign-in form, with the board still behind it: the
+         ink is in the page, so it is still there afterwards. */
+      OPEN = false;
+      el("app").hidden = true;
+      el("gate").hidden = false;
+      tab("In");
+    };
+  });
+}
+
 /* ---------- the phone as a remote control ----------
  *
  * A board is bolted to a wall. Reaching it means turning your back on the
@@ -1421,6 +1497,12 @@ var REMOTE = { on:false, code:"", timer:0, missed:0 };
 
 function remotePanel(){
   var host = main();
+  if(OPEN){
+    host.innerHTML = '<div class="eyebrow">Remote</div>' +
+      signInPrompt("drive this board from your phone");
+    wireSignIn(host);
+    return;
+  }
   host.innerHTML =
     '<div class="eyebrow">Remote</div>' +
     '<div class="card">' +
@@ -1554,6 +1636,19 @@ async function remoteDo(c){
  * heard.
  */
 var PHONE = { code:"", board:"", level:"Class 10" };
+
+function openForm(){
+  el("gateForm").innerHTML =
+    '<p class="muted" style="margin-top:0">Open the writing space and the ' +
+      "calculator with no account. Anybody can teach on this board — nothing " +
+      "is kept, and nothing about the school is shown." +
+    "</p>" +
+    '<button class="btn" id="obGo">Open the board</button>' +
+    '<p class="muted">Sign in when you want to keep what you taught on your ' +
+      "subject's page, or drive the board from your phone. What you have " +
+      "already written stays on the board when you do.</p>";
+  el("obGo").onclick = openBoard;
+}
 
 function remoteJoinForm(){
   el("gateForm").innerHTML =
@@ -2365,7 +2460,19 @@ async function materials(){
           ? '<div class="lessonKept" id="mBody' + m.id + '" hidden>' +
             m.body.split("\n").map(function(ln){
               return ln.trim() ? "<p>" + esc(ln) + "</p>" : "";
-            }).join("") + "</div>"
+            }).join("") +
+            /* The pictures the lesson was taught with, kept beside its
+               words. A lesson whose point was the molecule the class turned
+               around is not that lesson with the molecule taken out. */
+            (m.figures || []).map(function(f, i){
+              return '<div class="figcap">' +
+                (f.how === "scene" ? "🧊 " : "✏️ ") +
+                esc((f.spec && f.spec.caption) || "") + "</div>" +
+                '<div class="fig' + (f.how === "scene" ? " fig3d" : "") +
+                '"' + (f.how === "scene" ? ' data-fill="1"' : "") +
+                ' id="mFig' + m.id + "_" + i + '"></div>';
+            }).join("") +
+            "</div>"
           : "") +
         "</div>";
     }).join("");
@@ -2398,11 +2505,21 @@ async function materials(){
   if(pick) pick.onchange = function(){ ME.pickedClass = +pick.value; materials(); };
 
   main().querySelectorAll("[data-openmat]").forEach(function(b){
-    b.onclick = function(){
-      var box = el("mBody" + b.dataset.openmat);
+    b.onclick = async function(){
+      var id = b.dataset.openmat, box = el("mBody" + id);
       if(!box) return;
       box.hidden = !box.hidden;
       b.textContent = box.hidden ? "Read it" : "Close it";
+      /* Mounted when it is opened, not when the list is drawn: a subject
+         page with a term's lessons on it would otherwise start every 3D
+         scene on it at once, all of them behind a closed card. */
+      if(box.hidden || box.dataset.drawn) return;
+      box.dataset.drawn = "1";
+      var mat = (d.materials || []).filter(function(x){
+        return String(x.id) === String(id); })[0];
+      await mountFigures(((mat && mat.figures) || []).map(function(f, i){
+        return { how: f.how, id: "mFig" + id + "_" + i, spec: f.spec };
+      }));
     };
   });
   main().querySelectorAll("[data-delmat]").forEach(function(b){
@@ -3015,8 +3132,12 @@ function paintLesson(){
     mountFigures(all);
   }else{
     var p = pages[LESSON.at];
+    /* Keeping it and setting it are under every page, not only the last.
+       A teacher decides to keep a lesson at the moment it lands, which is
+       rarely the moment she happens to be on the closing page — and an
+       action you can only reach by paging to the end is one nobody finds. */
     out.innerHTML = bar + '<div class="lessonPage">' + p.html + "</div>" +
-      (LESSON.at === n - 1 ? LESSON.tail : "");
+      LESSON.tail;
     mountFigures(p.figures);
     var prev = el("bPrev"), next = el("bNext");
     if(prev){
@@ -3190,9 +3311,13 @@ function mod(render){
   return render();
 }
 
-function paint(page, arg){
+async function paint(page, arg){
   var m = main();
   if(m){ m.scrollTop = 0; m.classList.remove("noscroll"); }
+  /* Whatever the page turns out to be, the sign-in prompts on it are live.
+     One place rather than in each tool, because a prompt that does nothing
+     when tapped is worse than no prompt. */
+  if(OPEN) setTimeout(function(){ wireSignIn(main()); }, 0);
   /* Every branch RETURNS, so an async page's promise reaches drawPane and
      DRAW keeps pointing at this space until it has finished writing. */
   if(page === "home")           return home();
@@ -3295,18 +3420,20 @@ async function boot(){
 }
 
 function tab(which){
-  ["Code","In","Up","Remote"].forEach(function(t){
+  ["Code","In","Up","Remote","Open"].forEach(function(t){
     el("tab" + t).setAttribute("aria-selected", String(t === which));
   });
   el("gateMsg").textContent = "";
   if(which === "Code") codeForm();
   else if(which === "Remote") remoteJoinForm();
+  else if(which === "Open") openForm();
   else gateForm(which === "Up" ? "up" : "in");
 }
 el("tabCode").onclick = function(){ tab("Code"); };
 el("tabIn").onclick   = function(){ tab("In"); };
 el("tabUp").onclick   = function(){ tab("Up"); };
 el("tabRemote").onclick = function(){ tab("Remote"); };
+el("tabOpen").onclick = function(){ tab("Open"); };
 el("homeBtn").onclick = function(){ go("home"); };
 el("shotBtn").onclick = function(){ shoot(); };
 /* One press adds a space, up to four; the fifth press goes back to one.
