@@ -5413,6 +5413,149 @@ async function hAddSlot(cid){
  * Students could be typed straight in; teachers needed a subject created, a
  * code copied, and the person to redeem it. Same screen, same shape now.
  */
+/* Study material: something to read, filed apart from work to hand in. */
+async function matPaint(cid){
+  const box=document.getElementById("matList");
+  if(!box) return;
+  let d;
+  try{ d=await api.get("/api/class/"+cid+"/materials"); }
+  catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+    `${esc(e.message)}</div>`; return; }
+  const rows=(d&&(d.materials||d.rows))||[];
+  if(!rows.length){
+    box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+      `Nothing shared yet.</div>`;
+    return;
+  }
+  box.innerHTML=rows.map(m=>{
+    /* A link opens where it lives; a file comes from us. Either way the row
+       is the same shape, because to a class they are the same thing. */
+    const href=m.url ? esc(m.url) : "/api/material/"+m.id+"/file";
+    return `<div class="row" style="justify-content:space-between;
+      align-items:center;gap:8px;padding:7px 0;
+      border-bottom:1px solid var(--line,#2a2a2a)">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
+        <a href="${href}" target="_blank" rel="noopener">${esc(m.title)}</a>
+        <span style="font-size:11.5px;color:var(--dim)">${
+          m.subject?" · "+esc(m.subject):""}${
+          m.note?" · "+esc(m.note):""}</span></span>
+      <button class="btn ghost sm" data-cls="matdel" data-id="${m.id}"
+        data-cid="${cid}">Remove</button></div>`;
+  }).join("");
+}
+
+async function matAdd(cid){
+  const title=($("#matTitle").value||"").trim();
+  if(title.length<2){ toast("Say what it is."); return; }
+  const f=document.getElementById("matFile");
+  const file=f&&f.files&&f.files[0];
+  const url=($("#matUrl").value||"").trim();
+  if(!file && !url){ toast("Give a link or choose a file."); return; }
+  try{
+    if(file){
+      const fd=new FormData();
+      fd.append("file", file);
+      fd.append("title", title);
+      fd.append("subject", $("#matSubject").value||"");
+      fd.append("note", $("#matNote").value||"");
+      await api.upload("/api/teacher/class/"+cid+"/material/file", fd);
+    }else{
+      await api.post("/api/teacher/class/"+cid+"/material/link",
+        {title:title, url:url, subject:$("#matSubject").value||"",
+         note:$("#matNote").value||""});
+    }
+  }catch(e){ toast(e.message); return; }
+  ["matTitle","matSubject","matUrl","matNote"].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value="";
+  });
+  if(f) f.value="";
+  await matPaint(cid);
+  toast("Added to study material.");
+}
+
+async function matDel(mid, cid){
+  if(!confirm("Remove this from study material?")) return;
+  try{ await api.del("/api/teacher/material/"+mid); }
+  catch(e){ toast(e.message); return; }
+  await matPaint(cid);
+}
+
+/* Classroom discussion: a question and its answers, one level deep. */
+async function discPaint(cid){
+  const box=document.getElementById("discList");
+  if(!box) return;
+  let d;
+  try{ d=await api.get("/api/class/"+cid+"/discussion"); }
+  catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+    `${esc(e.message)}</div>`; return; }
+  const threads=(d&&d.threads)||[];
+  if(!threads.length){
+    box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+      `No questions yet.</div>`;
+    return;
+  }
+  const who=p=>`<span style="font-size:11.5px;color:${
+      p.from_staff?"var(--accent)":"var(--dim)"}">${esc(p.who)}${
+      p.from_staff?" · teacher":""}</span>`;
+  box.innerHTML=threads.map(t=>`
+    <div style="padding:9px 0;border-top:1px solid var(--line,#2a2a2a)">
+      <div style="white-space:pre-wrap">${esc(t.body)}</div>
+      <div class="row" style="gap:8px;align-items:center;margin-top:3px">
+        ${who(t)}
+        <button class="btn ghost sm" data-cls="discreply" data-id="${t.id}"
+          data-cid="${cid}">Reply</button>
+        ${(t.mine||CAN_MODERATE)?`<button class="btn ghost sm"
+          data-cls="discdel" data-id="${t.id}" data-cid="${cid}">Delete</button>`:""}
+      </div>
+      ${t.replies.map(r=>`<div style="margin:7px 0 0 16px;padding-left:10px;
+        border-left:2px solid var(--line,#2a2a2a)">
+        <div style="white-space:pre-wrap">${esc(r.body)}</div>
+        <div class="row" style="gap:8px;align-items:center;margin-top:2px">
+          ${who(r)}
+          ${(r.mine||CAN_MODERATE)?`<button class="btn ghost sm"
+            data-cls="discdel" data-id="${r.id}" data-cid="${cid}">Delete</button>`:""}
+        </div></div>`).join("")}
+      <div id="discReplyBox${t.id}"></div>
+    </div>`).join("");
+}
+
+/* Whether the Delete button is drawn on somebody else's message. The server
+   decides for real; this only avoids offering a button that would be
+   refused. */
+let CAN_MODERATE = false;
+
+async function discAsk(cid, parentId, boxId){
+  const el=document.getElementById(boxId||"discNew");
+  const body=(el&&el.value||"").trim();
+  if(!body){ toast("Type something first."); return; }
+  try{
+    await api.post("/api/class/"+cid+"/discussion",
+      {body:body, parent_id:parentId||0});
+  }catch(e){ toast(e.message); return; }
+  if(el) el.value="";
+  await discPaint(cid);
+}
+
+function discReply(pid, cid){
+  const host=document.getElementById("discReplyBox"+pid);
+  if(!host) return;
+  if(host.innerHTML){ host.innerHTML=""; return; }
+  host.innerHTML=`<div style="margin:8px 0 0 16px">
+    <textarea id="discR${pid}" class="pj-note"
+      style="width:100%;min-height:52px" placeholder="Answer…"></textarea>
+    <button class="btn sm" data-cls="discsend" data-id="${pid}"
+      data-cid="${cid}" style="margin-top:5px">Send</button></div>`;
+  const t=document.getElementById("discR"+pid);
+  if(t) t.focus();
+}
+
+async function discDel(pid, cid){
+  if(!confirm("Delete this? Its replies go with it.")) return;
+  try{ await api.del("/api/class/"+cid+"/discussion/"+pid); }
+  catch(e){ toast(e.message); return; }
+  await discPaint(cid);
+}
+
 async function staffPaint(cid){
   const box=document.getElementById("staffList");
   if(!box) return;
@@ -5741,6 +5884,41 @@ async function renderTeacherClass(cid){
       </div>
     </div>
 
+    <div class="eyebrow">Study material</div>
+    <p class="sub" style="margin:-2px 0 8px">Chapters, slides, a link — things
+      to read, not work to hand in. Material outlives the homework it was
+      first needed for, so it lives here rather than as an assignment.</p>
+    <div class="card" style="padding:12px;margin-bottom:18px">
+      <div id="matList" style="margin-bottom:10px">Loading…</div>
+      <div class="two">
+        <div class="field"><label>What it is</label>
+          <input id="matTitle" class="ask-input"
+            placeholder="e.g. Chapter 4 — Light"/></div>
+        <div class="field"><label>Subject</label>
+          <input id="matSubject" class="ask-input" placeholder="e.g. Science"/></div>
+      </div>
+      <div class="field"><label>A link (or choose a file below)</label>
+        <input id="matUrl" class="ask-input" placeholder="https://…"/></div>
+      <div class="field"><label>Or a file</label>
+        <input type="file" id="matFile" class="ask-input" style="padding:8px"/></div>
+      <div class="field"><label>Why they should read it (optional)</label>
+        <input id="matNote" class="ask-input"
+          placeholder="e.g. Read before Friday's test"/></div>
+      <button class="btn sm" data-cls="matadd" data-id="${cid}">Add material</button>
+    </div>
+
+    <div class="eyebrow">Classroom discussion</div>
+    <p class="sub" style="margin:-2px 0 8px">Questions from the class, and the
+      answers. Anybody in the class can ask — a discussion only one side can
+      start is a noticeboard.</p>
+    <div class="card" style="padding:12px;margin-bottom:18px">
+      <div class="field">
+        <textarea id="discNew" class="pj-note" style="width:100%;min-height:62px"
+          placeholder="Ask something, or say what the class got stuck on…"></textarea></div>
+      <button class="btn sm" data-cls="discask" data-id="${cid}">Post</button>
+      <div id="discList" style="margin-top:12px">Loading…</div>
+    </div>
+
     <div class="eyebrow">Assignments</div>
     ${asg.length?asg.map(a=>`<div class="card" style="margin-bottom:10px">
       <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
@@ -5784,6 +5962,12 @@ async function renderTeacherClass(cid){
   rosterPaint(cid);
   staffPaint(cid);
   staffPickFill();
+  matPaint(cid);
+  /* A teacher of this class may take anybody's message down; the server
+     decides for real, this only avoids drawing a button that would be
+     refused. */
+  CAN_MODERATE=true;
+  discPaint(cid);
 }
 async function tcAddAsg(cid){
   const subject=$("#asSub").value, title=($("#asTitle").value||"").trim(), body=$("#asBody").value, due=$("#asDue").value;
@@ -5859,6 +6043,12 @@ document.addEventListener("click",e=>{
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
   else if(k==="staffput") staffPut(id);
+  else if(k==="matadd") matAdd(id);
+  else if(k==="matdel") matDel(id, cid);
+  else if(k==="discask") discAsk(id, 0, "discNew");
+  else if(k==="discreply") discReply(id, cid);
+  else if(k==="discsend") discAsk(cid, id, "discR"+id);
+  else if(k==="discdel") discDel(id, cid);
   else if(k==="hstaffadd") schoolStaffAdd();
   else if(k==="staffclear") staffClear();
   else if(k==="notices") renderNotices();

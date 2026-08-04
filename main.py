@@ -899,6 +899,35 @@ class FeeItem(Base):
     paid_at = Column(DateTime(timezone=True))
 
 
+class ClassPost(Base):
+    """A question asked in class, and the answers to it.
+
+    Separate from an assignment and separate from material, because it is a
+    different act: an assignment is work set, material is something to read,
+    and this is somebody not understanding something and saying so. Filing all
+    three in one list is how the question nobody answered gets lost between a
+    worksheet and a slide deck.
+
+    Threaded exactly one level deep. A question and its replies is what a
+    classroom actually produces; anything deeper is a forum, and a forum is a
+    thing somebody has to moderate.
+    """
+    __tablename__ = "class_posts"
+    id = Column(Integer, primary_key=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    # 0 = a question. Anything else is a reply to that question.
+    parent_id = Column(Integer, default=0, index=True)
+    subject = Column(String(80), default="")
+    body = Column(Text, nullable=False)
+    # A teacher's reply is the one a class should read first, and working that
+    # out later means another query per row.
+    from_staff = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
 class Material(Base):
     """Reference material a teacher puts in front of one class.
 
@@ -6703,6 +6732,100 @@ async def add_material_file(cid: int, file: UploadFile = File(...),
     db.commit()
     db.refresh(m)
     return {"ok": True, "material": _material_json(m, by=user.name)}
+
+
+class PostIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    subject: str = Field(default="", max_length=80)
+    parent_id: int = 0
+
+
+@app.get("/api/class/{cid}/discussion")
+def class_discussion(cid: int, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Questions asked in this class, newest first, each with its replies.
+
+    Open to everybody in the class, students included — a discussion only one
+    side can start is a noticeboard.
+    """
+    _in_class_or_teaching(db, cid, user)
+    rows = (db.query(ClassPost).filter(ClassPost.class_id == cid)
+              .order_by(ClassPost.created_at.desc()).limit(400).all())
+    who = {u.id: (u.name or "Someone") for u in db.query(User).filter(
+        User.id.in_([r.user_id for r in rows] or [0])).all()}
+
+    def one(r):
+        return {"id": r.id, "body": r.body, "subject": r.subject or "",
+                "who": who.get(r.user_id, "Someone"), "user_id": r.user_id,
+                "from_staff": bool(r.from_staff), "mine": r.user_id == user.id,
+                "at": r.created_at.isoformat() if r.created_at else "",
+                "replies": []}
+
+    threads, by_id = [], {}
+    for r in rows:
+        if not r.parent_id:
+            d = one(r)
+            by_id[r.id] = d
+            threads.append(d)
+    for r in rows:
+        if r.parent_id and r.parent_id in by_id:
+            by_id[r.parent_id]["replies"].append(one(r))
+    # Replies read oldest first: a thread is a conversation, and a
+    # conversation read backwards is not one.
+    for t in threads:
+        t["replies"].sort(key=lambda x: x["at"])
+    return {"threads": threads, "can_post": True}
+
+
+@app.post("/api/class/{cid}/discussion")
+def class_discussion_post(cid: int, body: PostIn,
+                          user: User = Depends(current_user),
+                          db: Session = Depends(get_db)):
+    """Ask something, or answer somebody."""
+    _in_class_or_teaching(db, cid, user)
+    parent = 0
+    if body.parent_id:
+        p = db.get(ClassPost, body.parent_id)
+        if not p or p.class_id != cid:
+            raise HTTPException(404, "That question is not in this class")
+        # One level deep. A reply to a reply is a forum, and a forum needs
+        # somebody to moderate it.
+        parent = p.parent_id or p.id
+    staff = _my_subjects(db, cid, user)
+    row = ClassPost(class_id=cid, user_id=user.id, parent_id=parent,
+                    subject=body.subject.strip()[:80],
+                    body=body.body.strip()[:4000],
+                    from_staff=(staff is None or bool(staff)))
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"ok": True, "id": row.id}
+
+
+@app.delete("/api/class/{cid}/discussion/{pid}")
+def class_discussion_delete(cid: int, pid: int,
+                            user: User = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    """Your own, or anybody's if you teach this class.
+
+    A teacher needs to be able to take something down without waiting for the
+    child who wrote it, and a child needs to be able to unsay their own thing.
+    """
+    _in_class_or_teaching(db, cid, user)
+    row = db.get(ClassPost, pid)
+    if not row or row.class_id != cid:
+        raise HTTPException(404, "Not found")
+    teaches = _my_subjects(db, cid, user)
+    if row.user_id != user.id and not (teaches is None or teaches):
+        raise HTTPException(403, "That is somebody else's message")
+    # A question takes its replies with it, or the class is left answering
+    # something nobody can see.
+    db.query(ClassPost).filter(ClassPost.class_id == cid,
+                               ClassPost.parent_id == row.id).delete(
+                                   synchronize_session=False)
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/class/{cid}/materials")
