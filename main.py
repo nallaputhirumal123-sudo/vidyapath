@@ -12740,7 +12740,47 @@ async def _review_lesson(question, lesson):
     return out
 
 
-def _check_lesson(lesson, extra_lines=()):
+# Our own curriculum, searchable. Built once at startup and held: it is 82
+# lessons and a quarter of a million characters, it takes under a tenth of a
+# second to index, and it changes on deploy rather than on request.
+_RAG_INDEX = None
+
+
+def _rag_ready(db):
+    """The curriculum index, built on first use.
+
+    Never raises and never blocks a lesson. If this cannot be built, the board
+    answers exactly as it did before there was a curriculum to check against —
+    which is worse, but is not broken.
+    """
+    global _RAG_INDEX
+    if _RAG_INDEX is not None:
+        return _RAG_INDEX
+    try:
+        rows = []
+        for ls, tr in (db.query(Lesson, Track)
+                         .join(Track, Track.id == Lesson.track_id)
+                         .filter(Lesson.published == True).all()):   # noqa: E712
+            rows.append((ls.content or "", ls.title or "", tr.name or "",
+                         ls.slug or ""))
+        _RAG_INDEX = _rag.build(rows)
+        print(f"curriculum index: {_RAG_INDEX.n} passages from {len(rows)} lessons")
+    except Exception as e:
+        print(f"curriculum index failed: {type(e).__name__}: {e}")
+        _RAG_INDEX = _rag.build([])
+    return _RAG_INDEX
+
+
+def _rag_hits(db, topic):
+    """Passages of our own material bearing on this question, or []."""
+    try:
+        return _rag_ready(db).search(topic or "", 4)
+    except Exception as e:
+        print(f"curriculum search skipped: {type(e).__name__}: {e}")
+        return []
+
+
+def _check_lesson(lesson, extra_lines=(), sources=()):
     """Every automatic check, over one finished lesson.
 
     Returns (findings, verdict). The verdict decides whether this is fit to
@@ -12768,6 +12808,16 @@ def _check_lesson(lesson, extra_lines=()):
         found = found + _dimensions.check(text)
     except Exception as e:
         print(f"Dimension check skipped: {type(e).__name__}: {e}")
+    # There is deliberately no numeric cross-check against our own curriculum.
+    # It was built, measured, and thrown away. Comparing numbers attached to
+    # the same word fired on "marks", "output" and "average" — a lesson with
+    # two worked examples gives those different values by design — so it
+    # contradicted the very material it was meant to protect, five times in
+    # sixty passages. A false finding here is not cosmetic: findings lower
+    # confidence and block caching, and a blocked cache is a real model call
+    # every time somebody asks again. Grounding the answer in the curriculum
+    # is the half that works.
+    _ = sources
     try:
         v = _verify.verdict(found)
     except Exception:
@@ -13086,8 +13136,13 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
             # Wolfram returns the result from a computer algebra system and
             # the model is left explaining what it means.
             computed = await _wolfram.result(_pic_client, topic)
+            # Our own lessons on this, if we have any. They go into the prompt
+            # and never onto the screen: what a learner sees is the lesson, not
+            # the material it was built from.
+            sources = _rag_hits(db, topic)
             text, photo = await asyncio.gather(
                 _ai_text(_board_prompt(topic, level)
+                         + _rag.as_source(sources)
                          + _wolfram.note(topic, computed),
                          _depth.tokens(topic),
                         json_mode=True),
@@ -13120,8 +13175,9 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
 
     # Everything the machine can settle without asking anybody: the physical
     # constants, the arithmetic, the units, and any answer that can be
-    # substituted back into its own equation.
-    found, verdict = _check_lesson(lesson)
+    # substituted back into its own equation — and, where we retrieved our own
+    # lessons on this, whether the numbers agree with them.
+    found, verdict = _check_lesson(lesson, sources=sources)
     # The deterministic checks read the numbers. This reads the argument —
     # the dipole treated as a monopole, the formula in the wrong units — which
     # nothing else here can see. One extra call per new topic, cached with the
@@ -13496,6 +13552,7 @@ import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import quiz as _quiz                                                # noqa: E402
 import teachpdf as _teachpdf                                        # noqa: E402
+import rag as _rag                                                  # noqa: E402
 import dimensions as _dimensions                                    # noqa: E402
 import wolfram as _wolfram                                          # noqa: E402
 import depth as _depth                                              # noqa: E402
