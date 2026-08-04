@@ -217,7 +217,13 @@ check("and it reads as settled",
 # ---- notices ------------------------------------------------------------
 print("\nNotices")
 r = head.post("/api/office/notice", json={"title": "Sports day"})
-check("a head teacher cannot post a school notice", r.status_code == 403,
+# This used to require the office and exclude the head, and that was wrong.
+# A notice is the one thing here that is a school SPEAKING to its school, and
+# the person who most often needs to tell everybody at once — an exam moved, a
+# day closed — is the head. The alternative in practice was handing the head
+# the office's credentials, which is worse than what the split protected.
+# Attendance and fees are unchanged and remain the office's alone.
+check("a head teacher can post a school notice", r.status_code == 200,
       str(r.status_code))
 r = office.post("/api/office/notice",
                 json={"title": "Fees due Friday", "body": "Bring the slip.",

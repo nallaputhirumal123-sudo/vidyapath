@@ -1013,6 +1013,16 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
               <button type="button" class="rolebtn" data-jrole="teacher">Teacher</button>
             </div>
           </div>
+          <!-- A teacher signs in; a student does not. A staff code opens a
+               school's registers and marks, so it attaches to an account with
+               a password. A class code claims one name off one register. -->
+          <div id="jn_staff" style="display:none">
+            <div class="field"><label>Email</label>
+              <input type="email" id="jn_email" autocomplete="email"/></div>
+            <div class="field"><label>Password</label>
+              <input type="password" id="jn_pw"
+                autocomplete="current-password"/></div>
+          </div>
           <div class="field"><label>Your code</label>
             <input type="text" id="jn_code" required placeholder="VP-7K3Q" autocapitalize="characters"/>
             <small id="jn_hint" style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">The code your teacher gave you. You will tap your name next — there is no password.</small></div>
@@ -1622,6 +1632,8 @@ function setJoinRole(role){
   const teacher = JOIN_ROLE==="teacher";
   const code=$("#jn_code");
   if(code) code.placeholder = teacher ? "T-4M2X or HEAD-9QRS" : "VP-7K3Q";
+  const staff=$("#jn_staff");
+  if(staff) staff.style.display = teacher ? "" : "none";
   const hint=$("#jn_hint");
   if(hint) hint.textContent = teacher
     ? "Your subject or head-teacher code. A teacher account needs a password, "+
@@ -1642,16 +1654,40 @@ $("#joinForm").onsubmit=async e=>{
   if(code.length<3){ authMsg("Type the code you were given."); return; }
   const b=$("#jn_btn"); b.disabled=true; authMsg("");
 
-  /* A teacher code needs an account behind it. Carry the code over rather
-     than making somebody type it twice, and say why the form changed. */
+  /* Staff sign in, then redeem. A head teacher who already had an account
+     used to be bounced to the signup form and told to make a second one. */
   if(JOIN_ROLE==="teacher"){
-    b.disabled=false;
-    gateTab("signup");
-    const f=$("#su_code"); if(f) f.value=code;
-    authMsg("A teacher account needs a password — this code opens a school's "+
-            "registers and marks. Your details below, and the code is "+
-            "already filled in.");
-    const n=$("#su_name"); if(n) n.focus();
+    const em=$("#jn_email").value.trim(), pw=$("#jn_pw").value;
+    if(!em || !pw){
+      b.disabled=false;
+      authMsg("Sign in with your school account, then the code puts your "+
+              "classes on it. No account yet? Use Create account.");
+      return;
+    }
+    b.textContent="Signing in…";
+    try{
+      USER=await api.post("/api/auth/login",{email:em,password:pw});
+      AUTHED=true;
+    }catch(err){
+      authMsg(err.message); b.disabled=false; b.textContent="Continue →";
+      return;
+    }
+    let landed=null;
+    try{ landed=await api.post("/api/class/join",{code:code}); }
+    catch(codeErr){
+      /* Signed in already, so do not throw them out — say what was wrong
+         with the code and let them carry on. */
+      await boot();
+      toast(codeErr.message||"That code was not recognised.");
+      return;
+    }
+    await boot();
+    S.view={page:"teacher"};
+    render();
+    toast(landed && landed.subject
+      ? "You now teach "+landed.subject+
+        (landed["class"]?" in "+landed["class"]:"")+"."
+      : "Signed in as "+(landed&&landed.role||"teacher")+".");
     return;
   }
 

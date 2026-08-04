@@ -2371,6 +2371,28 @@ def school_admin_user(user: User = Depends(current_user),
     return user
 
 
+def notice_author_user(user: User = Depends(current_user),
+                       db: Session = Depends(get_db)) -> User:
+    """Who may put a notice up: the office, or the head teacher.
+
+    Attendance and fees stay with the office — those are its records and a
+    head teacher has no business editing them. A notice is different. It is
+    the one thing on this system that is a school SPEAKING to its school, and
+    the person who most often needs to say something to everybody at once is
+    the head: an exam moved, a day closed, a visit tomorrow. Routing that
+    through the office meant either it did not get said or the head was handed
+    office credentials, which is worse than the thing this separation was
+    protecting against.
+
+    Deleting is deliberately the same permission. Somebody who can put a
+    notice up and not take it down leaves a wrong one on every child's screen.
+    """
+    if is_school_admin(user, db) or is_head(user, db):
+        return user
+    raise HTTPException(
+        403, "Only the school office or the head teacher can put up a notice.")
+
+
 def _school_of(user: User, db: Session):
     """Which school this member of staff belongs to, and 0 for a platform admin."""
     t = teacher_row(user, db)
@@ -3044,17 +3066,22 @@ def join_class(body: JoinIn, user: User = Depends(current_user),
     raw = body.code.strip()
     code = raw.upper()
 
-    # 1) A subject-slot code → the teacher claims that subject.
-    slot = db.query(SubjectSlot).filter(func.upper(SubjectSlot.code) == code).first()
-    if slot:
-        if slot.teacher_id and slot.teacher_id != user.id:
-            raise HTTPException(400, "That subject already has a teacher")
-        k = db.get(Klass, slot.class_id)
-        slot.teacher_id = user.id
-        slot.status = "claimed"
-        _grant_teacher(db, user, (k.school if k else ""), (k.school_id if k else 0), "teacher")
+    # 1) Any staff code — head-teacher, subject slot, or a school's generic
+    #    teacher code. apply_school_code is what signup has always used, and
+    #    its docstring has always said "signup / join"; join simply never
+    #    called it, so it handled subject slots and nothing else. A head
+    #    teacher who already had an account and was handed a HEAD- code was
+    #    told "no class or subject found with that code" — the code was real,
+    #    and the only way to redeem it was to make a second account.
+    role = apply_school_code(db, user, raw)
+    if role:
         db.commit()
-        return {"ok": True, "class": (k.name if k else ""), "subject": slot.subject, "role": "teacher"}
+        slot = db.query(SubjectSlot).filter(
+            func.upper(SubjectSlot.code) == code).first()
+        k = db.get(Klass, slot.class_id) if slot else None
+        return {"ok": True, "class": (k.name if k else ""),
+                "subject": (slot.subject if slot else ""),
+                "role": "head teacher" if role == "head" else "teacher"}
 
     # 2) A classroom student code.
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
@@ -5280,7 +5307,7 @@ def head_remove_staff(uid: int, user: User = Depends(head_user),
 
 
 @app.post("/api/office/notice")
-def add_notice(body: NoticeIn, user: User = Depends(school_admin_user),
+def add_notice(body: NoticeIn, user: User = Depends(notice_author_user),
                db: Session = Depends(get_db)):
     n = SchoolNotice(school_id=_school_of(user, db), author_id=user.id,
                      title=body.title.strip()[:240],
@@ -5294,7 +5321,7 @@ def add_notice(body: NoticeIn, user: User = Depends(school_admin_user),
 
 
 @app.delete("/api/office/notice/{nid}")
-def drop_notice(nid: int, user: User = Depends(school_admin_user),
+def drop_notice(nid: int, user: User = Depends(notice_author_user),
                 db: Session = Depends(get_db)):
     n = db.get(SchoolNotice, nid)
     if not n:
