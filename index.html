@@ -5900,13 +5900,15 @@ function jbReadInputs(){
   if(l) JB.location=l.value.trim();
   if(r) JB.remote=r.checked;
   if(s) JB.minScore=+s.value||0;
-  const jt=$("#jbType"), pd=$("#jbPosted"), en=$("#jbEng");
+  const jt=$("#jbType"), pd=$("#jbPosted");
   if(jt) JB.jobType=jt.value;
   if(pd) JB.posted=pd.value;
   // Read every control that exists. These two were sent to the API on
   // every request and never populated from the page, so choosing C2C
-  // changed nothing and the results looked unrelated to the filters.
-  if(en) JB.engagement=en.value;
+  // changed nothing and the results looked unrelated to the filters. The
+  // control is gone now — the column is empty on every India posting — and
+  // this reader went with it rather than being left pointing at an element
+  // that no longer exists.
 }
 /* keepPage: paging through results must not reset you to the first page. */
 /* Flags the results as out of date and turns the search button into an apply
@@ -5939,12 +5941,12 @@ async function jbRun(mode,keepPage){
       const res=await api.post("/api/jobs/match",{resume:RESUME,resume_text:RZ_UPTEXT,
         q:"",country:JB.country,location:JB.location,remote:JB.remote,
         limit:JB.perPage,offset:JB.offset,min_score:JB.minScore,
-        job_type:JB.jobType,engagement:JB.engagement,posted:JB.posted});
+        job_type:JB.jobType,posted:JB.posted});
       JB.jobs=res.jobs; JB.meta=res;
     }else{
       const p=new URLSearchParams({q:JB.q,country:JB.country,location:JB.location,
         remote:JB.remote?"true":"false",status:"open",
-        job_type:JB.jobType,engagement:JB.engagement,posted:JB.posted,
+        job_type:JB.jobType,posted:JB.posted,
         limit:String(JB.perPage),offset:String(JB.offset)});
       const res=await api.get("/api/jobs?"+p);
       JB.jobs=res.jobs; JB.meta=res;
@@ -6824,7 +6826,10 @@ function jbSectionHTML(){
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
       ${sel("jbType","⏱️ Any job type",(f&&f.job_types)||[],JB.jobType)}
       ${sel("jbPosted","🕒 Any time",((f&&f.posted_windows)||[]).map(w=>({id:w.id,label:w.label,count:null})),JB.posted)}
-      ${sel("jbEng","💼 Any engagement",(f&&f.engagements)||[],JB.engagement)}
+      <!-- No engagement filter. W2 and C2C are American staffing
+           classifications; on an India board the column is empty for
+           every posting we hold, so the control offered a choice
+           between all 995 jobs and none of them. -->
       <!-- No work-authorisation filter. What a posting says about visas is
            the employer's wording, read out of the body text, and it is
            missing from most of them — so filtering on it drops every job
@@ -7047,7 +7052,7 @@ function renderCareers(){
      waited for the button — so half the controls behaved one way and half the
      other. In match mode an instant re-run also spent a match per dropdown.
      Now every filter marks the search stale and the button does the work. */
-  ["jbType","jbPosted","jbEng","jbMin","jbRemote","jbLoc"].forEach(id=>{
+  ["jbType","jbPosted","jbMin","jbRemote","jbLoc"].forEach(id=>{
     const el=$("#"+id); if(!el) return;
     const mark=()=>jbMarkDirty();
     el.onchange=mark;

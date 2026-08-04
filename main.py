@@ -12192,7 +12192,10 @@ def jobs_filters(user: User = Depends(current_user), db: Session = Depends(get_d
         "retention_days": JOB_RETENTION_DAYS,
         "refresh_hours": JOB_REFRESH_HOURS,
         "job_types": _facet(db, Job.job_type, JOB_TYPE_LABELS),
-        "engagements": _facet(db, Job.engagement, ENGAGEMENT_LABELS),
+        # No engagements facet: W2 and C2C are US staffing terms and the
+        # column is empty on every India posting. A dropdown whose only
+        # entry matches everything is a control that lies about doing
+        # something.
         "visas": _facet(db, Job.visa, VISA_LABELS),
         "posted_windows": POSTED_WINDOWS,
         "new_today": db.query(func.count(Job.id)).filter(
