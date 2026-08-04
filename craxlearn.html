@@ -6,6 +6,11 @@
 <title>Craxlearn — the teaching board</title>
 <meta name="description" content="Craxlearn: the teaching half of Craxle, for schools, colleges and coaching centres. No job board.">
 <link rel="icon" href="/favicon.ico">
+<link rel="manifest" href="/craxlearn.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0b0f16">
 <style>
 /* Sized for the display at the front of a room, not for a laptop.
@@ -145,6 +150,7 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
     <span>Craxlearn<small>Schools · Colleges · Coaching</small></span></div>
   <span class="grow"></span>
   <div class="who" id="who"></div>
+  <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
   <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
@@ -439,9 +445,76 @@ function isTeacher(){
   return ME.role === "head" || ME.role === "teacher" || ME.role === "admin";
 }
 
+function money(paise, cur){
+  var n = (paise || 0) / 100;
+  return (cur === "INR" ? "\u20b9" : (cur || "") + " ") +
+    n.toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
+}
+
+/* What a learner needs to know about themselves that is not schoolwork.
+   Attendance, what is owed, what to buy, and whatever the office has put
+   up — one glance, because a student checking four screens to find out
+   whether they are in trouble checks none of them. Nothing here is
+   editable from this app by anybody: it is the school office's to change. */
+function standingBlock(){
+  var st = ME.standing;
+  if(!st) return "";
+  var h = "";
+
+  var urgent = (st.notices || []).filter(function(n){ return n.urgent; });
+  var rest   = (st.notices || []).filter(function(n){ return !n.urgent; });
+  if(urgent.length){
+    h += urgent.map(function(n){
+      return '<div class="note bad"><b>' + esc(n.title) + "</b>" +
+        (n.body ? "<br>" + esc(n.body) : "") + "</div>";
+    }).join("");
+  }
+
+  var bits = [];
+  if(st.attendance_pct !== null && st.attendance_pct !== undefined){
+    bits.push('<div class="card" style="flex:1 1 11rem"><div class="muted">Attendance</div>' +
+      '<span class="big">' + st.attendance_pct + "%</span>" +
+      '<div class="muted">' + st.days_present + " of " + st.days_recorded +
+      " days</div></div>");
+  }
+  if(st.owed > 0){
+    bits.push('<div class="card" style="flex:1 1 11rem;border-color:var(--accent)">' +
+      '<div class="muted">Still to pay</div>' +
+      '<span class="big">' + money(st.owed, st.currency) + "</span>" +
+      '<div class="muted">' + ((st.fees || []).filter(function(f){ return !f.settled; }).length) +
+      " item(s)</div></div>");
+  }
+  if(bits.length){
+    h += '<div class="eyebrow">You</div>' +
+      '<div style="display:flex;gap:1rem;flex-wrap:wrap">' + bits.join("") + "</div>";
+  }
+
+  var owing = (st.fees || []).concat(st.to_buy || [])
+    .filter(function(f){ return !f.settled; });
+  if(owing.length){
+    h += '<div class="card">' + owing.map(function(f){
+      return "<div style=\"display:flex;gap:.6rem;justify-content:space-between;" +
+        "padding:.3rem 0;flex-wrap:wrap\"><span>" + esc(f.title) +
+        (f.kind === "buy" ? ' <span class="muted">· to buy</span>' : "") +
+        (f.due_on ? ' <span class="muted">· by ' + esc(f.due_on) + "</span>" : "") +
+        "</span><b>" + money(f.outstanding, f.currency) + "</b></div>";
+    }).join("") + "</div>";
+  }
+
+  if(rest.length){
+    h += '<div class="eyebrow">From the school office</div>' +
+      rest.map(function(n){
+        return '<div class="card"><b>' + esc(n.title) + "</b>" +
+          (n.body ? '<div class="muted" style="margin-top:.35rem">' +
+            esc(n.body) + "</div>" : "") + "</div>";
+      }).join("");
+  }
+  return h;
+}
+
 function home(){
   var teacher = isTeacher();
-  var h = workBlock();
+  var h = standingBlock() + workBlock();
   if(ME.institution){
     h += '<div class="card"><div class="muted">Institution</div>' +
          '<div class="big">' + esc(ME.institution.name) + "</div>" +
@@ -996,6 +1069,8 @@ async function refreshMe(){
   /* A teacher can also be enrolled somewhere as a learner, and a head
      teacher's own classes come back here too — so this runs for everybody
      rather than in an else. */
+  try{ ME.standing = await api.get("/api/craxlearn/standing"); }
+  catch(e){ ME.standing = null; }
   try{
     var mine = await api.get("/api/class/mine");
     var flat = [];
@@ -1058,6 +1133,40 @@ el("outBtn").onclick = async function(){
   ME = null;
   boot();
 };
+
+/* Installable on the board itself. A browser only offers "install" for a
+   page with a manifest AND a service worker, and an icon on the smart
+   board's home screen is the difference between a teacher opening this and
+   opening whatever was already on the screen.
+
+   Registered last and failure is ignored: an install prompt is a nicety and
+   nothing here should stop the app working without one. */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("/craxlearn-sw.js").catch(function(){});
+  });
+}
+
+/* Chromium hides its own install button on a smart board often enough that
+   a teacher never finds it, so the prompt is offered on ours. */
+var deferredInstall = null;
+window.addEventListener("beforeinstallprompt", function(e){
+  e.preventDefault();
+  deferredInstall = e;
+  var b = el("installBtn");
+  if(b) b.hidden = false;
+});
+(function(){
+  var b = el("installBtn");
+  if(!b) return;
+  b.onclick = async function(){
+    if(!deferredInstall) return;
+    deferredInstall.prompt();
+    try{ await deferredInstall.userChoice; }catch(e){}
+    deferredInstall = null;
+    b.hidden = true;
+  };
+})();
 
 scale();
 boot();

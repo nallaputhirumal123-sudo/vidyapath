@@ -70,6 +70,14 @@ for reasons nobody would connect to it. Most of its length is proving the
 reset does NOT fire: a destructive endpoint's tests are mostly about the
 times it must do nothing.
 
+**test_office.py** — separated duties. A teacher marking a child absent, a
+head teacher writing off a fee, either of them posting a school notice: all
+three look like reasonable bugs — everyone involved is staff, signed in, at
+the right school — and all three are refused. Also that attendance is computed
+from day rows rather than stored, by correcting a wrongly marked day and
+watching the percentage move, and that one login means the previous device is
+signed out with a reason.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,

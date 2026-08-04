@@ -320,7 +320,7 @@ TEACHING = ("/api/ask", "/api/board", "/api/class", "/api/course",
             "/api/craxlearn", "/api/curriculum", "/api/lab", "/api/net",
             "/api/progress", "/api/quiz", "/api/scan", "/api/skills",
             "/api/sql", "/api/assignment", "/api/teacher", "/api/head",
-            "/api/material")
+            "/api/material", "/api/office")
 unfiled = []
 for r_ in main.app.routes:
     p = getattr(r_, "path", "")

@@ -795,6 +795,86 @@ class RosterName(Base):
     created_at = Column(DateTime(timezone=True), default=now)
 
 
+class SchoolNotice(Base):
+    """Something the school office wants everybody to know.
+
+    Fee deadlines, closures, exam timetables, the things a paper letter used
+    to carry home in a bag. Written by the office, read by every learner in
+    the school — not per class, because a school closure is not a class
+    matter and making the office post it thirty times is how it gets posted
+    twice and missed everywhere else.
+    """
+    __tablename__ = "school_notices"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    author_id = Column(Integer, default=0)
+    title = Column(String(240), nullable=False)
+    body = Column(Text, default="")
+    # Shown first and in a different colour. For a closure or a deadline,
+    # not for the newsletter — a page where everything is urgent has no
+    # urgent on it.
+    urgent = Column(Boolean, default=False)
+    starts_on = Column(String(20), default="")     # ISO date, optional
+    ends_on = Column(String(20), default="")       # ISO date, optional
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
+class Attendance(Base):
+    """One learner, one day, present or not.
+
+    A row per day rather than a running percentage, because a percentage
+    cannot be corrected. "Marked absent on the 14th, and it was wrong" is
+    the single most common thing a parent rings about, and a stored total
+    has nothing to correct.
+
+    The percentage the student sees is computed from these rows every time.
+    """
+    __tablename__ = "attendance"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    class_id = Column(Integer, default=0, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    day = Column(String(20), nullable=False, index=True)   # ISO date
+    present = Column(Boolean, default=True)
+    note = Column(String(200), default="")     # "late", "medical", …
+    marked_by = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=now)
+    __table_args__ = (UniqueConstraint("user_id", "day", name="uq_att_day"),)
+
+
+class FeeItem(Base):
+    """Something a learner owes, or has paid.
+
+    Amounts are integers in the smallest unit — paise — for the same reason
+    the plan prices are: a fee balance that is out by a rounding error is a
+    fee balance somebody has to reconcile by hand.
+
+    Nothing here takes a payment. It records what the office already knows,
+    so a learner can see their balance without ringing up. The office marks
+    it paid when the money arrives, wherever it arrived.
+    """
+    __tablename__ = "fee_items"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    title = Column(String(240), nullable=False)     # "Term 2 tuition"
+    note = Column(Text, default="")
+    amount = Column(Integer, default=0)             # paise, what is owed
+    paid = Column(Integer, default=0)               # paise, what has arrived
+    currency = Column(String(8), default="INR")
+    due_on = Column(String(20), default="")         # ISO date, optional
+    # Something the learner has to buy rather than pay the school for — a
+    # workbook, a lab coat. Same row, because "what do I still have to sort
+    # out" is one question and answering it from two lists is how one half
+    # gets forgotten.
+    kind = Column(String(12), default="fee")        # fee | buy
+    marked_by = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+    paid_at = Column(DateTime(timezone=True))
+
+
 class Material(Base):
     """Reference material a teacher puts in front of one class.
 
@@ -996,7 +1076,15 @@ def send_email(to: str, subject: str, body: str):
         print(f"Email to {to} failed: {type(e).__name__}: {e}")
 
 
-MAX_DEVICES = int(env("MAX_DEVICES", "2") or 2)
+# One login per account, and signing in anywhere else ends the first one.
+#
+# Was two — a phone and a laptop is ordinary use — but a class account is not
+# an ordinary account. Thirty children with one code between them is exactly
+# the sharing the limit exists to stop, and two devices makes it twice as
+# easy. One means the second person to sign in takes the account and the
+# first is told plainly why they were dropped, which is the behaviour a
+# teacher can explain in a sentence.
+MAX_DEVICES = int(env("MAX_DEVICES", "1") or 1)
 
 
 def _sessions(user) -> list:
@@ -1052,9 +1140,13 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if (user.session_token and not user.is_admin
             and payload.get("st") not in _sessions(user)):
         raise HTTPException(
-            401, f"Signed out because this account is in use on more than "
-                 f"{MAX_DEVICES} devices. Craxle allows {MAX_DEVICES} at a "
-                 f"time — sign in again here to use this one.")
+            401, ("Signed out because this account was used to sign in "
+                  "somewhere else. One device at a time — sign in again "
+                  "here to use this one."
+                  if MAX_DEVICES == 1 else
+                  f"Signed out because this account is in use on more than "
+                  f"{MAX_DEVICES} devices. Craxle allows {MAX_DEVICES} at a "
+                  f"time — sign in again here to use this one."))
     # touch last_seen at most once a minute
     try:
         last = user.last_seen
@@ -2095,11 +2187,55 @@ def head_user(user: User = Depends(current_user),
     return user
 
 
+# The school office. A third role beside head and teacher, and the split is
+# the point rather than an implementation detail:
+#
+#   teacher       the class and nothing else — assignments, material, marking
+#   head          runs the teaching: creates classes, subjects, and profiles
+#   schooladmin   runs the school: attendance, fees, notices
+#
+# A teacher marking a child absent, or a head quietly writing off a fee, is
+# the kind of thing a school has separated duties for since long before any
+# of this was software. Copying that separation is cheaper than explaining
+# why we did not.
+#
+# The head creates the profiles, including this one, because somebody has to
+# and it is the head who knows who works there.
+SCHOOL_ROLES = ("teacher", "head", "schooladmin")
+
+
+def is_school_admin(user: User, db: Session) -> bool:
+    t = teacher_row(user, db)
+    return user.is_admin or (t is not None and t.role == "schooladmin")
+
+
+def school_admin_user(user: User = Depends(current_user),
+                      db: Session = Depends(get_db)) -> User:
+    """Attendance, fees and notices. Not the head, and not a teacher.
+
+    Platform admins pass because they have to be able to fix a school's data
+    when it goes wrong, and a support call that cannot be answered without
+    asking the customer to do it themselves is not support.
+    """
+    if not is_school_admin(user, db):
+        raise HTTPException(
+            403, "School office access required. Attendance, fees and school "
+                 "notices are kept by the office, not by teaching staff.")
+    return user
+
+
+def _school_of(user: User, db: Session):
+    """Which school this member of staff belongs to, and 0 for a platform admin."""
+    t = teacher_row(user, db)
+    return (t.school_id if t else 0) or 0
+
+
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = teacher_row(user, db)
     role = "admin" if user.is_admin else (t.role if t else "student")
     gate = _learning_only(db, user)
+    _ = SCHOOL_ROLES
     return {
         "id": user.id, "name": user.name, "email": user.email,
         # Carried here so the page can show the Pro badge on first paint.
@@ -4427,6 +4563,440 @@ def craxlearn_me(user: User = Depends(current_user),
         "classes": [{"id": k.id, "name": k.name,
                      "mine": k.teacher_id == user.id} for k in classes],
         "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+    }
+
+
+# --------------------------------------------------------------------------
+# The school office: notices, attendance, fees
+# --------------------------------------------------------------------------
+# Written by the office. Read by everybody. A teacher cannot touch any of it
+# and neither can a head teacher — see school_admin_user for why.
+
+class NoticeIn(BaseModel):
+    title: str = Field(min_length=2, max_length=240)
+    body: str = Field(default="", max_length=8000)
+    urgent: bool = False
+    starts_on: str = Field(default="", max_length=20)
+    ends_on: str = Field(default="", max_length=20)
+
+
+def _notice_json(n):
+    return {"id": n.id, "title": n.title, "body": n.body or "",
+            "urgent": bool(n.urgent), "starts_on": n.starts_on or "",
+            "ends_on": n.ends_on or "",
+            "at": n.created_at.isoformat() if n.created_at else ""}
+
+
+class StaffIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: str = Field(min_length=5, max_length=255)
+    role: str = Field(default="teacher", max_length=16)
+
+
+@app.post("/api/head/staff")
+def head_create_staff(body: StaffIn, user: User = Depends(head_user),
+                      db: Session = Depends(get_db)):
+    """The head teacher makes a profile for a member of staff.
+
+    Returns a one-time password the head reads out or writes down. Not
+    emailed: a school hiring in August has staff whose school address does
+    not exist yet, and an invitation nobody receives is a member of staff
+    who cannot work on their first morning.
+
+    A head can create a school-office profile — attendance, fees, notices —
+    but that does not give the head those powers. Somebody has to be able to
+    appoint the office, and it is the head who knows who works there; what
+    the head must not have is the ability to appoint themselves to it, so
+    this refuses to grant a role to the account making the request.
+    """
+    role = body.role.strip().lower()
+    if role not in SCHOOL_ROLES:
+        raise HTTPException(400, f"Role must be one of: "
+                                 f"{', '.join(SCHOOL_ROLES)}")
+    t = teacher_row(user, db)
+    school, sid = (t.school if t else ""), (t.school_id if t else 0)
+    if not user.is_admin and not sid:
+        raise HTTPException(403, "Your account is not attached to a school")
+
+    email = body.email.lower().strip()
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        if existing.id == user.id:
+            raise HTTPException(
+                400, "You cannot change your own role. Ask the platform "
+                     "administrator.")
+        _grant_teacher(db, existing, school, sid, role)
+        # _grant_teacher never downgrades a head; a head setting somebody to
+        # the office must actually move them, so it is set here explicitly.
+        ta = (db.query(TeacherAccess)
+                .filter(TeacherAccess.user_id == existing.id).first())
+        if ta and role != "teacher":
+            ta.role = role
+            db.commit()
+        return {"ok": True, "created": False, "user_id": existing.id,
+                "name": existing.name, "role": role,
+                "note": "That email already had an account, so it was given "
+                        "this role at your school. Their existing password "
+                        "still works."}
+
+    temp = secrets.token_urlsafe(9)
+    u = User(name=body.name.strip()[:120], email=email,
+             password_hash=hash_pw(temp), is_active=True, email_verified=False)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    _grant_teacher(db, u, school, sid, role)
+    ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == u.id).first()
+    if ta:
+        ta.role = role
+        db.commit()
+    return {"ok": True, "created": True, "user_id": u.id, "name": u.name,
+            "email": u.email, "role": role, "temporary_password": temp,
+            "note": "Give them this password. They should change it after "
+                    "signing in — it is shown once and not stored readably."}
+
+
+@app.get("/api/head/staff")
+def head_list_staff(user: User = Depends(head_user),
+                    db: Session = Depends(get_db)):
+    """Who works here, and in what capacity."""
+    t = teacher_row(user, db)
+    sid = (t.school_id if t else 0)
+    q = db.query(TeacherAccess, User).join(User, User.id == TeacherAccess.user_id)
+    if not user.is_admin:
+        q = q.filter(TeacherAccess.school_id == sid)
+    return {"staff": [{"user_id": u.id, "name": u.name, "email": u.email,
+                       "role": ta.role or "teacher",
+                       "since": ta.created_at.isoformat() if ta.created_at else ""}
+                      for ta, u in q.order_by(TeacherAccess.role).limit(500).all()],
+            "roles": list(SCHOOL_ROLES)}
+
+
+@app.delete("/api/head/staff/{uid}")
+def head_remove_staff(uid: int, user: User = Depends(head_user),
+                      db: Session = Depends(get_db)):
+    """Take away a member of staff's access. The account itself is kept."""
+    if uid == user.id:
+        raise HTTPException(400, "You cannot remove your own access")
+    ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == uid).first()
+    if not ta:
+        raise HTTPException(404, "Not found")
+    t = teacher_row(user, db)
+    if not user.is_admin and ta.school_id != (t.school_id if t else -1):
+        raise HTTPException(403, "They are not at your school")
+    db.delete(ta)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/office/notice")
+def add_notice(body: NoticeIn, user: User = Depends(school_admin_user),
+               db: Session = Depends(get_db)):
+    n = SchoolNotice(school_id=_school_of(user, db), author_id=user.id,
+                     title=body.title.strip()[:240],
+                     body=body.body.strip()[:8000], urgent=bool(body.urgent),
+                     starts_on=body.starts_on.strip()[:20],
+                     ends_on=body.ends_on.strip()[:20])
+    db.add(n)
+    db.commit()
+    db.refresh(n)
+    return {"ok": True, "notice": _notice_json(n)}
+
+
+@app.delete("/api/office/notice/{nid}")
+def drop_notice(nid: int, user: User = Depends(school_admin_user),
+                db: Session = Depends(get_db)):
+    n = db.get(SchoolNotice, nid)
+    if not n:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and n.school_id != _school_of(user, db):
+        raise HTTPException(403, "That notice belongs to another school")
+    db.delete(n)
+    db.commit()
+    return {"ok": True}
+
+
+class AttendanceIn(BaseModel):
+    class_id: int
+    day: str = Field(min_length=8, max_length=20)     # ISO date
+    # {user_id: present}. The whole class in one request, because a register
+    # is taken in one go and thirty requests is thirty chances to half-finish.
+    present: dict = {}
+    notes: dict = {}
+
+
+@app.post("/api/office/attendance")
+def mark_attendance(body: AttendanceIn,
+                    user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """Take the register for one class on one day.
+
+    Idempotent per (learner, day): running it again corrects the day rather
+    than adding a second opinion of it. That is what makes "marked absent by
+    mistake" a fixable thing, which is the single most common thing a parent
+    rings a school about.
+    """
+    try:
+        day = dt.date.fromisoformat(body.day.strip()).isoformat()
+    except ValueError:
+        raise HTTPException(400, "Give the day as YYYY-MM-DD")
+    k = db.get(Klass, body.class_id)
+    if not k:
+        raise HTTPException(404, "No such class")
+    sid = _school_of(user, db)
+    if not user.is_admin and k.school_id != sid:
+        raise HTTPException(403, "That class belongs to another school")
+
+    members = {m.user_id for m in db.query(ClassMember)
+               .filter(ClassMember.class_id == k.id).all()}
+    done = 0
+    for raw_uid, present in (body.present or {}).items():
+        try:
+            uid = int(raw_uid)
+        except (TypeError, ValueError):
+            continue
+        # Only children who are actually in this class. A register that will
+        # mark anybody whose id you send is a register that can be used to
+        # write rows against a learner in another school.
+        if uid not in members:
+            continue
+        row = (db.query(Attendance)
+                 .filter(Attendance.user_id == uid, Attendance.day == day)
+                 .first())
+        if not row:
+            row = Attendance(user_id=uid, day=day)
+            db.add(row)
+        row.school_id = k.school_id or 0
+        row.class_id = k.id
+        row.present = bool(present)
+        row.note = str((body.notes or {}).get(raw_uid, ""))[:200]
+        row.marked_by = user.id
+        done += 1
+    db.commit()
+    return {"ok": True, "day": day, "marked": done, "in_class": len(members)}
+
+
+@app.get("/api/office/attendance")
+def read_attendance(class_id: int, day: str = "",
+                    user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """The register for one class, on one day, with everybody's running total."""
+    k = db.get(Klass, class_id)
+    if not k:
+        raise HTTPException(404, "No such class")
+    if not user.is_admin and k.school_id != _school_of(user, db):
+        raise HTTPException(403, "That class belongs to another school")
+    day = (day or dt.date.today().isoformat()).strip()[:20]
+    rows = (db.query(ClassMember, User)
+              .join(User, User.id == ClassMember.user_id)
+              .filter(ClassMember.class_id == class_id).all())
+    today = {a.user_id: a for a in db.query(Attendance)
+             .filter(Attendance.class_id == class_id,
+                     Attendance.day == day).all()}
+    out = []
+    for _cm, u in rows:
+        a = today.get(u.id)
+        out.append({"user_id": u.id, "name": u.name,
+                    "present": (None if a is None else bool(a.present)),
+                    "note": (a.note if a else ""),
+                    **_attendance_totals(db, u.id)})
+    out.sort(key=lambda r: r["name"].lower())
+    return {"class_id": class_id, "class_name": k.name, "day": day,
+            "students": out}
+
+
+def _attendance_totals(db, uid):
+    """Days present, days recorded, and the percentage — computed, never stored.
+
+    A stored percentage cannot be corrected, and correcting a wrongly marked
+    day is the whole reason the rows exist.
+    """
+    total = (db.query(func.count(Attendance.id))
+               .filter(Attendance.user_id == uid).scalar() or 0)
+    present = (db.query(func.count(Attendance.id))
+                 .filter(Attendance.user_id == uid,
+                         Attendance.present == True).scalar() or 0)  # noqa: E712
+    return {"days_present": present, "days_recorded": total,
+            # None rather than 100 when nothing has been recorded. A learner
+            # whose school has not started taking the register has not got
+            # perfect attendance, and showing 100% is a number somebody will
+            # quote back.
+            "attendance_pct": (round(present * 100.0 / total, 1)
+                               if total else None)}
+
+
+class FeeIn(BaseModel):
+    user_id: int
+    title: str = Field(min_length=2, max_length=240)
+    amount: int = 0                       # paise
+    paid: int = 0                         # paise
+    currency: str = Field(default="INR", max_length=8)
+    due_on: str = Field(default="", max_length=20)
+    note: str = Field(default="", max_length=2000)
+    kind: str = Field(default="fee", max_length=12)     # fee | buy
+
+
+def _fee_json(f):
+    return {"id": f.id, "title": f.title, "note": f.note or "",
+            "amount": f.amount or 0, "paid": f.paid or 0,
+            "outstanding": max((f.amount or 0) - (f.paid or 0), 0),
+            "currency": f.currency or "INR", "due_on": f.due_on or "",
+            "kind": f.kind or "fee",
+            "settled": (f.paid or 0) >= (f.amount or 0),
+            "at": f.created_at.isoformat() if f.created_at else "",
+            "paid_at": f.paid_at.isoformat() if f.paid_at else ""}
+
+
+@app.post("/api/office/fee")
+def set_fee(body: FeeIn, user: User = Depends(school_admin_user),
+            db: Session = Depends(get_db)):
+    """Record something a learner owes, or that they have paid.
+
+    This takes no money and is not a payment page. It records what the
+    office already knows, so a learner can see their balance without ringing
+    up — and so nobody has to be told a number over the phone that neither
+    of them can check afterwards.
+    """
+    target = db.get(User, body.user_id)
+    if not target:
+        raise HTTPException(404, "No such learner")
+    sid = _school_of(user, db)
+    if not user.is_admin:
+        _same_school_or_403(db, target, sid)
+    if body.amount < 0 or body.paid < 0:
+        raise HTTPException(400, "Amounts cannot be negative")
+    f = FeeItem(school_id=sid, user_id=target.id,
+                title=body.title.strip()[:240], note=body.note.strip()[:2000],
+                amount=int(body.amount), paid=int(body.paid),
+                currency=(body.currency or "INR").upper()[:8],
+                due_on=body.due_on.strip()[:20],
+                kind="buy" if body.kind == "buy" else "fee",
+                marked_by=user.id,
+                paid_at=now() if body.paid >= body.amount > 0 else None)
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    return {"ok": True, "item": _fee_json(f)}
+
+
+class FeePayIn(BaseModel):
+    paid: int = 0                          # paise, the new total received
+
+
+@app.post("/api/office/fee/{fid}/paid")
+def mark_fee_paid(fid: int, body: FeePayIn,
+                  user: User = Depends(school_admin_user),
+                  db: Session = Depends(get_db)):
+    f = db.get(FeeItem, fid)
+    if not f:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and f.school_id != _school_of(user, db):
+        raise HTTPException(403, "That belongs to another school")
+    if body.paid < 0:
+        raise HTTPException(400, "Amounts cannot be negative")
+    f.paid = int(body.paid)
+    f.marked_by = user.id
+    f.paid_at = now() if f.paid >= (f.amount or 0) else None
+    db.commit()
+    return {"ok": True, "item": _fee_json(f)}
+
+
+@app.delete("/api/office/fee/{fid}")
+def drop_fee(fid: int, user: User = Depends(school_admin_user),
+             db: Session = Depends(get_db)):
+    f = db.get(FeeItem, fid)
+    if not f:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and f.school_id != _school_of(user, db):
+        raise HTTPException(403, "That belongs to another school")
+    db.delete(f)
+    db.commit()
+    return {"ok": True}
+
+
+def _same_school_or_403(db, target: User, school_id: int):
+    """Is this learner one of ours? Membership through a class is the only link."""
+    if not school_id:
+        raise HTTPException(403, "Your account is not attached to a school")
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == target.id,
+                     Klass.school_id == school_id).first())
+    if row is None:
+        raise HTTPException(403, "That learner is not at your school")
+
+
+@app.get("/api/office/learners")
+def office_learners(user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """Everybody at this school, with their attendance and what they owe."""
+    sid = _school_of(user, db)
+    q = (db.query(User, Klass)
+           .join(ClassMember, ClassMember.user_id == User.id)
+           .join(Klass, Klass.id == ClassMember.class_id))
+    if not user.is_admin:
+        q = q.filter(Klass.school_id == sid)
+    out = []
+    for u, k in q.limit(2000).all():
+        fees = db.query(FeeItem).filter(FeeItem.user_id == u.id).all()
+        out.append({"user_id": u.id, "name": u.name,
+                    "class_id": k.id, "class_name": k.name,
+                    "owed": sum(max((f.amount or 0) - (f.paid or 0), 0)
+                                for f in fees),
+                    **_attendance_totals(db, u.id)})
+    out.sort(key=lambda r: (r["class_name"].lower(), r["name"].lower()))
+    return {"learners": out, "school_id": sid}
+
+
+@app.get("/api/craxlearn/standing")
+def my_standing(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """What a learner needs to know about themselves that is not schoolwork.
+
+    Attendance, what is owed, what still has to be bought, and whatever the
+    office has put up. One call, because it is one glance — a student
+    checking four screens to find out whether they are in trouble checks
+    none of them.
+
+    Read-only for everybody. Nothing here can be changed from a learner's
+    session, and the teacher's session cannot change it either.
+    """
+    sid = 0
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == user.id).first())
+    if row is not None:
+        sid = row[0] or 0
+    if not sid:
+        t = teacher_row(user, db)
+        sid = (t.school_id if t else 0) or 0
+
+    fees = (db.query(FeeItem).filter(FeeItem.user_id == user.id)
+              .order_by(FeeItem.created_at.desc()).limit(100).all())
+    today = dt.date.today().isoformat()
+    notices = []
+    if sid:
+        for n in (db.query(SchoolNotice)
+                    .filter(SchoolNotice.school_id == sid)
+                    .order_by(SchoolNotice.urgent.desc(),
+                              SchoolNotice.created_at.desc()).limit(40).all()):
+            # A notice with dates on it is only a notice between them. An
+            # exam timetable from last term on a child's home screen is how
+            # the whole panel stops being read.
+            if n.starts_on and n.starts_on > today:
+                continue
+            if n.ends_on and n.ends_on < today:
+                continue
+            notices.append(_notice_json(n))
+
+    return {
+        **_attendance_totals(db, user.id),
+        "fees": [_fee_json(f) for f in fees if (f.kind or "fee") == "fee"],
+        "to_buy": [_fee_json(f) for f in fees if (f.kind or "fee") == "buy"],
+        "owed": sum(max((f.amount or 0) - (f.paid or 0), 0) for f in fees),
+        "currency": (fees[0].currency if fees else "INR"),
+        "notices": notices,
+        "school_id": sid,
     }
 
 
@@ -14702,6 +15272,10 @@ STATIC_TYPES = {
     ".png":  "image/png",
     ".jpg":  "image/jpeg",
     ".ico":  "image/x-icon",
+    # A browser will not treat a page as installable if its manifest comes
+    # back as anything else, and the failure is silent — the install button
+    # simply never appears, which on a smart board is the whole feature.
+    ".webmanifest": "application/manifest+json",
 }
 
 

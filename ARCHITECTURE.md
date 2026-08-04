@@ -19,6 +19,7 @@ A job board and learning platform. Two products in one codebase:
 | `main.py` | The entire backend. ~7,000 lines, FastAPI + SQLAlchemy. |
 | `dalia.py` | Who the tutor is: the grade-band adapter, the system prompt, and the allowlist of panels she may open. No model call, no network. |
 | `craxlearn.py` | Which pool a learner's questions live in, which half of the product an account may reach, and the registry of open sources. Policy, not plumbing. |
+| `craxlearn.webmanifest`, `craxlearn-sw.js` | What makes Craxlearn installable on a smart board. The worker caches the shell only — never `/api/`, because a stale mark or fee balance is worse than none. |
 | `craxlearn.html` | **Craxlearn**: the institution app. A separate page for schools, colleges and coaching centres, sized for the display at the front of a classroom. No job-board code in it at all. Served at `/craxlearn`. |
 | `index.html` | The learner/candidate app. One page, ~300KB, inline CSS and JS. |
 | `admin.html` | Admin panel. Separate page, same pattern. |
@@ -65,6 +66,10 @@ Six suites, all runnable directly, all must pass before committing:
 - `test_craxlearn_only.py` — what an institution and an under-18 cannot
   reach, asserted at the API rather than in the sidebar
 - `test_classwork.py` — board → assignment → submission → review, end to end
+- `test_office.py` — attendance, fees and notices, and the staff who may not
+  touch them
+- `test_classcode.py` — code-only login, materials, and the account reset
+  (runs against its own database)
 
 They run against the local SQLite database and create real rows. That is
 deliberate: matching quality is only meaningful against real job data.
@@ -114,6 +119,14 @@ else — see `craxlearn.age_ok`. Making silence mean "child" everywhere was
 tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
+
+**Three school roles, and the split is deliberate.** `teacher` is the class
+and nothing else; `head` runs the teaching and creates staff profiles;
+`schooladmin` is the office and owns attendance, fees and notices. A head
+cannot keep the register and a teacher cannot write off a fee — schools have
+separated those duties for a century and copying it is cheaper than explaining
+why we did not. A head can *appoint* the office but not appoint themselves to
+it: `/api/head/staff` refuses to change the requesting account's own role.
 
 **The cache key IS the question.** `AskCache` is keyed on the normalised
 question text and serves one person's stored answer to the next person who
