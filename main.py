@@ -1317,6 +1317,32 @@ import craxlearn as _cl_boot                                        # noqa: E402
 CRAXLEARN_ONLY = env("CRAXLEARN_ONLY", "0").strip().lower() in (
     "1", "true", "yes", "on")
 
+# Hostnames that ARE the school app, on a deployment that also serves the job
+# board. learncraxle.com is the same application, the same database and the
+# same accounts as craxle.com — it is only the front door that differs, so a
+# school never has to explain to a parent why the site their child learns on
+# opens on a job board.
+#
+# Kept as a list of hosts rather than a second deployment because two
+# deployments means two of everything that can drift: two schemas, two sets of
+# class codes, two places a bug has to be fixed. A code issued on one would not
+# work on the other, which is precisely the thing codes exist to avoid.
+CRAXLEARN_HOSTS = tuple(
+    h.strip().lower().lstrip("*.")
+    for h in env("CRAXLEARN_HOSTS", "").split(",") if h.strip())
+
+
+def _is_school_host(request) -> bool:
+    """Is this request arriving at the school's own front door?
+
+    The port is stripped because a host header carries one and a configured
+    hostname does not, and www is stripped because somebody will type it.
+    """
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return bool(host) and host in CRAXLEARN_HOSTS
+
 # Demand a stated date of birth from everybody, not only from institution
 # learners. Off by default: switching it on locks out every existing account
 # until each one comes back and fills in a date, which is a decision with a
@@ -16651,11 +16677,18 @@ def static_file(filename: str, ext: str):
 
 # ---------------------------- static pages --------------------------------
 @app.get("/")
-def index():
+def index(request: Request):
     # An institution running its own server gets its own app at the root.
     # Anything else would mean the first thing a classroom sees is the job
     # board it did not buy.
-    if CRAXLEARN_ONLY:
+    #
+    # The host check does the same for a school-facing domain pointed at this
+    # deployment: same app, same database, same accounts and the same class
+    # codes, with only the front door different. Sessions do not leak between
+    # the two — the cookie is set without a domain attribute, so it is
+    # host-only, and signing in at one is not signing in at the other. For a
+    # board at the front of a classroom that is the behaviour you want.
+    if CRAXLEARN_ONLY or _is_school_host(request):
         return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
 
