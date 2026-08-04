@@ -157,36 +157,73 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 
    Stacked rather than side by side under 900px, because two half-width
    columns on a phone are two unreadable columns. */
-#panes{display:flex;flex-wrap:wrap;align-items:stretch;
-  min-height:calc(100vh - 4rem)}
-.pane{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1 1 0}
-/* Four spaces on a wide board is two rows of two, not four thin columns —
-   a column narrower than about 22rem holds nothing a class can read. */
-#panes.grid{align-content:stretch}
-#panes.grid .pane{flex:1 1 calc(50% - 5px);max-width:calc(50% - 5px);
-  height:calc((100vh - 4rem) / 2)}
-#panes.grid .grip{display:none}
+/* A grid rather than wrapped flex, because a grid can be dragged.
+   The columns and rows are set from JS as plain fr numbers, so one drag
+   handle changes one template and every layout resizes the same way.
+
+   Handles float over the gaps rather than sitting in the flow: a divider
+   that is a grid item has to be counted in every template, and it was
+   forgetting to count it that left three and four spaces unadjustable. */
+#panes{display:grid;gap:8px;position:relative;
+  grid-template-columns:1fr;grid-template-rows:1fr;
+  height:calc(100vh - 4rem)}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;
+  overflow:hidden}
+.pane.wide{grid-column:1 / -1}
 .paneHead{
   display:flex;align-items:center;gap:.4rem;padding:.4rem var(--pad);
-  border-bottom:1px solid var(--line);background:var(--panel2);
+  border-bottom:1px solid var(--line);background:var(--panel2);flex:0 0 auto;
 }
 .pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
 .paneHead select{font-size:.66rem;min-height:1.9rem;padding:.2rem .45rem}
-.paneBody{flex:1 1 auto;overflow-y:auto;padding:var(--pad);
+.paneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--pad);
   -webkit-overflow-scrolling:touch}
 #panes.one .paneHead{display:none}
 #panes.one .paneBody{max-width:1500px;margin:0 auto;width:100%}
-.grip{
-  flex:0 0 10px;cursor:col-resize;background:var(--line);
-  background-clip:content-box;border-left:4px solid var(--bg);
-  border-right:4px solid var(--bg);touch-action:none;
-}
-.grip:active{background:var(--accent)}
+
+/* The handles. Wide enough for a finger on a board, drawn narrow. */
+.grip{position:absolute;z-index:20;touch-action:none;background:transparent}
+.grip::after{content:"";position:absolute;background:var(--line);
+  border-radius:3px}
+.grip:hover::after,.grip.on::after{background:var(--accent)}
+/* The two handles cross in the middle of a 2x2, and whichever is later in
+   the DOM would win there — which is the exact point a finger lands on a
+   board. The vertical one takes the crossing: it is the shorter of the two
+   hit areas, while the horizontal one spans the whole width and loses only
+   a 22px band it can be grabbed either side of. */
+.grip.v{top:0;bottom:0;width:22px;margin-left:-11px;cursor:col-resize;
+  z-index:22}
+.grip.h{z-index:21}
+.grip.v::after{left:9px;top:8px;bottom:8px;width:4px}
+.grip.h{left:0;right:0;height:22px;margin-top:-11px;cursor:row-resize}
+.grip.h::after{top:9px;left:8px;right:8px;height:4px}
+
 @media(max-width:900px){
-  #panes{flex-direction:column}
-  .grip{flex:0 0 10px;cursor:row-resize;border:none;border-top:4px solid var(--bg);
-    border-bottom:4px solid var(--bg)}
+  /* One column on a phone: two half-width columns are two unreadable ones.
+     The rows still drag. */
+  #panes{grid-template-columns:1fr !important}
+  .pane.wide{grid-column:1}
+  .grip.v{display:none}
 }
+
+/* The writing space owns its whole pane and never scrolls: the surface IS
+   the space it was given. The canvas is taken out of the flow so it can
+   only ever be told its size, never argue about it — a canvas left in a
+   flex column can grow the box that is sizing it, and the two then chase
+   each other bigger every frame. */
+.paneBody.noscroll{overflow:hidden;display:flex;flex-direction:column}
+.wboard{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:.5rem}
+/* The tools take one row in a full pane and are allowed to wrap in a
+   quarter of one rather than overflow. They are kept small so wrapping is
+   rare: every row they take is a row off the surface. */
+.wtools{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;flex:0 0 auto}
+.wtools .btn{padding:.3rem .6rem;font-size:.72rem;min-height:2rem}
+.wtools .iconbtn{width:2rem;min-height:2rem;padding:0}
+.wsurf{flex:1 1 auto;min-height:0;position:relative}
+.wsurf canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
+  touch-action:none}
+.whint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  text-align:center;color:var(--muted);pointer-events:none;font-size:.8rem}
 
 /* The boards render into #main and bring their own CSS. They were written
    for a 16px page, so they are scaled down relative to the room-sized base
@@ -373,24 +410,65 @@ var TOOL_NAMES = {
   student:"A student", review:"Reviewing"
 };
 
+/* A space that has been drilled into — an open lesson, one student's record —
+   is still, as far as its selector is concerned, the tool it came from. Without
+   this the selector goes blank the moment a teacher opens a lesson, because no
+   option matches "lesson". */
+var PARENT = {
+  lesson:"tracks", track:"tracks", exam:"tracks",
+  assignment:"roll", student:"roll", review:"inbox"
+};
+function toolOf(page){ return PARENT[page] || page; }
+
 var MAX_PANES = 4;
+
+/* How the spaces are arranged, and where the drag handles go.
+ *
+ * SPLIT is the fraction of the width the left column takes, ROWS the
+ * fraction of the height the top row takes. One pair of numbers drives
+ * every layout, which is why three and four spaces are now adjustable and
+ * were not before: the old flex version had a divider only for two.
+ *
+ *   1  one space
+ *   2  two columns            — vertical handle
+ *   3  two columns, two rows, the third spanning the bottom
+ *                             — vertical + horizontal handles
+ *   4  two by two             — vertical + horizontal handles
+ */
+var SPLIT = 0.5, ROWS = 0.5;
+
+function layout(){
+  var n = PANES.length;
+  var wrap = el("panes");
+  var cols = (n === 1) ? "1fr"
+                       : (SPLIT.toFixed(3) + "fr " + (1 - SPLIT).toFixed(3) + "fr");
+  var rows = (n <= 2) ? "1fr"
+                      : (ROWS.toFixed(3) + "fr " + (1 - ROWS).toFixed(3) + "fr");
+  wrap.style.gridTemplateColumns = cols;
+  wrap.style.gridTemplateRows = rows;
+  /* Three spaces: the third takes the whole bottom row rather than leaving
+     a hole, which is what a teacher expects when they add one. */
+  wrap.querySelectorAll(".pane").forEach(function(p, i){
+    p.classList.toggle("wide", n === 3 && i === 2);
+  });
+  var v = wrap.querySelector(".grip.v"), h = wrap.querySelector(".grip.h");
+  if(v){
+    v.hidden = n < 2;
+    v.style.left = (SPLIT * 100) + "%";
+  }
+  if(h){
+    h.hidden = n < 3;
+    h.style.top = (ROWS * 100) + "%";
+  }
+}
 
 function paintPanes(){
   var wrap = el("panes");
-  wrap.className = PANES.length === 1 ? "one"
-                 : PANES.length >= 3 ? "grid" : "";
+  wrap.className = PANES.length === 1 ? "one" : "";
   var html = "";
   PANES.forEach(function(p, i){
-    if(i && PANES.length === 2){
-      html += '<div class="grip" data-grip="' + i + '"></div>';
-    }
     html += '<div class="pane" data-i="' + i + '" data-live="' +
-      (i === LIVE ? 1 : 0) + '"' +
-      /* Only a row layout gets an inline width. In the 2x2 the stylesheet
-         owns it, and an inline flex here beat that rule and laid four
-         spaces out as four unreadable columns. */
-      (PANES.length === 2 ? ' style="flex:' + (p.flex || 1) + ' 1 0"' : "") +
-      ">" +
+      (i === LIVE ? 1 : 0) + '">' +
       '<div class="paneHead">' +
         '<select data-pick="' + i + '">' +
           Object.keys(TOOL_NAMES).filter(function(k){
@@ -399,7 +477,7 @@ function paintPanes(){
             /* Each tool names its own fields by id, so two copies of one
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
-            if(k === "home" || k === p.page) return true;
+            if(k === "home" || k === toolOf(p.page)) return true;
             /* One module tool at a time, anywhere. They are separate files
                that each ask for "#main" and repaint themselves; two of them
                open at once would both be pinned to one space. */
@@ -408,10 +486,11 @@ function paintPanes(){
                     return j !== i && MODULE_TOOLS.indexOf(q.page) >= 0; })){
               return false;
             }
-            return !PANES.some(function(q, j){ return j !== i && q.page === k; });
+            return !PANES.some(function(q, j){
+              return j !== i && toolOf(q.page) === k; });
           }).map(function(k){
             return '<option value="' + k + '"' +
-              (k === p.page ? " selected" : "") + ">" +
+              (k === toolOf(p.page) ? " selected" : "") + ">" +
               esc(TOOL_NAMES[k]) + "</option>";
           }).join("") +
         "</select>" +
@@ -424,10 +503,14 @@ function paintPanes(){
       '<div class="paneBody" data-i="' + i + '"></div>' +
       "</div>";
   });
+  // The two handles live outside the panes and are positioned over the gaps,
+  // so they do not have to be counted in any grid template.
+  html += '<div class="grip v" hidden></div><div class="grip h" hidden></div>';
   wrap.innerHTML = html;
   // Every body element was just replaced, so the old pin points at a node
   // that is no longer in the document.
   MODULE_HOST = null;
+  layout();
   wirePanes();
   (async function(){
     for(var i = 0; i < PANES.length; i++) await drawPane(i);
@@ -443,7 +526,8 @@ async function drawPane(i){
 }
 
 function wirePanes(){
-  el("panes").querySelectorAll("[data-pick]").forEach(function(sel){
+  var wrap = el("panes");
+  wrap.querySelectorAll("[data-pick]").forEach(function(sel){
     sel.onchange = function(){
       var i = +sel.dataset.pick;
       PANES[i] = { page: sel.value, arg: null, flex: PANES[i].flex };
@@ -451,53 +535,61 @@ function wirePanes(){
       paintPanes();
     };
   });
-  el("panes").querySelectorAll("[data-close]").forEach(function(b){
+  wrap.querySelectorAll("[data-close]").forEach(function(b){
     b.onclick = function(){
       PANES.splice(+b.dataset.close, 1);
       LIVE = 0;
       paintPanes();
     };
   });
-  el("panes").querySelectorAll("[data-shot]").forEach(function(b){
+  wrap.querySelectorAll("[data-shot]").forEach(function(b){
     b.onclick = function(){ shoot(); };
   });
-  el("panes").querySelectorAll(".pane").forEach(function(p){
+  wrap.querySelectorAll(".pane").forEach(function(p){
     p.addEventListener("pointerdown", function(){
       var i = +p.dataset.i;
       if(i === LIVE) return;
       LIVE = i;
-      el("panes").querySelectorAll(".pane").forEach(function(q){
+      wrap.querySelectorAll(".pane").forEach(function(q){
         q.dataset.live = (+q.dataset.i === LIVE) ? 1 : 0;
       });
     }, true);
   });
 
-  /* Dragging the divider. Widths are kept as flex ratios rather than pixels
-     so rotating a board or plugging in a different screen keeps the split
-     the teacher chose instead of leaving one pane 200px wide. */
-  el("panes").querySelectorAll("[data-grip]").forEach(function(g){
+  /* Dragging. Both handles work the same way: read where the pointer is
+     as a fraction of the grid, clamp it so a space can never be dragged to
+     nothing, and rewrite the template. Fractions rather than pixels, so
+     rotating a board or plugging in another screen keeps the proportions
+     the teacher chose. */
+  wrap.querySelectorAll(".grip").forEach(function(g){
+    var vertical = g.classList.contains("v");
     g.addEventListener("pointerdown", function(e){
       e.preventDefault();
       g.setPointerCapture(e.pointerId);
-      var wrap = el("panes");
-      var vertical = window.matchMedia("(max-width:900px)").matches;
+      g.classList.add("on");
       function move(ev){
         var r = wrap.getBoundingClientRect();
-        var f = vertical ? (ev.clientY - r.top) / r.height
-                         : (ev.clientX - r.left) / r.width;
+        var f = vertical ? (ev.clientX - r.left) / r.width
+                         : (ev.clientY - r.top) / r.height;
         f = Math.min(0.85, Math.max(0.15, f));
-        PANES[0].flex = f;
-        PANES[1].flex = 1 - f;
-        wrap.querySelectorAll(".pane").forEach(function(p, i){
-          p.style.flex = (PANES[i].flex || 1) + " 1 0";
-        });
+        if(vertical) SPLIT = f; else ROWS = f;
+        layout();
       }
       function up(){
+        g.classList.remove("on");
         g.removeEventListener("pointermove", move);
         g.removeEventListener("pointerup", up);
+        g.removeEventListener("pointercancel", up);
       }
       g.addEventListener("pointermove", move);
       g.addEventListener("pointerup", up);
+      g.addEventListener("pointercancel", up);
+    });
+    /* Double-tap a handle to put it back to even. Faster than dragging it
+       back, and on a board a dragged handle is easy to nudge by accident. */
+    g.addEventListener("dblclick", function(){
+      if(vertical) SPLIT = 0.5; else ROWS = 0.5;
+      layout();
     });
   });
 }
@@ -878,11 +970,32 @@ var PENS = [
   { name:"Blue",  colour:"#5aa9e0" }
 ];
 
+/* The board fills whatever space it is given, and then holds that shape.
+ *
+ * An empty board takes the pane's own proportions, so opening the writing
+ * space never shows an empty margin — the surface simply IS the space. The
+ * moment there is something written on it the shape is fixed, and further
+ * dragging fits the board inside the pane rather than stretching it. That
+ * is what every fixed-surface board on the market does, and the reason is
+ * the same for all of them: a surface that stretched would turn a circle
+ * drawn in a tall pane into an ellipse when the pane is dragged wide, and
+ * handwriting into something nobody can read. Fitting also means nothing
+ * ever goes out of reach, which is the point of not scrolling. */
+var BOARD_W = 1600;
+
+/* What is on the board outlives the element it is drawn on. Splitting the
+   screen rebuilds every space, and a teacher who added a second space
+   halfway through an explanation should not come back to a blank board.
+   `h` is the board's height in the same units — its shape, once locked. */
+var BOARD_INK = { strokes: [], undone: [], h: 900 };
+
 function write(){
-  main().innerHTML =
-    '<div class="eyebrow">Writing space</div>' +
-    '<div class="card" style="padding:.7rem">' +
-      '<div id="wTools" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem">' +
+  var host = main();
+  /* The space stops scrolling and becomes a column: toolbar, then surface. */
+  host.classList.add("noscroll");
+  host.innerHTML =
+    '<div class="wboard">' +
+      '<div id="wTools" class="wtools">' +
         PENS.map(function(p, i){
           return '<button class="iconbtn" data-pen="' + i + '" title="' + p.name + '" ' +
             'style="background:' + p.colour + ';border-color:' + p.colour +
@@ -890,76 +1003,180 @@ function write(){
         }).join("") +
         '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
         '<input type="range" id="wSize" min="2" max="28" value="5" ' +
-          'title="Thickness" style="width:7rem">' +
+          'title="Thickness" style="width:6rem">' +
+        '<button class="iconbtn" id="wUndo" title="Undo">↶</button>' +
+        '<button class="iconbtn" id="wRedo" title="Redo">↷</button>' +
         '<span class="grow"></span>' +
         '<button class="btn ghost" id="wClear">Clear</button>' +
-        '<button class="btn ghost" id="wShot">Save as picture</button>' +
+        '<button class="btn ghost" id="wShot" title="Save the board as a picture">Save</button>' +
       "</div>" +
-      '<canvas id="wCanvas" style="width:100%;height:62vh;touch-action:none;' +
-        'background:var(--panel2);border-radius:12px;display:block"></canvas>' +
-      '<div class="muted" id="wMsg" style="margin-top:.4rem">' +
-        "Write with a finger, a stylus or a mouse.</div>" +
+      '<div class="wsurf" id="wSurf">' +
+        '<canvas id="wCanvas"></canvas>' +
+        '<div class="whint" id="wHint">' +
+          "Write with a finger, a stylus or a mouse." +
+        "</div>" +
+      "</div>" +
     "</div>";
 
-  var cv = el("wCanvas");
+  var cv = el("wCanvas"), surf = el("wSurf");
   var ctx = cv.getContext("2d");
-  var pen = PENS[0].colour, size = 5, erasing = false, drawing = false;
+  var pen = PENS[0].colour, size = 5, erasing = false;
 
-  /* Sized to the device's real pixels, or a 4K board draws a blurry line
-     over a stretched bitmap. Redrawn from a saved copy so resizing (or
-     rotating the board) does not wipe what is on it. */
-  function fit(){
-    var keep = null;
-    try{ keep = cv.width ? ctx.getImageData(0, 0, cv.width, cv.height) : null; }
-    catch(e){ keep = null; }
-    var r = cv.getBoundingClientRect();
-    var dpr = window.devicePixelRatio || 1;
-    cv.width = Math.max(1, Math.round(r.width * dpr));
-    cv.height = Math.max(1, Math.round(r.height * dpr));
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    if(keep) try{ ctx.putImageData(keep, 0, 0); }catch(e){}
+  /* What is on the board, kept as points rather than pixels.
+     A stroke is { c: colour, e: true when it rubs out, w: thickness,
+     p: [[x, y, pressure], ...] } with x and y in board units. Because it is
+     points, the board can be drawn again at any size — which is what makes
+     dragging a pane bigger keep the writing instead of cropping it, and what
+     makes the exported picture sharp even when the pane was a quarter of a
+     phone screen. */
+  var strokes = BOARD_INK.strokes, undone = BOARD_INK.undone, live = null;
+
+  /* Where the board sits inside the pane, and how big one board unit is.
+     Recomputed on every draw because the pane is dragged mid-lesson. */
+  var S = 1, OX = 0, OY = 0, DPR = 1, BH = BOARD_INK.h;
+  function measure(){
+    var r = surf.getBoundingClientRect();
+    DPR = window.devicePixelRatio || 1;
+    var w = Math.max(1, Math.round(r.width * DPR));
+    var h = Math.max(1, Math.round(r.height * DPR));
+    if(cv.width !== w) cv.width = w;
+    if(cv.height !== h) cv.height = h;
+    /* Nothing written yet, and nothing to bring back with Redo: the board
+       is free to take the shape of the space it is in, and fill it exactly.
+       Bounded, so a sliver of a pane does not produce a board that is all
+       height and no width. */
+    if(!strokes.length && !undone.length && !live){
+      BOARD_INK.h = Math.max(BOARD_W / 4,
+                     Math.min(BOARD_W * 3, Math.round(BOARD_W * h / w)));
+    }
+    BH = BOARD_INK.h;
+    S  = Math.min(w / BOARD_W, h / BH);
+    OX = (w - BOARD_W * S) / 2;
+    OY = (h - BH * S) / 2;
   }
-  fit();
-  window.addEventListener("resize", fit);
 
+  function penWidth(s, pressure){
+    return Math.max(0.5, (s.e ? s.w * 3 : s.w) * S * (0.6 + pressure * 0.8));
+  }
+
+  /* One stroke, in whatever size the board currently is. Segment by segment
+     so a stylus's pressure still varies along it. */
+  function drawStroke(c, s, scale, ox, oy){
+    c.globalCompositeOperation = s.e ? "destination-out" : "source-over";
+    c.strokeStyle = s.c;
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    var pts = s.p;
+    for(var i = 1; i < pts.length; i++){
+      c.lineWidth = Math.max(0.5, (s.e ? s.w * 3 : s.w) * scale
+                                  * (0.6 + pts[i][2] * 0.8));
+      c.beginPath();
+      c.moveTo(ox + pts[i - 1][0] * scale, oy + pts[i - 1][1] * scale);
+      c.lineTo(ox + pts[i][0] * scale, oy + pts[i][1] * scale);
+      c.stroke();
+    }
+  }
+
+  /* The whole board, onto any context. The screen and the exported picture
+     go through the same function at different sizes, so what is saved is
+     exactly what is shown. */
+  var BOARD_BG = "#131c28";
+  function paintBoard(c, scale, ox, oy, w, h){
+    c.globalCompositeOperation = "source-over";
+    c.clearRect(0, 0, w, h);
+    /* The surface, drawn rather than assumed: when the pane is a different
+       shape to the board, the margin is pane and this is where writing
+       actually lands. */
+    c.fillStyle = BOARD_BG;
+    var bw = BOARD_W * scale, bh = BH * scale;
+    if(c.roundRect){
+      c.beginPath();
+      c.roundRect(ox, oy, bw, bh, 12 * scale);
+      c.fill();
+    }else{
+      c.fillRect(ox, oy, bw, bh);
+    }
+    var all = strokes.concat(live ? [live] : []);
+    for(var i = 0; i < all.length; i++) drawStroke(c, all[i], scale, ox, oy);
+    c.globalCompositeOperation = "source-over";
+  }
+
+  function redraw(){
+    measure();
+    paintBoard(ctx, S, OX, OY, cv.width, cv.height);
+    var hint = el("wHint");
+    if(hint) hint.hidden = strokes.length > 0 || !!live;
+  }
+
+  /* The pane is dragged, the board is rotated, the browser zooms: all of
+     them arrive here, and all of them are answered by drawing again rather
+     than by stretching a bitmap. */
+  if(window.ResizeObserver){
+    new ResizeObserver(function(){ redraw(); }).observe(surf);
+  }else{
+    window.addEventListener("resize", redraw);
+  }
+  redraw();
+
+  /* Screen position to board units. Clamped, so a stroke that runs off the
+     edge stops at the edge instead of being stored somewhere it can never
+     be seen again. */
   function at(e){
     var r = cv.getBoundingClientRect();
-    var dpr = window.devicePixelRatio || 1;
-    return { x:(e.clientX - r.left) * dpr, y:(e.clientY - r.top) * dpr };
-  }
-  function stroke(from, to, e){
-    ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
-    ctx.strokeStyle = pen;
-    /* A stylus that reports pressure is used with it; everything else draws
-       at the chosen thickness. */
-    var p = (e && e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
-    ctx.lineWidth = (erasing ? size * 3 : size) * (window.devicePixelRatio || 1)
-                    * (0.6 + p * 0.8);
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
+    var x = ((e.clientX - r.left) * DPR - OX) / S;
+    var y = ((e.clientY - r.top) * DPR - OY) / S;
+    var p = (e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
+    return [Math.min(BOARD_W, Math.max(0, x)),
+            Math.min(BH, Math.max(0, y)), p];
   }
 
-  var last = null;
+  /* Drawing paints only the new segment — redrawing every stroke on every
+     pointer sample is what makes a board feel like it is lagging behind
+     the pen. */
+  function extend(pt){
+    var pts = live.p;
+    pts.push(pt);
+    if(pts.length < 2) return;
+    var a = pts[pts.length - 2], b = pt;
+    ctx.globalCompositeOperation = live.e ? "destination-out" : "source-over";
+    ctx.strokeStyle = live.c;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = penWidth(live, b[2]);
+    ctx.beginPath();
+    ctx.moveTo(OX + a[0] * S, OY + a[1] * S);
+    ctx.lineTo(OX + b[0] * S, OY + b[1] * S);
+    ctx.stroke();
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   cv.addEventListener("pointerdown", function(e){
-    drawing = true;
-    last = at(e);
+    e.preventDefault();
     cv.setPointerCapture(e.pointerId);
-    stroke(last, { x:last.x + 0.01, y:last.y }, e);   // a dot is a mark too
+    var hint = el("wHint");
+    if(hint) hint.hidden = true;
+    live = { c: pen, e: erasing, w: size, p: [] };
+    var p0 = at(e);
+    live.p.push(p0);
+    extend([p0[0] + 0.01, p0[1], p0[2]]);   // a dot is a mark too
   });
   cv.addEventListener("pointermove", function(e){
-    if(!drawing) return;
+    if(!live) return;
+    /* A stylus reports far faster than the screen repaints. Reading the
+       samples the browser held back is the difference between handwriting
+       and a polygon. */
     var pts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null) || [e];
-    for(var i = 0; i < pts.length; i++){
-      var now_ = at(pts[i]);
-      stroke(last, now_, pts[i]);
-      last = now_;
-    }
+    for(var i = 0; i < pts.length; i++) extend(at(pts[i]));
   });
   ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
-    cv.addEventListener(ev, function(){ drawing = false; last = null; });
+    cv.addEventListener(ev, function(){
+      if(!live) return;
+      if(live.p.length > 1){
+        strokes.push(live);
+        undone.length = 0;    // a new mark ends the redo trail
+      }
+      live = null;
+    });
   });
 
   el("wTools").querySelectorAll("[data-pen]").forEach(function(b){
@@ -970,28 +1187,41 @@ function write(){
     };
   });
   el("wSize").oninput = function(){ size = +el("wSize").value; };
-  el("wClear").onclick = function(){
-    ctx.globalCompositeOperation = "source-over";
-    ctx.clearRect(0, 0, cv.width, cv.height);
+  /* Undo, because Clear on its own is a lesson's worth of working thrown
+     away by one mis-tap, and every board a teacher has used has this. */
+  el("wUndo").onclick = function(){
+    if(!strokes.length) return;
+    undone.push(strokes.pop());
+    redraw();
   };
-  /* A picture of what is on the board, which is what "screenshot" means in
-     a classroom — the working, not the browser chrome around it. Drawn onto
-     a solid background first, or a transparent PNG opens as black on black
-     in half the apps a teacher will send it to. */
+  el("wRedo").onclick = function(){
+    if(!undone.length) return;
+    strokes.push(undone.pop());
+    redraw();
+  };
+  el("wClear").onclick = function(){
+    if(strokes.length && !confirm("Rub out everything on the board?")) return;
+    /* Clear is undoable: it is one tap away from a lesson's working. */
+    undone.unshift.apply(undone, strokes.slice().reverse());
+    strokes.length = 0;
+    redraw();
+  };
+  /* A picture of the board — the working, not the browser chrome around it.
+     Drawn from the points at a fixed size rather than copied off the screen,
+     so what a teacher sends to a class is the same sharp picture whether
+     they wrote it full screen or in a corner of a four-way split. Solid
+     background first, or a transparent PNG opens as black on black in half
+     the apps it will be sent to. */
   el("wShot").onclick = function(){
     var out = document.createElement("canvas");
-    out.width = cv.width;
-    out.height = cv.height;
-    var o = out.getContext("2d");
-    o.fillStyle = "#0e1621";
-    o.fillRect(0, 0, out.width, out.height);
-    o.drawImage(cv, 0, 0);
+    out.width = BOARD_W * 2;
+    out.height = Math.round(BH * 2);
+    paintBoard(out.getContext("2d"), 2, 0, 0, out.width, out.height);
     var a = document.createElement("a");
     a.href = out.toDataURL("image/png");
     a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
                    .replace(/[:T]/g, "-") + ".png";
     a.click();
-    el("wMsg").textContent = "Saved as a picture.";
   };
 }
 
@@ -2121,7 +2351,7 @@ function mod(render){
 
 function paint(page, arg){
   var m = main();
-  if(m) m.scrollTop = 0;
+  if(m){ m.scrollTop = 0; m.classList.remove("noscroll"); }
   /* Every branch RETURNS, so an async page's promise reaches drawPane and
      DRAW keeps pointing at this space until it has finished writing. */
   if(page === "home")           return home();
@@ -2248,8 +2478,13 @@ el("splitBtn").onclick = function(){
     PANES = PANES.map(function(p){
       return { page:p.page, arg:p.arg, flex:1 };
     });
-    PANES.push({ page: PANES.length === 1 ? "write" : "home",
-                 arg: null, flex: 1 });
+    /* A board beside whatever is being taught is the split a teacher wants
+       first — but not a second copy of it. Every tool names its fields by
+       id, so two of one tool would both write into the same boxes. */
+    var want = ["write", "home"].filter(function(k){
+      return !PANES.some(function(q){ return toolOf(q.page) === k; });
+    });
+    PANES.push({ page: want[0] || "home", arg: null, flex: 1 });
     LIVE = PANES.length - 1;
   }
   el("splitBtn").title = PANES.length >= MAX_PANES
