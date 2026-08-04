@@ -6779,7 +6779,8 @@ class PostIn(BaseModel):
 
 
 @app.get("/api/class/{cid}/discussion")
-def class_discussion(cid: int, user: User = Depends(current_user),
+def class_discussion(cid: int, subject: str = "",
+                     user: User = Depends(current_user),
                      db: Session = Depends(get_db)):
     """Questions asked in this class, newest first, each with its replies.
 
@@ -6787,8 +6788,15 @@ def class_discussion(cid: int, user: User = Depends(current_user),
     side can start is a noticeboard.
     """
     _in_class_or_teaching(db, cid, user)
-    rows = (db.query(ClassPost).filter(ClassPost.class_id == cid)
-              .order_by(ClassPost.created_at.desc()).limit(400).all())
+    q = db.query(ClassPost).filter(ClassPost.class_id == cid)
+    if subject.strip():
+        # Filtered here rather than in the page. The subject screen was
+        # fetching every thread in the class and dropping most of them, which
+        # works until a class has a term of questions in it — and it also
+        # meant the Physics page briefly held Maths questions in memory.
+        want = subject.strip().lower()
+        q = q.filter(func.lower(func.coalesce(ClassPost.subject, "")) == want)
+    rows = q.order_by(ClassPost.created_at.desc()).limit(400).all()
     who = {u.id: (u.name or "Someone") for u in db.query(User).filter(
         User.id.in_([r.user_id for r in rows] or [0])).all()}
 
@@ -6829,6 +6837,13 @@ def class_discussion_post(cid: int, body: PostIn,
         # One level deep. A reply to a reply is a forum, and a forum needs
         # somebody to moderate it.
         parent = p.parent_id or p.id
+        # A reply belongs to the same subject as the question it answers.
+        # Without this an answer typed on the Physics page carried no subject
+        # and vanished from it — the thread split in half, with the question
+        # under Physics and the answer nowhere.
+        root = db.get(ClassPost, parent)
+        if root is not None and not (body.subject or "").strip():
+            body.subject = root.subject or ""
     staff = _my_subjects(db, cid, user)
     row = ClassPost(class_id=cid, user_id=user.id, parent_id=parent,
                     subject=body.subject.strip()[:80],

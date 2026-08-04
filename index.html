@@ -5019,12 +5019,16 @@ async function renderSubject(subject){
     const row=(c.classes||[]).find(x=>x.id===cid)||{};
     asgs=row.assignments||[];
   }catch(e){}
-  try{ disc=await api.get("/api/class/"+cid+"/discussion"); }catch(e){}
+  /* Ask for this subject only. The page used to fetch the whole class and
+     throw most of it away, which works until a class has a term of questions
+     in it. */
+  try{ disc=await api.get("/api/class/"+cid+"/discussion?subject="
+        +encodeURIComponent(subject)); }catch(e){}
 
   const same=v=>String(v||"").trim().toLowerCase()===subject.trim().toLowerCase();
   mats=mats.filter(m=>same(m.subject));
   asgs=asgs.filter(a=>same(a.subject));
-  const threads=(disc.threads||[]).filter(t=>!t.subject||same(t.subject));
+  const threads=disc.threads||[];
 
   const box=document.getElementById("sbjBody");
   box.innerHTML=`
