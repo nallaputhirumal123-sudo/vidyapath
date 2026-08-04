@@ -309,6 +309,8 @@ var TILES = [
 ];
 
 var TEACHER_TILES = [
+  { page:"inbox",    ic:"📥", name:"To review",
+    sub:"Work your students have handed in, across every class." },
   { page:"activity", ic:"📊", name:"What the class is asking",
     sub:"The topics your learners have been stuck on, as counts." },
   { page:"sources",  ic:"📚", name:"Where answers come from",
@@ -321,9 +323,52 @@ function tile(t){
     "<b>" + esc(t.name) + "</b><span>" + esc(t.sub) + "</span></button>";
 }
 
+/* Work, on whichever login is looking.
+ *
+ * The same assignment, two views, both filled from the server on the way in
+ * rather than by anybody pressing publish. A teacher sets it from the board
+ * and it is on the students' home screen; a student hands it in and it is in
+ * the teacher's inbox. Nothing in between is a state somebody has to
+ * remember to move it out of, because the state somebody forgets is the one
+ * that loses a term's homework.
+ */
+function workBlock(){
+  if(isTeacher()){
+    var n = (ME.inbox || {}).total || 0;
+    return '<div class="eyebrow">To review</div>' +
+      '<button class="card" data-go="inbox" style="width:100%;text-align:left;' +
+      'cursor:pointer;border-color:' + (n ? "var(--accent)" : "var(--line)") + '">' +
+        '<span class="big">' + n + "</span> " +
+        '<span class="muted">' +
+          (n ? "piece" + (n === 1 ? "" : "s") + " of work waiting for you"
+             : "nothing waiting — you are up to date") +
+        "</span></button>";
+  }
+  var due = (ME.assignments || []);
+  if(!due.length) return "";
+  return '<div class="eyebrow">Your work</div>' +
+    due.map(function(a){
+      var state = a.reviewed ? "✓ marked"
+                : a.done     ? "handed in"
+                             : "to do";
+      return '<button class="card" data-asg="' + a.id + '" ' +
+        'style="width:100%;text-align:left;cursor:pointer;border-color:' +
+        (a.done ? "var(--line)" : "var(--accent)") + '">' +
+        "<b>" + esc(a.title) + "</b><br>" +
+        '<span class="muted">' + esc(a.class_name) +
+          (a.subject ? " · " + esc(a.subject) : "") +
+          (a.due_date ? " · due " + esc(a.due_date) : "") +
+          " · " + state + "</span></button>";
+    }).join("");
+}
+
+function isTeacher(){
+  return ME.role === "head" || ME.role === "teacher" || ME.role === "admin";
+}
+
 function home(){
-  var teacher = ME.role === "head" || ME.role === "teacher" || ME.role === "admin";
-  var h = "";
+  var teacher = isTeacher();
+  var h = workBlock();
   if(ME.institution){
     h += '<div class="card"><div class="muted">Institution</div>' +
          '<div class="big">' + esc(ME.institution.name) + "</div>" +
@@ -351,6 +396,145 @@ function home(){
        "open, and listed with its licence." +
        "</div>";
   main().innerHTML = h;
+}
+
+/* ---------- a student's own work ---------- */
+async function assignment(aid){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/assignment/" + aid); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<button class="btn ghost" data-go="home">← Back</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(d.title) + "</h1>" +
+    '<p class="muted">' + esc(d.class_name) +
+      (d.subject ? " · " + esc(d.subject) : "") +
+      (d.teacher_name ? " · set by " + esc(d.teacher_name) : "") +
+      (d.due_date ? " · due " + esc(d.due_date) : "") + "</p>";
+
+  if(d.feedback || d.reviewed_at){
+    h += '<div class="note"><b>Your teacher says:</b> ' +
+      (d.feedback ? esc(d.feedback)
+                  : "marked — nothing further to add.") + "</div>";
+  }
+  h += '<div class="card" style="white-space:pre-wrap">' + esc(d.body || "") + "</div>";
+  /* Set from the board, so the same lesson can be taught again to whoever
+     is stuck. This is the reason board_topic is stored at all: "do this"
+     without "and here is how" is where a class quietly stops. */
+  if(d.board_topic){
+    h += '<button class="btn ghost" data-teach="' + esc(d.board_topic) +
+         '">Teach me this again</button>';
+  }
+  h += '<div class="eyebrow">Your answer</div><div class="card">' +
+    '<textarea id="ans" rows="8" style="width:100%;font:inherit;font-size:.72rem;' +
+    'padding:.6rem;border-radius:12px;border:1px solid var(--line);' +
+    'background:var(--panel2);color:var(--text)">' + esc(d.my_response || "") +
+    "</textarea>" +
+    '<div style="margin-top:.6rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+      '<button class="btn" id="handIn">' +
+        (d.done ? "Update my answer" : "Hand it in") + "</button>" +
+      '<span class="muted" id="handMsg">' +
+        (d.submitted_at ? "Handed in " + esc(d.submitted_at.slice(0,16).replace("T"," "))
+                        : "Not handed in yet") + "</span>" +
+    "</div></div>";
+  main().innerHTML = h;
+
+  el("handIn").onclick = async function(){
+    el("handMsg").textContent = "Sending…";
+    try{
+      await api.post("/api/assignment/" + aid + "/submit",
+                     { response: el("ans").value || "" });
+      el("handMsg").textContent = "Handed in. Your teacher can see it now.";
+      await refreshMe();
+    }catch(e){ el("handMsg").textContent = e.message; }
+  };
+}
+
+/* ---------- a teacher's queue ---------- */
+async function inbox(){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/inbox"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<div class="eyebrow">Work waiting for you</div>';
+  if(!(d.waiting || []).length){
+    h += '<div class="card muted">Nothing waiting. ' +
+      (d.reviewed ? d.reviewed + " reviewed so far across " : "Across ") +
+      (d.classes || 0) + " class" + ((d.classes === 1) ? "" : "es") + ".</div>";
+  }else{
+    h += (d.waiting).map(function(w){
+      return '<button class="card" data-review="' + w.assignment_id + '" ' +
+        'data-student="' + w.student_id + '" ' +
+        'style="width:100%;text-align:left;cursor:pointer">' +
+        "<b>" + esc(w.student) + "</b>" +
+        (w.resubmitted ? ' <span class="muted">· handed in again</span>' : "") +
+        '<br><span class="muted">' + esc(w.title) + " · " +
+        esc(w.class_name) + (w.subject ? " · " + esc(w.subject) : "") +
+        " · " + esc((w.at || "").slice(0,16).replace("T"," ")) +
+        "</span></button>";
+    }).join("");
+  }
+  main().innerHTML = h;
+}
+
+async function review(aid, sid){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/assignment/" + aid + "/submissions"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var who = (d.students || []).filter(function(s){ return s.submitted; });
+  var h = '<button class="btn ghost" data-go="inbox">← Back to the queue</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(d.title) + "</h1>" +
+    '<p class="muted">' + esc(d.subject || "") + " · " + who.length +
+    " of " + (d.students || []).length + " handed in</p>";
+
+  if(!who.length){
+    h += '<div class="card muted">Nobody has handed this in yet.</div>';
+    main().innerHTML = h;
+    return;
+  }
+  h += who.map(function(s){
+    var open = String(s.id) === String(sid);
+    return '<div class="card">' +
+      "<b>" + esc(s.name) + "</b> " +
+      '<span class="muted">' +
+        (s.resubmitted ? "handed in again" : s.reviewed ? "✓ reviewed" : "waiting") +
+        " · " + esc((s.at || "").slice(0,16).replace("T"," ")) + "</span>" +
+      '<div style="white-space:pre-wrap;margin:.6rem 0;padding:.6rem;' +
+        'background:var(--panel2);border-radius:12px;font-size:.72rem">' +
+        esc(s.response || "(blank)") + "</div>" +
+      '<textarea data-fb="' + s.id + '" rows="2" placeholder="What you want to say back (optional)" ' +
+        'style="width:100%;font:inherit;font-size:.72rem;padding:.6rem;' +
+        'border-radius:12px;border:1px solid var(--line);background:var(--panel2);' +
+        'color:var(--text)">' + esc(s.feedback || "") + "</textarea>" +
+      '<div style="margin-top:.5rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+        '<button class="btn" data-mark="' + s.id + '">' +
+          (s.reviewed ? "Update" : "Mark reviewed") + "</button>" +
+        '<span class="muted" data-msg="' + s.id + '"></span>' +
+      "</div>" +
+      "</div>";
+  }).join("");
+  main().innerHTML = h;
+  if(sid){
+    var card = main().querySelector('[data-fb="' + sid + '"]');
+    if(card) card.scrollIntoView({ block:"center" });
+  }
+  main().querySelectorAll("[data-mark]").forEach(function(b){
+    b.onclick = async function(){
+      var uid = b.dataset.mark;
+      var msg = main().querySelector('[data-msg="' + uid + '"]');
+      msg.textContent = "Saving…";
+      try{
+        await api.post("/api/teacher/submission/" + aid + "/" + uid + "/review",
+          { feedback: (main().querySelector('[data-fb="' + uid + '"]').value || "") });
+        msg.textContent = "Reviewed. The student can see this now.";
+        b.textContent = "Update";
+        await refreshMe();
+      }catch(e){ msg.textContent = e.message; }
+    };
+  });
 }
 
 async function activity(){
@@ -459,7 +643,46 @@ async function teach(){
     h += "</div>";
   });
   if(L.takeaway) h += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
+
+  /* The point of teaching on a board that is part of the platform: what the
+     class just watched becomes the work they take away, without anybody
+     retyping it. Teachers only, and only for classes they hold. */
+  var mine = (ME.classes || []).filter(function(c){ return c.mine; });
+  if(isTeacher() && mine.length){
+    h += '<div class="eyebrow">Set this for a class</div><div class="card">' +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<select id="asgClass">' + mine.map(function(c){
+          return '<option value="' + c.id + '">' + esc(c.name) + "</option>";
+        }).join("") + "</select>" +
+        '<input id="asgDue" type="date" title="Due date (optional)">' +
+        '<input id="asgTask" style="flex:1 1 14rem" ' +
+          'placeholder="What they have to do (optional)">' +
+        '<button class="btn" id="asgGo">Set it</button>' +
+      "</div>" +
+      '<div class="muted" id="asgMsg" style="margin-top:.5rem">' +
+        "It appears on their home screen straight away — there is nothing to publish." +
+      "</div></div>";
+  }
   out.innerHTML = h;
+
+  var go = el("asgGo");
+  if(go) go.onclick = async function(){
+    var msg = el("asgMsg");
+    msg.textContent = "Setting…";
+    try{
+      var r = await api.post("/api/craxlearn/board/assign", {
+        class_id: +el("asgClass").value,
+        topic: topic,
+        title: L.title || topic,
+        due_date: el("asgDue").value || "",
+        task: el("asgTask").value || "",
+        lesson: L
+      });
+      msg.textContent = "Set for " + r.students + " student" +
+        (r.students === 1 ? "" : "s") + ". It is on their home screen now.";
+      await refreshMe();
+    }catch(e){ msg.textContent = e.message; }
+  };
 }
 
 /* ---------- routing ---------- */
@@ -472,6 +695,9 @@ function go(page, arg){
   if(page === "home")           home();
   else if(page === "activity")  activity();
   else if(page === "sources")   sources();
+  else if(page === "inbox")     inbox();
+  else if(page === "assignment") assignment(arg);
+  else if(page === "review")    review(arg && arg.aid, arg && arg.sid);
   else if(page === "board")     board(arg);
   else if(page === "net"       && window.renderNet)      window.renderNet();
   else if(page === "lab"       && window.renderLab)      window.renderLab();
@@ -481,17 +707,55 @@ function go(page, arg){
 window.render = function(){ go(VIEW.page); };
 
 document.addEventListener("click", function(e){
-  var b = e.target.closest && e.target.closest("[data-go]");
-  if(b) go(b.dataset.go);
+  var t = e.target;
+  if(!t.closest) return;
+  var b;
+  if((b = t.closest("[data-asg]")))    return go("assignment", b.dataset.asg);
+  if((b = t.closest("[data-review]"))) return go("review",
+      { aid:b.dataset.review, sid:b.dataset.student });
+  if((b = t.closest("[data-teach]")))  return go("board", b.dataset.teach);
+  if((b = t.closest("[data-go]")))     return go(b.dataset.go);
 });
 
 /* ---------- boot ---------- */
+/* One place that knows what work exists, refreshed after anything that
+   changes it. A page that painted its counts once and never again is a
+   teacher who hands work back and still sees "3 waiting" until they reload,
+   and then stops trusting the number. */
+async function refreshMe(){
+  if(!ME) return;
+  if(isTeacher()){
+    try{ ME.inbox = await api.get("/api/teacher/inbox"); }
+    catch(e){ ME.inbox = { total:0, waiting:[] }; }
+  }
+  /* A teacher can also be enrolled somewhere as a learner, and a head
+     teacher's own classes come back here too — so this runs for everybody
+     rather than in an else. */
+  try{
+    var mine = await api.get("/api/class/mine");
+    var flat = [];
+    (mine.classes || []).forEach(function(c){
+      (c.assignments || []).forEach(function(a){
+        flat.push(Object.assign({ class_name:c.name }, a));
+      });
+    });
+    /* Not handed in first, then by due date. The list is a to-do list, so
+       the thing that is still to do belongs at the top of it. */
+    flat.sort(function(x, y){
+      if(!!x.done !== !!y.done) return x.done ? 1 : -1;
+      return String(x.due_date || "9999").localeCompare(String(y.due_date || "9999"));
+    });
+    ME.assignments = flat;
+  }catch(e){ ME.assignments = []; }
+}
+
 async function boot(){
   try{
     ME = await api.get("/api/craxlearn/me");
   }catch(err){
     ME = null;
   }
+  if(ME) await refreshMe();
   var signedIn = !!ME;
   el("gate").hidden = signedIn;
   main().hidden = !signedIn;

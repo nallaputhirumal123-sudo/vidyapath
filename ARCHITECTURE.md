@@ -64,6 +64,7 @@ Six suites, all runnable directly, all must pass before committing:
   and that every source of answer material is an open one
 - `test_craxlearn_only.py` — what an institution and an under-18 cannot
   reach, asserted at the API rather than in the sidebar
+- `test_classwork.py` — board → assignment → submission → review, end to end
 
 They run against the local SQLite database and create real rows. That is
 deliberate: matching quality is only meaningful against real job data.
@@ -83,6 +84,15 @@ exactly this reason. Prefer Python scripts over heredocs for edits.
 
 **One inline script per HTML file.** A syntax error anywhere in `index.html`'s
 script takes down the whole app, not one feature. There is no module boundary.
+
+**`onupdate=now` fires on every write, including yours.** `Submission.updated_at`
+means "when the student last handed in", and a teacher marking the work is a
+write to that row — so it moved to the marking time, and "waiting again"
+(computed from `updated_at > reviewed_at`) fired the instant anything was
+reviewed. Assigning the old value back does NOT fix it: an identical value is
+not a change, so the column stays out of the UPDATE and `onupdate` applies
+anyway. `flag_modified(sub, "updated_at")` is what forces it into the SET
+clause. Watch for this on any column with `onupdate`.
 
 **Craxlearn is a separate page, not a mode.** `craxlearn.html` is what a
 school buys: a URL to put on a classroom board and hand to a fourteen-year-old.

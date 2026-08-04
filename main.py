@@ -40,6 +40,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
                             relationship, defer)
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.exc import IntegrityError
 
 # --------------------------------------------------------------------------
@@ -727,6 +728,11 @@ class Assignment(Base):
     pdf_data = Column(Text, default="")            # base64 PDF of uploaded pages
     pdf_name = Column(String(160), default="")
     due_date = Column(String(20), default="")      # ISO date string, optional
+    # The board topic this was set from, when it was set from the board.
+    # Kept so a student who is stuck can have the same lesson taught to them
+    # again instead of only being told to do it. Nullable: assignments typed
+    # by hand have no topic and that is not a gap.
+    board_topic = Column(String(200), default="")
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -740,6 +746,18 @@ class Submission(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                      nullable=False, index=True)
     response = Column(Text, default="")
+    # What the teacher said back, and when. Separate from the chat thread on
+    # purpose: a thread is a conversation and this is the verdict, and a
+    # student scrolling a conversation to find out whether their work was
+    # accepted has been given the wrong shape.
+    #
+    # reviewed_at is what "waiting for me" is computed from, so it is the
+    # one that must be set even when there is nothing to say. All nullable:
+    # every submission that existed before this column did is unreviewed,
+    # which is exactly what NULL should mean here.
+    feedback = Column(Text, default="")
+    reviewed_at = Column(DateTime(timezone=True))
+    reviewed_by = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=now)
     updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
     __table_args__ = (UniqueConstraint("assignment_id", "user_id", name="uq_sub_user"),)
@@ -2118,6 +2136,7 @@ def _asg_json(a, done=None):
          "body": a.body or "", "due_date": a.due_date or "",
          "has_pdf": bool(a.pdf_data), "pdf_name": a.pdf_name or "",
          "teacher_id": a.teacher_id or 0,
+         "board_topic": getattr(a, "board_topic", "") or "",
          "kind": a.kind, "lesson_slug": a.lesson_slug or ""}
     if done is not None:
         d["done"] = done
@@ -2456,8 +2475,9 @@ def my_enrolled_classes(user: User = Depends(current_user),
     """Everything the student needs for the weekly table across all teachers."""
     memberships = db.query(ClassMember, Klass).join(Klass, Klass.id == ClassMember.class_id) \
         .filter(ClassMember.user_id == user.id).all()
-    my_subs = {r[0] for r in db.query(Submission.assignment_id)
-               .filter(Submission.user_id == user.id).all()}
+    mine = {r.assignment_id: r for r in db.query(Submission)
+            .filter(Submission.user_id == user.id).all()}
+    my_subs = set(mine)
     classes = []
     for cm, k in memberships:
         teacher = db.get(User, k.teacher_id)
@@ -2469,7 +2489,11 @@ def my_enrolled_classes(user: User = Depends(current_user),
             "id": k.id, "name": k.name, "school": k.school,
             "teacher": teacher.name if teacher else "",
             "schedule": [{"day": s.day, "text": s.text} for s in sched],
-            "assignments": [{**_asg_json(a, a.id in my_subs)} for a in assignments],
+            "assignments": [
+                {**_asg_json(a, a.id in my_subs),
+                 "reviewed": bool(mine[a.id].reviewed_at) if a.id in mine else False,
+                 "feedback": (mine[a.id].feedback or "") if a.id in mine else ""}
+                for a in assignments],
         })
     return {"classes": classes}
 
@@ -2492,7 +2516,13 @@ def assignment_detail(aid: int, user: User = Depends(current_user),
             "class_name": k.name if k else "",
             "teacher_name": teacher.name if teacher else "",
             "my_response": sub.response if sub else "",
-            "submitted_at": sub.updated_at.isoformat() if sub and sub.updated_at else None}
+            "submitted_at": sub.updated_at.isoformat() if sub and sub.updated_at else None,
+            # The verdict, where there is one. A student who has submitted
+            # and heard nothing should be able to see that plainly rather
+            # than reading it as silence from a teacher.
+            "feedback": (sub.feedback or "") if sub else "",
+            "reviewed_at": (sub.reviewed_at.isoformat()
+                            if sub and sub.reviewed_at else None)}
 
 
 @app.post("/api/assignment/{aid}/submit")
@@ -2578,11 +2608,17 @@ def assignment_submissions(aid: int, user: User = Depends(teacher_user),
     students = []
     for cm, u in members:
         s = subs.get(u.id)
+        fresh = bool(s and s.reviewed_at and s.updated_at
+                     and s.updated_at > s.reviewed_at)
         students.append({"id": u.id, "name": u.name,
                          "response": s.response if s else "",
                          "submitted": bool(s),
+                         "feedback": (s.feedback or "") if s else "",
+                         "reviewed": bool(s and s.reviewed_at) and not fresh,
+                         "resubmitted": fresh,
                          "at": s.updated_at.isoformat() if s and s.updated_at else None})
-    students.sort(key=lambda r: (not r["submitted"], r["name"].lower()))
+    students.sort(key=lambda r: (not r["submitted"], r["reviewed"],
+                                 r["name"].lower()))
     return {"id": a.id, "subject": a.subject, "title": a.title, "body": a.body,
             "students": students}
 
@@ -4229,6 +4265,214 @@ def craxlearn_me(user: User = Depends(current_user),
                      "mine": k.teacher_id == user.id} for k in classes],
         "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
     }
+
+
+class BoardAssignIn(BaseModel):
+    class_id: int
+    topic: str = Field(min_length=2, max_length=200)
+    title: str = Field(default="", max_length=240)
+    subject: str = Field(default="", max_length=80)
+    due_date: str = Field(default="", max_length=20)
+    # The lesson as the board built it, so the assignment carries the
+    # teaching and not only the instruction. Sent back rather than rebuilt
+    # here: the teacher is looking at a specific lesson on the screen and
+    # that is the one the class must get, not whatever the board would
+    # produce if asked the same question again tomorrow.
+    lesson: dict = {}
+    task: str = Field(default="", max_length=4000)
+
+
+def _lesson_to_body(lesson, task):
+    """A board lesson as the text of an assignment.
+
+    Flattened to text rather than stored as JSON because that is what
+    `Assignment.body` is, what the existing student view renders, and what a
+    teacher can edit afterwards. A structured copy would need a renderer on
+    both sides and would stop the teacher fixing a line before setting it.
+    """
+    out = []
+    if task:
+        out.append(task.strip())
+        out.append("")
+    for i, st in enumerate(lesson.get("steps") or [], 1):
+        text = st.get("t", "") if isinstance(st, dict) else str(st)
+        if not text:
+            continue
+        out.append(f"{i}. {text.strip()}")
+        if isinstance(st, dict) and st.get("code"):
+            where = st.get("where") or ""
+            out.append(f"   [{where}]" if where else "")
+            out.append("   " + "\n   ".join(
+                str(st["code"]).splitlines()[:20]))
+        out.append("")
+    if lesson.get("takeaway"):
+        out.append(f"Remember: {lesson['takeaway']}")
+    return "\n".join(out).strip()[:20000]
+
+
+@app.post("/api/craxlearn/board/assign")
+def craxlearn_board_assign(body: BoardAssignIn,
+                           user: User = Depends(teacher_user),
+                           db: Session = Depends(get_db)):
+    """Set what is on the board as an assignment for one class.
+
+    This is the whole point of teaching on a board that is part of the
+    platform: the lesson the class just watched becomes the work they take
+    away, without anybody retyping it. It appears in the students' own view
+    and in the teacher's the moment it is created — there is nothing to
+    publish, because an assignment nobody can see is not a draft, it is a
+    mistake waiting to be noticed on the due date.
+
+    Deliberately the same Assignment row that a typed assignment creates.
+    A second kind of assignment would mean a second submission flow, a
+    second review screen and two ways for a student to be marked, which is
+    how a classroom product becomes unusable.
+    """
+    _own_class(db, body.class_id, user)
+
+    subject = body.subject.strip()[:80]
+    # A subject teacher is locked to the subject they hold in this class,
+    # the same as when they type one by hand. The board does not become a
+    # way round that.
+    allowed = _my_subjects(db, body.class_id, user)
+    if allowed is not None:
+        if not allowed:
+            raise HTTPException(403, "You have no subject in this class yet")
+        if subject not in allowed:
+            if not subject and len(allowed) == 1:
+                subject = next(iter(allowed))
+            else:
+                raise HTTPException(
+                    403, "You can only set assignments for: "
+                         + ", ".join(sorted(allowed)))
+
+    topic = _cl.redact(body.topic)[:200]
+    text = _lesson_to_body(body.lesson if isinstance(body.lesson, dict) else {},
+                           body.task)
+    if not text:
+        raise HTTPException(400, "There is no lesson on the board to set")
+
+    a = Assignment(class_id=body.class_id, teacher_id=user.id, kind="task",
+                   subject=subject,
+                   title=(body.title.strip() or topic)[:240],
+                   body=text, board_topic=topic,
+                   due_date=body.due_date.strip()[:20])
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+
+    n = (db.query(func.count(ClassMember.id))
+           .filter(ClassMember.class_id == body.class_id).scalar() or 0)
+    return {"ok": True, "assignment": _asg_json(a), "students": n}
+
+
+class ReviewIn(BaseModel):
+    feedback: str = Field(default="", max_length=4000)
+
+
+@app.post("/api/teacher/submission/{aid}/{uid}/review")
+def review_submission(aid: int, uid: int, body: ReviewIn,
+                      user: User = Depends(teacher_user),
+                      db: Session = Depends(get_db)):
+    """Mark one student's work as reviewed, with or without a comment.
+
+    Marking it with nothing to say is allowed and is not a gap: "seen, fine"
+    is a real outcome and the alternative is a teacher typing "good" forty
+    times to clear a list.
+    """
+    a = db.get(Assignment, aid)
+    if not a:
+        raise HTTPException(404, "Not found")
+    _own_class(db, a.class_id, user)
+    sub = (db.query(Submission)
+             .filter(Submission.assignment_id == aid,
+                     Submission.user_id == uid).first())
+    if not sub:
+        raise HTTPException(404, "That student has not submitted yet")
+    # `updated_at` carries `onupdate=now`, so ANY write to this row moves it
+    # — including this one. Two things break if it is left to:
+    #
+    # 1. The student's "handed in at" jumps to the moment the teacher marked
+    #    it, which is not when they handed it in and is visible to them.
+    # 2. "Waiting again" is computed from updated_at > reviewed_at, and the
+    #    review's own bump lands after reviewed_at — so every piece of work
+    #    reappeared in the queue the instant it was marked.
+    #
+    # Assigning the old value explicitly wins over onupdate, which keeps
+    # both meanings intact: updated_at is when the STUDENT last wrote.
+    # Assigning the SAME value back is not a change, so SQLAlchemy leaves
+    # the column out of the UPDATE and `onupdate` fills it in anyway — which
+    # is exactly the bug this is here to stop, wearing the fix's clothes.
+    # flag_modified forces it into the SET clause, and a column present
+    # there is not touched by onupdate.
+    keep = sub.updated_at
+    sub.feedback = body.feedback.strip()[:4000]
+    sub.reviewed_at = now()
+    sub.reviewed_by = user.id
+    if keep is not None:
+        sub.updated_at = keep
+        flag_modified(sub, "updated_at")
+    db.commit()
+    return {"ok": True, "reviewed_at": sub.reviewed_at.isoformat()}
+
+
+@app.get("/api/teacher/inbox")
+def teacher_inbox(user: User = Depends(teacher_user),
+                  db: Session = Depends(get_db)):
+    """Every piece of work waiting for this teacher, across every class.
+
+    The thing that makes "review it anywhere" true. Without it a teacher
+    walks class, then assignment, then submissions, three taps deep, once
+    per class, to find out whether anything arrived — which on a phone
+    between lessons means they do not look.
+
+    Scoped by the same rule as everywhere else: a head teacher sees their
+    school's classes, a subject teacher sees the classes where they hold a
+    subject. Nothing here can reach another school.
+    """
+    head = is_head(user, db)
+    t = teacher_row(user, db)
+    if head:
+        sid = t.school_id if t else 0
+        q = db.query(Klass)
+        classes = (q.filter(Klass.school_id == sid) if sid
+                   else q.filter(Klass.teacher_id == user.id)).all()
+    else:
+        ids = {sl.class_id for sl in db.query(SubjectSlot)
+               .filter(SubjectSlot.teacher_id == user.id).all()}
+        classes = (db.query(Klass).filter(Klass.id.in_(ids)).all()
+                   if ids else [])
+    by_class = {k.id: k for k in classes}
+    if not by_class:
+        return {"waiting": [], "classes": 0, "total": 0}
+
+    rows = (db.query(Submission, Assignment, User)
+              .join(Assignment, Assignment.id == Submission.assignment_id)
+              .join(User, User.id == Submission.user_id)
+              .filter(Assignment.class_id.in_(list(by_class)))
+              .order_by(Submission.updated_at.desc()).limit(300).all())
+
+    waiting, reviewed = [], 0
+    for sub, a, student in rows:
+        # Reviewed, then edited again by the student, is waiting once more.
+        # A teacher who has read version one has not read version two, and
+        # treating it as done is how a resubmission disappears.
+        fresh = (sub.reviewed_at is not None and sub.updated_at is not None
+                 and sub.updated_at > sub.reviewed_at)
+        if sub.reviewed_at is not None and not fresh:
+            reviewed += 1
+            continue
+        waiting.append({
+            "assignment_id": a.id, "title": a.title,
+            "subject": a.subject or "",
+            "class_id": a.class_id,
+            "class_name": by_class[a.class_id].name,
+            "student_id": student.id, "student": student.name,
+            "resubmitted": fresh,
+            "at": sub.updated_at.isoformat() if sub.updated_at else "",
+        })
+    return {"waiting": waiting, "classes": len(by_class),
+            "total": len(waiting), "reviewed": reviewed}
 
 
 @app.get("/api/craxlearn/sources")

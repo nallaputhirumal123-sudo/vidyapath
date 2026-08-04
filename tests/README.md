@@ -54,6 +54,14 @@ including admins. Also greps the served `/craxlearn` page for job-side strings,
 and walks the live route table so a route belonging to neither half fails the
 build.
 
+**test_classwork.py** — the loop from the board to the class and back. A
+teacher sets what is on the board; it is on the students' home screen with
+nothing published. A student hands it in; it is in the teacher's queue with
+nothing configured. The teacher marks it; the student sees the verdict. Pins
+the two that go wrong in classroom software: work edited after review is
+waiting again (a teacher who read version one has not read version two), and
+the cross-class review queue never shows another school's children.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,
