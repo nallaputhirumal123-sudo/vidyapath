@@ -107,5 +107,33 @@ try:
 finally:
     main.CRAXLEARN_HOSTS = saved
 
+print("\nwhich address goes into a link")
+# Deriving this from the Host header is a known attack: set Host to a server
+# you own, ask for a password reset, and the victim is emailed a working reset
+# link pointing at you. PUBLIC_BASE_URL exists to stop exactly that, so an
+# entry in the allowlist must be the ONLY thing that can override it.
+
+
+class FakeReq:
+    def __init__(self, host):
+        self.headers = {"host": host}
+        self.base_url = "http://testserver/"
+
+
+main.PUBLIC_BASE_URL = "https://craxle.com"
+check("a configured school host is used for its own links",
+      main._site_base(FakeReq("learncraxle.com")) == "https://learncraxle.com",
+      main._site_base(FakeReq("learncraxle.com")))
+check("an attacker's host is ignored",
+      main._site_base(FakeReq("evil.example.net")) == "https://craxle.com",
+      "a reset link must never point at a host somebody merely claimed")
+check("a lookalike host is ignored too",
+      main._site_base(FakeReq("learncraxle.com.evil.net")) == "https://craxle.com")
+check("the job board keeps its own configured base",
+      main._site_base(FakeReq("craxle.com")) == "https://craxle.com")
+check("https is forced for a school host",
+      main._site_base(FakeReq("learncraxle.com")).startswith("https://"),
+      "a verification link must not be sent over plain http")
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)

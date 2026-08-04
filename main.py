@@ -1332,6 +1332,30 @@ CRAXLEARN_HOSTS = tuple(
     for h in env("CRAXLEARN_HOSTS", "").split(",") if h.strip())
 
 
+def _site_base(request) -> str:
+    """The address to put in a link, for the door this request came through.
+
+    PUBLIC_BASE_URL exists because deriving this from the Host header is a
+    known attack: set Host to a server you own, ask for a password reset, and
+    the victim is emailed a working reset link pointing at you. So the header
+    is never trusted on its own.
+
+    But a single fixed base is now wrong too. A teacher who signs in with
+    Google at learncraxle.com would be handed back to craxle.com, and a school
+    asking for a password reset would be emailed a link to the job board.
+
+    The rule that satisfies both: use the requested host only when it is one we
+    were configured to answer for. An allowlist entry is a deliberate act by
+    whoever runs the deployment, so it carries the same authority
+    PUBLIC_BASE_URL does; anything else falls back exactly as before.
+    """
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    bare = host[4:] if host.startswith("www.") else host
+    if bare and bare in CRAXLEARN_HOSTS:
+        return "https://" + host
+    return PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+
+
 def _is_school_host(request) -> bool:
     """Is this request arriving at the school's own front door?
 
@@ -2034,7 +2058,7 @@ def _send_verification(db, user, request, background=None):
                          token_hash=hashlib.sha256(raw.encode()).hexdigest(),
                          expires_at=now() + VERIFY_TTL))
     db.commit()
-    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    base = _site_base(request)
     link = f"{base}/verify?token={raw}"
     body = "\n".join([
         f"Hello {user.name},",
@@ -2134,7 +2158,7 @@ def auth_forgot(body: ForgotIn, background: BackgroundTasks,
             token_hash=hashlib.sha256(raw.encode()).hexdigest(),
             expires_at=now() + RESET_TTL))
         db.commit()
-        base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+        base = _site_base(request)
         link = f"{base}/reset?token={raw}"
         background.add_task(
             send_email, user.email, "Reset your Craxle password",
@@ -2195,7 +2219,7 @@ def auth_config(db: Session = Depends(get_db)):
 
 
 def _redirect_uri(request: Request) -> str:
-    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    base = _site_base(request)
     # Railway terminates TLS at the proxy; make sure we advertise https.
     if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
         base = "https://" + base[len("http://"):]
@@ -15657,7 +15681,7 @@ async def billing_checkout(body: CheckoutIn, request: Request,
         raise HTTPException(400, "Unknown billing period")
     if not STRIPE_ENABLED:
         raise HTTPException(503, "Payments are not switched on yet.")
-    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    base = _site_base(request)
 
     # Two ways to price this. A Price ID created in the Stripe dashboard wins
     # if one is configured; otherwise the amount is sent inline from PLANS.
