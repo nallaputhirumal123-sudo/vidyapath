@@ -2707,18 +2707,24 @@ class TeacherCodeIn(BaseModel):
     school: str = ""
 
 
-def _gen_code(db, prefix, model, field):
+def _gen_code(db, prefix, model, field, length=4):
     import random
     alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     for _ in range(25):
-        code = prefix + "".join(random.choice(alpha) for _ in range(4))
+        code = prefix + "".join(random.choice(alpha)
+                                for _ in range(length))
         if not db.query(model).filter(field == code).first():
             return code
     return prefix + secrets.token_hex(3).upper()
 
 
 def _gen_join_code(db) -> str:
-    return _gen_code(db, "VP-", Klass, Klass.join_code)
+    # Six, not four. A class code returns the first names of the children
+    # in that class, so the space it is drawn from has to be large enough
+    # that working through it is hopeless: 32^6 is 1.07 billion against
+    # 32^4 = 1,048,576. Codes already printed and handed out are four
+    # characters and keep working — only new ones are longer.
+    return _gen_code(db, "VP-", Klass, Klass.join_code, length=6)
 
 
 def _gen_slot_code(db) -> str:
@@ -5849,7 +5855,8 @@ class CodeIn(BaseModel):
 
 
 @app.post("/api/craxlearn/code")
-def craxlearn_code(body: CodeIn, db: Session = Depends(get_db)):
+def craxlearn_code(body: CodeIn, request: Request,
+                   db: Session = Depends(get_db)):
     """Step one of signing in with nothing: which class is this, and who is free?
 
     Unauthenticated, because the whole point is that there is no account yet.
@@ -5858,9 +5865,11 @@ def craxlearn_code(body: CodeIn, db: Session = Depends(get_db)):
     and nothing else. That is the cost of a login a nine-year-old can do,
     and it is why the code is per-class and rotatable.
     """
+    _code_guard(request)
     code = body.code.strip().upper()
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
     if not k:
+        _code_missed(request)
         raise HTTPException(404, "No class has that code")
     free = (db.query(RosterName)
               .filter(RosterName.class_id == k.id, RosterName.claimed_by == 0)
@@ -5878,7 +5887,7 @@ class ClaimIn(BaseModel):
 
 
 @app.post("/api/craxlearn/claim")
-def craxlearn_claim(claim: ClaimIn, response: Response,
+def craxlearn_claim(claim: ClaimIn, response: Response, request: Request,
                     db: Session = Depends(get_db)):
     """Step two: take that name, and be signed in.
 
@@ -5893,9 +5902,11 @@ def craxlearn_claim(claim: ClaimIn, response: Response,
     account. There is no adult behind it who agreed to anything, and no
     date of birth that could ever open it.
     """
+    _code_guard(request)
     code = claim.code.strip().upper()
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
     if not k:
+        _code_missed(request)
         raise HTTPException(404, "No class has that code")
     r = db.get(RosterName, claim.roster_id)
     if not r or r.class_id != k.id:
@@ -6324,6 +6335,73 @@ REMOTE_KINDS = {
 _REMOTE_TRIES: dict = {}
 _REMOTE_JOIN_PER_MIN = 12
 _REMOTE_CMD_PER_MIN = 150
+
+
+# Guessing a class code returns the first names of the children in that class,
+# so guessing has to be expensive. See _code_guard.
+_CODE_TRIES: dict = {}
+_CODE_FAILS: dict = {}
+_CODE_PER_MIN = 10          # a classroom is never faster than this
+_CODE_FAILS_PER_IP = 40     # per hour
+_CODE_FAILS_GLOBAL = 600    # per hour, across everybody
+_CODE_WINDOW = 3600.0
+
+
+def _client_ip(request) -> str:
+    """Who is asking, as well as can be known behind a proxy.
+
+    X-Forwarded-For is written by the client and only appended to by the
+    proxy, so this identifies an ordinary user and can be rotated by an
+    attacker. That is exactly why it is not the only defence — the global
+    ceiling below does not depend on it.
+    """
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")
+    first = xff[0].strip()
+    if first:
+        return first[:45]
+    client = getattr(request, "client", None)
+    return (getattr(client, "host", "") or "?")[:45]
+
+
+def _code_guard(request):
+    """Called before a code is looked up. Raises 429 if this is a sweep."""
+    import time as _t
+    now_s = _t.monotonic()
+    ip = _client_ip(request)
+
+    recent = [t for t in _CODE_TRIES.get(ip, []) if now_s - t < 60]
+    if len(recent) >= _CODE_PER_MIN:
+        raise HTTPException(429, "Too many tries. Wait a minute, then type "
+                                 "the code again.")
+    recent.append(now_s)
+    _CODE_TRIES[ip] = recent
+    if len(_CODE_TRIES) > 4000:
+        for k in list(_CODE_TRIES)[:2000]:
+            _CODE_TRIES.pop(k, None)
+
+    fails = [t for t in _CODE_FAILS.get(ip, []) if now_s - t < _CODE_WINDOW]
+    if len(fails) >= _CODE_FAILS_PER_IP:
+        raise HTTPException(429, "Too many wrong codes from this device. "
+                                 "Ask your teacher to check the code.")
+    allfails = [t for t in _CODE_FAILS.get("*", []) if now_s - t < _CODE_WINDOW]
+    if len(allfails) >= _CODE_FAILS_GLOBAL:
+        raise HTTPException(429, "Too many wrong codes just now. Try again "
+                                 "shortly.")
+
+
+def _code_missed(request):
+    """A code that matched nothing. Recorded per address and globally."""
+    import time as _t
+    now_s = _t.monotonic()
+    ip = _client_ip(request)
+    for key in (ip, "*"):
+        seen = [t for t in _CODE_FAILS.get(key, []) if now_s - t < _CODE_WINDOW]
+        seen.append(now_s)
+        _CODE_FAILS[key] = seen
+    if len(_CODE_FAILS) > 4000:
+        for k in list(_CODE_FAILS)[:2000]:
+            if k != "*":
+                _CODE_FAILS.pop(k, None)
 
 
 def _remote_throttle(who: str, per_min: int, whatfor: str):
