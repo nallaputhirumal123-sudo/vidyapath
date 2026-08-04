@@ -2801,6 +2801,8 @@ async function sbTeach(topic,keepTrail){
     const r=await api.post("/api/board/lesson",{topic:SB.topic,level:ASK.level||"Intermediate"});
     if(seq!==SB.seq) return;          // a newer question is already on the board
     SB.lesson=r.lesson; SB.i=0;
+    // Kept so a reported error names the exact cached answer.
+    if(SB.lesson && r.qkey) SB.lesson.qkey=r.qkey;
   }catch(e){
     if(seq!==SB.seq) return;
     // Includes anything thrown before the request was even sent, which
@@ -3556,6 +3558,39 @@ function askSavedList(){
     .map(k=>{ try{return {k,...JSON.parse(S.notes[k])};}catch(e){return null;} })
     .filter(Boolean).sort((a,b)=>(b.ts||0)-(a.ts||0));
 }
+/* Saying an answer is wrong.
+ *
+ * Asks what was wrong rather than taking a bare thumbs-down, because "this is
+ * wrong" is not actionable and "the formula in step 3 is in the wrong units"
+ * is. One sentence is enough and the box says so.
+ *
+ * The lesson's own cache key goes with it, so the report names the exact text
+ * that was on screen rather than a topic that may have been regenerated
+ * since — and so the server can drop that cached answer immediately. */
+async function askReport(){
+  const l = (SB.lesson || ASK.lesson);
+  if(!l){ toast("Ask something first."); return; }
+  const what = prompt(
+    "What is wrong with this answer?\n\n" +
+    "One sentence is plenty. Naming the step or the line helps most.");
+  if(what === null) return;
+  const said = (what || "").trim();
+  if(!said){ toast("Nothing sent — say what was wrong."); return; }
+  try{
+    const r = await api.post("/api/report", {
+      qkey: l.qkey || "",
+      topic: (SB.topic || ASK.question || l.title || "").slice(0, 300),
+      what: said.slice(0, 1200),
+      where: SB.lesson ? "board" : "ask"
+    });
+    toast(r.dropped
+      ? "Thank you — that answer has been removed and will be rebuilt."
+      : "Thank you. That has been recorded.");
+  }catch(e){
+    toast((e && e.message) || "Could not send that just now.");
+  }
+}
+
 function askSaveCurrent(){
   if(!ASK.lesson)return;
   const l=ASK.lesson;
@@ -3961,6 +3996,12 @@ function renderAskInner(){
     ${a.speaking?"":`<button class="ask-abtn" data-ask="readaloud">🔊 Read aloud</button>`}
     ${a.speaking?"":`<button class="ask-abtn" data-ask="more">🔎 More detail</button>`}
     <button class="ask-abtn ${a.justSaved?"ok":""}" data-ask="save" ${a.justSaved?"disabled":""}>${a.justSaved?"✓ Saved":"⭐ Save for reference"}</button>
+    <!-- The only check here a machine cannot do. Everything else — the
+         constants, the arithmetic, the units, the second read — catches what
+         it was built to catch. A lesson that is confidently wrong in a way
+         nobody anticipated is caught by the person reading it, and until now
+         they had nowhere to put that. -->
+    <button class="ask-abtn" data-ask="report" title="Tell us this answer is wrong">⚠ Report an error</button>
     <button class="ask-abtn" data-ask="pdf">⬇ Download PDF</button>
     ${a.fromCache?`<span class="ask-saved">💾 from memory · free</span>`:""}
   </div>`:""}
@@ -4058,6 +4099,7 @@ document.addEventListener("click",e=>{
   else if(kind==="readaloud"){ if(ASK.lesson)askTeach(ASK.lesson); }
   else if(kind==="more"){ const q=(ASK.question||"").replace(/ \(in more detail.*$/,""); askSubmit(q+" (in more detail, step by step)"); }
   else if(kind==="save"){ askSaveCurrent(); }
+  else if(kind==="report"){ askReport(); }
   else if(kind==="pdf"){ if(ASK.lesson)askPDF({q:ASK.question,subject:ASK.subject,level:ASK.level,title:ASK.lesson.title,steps:ASK.lesson.steps,takeaway:ASK.lesson.takeaway}); }
   else if(kind==="opensaved"){ askOpenSaved(key); }
   else if(kind==="pdfsaved"){ try{ askPDF(JSON.parse(S.notes[key])); }catch(err){} }

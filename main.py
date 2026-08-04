@@ -2365,6 +2365,93 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     }
 
 
+class ReportIn(BaseModel):
+    qkey: str = Field(default="", max_length=500)
+    topic: str = Field(default="", max_length=300)
+    what: str = Field(default="", max_length=1200)
+    where: str = Field(default="", max_length=40)
+
+
+@app.post("/api/report")
+def report_inaccuracy(body: ReportIn, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Somebody says an answer is wrong.
+
+    Every other check here is the machine checking itself, and each one
+    catches what it was built to catch. A lesson that is confidently wrong in
+    a way nobody anticipated is caught by a reader, and until now a reader had
+    nowhere to put that.
+
+    Two things happen. The report is stored so it can be read, and the cached
+    lesson is dropped so the next person asking is not handed the answer
+    somebody just said was wrong. Dropping it costs one model call to
+    regenerate and is obviously the right trade.
+    """
+    what = (body.what or "").strip()[:1200]
+    topic = (body.topic or "").strip()[:300]
+    if not what and not topic:
+        raise HTTPException(400, "Say what was wrong.")
+
+    # A report costs a cached lesson, so a bored account cannot empty the
+    # cache one button-press at a time.
+    today = now().strftime("%Y%m%d")
+    seen = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k == f"reports_{today}").first()
+    count = int((seen.v or "0")) if seen and (seen.v or "").isdigit() else 0
+    if count >= 20:
+        raise HTTPException(429, "That is a lot of reports today. "
+                                 "Thank you — try again tomorrow.")
+
+    dropped = False
+    qkey = (body.qkey or "").strip()[:500]
+    if qkey:
+        row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+        if row:
+            try:
+                db.delete(row)
+                dropped = True
+            except Exception:
+                db.rollback()
+
+    stamp = now().isoformat(timespec="seconds")
+    entry = json.dumps({"at": stamp, "topic": topic, "what": what,
+                        "where": (body.where or "")[:40], "qkey": qkey,
+                        "user": user.id, "dropped": dropped})
+    try:
+        rec = Note(user_id=user.id, k=f"report_{stamp}_{user.id}", v=entry)
+        db.add(rec)
+        if seen:
+            seen.v = str(count + 1)
+        else:
+            db.add(Note(user_id=user.id, k=f"reports_{today}", v="1"))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Report not stored ({type(e).__name__}) — cache drop stands")
+    print(f"REPORTED WRONG by user {user.id}: {topic[:60]!r} — {what[:120]!r}"
+          + (" (cached lesson dropped)" if dropped else ""))
+    return {"ok": True, "dropped": dropped}
+
+
+@app.get("/api/admin/reports")
+def admin_reports(user: User = Depends(admin_user),
+                  db: Session = Depends(get_db)):
+    """What people have said is wrong, newest first.
+
+    A report nobody reads is the same as no report, so there is somewhere to
+    read them from the day the button ships.
+    """
+    rows = (db.query(Note).filter(Note.k.like("report_%"))
+            .order_by(Note.id.desc()).limit(200).all())
+    out = []
+    for r in rows:
+        try:
+            out.append(json.loads(r.v))
+        except Exception:
+            continue
+    return {"reports": out, "total": len(out)}
+
+
 # ---------------------------- classroom -----------------------------------
 class ClassIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
@@ -12136,7 +12223,7 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
             row.hits = (row.hits or 0) + 1
             db.commit()
             _tr.done("served from cache")
-            return {"lesson": cached, "cached": True}
+            return {"lesson": cached, "cached": True, "qkey": qkey}
         except Exception as ce:
             print(f"Board cache row unusable ({qkey}): "
                   f"{type(ce).__name__}: {ce} — regenerating")
@@ -12239,7 +12326,10 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
         # complete answer.
         db.rollback()
     _tr.done("built and cached")
-    return {"lesson": lesson, "cached": False}
+    # The cache key travels with the lesson so a reader reporting an error
+    # names the exact text that was shown, not a topic that may have been
+    # regenerated since.
+    return {"lesson": lesson, "cached": False, "qkey": qkey}
 
 
 # ==========================================================================
