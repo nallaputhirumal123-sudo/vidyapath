@@ -10343,10 +10343,18 @@ def _job_in_scope(r):
         loc = (r.get("location") or "")
         c = (_country_of(loc) or "").strip().upper()
     if not c:
-        # A bare "Remote" names no country at all. Keep it: remote work is
-        # the one kind somebody here can genuinely take from anywhere, and
-        # discarding it silently is how a board looks empty.
-        return bool(_is_remote(r.get("location") or ""))
+        # A bare "Remote" names no country, and I kept it on the reasoning
+        # that remote work can be taken from anywhere. That is wrong about
+        # this market. When a US employer writes "Remote" they mean remote
+        # within the United States — their own timezones, their own right to
+        # work, often their own state list. Somebody in Hyderabad who applies
+        # is not being considered, and a board full of those is worse than a
+        # smaller board: it wastes the applications of the people it is for.
+        #
+        # A posting that genuinely takes applicants here says so, and
+        # _country_of already reads "Remote - India" and "Remote, Bengaluru".
+        # Unqualified remote is out.
+        return False
     if c in ALLOWED_COUNTRIES:
         return True
     aliases = {"UNITED STATES": "US", "USA": "US", "U.S.": "US",
@@ -11892,6 +11900,86 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
                 cond = cond | func.lower(Job.text).like(like)
             query = query.filter(cond)
     return query
+
+
+class PruneIn(BaseModel):
+    # Typed out in full, because this deletes rows and a stray click should
+    # not be able to. Same shape as the admin reset already uses.
+    confirm: str = Field(default="", max_length=80)
+
+
+def _out_of_scope_ids(db):
+    """Stored jobs that would no longer be accepted by a crawl today.
+
+    Read through the same _job_in_scope the crawler uses rather than a
+    separate SQL condition. Two rules that are supposed to agree and are
+    written twice always end up disagreeing, and the day they do, this
+    deletes rows the board was still serving.
+    """
+    out = []
+    for j in db.query(Job).all():
+        row = {"country": j.country or "", "location": j.location or "",
+               "title": j.title or "", "category": j.category or ""}
+        if not _job_in_scope(row):
+            out.append(j.id)
+    return out
+
+
+@app.get("/api/admin/jobs/out-of-scope")
+def count_out_of_scope(user: User = Depends(admin_user),
+                       db: Session = Depends(get_db)):
+    """How many stored postings the current country rules would refuse.
+
+    A dry run. Nothing is deleted here, and this is the call to make first:
+    the answer tells you whether the rules are what you think they are before
+    anything is removed on the strength of them.
+    """
+    ids = _out_of_scope_ids(db)
+    total = db.query(func.count(Job.id)).scalar() or 0
+    sample = []
+    if ids:
+        for j in db.query(Job).filter(Job.id.in_(ids[:8])).all():
+            sample.append({"title": j.title, "company": j.company,
+                           "location": j.location, "country": j.country or ""})
+    return {"total": total, "out_of_scope": len(ids),
+            "keeping": total - len(ids),
+            "scope": sorted(ALLOWED_COUNTRIES), "sample": sample}
+
+
+@app.post("/api/admin/jobs/prune")
+def prune_out_of_scope(body: PruneIn, user: User = Depends(admin_user),
+                       db: Session = Depends(get_db)):
+    """Delete every stored posting the country rules would refuse.
+
+    The board switched to India and the table kept thousands of US rows. They
+    were already unreachable — every search, filter and count goes through
+    _job_in_scope — but they are a third of a slow query and they will be
+    served the moment somebody widens JOB_COUNTRIES for an unrelated reason.
+
+    Requires the sentence, because there is no undo. Matches are found by the
+    same in-scope test the crawler uses, so this can never delete a row the
+    board would still show.
+    """
+    want = "delete out of scope jobs"
+    if body.confirm.strip().strip('"').lower() != want:
+        raise HTTPException(400, f'Send confirm="{want}" to do this. '
+                                 f'Check /api/admin/jobs/out-of-scope first.')
+    ids = _out_of_scope_ids(db)
+    if not ids:
+        return {"ok": True, "deleted": 0, "kept": db.query(func.count(Job.id)).scalar()}
+    # In batches: one IN clause with twenty thousand ids is how a delete
+    # times out halfway and leaves the table in a state nobody expected.
+    gone = 0
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        gone += (db.query(Job).filter(Job.id.in_(chunk))
+                   .delete(synchronize_session=False))
+        db.commit()
+    kept = db.query(func.count(Job.id)).scalar() or 0
+    print(f"ADMIN PRUNE: {gone} out-of-scope jobs deleted by {user.email}, "
+          f"{kept} kept, scope={sorted(ALLOWED_COUNTRIES)}")
+    return {"ok": True, "deleted": gone, "kept": kept,
+            "scope": sorted(ALLOWED_COUNTRIES)}
 
 
 @app.get("/api/jobs")
