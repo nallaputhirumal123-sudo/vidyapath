@@ -13270,6 +13270,18 @@ def _rag_ready(db):
     global _RAG_INDEX
     if _RAG_INDEX is not None:
         return _RAG_INDEX
+    # A corpus built by tools/build_corpus.py, if there is one. It holds the
+    # curriculum AND NCERT in a single FTS5 index, so a question is answered
+    # from whichever actually covers it rather than from whichever index
+    # somebody decided to search first.
+    #
+    # Opened read-only and never rebuilt here: building it fetches a few
+    # hundred PDFs and takes hours, which is a batch job, not a startup step.
+    built = _rag.open_fts(str(BASE_DIR / "corpus.db"))
+    if built is not None:
+        _RAG_INDEX = built
+        print(f"corpus: {built.n} passages from corpus.db")
+        return _RAG_INDEX
     try:
         rows = []
         for ls, tr in (db.query(Lesson, Track)

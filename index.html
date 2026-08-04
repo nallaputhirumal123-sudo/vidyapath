@@ -1730,12 +1730,21 @@ $("#joinForm").onsubmit=async e=>{
       return;
     }
     await boot();
-    S.view={page:"teacher"};
+    /* Go where the code actually put you, not where the tab was labelled.
+       This sent everybody to the teacher dashboard, so somebody who typed a
+       class code here was enrolled as a student — correctly, by the server —
+       and then shown a teacher's screen. The server has always said which:
+       "student", "teacher" or "school admin". */
+    const role = String((landed && landed.role) || "").toLowerCase();
+    const asStudent = role === "student";
+    S.view = {page: asStudent ? "class" : "teacher"};
     render();
-    toast(landed && landed.subject
-      ? "You now teach "+landed.subject+
-        (landed["class"]?" in "+landed["class"]:"")+"."
-      : "Signed in as "+(landed&&landed.role||"teacher")+".");
+    toast(asStudent
+      ? "You have joined "+(landed["class"]||"the class")+"."
+      : landed && landed.subject
+        ? "You now teach "+landed.subject+
+          (landed["class"]?" in "+landed["class"]:"")+"."
+        : "Signed in as "+(role||"teacher")+".");
     return;
   }
 

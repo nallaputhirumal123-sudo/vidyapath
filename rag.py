@@ -386,3 +386,32 @@ def build_fts(lessons, path=":memory:"):
         if content:
             ix.add(content, title, track, slug)
     return ix.finish()
+
+
+def open_fts(path):
+    """Open a corpus built earlier, without rebuilding it.
+
+    FtsIndex's constructor drops and recreates the table, which is right when
+    you are building one and catastrophic when you are opening one — the first
+    read of a three-hour ingestion would have emptied it. So opening is its own
+    function, and it never writes.
+
+    Returns None if there is no usable corpus there, because a caller that
+    falls back to the small in-memory index is behaving correctly and a caller
+    handed an empty index is not.
+    """
+    import os
+    if not path or path == ":memory:" or not os.path.exists(path):
+        return None
+    ix = FtsIndex.__new__(FtsIndex)
+    ix.path = path
+    try:
+        ix.db = sqlite3.connect(path, check_same_thread=False)
+        ix.db.row_factory = sqlite3.Row
+        ix.n = ix.db.execute("SELECT count(*) FROM passages").fetchone()[0]
+    except Exception as e:
+        print(f"corpus: {path} would not open ({type(e).__name__}: {e})")
+        return None
+    if not ix.n:
+        return None
+    return ix
