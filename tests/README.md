@@ -45,6 +45,15 @@ history does not clear the school's. Plus the source registry: every source
 used for answers, explanations, 2D, 3D or sandbox material is asserted to be
 open, and the one closed dependency is asserted to be listed and marked.
 
+**test_craxlearn_only.py** — the three walls between a classroom and the job
+board, asserted at the API rather than in the sidebar, because hiding a menu
+item stops nobody who can type a URL. A school that bought Craxlearn is refused
+at any age; a coaching centre that bought both is refused for anyone under 18,
+which is not the centre's to waive; and `CRAXLEARN_ONLY` refuses everybody
+including admins. Also greps the served `/craxlearn` page for job-side strings,
+and walks the live route table so a route belonging to neither half fails the
+build.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,

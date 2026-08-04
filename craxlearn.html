@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Craxlearn — the teaching board</title>
+<meta name="description" content="Craxlearn: the teaching half of Craxle, for schools, colleges and coaching centres. No job board.">
+<link rel="icon" href="/favicon.ico">
+<meta name="theme-color" content="#0b0f16">
+<style>
+/* Sized for the display at the front of a room, not for a laptop.
+   The whole of this file is one decision repeated: the person reading it is
+   four metres away and the person operating it is doing so with a finger.
+   Base type is 20px rather than 16, targets are 52px rather than 36, and
+   nothing depends on hover — a smart board has no pointer to hover with. */
+:root{
+  --bg:#0b0f16; --panel:#121a26; --panel2:#0e1621; --line:#22303f;
+  --text:#e8eef6; --muted:#93a3b8; --dim:#6a7b8f;
+  --accent:#ff9933; --accent2:#c2410c; --ok:#3fae6a; --bad:#e05a5a;
+  --pad:clamp(16px,2.2vw,34px);
+  --r:16px;
+}
+:root[data-scale="board"]{ font-size:26px }
+:root[data-scale="desk"]{ font-size:18px }
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:1rem; line-height:1.6; -webkit-text-size-adjust:100%;
+  min-height:100vh;
+}
+button{font:inherit;color:inherit}
+a{color:var(--accent)}
+h1,h2,h3{margin:0 0 .4em;line-height:1.25}
+h1{font-size:1.5rem}h2{font-size:1.2rem}h3{font-size:1rem}
+
+/* ---- frame ---- */
+#top{
+  display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;
+  padding:.7rem var(--pad); border-bottom:1px solid var(--line);
+  background:var(--panel2); position:sticky; top:0; z-index:50;
+}
+#brand{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:1.05rem}
+#brand .dot{
+  width:1.5rem;height:1.5rem;border-radius:50%;flex:0 0 auto;
+  background:linear-gradient(150deg,var(--accent),var(--accent2));
+}
+#brand small{display:block;font-size:.5rem;font-weight:500;color:var(--muted);
+  letter-spacing:.14em;text-transform:uppercase}
+.grow{flex:1 1 auto}
+#top .who{font-size:.62rem;color:var(--muted);text-align:right;line-height:1.35}
+#top .who b{display:block;color:var(--text);font-size:.72rem}
+
+.iconbtn{
+  min-width:2rem;min-height:2rem;padding:0 .55rem;border-radius:12px;
+  border:1px solid var(--line);background:transparent;cursor:pointer;
+  font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;
+}
+.iconbtn:active{border-color:var(--accent)}
+
+/* ---- the tile grid: the whole home screen ---- */
+#main{padding:var(--pad);max-width:1500px;margin:0 auto}
+.tiles{
+  display:grid;gap:clamp(12px,1.4vw,22px);
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr));
+}
+.tile{
+  display:flex;flex-direction:column;align-items:flex-start;gap:.3rem;
+  text-align:left;padding:1.1rem 1.15rem;min-height:7.2rem;
+  border-radius:var(--r);border:1px solid var(--line);
+  background:var(--panel);cursor:pointer;
+}
+.tile:active{border-color:var(--accent);transform:translateY(1px)}
+.tile .ic{font-size:1.9rem;line-height:1}
+.tile b{font-size:.92rem;font-weight:700}
+.tile span{font-size:.66rem;color:var(--muted);line-height:1.45}
+
+.eyebrow{
+  font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);margin:1.6rem 0 .7rem;font-weight:700;
+}
+.eyebrow:first-child{margin-top:0}
+
+.card{
+  border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+  padding:1.1rem 1.2rem;margin-bottom:1rem;
+}
+.muted{color:var(--muted);font-size:.72rem}
+.big{font-size:1.6rem;font-weight:800;line-height:1}
+
+.btn{
+  padding:.6rem 1.1rem;border-radius:12px;border:1px solid var(--line);
+  background:linear-gradient(150deg,var(--accent),var(--accent2));
+  color:#fff;font-weight:700;cursor:pointer;font-size:.78rem;
+  min-height:2.4rem;
+}
+.btn.ghost{background:transparent;color:var(--text);font-weight:600}
+.btn:active{transform:translateY(1px)}
+input,select{
+  font:inherit;font-size:.78rem;padding:.55rem .7rem;border-radius:12px;
+  border:1px solid var(--line);background:var(--panel2);color:var(--text);
+  min-height:2.4rem;max-width:100%;
+}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+
+table{border-collapse:collapse;width:100%;font-size:.72rem}
+th,td{border-bottom:1px solid var(--line);padding:.5rem .6rem;text-align:left;
+  vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:.62rem;
+  text-transform:uppercase;letter-spacing:.1em}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+.note{
+  border:1px solid rgba(255,153,51,.35);background:rgba(255,153,51,.09);
+  border-radius:var(--r);padding:.9rem 1.05rem;font-size:.74rem;
+  line-height:1.6;margin-bottom:1rem;
+}
+.bad{border-color:rgba(224,90,90,.4);background:rgba(224,90,90,.1)}
+
+/* ---- sign in ---- */
+#gate{max-width:26rem;margin:8vh auto;padding:0 var(--pad)}
+#gate .card{padding:1.5rem}
+#gate input{width:100%;margin-bottom:.6rem}
+#gate .btn{width:100%}
+.tabs{display:flex;gap:.4rem;margin-bottom:1rem}
+.tabs button{
+  flex:1;padding:.5rem;border-radius:12px;border:1px solid var(--line);
+  background:transparent;cursor:pointer;font-size:.72rem;min-height:2.2rem;
+}
+.tabs button[aria-selected="true"]{border-color:var(--accent);color:var(--accent)}
+
+/* The boards render into #main and bring their own CSS. They were written
+   for a 16px page, so they are scaled down relative to the room-sized base
+   rather than left to fill a wall with one input box. */
+#main .nwwrap,#main .labwrap,#main .sqlwrap{font-size:.62rem}
+
+@media print{ #top,.tile{display:none!important} }
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div id="brand"><span class="dot"></span>
+    <span>Craxlearn<small>Schools · Colleges · Coaching</small></span></div>
+  <span class="grow"></span>
+  <div class="who" id="who"></div>
+  <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
+  <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
+  <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
+</div>
+
+<div id="gate" hidden>
+  <div class="card">
+    <h1>Craxlearn</h1>
+    <p class="muted" style="margin-top:0">The teaching half of Craxle, for
+      schools, colleges and coaching centres. No job board, no adverts,
+      nothing to buy in the classroom.</p>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tabIn" aria-selected="true">Sign in</button>
+      <button role="tab" id="tabUp" aria-selected="false">New account</button>
+    </div>
+    <div id="gateForm"></div>
+    <div id="gateMsg" class="muted" style="margin-top:.7rem"></div>
+  </div>
+  <p class="muted" style="text-align:center">
+    <a href="/api/craxlearn/sources">Where our answers come from</a> ·
+    <a href="/privacy">Privacy</a>
+  </p>
+</div>
+
+<div id="main" hidden></div>
+
+<script src="sqlboard.js?v=df48c07ae5"></script>
+<script src="net.js?v=02a45f7443"></script>
+<script src="lab.js?v=a3e731b9ba"></script>
+<script>
+/* Craxlearn — the institution app.
+ *
+ * A separate page from index.html, deliberately, and for one reason: a
+ * school is buying a URL it can put on the board at the front of a room and
+ * hand to a fourteen-year-old. A single app with the job half hidden behind
+ * a flag is one bug away from showing it, and the person who finds that bug
+ * is a child. There is no job-board code in this file to go wrong.
+ *
+ * The server does not take this file's word for any of it. Every job-side
+ * route is refused at the door by the middleware in main.py, for institution
+ * accounts and for under-18s, whichever page asked. This file only decides
+ * what to draw.
+ *
+ * The boards themselves — SQL, the packet walkthrough, the lab — are the
+ * same modules the main app loads. They need four things from their host:
+ * `api.get`, `api.post`, a `$` selector reaching `#main`, and `window.esc`.
+ * That contract is provided below and nothing else is.
+ */
+(function(){
+"use strict";
+
+/* ---------- the four things the board modules need ---------- */
+function esc(s){
+  return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+window.esc = esc;
+window.$ = function(sel){ return document.querySelector(sel); };
+
+async function req(method, path, body){
+  var opt = { method:method, credentials:"same-origin",
+              headers:{ "Content-Type":"application/json" } };
+  if(body !== undefined) opt.body = JSON.stringify(body);
+  var r = await fetch(path, opt);
+  var text = await r.text();
+  var data = null;
+  try{ data = text ? JSON.parse(text) : null; }catch(e){ data = null; }
+  if(!r.ok){
+    var msg = (data && data.detail) || r.statusText || "Something went wrong";
+    var err = new Error(msg);
+    err.status = r.status;
+    /* The gate answers 403 with a reason, so the page can say WHICH wall
+       was hit rather than "forbidden". A learner told "not allowed" goes
+       and asks a teacher; one told "this is a Craxlearn server" does not. */
+    err.craxlearn = data && data.craxlearn;
+    throw err;
+  }
+  return data;
+}
+window.api = {
+  get:  function(p){ return req("GET", p); },
+  post: function(p,b){ return req("POST", p, b===undefined?{}:b); },
+  del:  function(p){ return req("DELETE", p); }
+};
+
+/* ---------- state ---------- */
+var ME = null;
+var VIEW = { page:"home" };
+/* bot.js and the board modules read these. Kept as the same shape the main
+   app uses so the modules need no branch for which page they are on. */
+window.S = VIEW.page ? { view:VIEW } : { view:VIEW };
+window.S.view = VIEW;
+
+var el = function(id){ return document.getElementById(id); };
+var main = function(){ return el("main"); };
+
+/* ---------- room size ---------- */
+/* Two sizes and a button, remembered per device. A teacher sets it once on
+   the board in the room and once on their own laptop, and neither has to
+   think about it again. Defaulting by screen width was tried on paper and
+   is wrong: a smart board reports a perfectly ordinary 1920 wide and would
+   have been given laptop type. */
+function scale(next){
+  var v = next || localStorage.getItem("cl_scale") || "board";
+  document.documentElement.setAttribute("data-scale", v);
+  localStorage.setItem("cl_scale", v);
+  var b = el("scaleBtn");
+  if(b) b.title = v === "board" ? "Board size — press for desk size"
+                                : "Desk size — press for board size";
+}
+
+/* ---------- sign in ---------- */
+function gateForm(mode){
+  var up = mode === "up";
+  el("gateForm").innerHTML =
+    (up ? '<input id="gName" placeholder="Your name" autocomplete="name">' : "") +
+    '<input id="gEmail" type="email" placeholder="Email" autocomplete="email">' +
+    '<input id="gPass" type="password" placeholder="Password" ' +
+      'autocomplete="' + (up ? "new-password" : "current-password") + '">' +
+    (up ? '<input id="gCode" placeholder="School or class code (optional)">' : "") +
+    '<button class="btn" id="gGo">' + (up ? "Create account" : "Sign in") + "</button>";
+  el("gGo").onclick = function(){ submit(up); };
+  el("gPass").onkeydown = function(e){ if(e.key === "Enter") submit(up); };
+}
+
+async function submit(up){
+  var msg = el("gateMsg");
+  msg.textContent = "…";
+  var body = { email:(el("gEmail").value||"").trim(),
+               password:el("gPass").value||"" };
+  if(up) body.name = (el("gName").value||"").trim();
+  try{
+    await api.post(up ? "/api/auth/signup" : "/api/auth/login", body);
+    var code = up && el("gCode") ? (el("gCode").value||"").trim() : "";
+    if(code){
+      /* A wrong code must not cost somebody the account they just made. */
+      try{ await api.post("/api/class/join", { code:code }); }
+      catch(e){ msg.textContent = "Signed in, but that code did not match: "
+                                  + e.message; }
+    }
+    await boot();
+  }catch(e){
+    msg.textContent = e.message;
+  }
+}
+
+/* ---------- pages ---------- */
+/* Every tile here is a teaching surface and there is nothing else. The list
+   is short on purpose: a board at the front of a room is operated by
+   somebody mid-sentence, and a menu they have to read is a menu that stops
+   the lesson. */
+var TILES = [
+  { page:"board",  ic:"⚡", name:"Ask the board",
+    sub:"Any subject, taught step by step, with a diagram where one helps." },
+  { page:"net",    ic:"🌐", name:"Packet walkthrough",
+    sub:"Send a packet through real routes and firewall rules and watch the decision." },
+  { page:"lab",    ic:"🧪", name:"The lab",
+    sub:"Mix real reagents and run real experiments. Every reaction from a table, never guessed." },
+  { page:"sqlboard", ic:"🗄️", name:"SQL board",
+    sub:"Write queries against a real database and see what comes back." }
+];
+
+var TEACHER_TILES = [
+  { page:"activity", ic:"📊", name:"What the class is asking",
+    sub:"The topics your learners have been stuck on, as counts." },
+  { page:"sources",  ic:"📚", name:"Where answers come from",
+    sub:"Every source we teach from, with its licence." }
+];
+
+function tile(t){
+  return '<button class="tile" data-go="' + t.page + '">' +
+    '<span class="ic">' + t.ic + "</span>" +
+    "<b>" + esc(t.name) + "</b><span>" + esc(t.sub) + "</span></button>";
+}
+
+function home(){
+  var teacher = ME.role === "head" || ME.role === "teacher" || ME.role === "admin";
+  var h = "";
+  if(ME.institution){
+    h += '<div class="card"><div class="muted">Institution</div>' +
+         '<div class="big">' + esc(ME.institution.name) + "</div>" +
+         '<div class="muted">' +
+           esc([ME.institution.city, ME.institution.country]
+                 .filter(Boolean).join(", ")) +
+           (ME.classes && ME.classes.length
+             ? " · " + ME.classes.map(function(c){ return esc(c.name); }).join(", ")
+             : "") +
+         "</div></div>";
+  }
+  h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
+       TILES.map(tile).join("") + "</div>";
+  if(teacher){
+    h += '<div class="eyebrow">Your class</div><div class="tiles">' +
+         TEACHER_TILES.map(tile).join("") + "</div>";
+  }
+  h += '<div class="eyebrow">This app</div>' +
+       '<div class="note">' +
+       "<b>Craxlearn is the teaching half of Craxle.</b> " +
+       (ME.message ? esc(ME.message) + " " : "") +
+       "What your learners search and ask is stored inside your institution " +
+       "and is never used to answer anybody else's question. " +
+       '<a href="/api/craxlearn/sources">Every source we teach from</a> is ' +
+       "open, and listed with its licence." +
+       "</div>";
+  main().innerHTML = h;
+}
+
+async function activity(){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/craxlearn/activity"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var school = d.view === "school";
+  var rows = (d.topics || []);
+  var h = '<div class="eyebrow">' +
+    (school ? "What " + esc(d.school || "your school") + " has been asking"
+            : "What you have been asking") + "</div>";
+  if(school){
+    h += '<div class="card"><span class="big">' + (d.learners || 0) +
+         '</span> <span class="muted">learner' +
+         ((d.learners === 1) ? "" : "s") + " active</span></div>";
+  }
+  if(!rows.length){
+    h += '<div class="card muted">Nothing yet. It fills as questions are asked.</div>';
+  }else{
+    h += '<div class="card wrap"><table><tr><th>Topic</th><th>Where</th>' +
+         (school ? "<th>Asked</th>" : "<th>When</th>") + "</tr>" +
+      rows.map(function(r){
+        return "<tr><td>" + esc(r.text) + "</td><td>" + esc(r.kind) + "</td><td>" +
+          (school ? (r.asked || 1) : esc((r.at || "").slice(0,10))) + "</td></tr>";
+      }).join("") + "</table></div>";
+  }
+  if(school){
+    h += '<p class="muted">Counts only. No learner is named on any row — a ' +
+         "school needs to know what its class is stuck on, not a transcript " +
+         "of each child's questions.</p>";
+  }else{
+    h += '<button class="btn ghost" id="clearMine">Delete my history</button>';
+  }
+  main().innerHTML = h;
+  var c = el("clearMine");
+  if(c) c.onclick = async function(){
+    await api.del("/api/craxlearn/activity");
+    activity();
+  };
+}
+
+async function sources(){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d = await api.get("/api/craxlearn/sources");
+  main().innerHTML = '<div class="eyebrow">Where the teaching comes from</div>' +
+    '<div class="note">' + esc(d.policy) + "</div>" +
+    '<div class="card wrap"><table>' +
+    "<tr><th>Source</th><th>Licence</th><th>Used for</th><th>Open</th></tr>" +
+    (d.sources || []).map(function(s){
+      return "<tr><td><b>" + esc(s.name) + "</b><br><span class='muted'>" +
+        esc(s.org) + "</span></td><td>" + esc(s.licence) + "</td><td>" +
+        esc(s.used_for) + "</td><td>" +
+        (s.open ? "✓ open" : "closed · " + esc(s.role)) + "</td></tr>";
+    }).join("") + "</table></div>";
+}
+
+/* The step-by-step board. Kept simple on purpose: this is the corner of a
+   lesson, not the main app's full board with its lenses and deeper links. */
+async function board(topic){
+  var t = (topic || "").trim();
+  main().innerHTML =
+    '<div class="eyebrow">Ask the board</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="bTopic" style="flex:1 1 16rem" ' +
+        'placeholder="Anything — photosynthesis, longest prefix match, the quadratic formula" ' +
+        'value="' + esc(t) + '">' +
+      '<select id="bLevel">' +
+        ["Class 6","Class 8","Class 10","Class 12","Undergraduate","Research"]
+          .map(function(l){ return '<option>' + l + "</option>"; }).join("") +
+      "</select>" +
+      '<button class="btn" id="bGo">Teach it</button>' +
+    "</div></div><div id=\"bOut\"></div>";
+  el("bGo").onclick = teach;
+  el("bTopic").onkeydown = function(e){ if(e.key === "Enter") teach(); };
+  if(t) teach();
+}
+
+async function teach(){
+  var topic = (el("bTopic").value||"").trim();
+  if(topic.length < 2) return;
+  var level = el("bLevel").value;
+  var out = el("bOut");
+  out.innerHTML = '<div class="card muted">Building the lesson…</div>';
+  var d;
+  try{
+    d = await api.post("/api/board/lesson", { topic:topic, level:level });
+  }catch(e){
+    out.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
+    return;
+  }
+  var L = d.lesson || {};
+  var h = "<h1>" + esc(L.title || topic) + "</h1>";
+  (L.steps || []).forEach(function(st, i){
+    var body = typeof st === "string" ? st : (st.t || "");
+    h += '<div class="card"><div class="muted">Step ' + (i+1) +
+         (st && st.where ? " · " + esc(st.where) : "") + "</div>" +
+         body.split("\n").filter(Boolean)
+             .map(function(ln){ return "<p>" + esc(ln) + "</p>"; }).join("");
+    if(st && st.code){
+      h += '<pre class="wrap" style="font-size:.62rem;background:var(--panel2);' +
+           'padding:.7rem;border-radius:12px"><code>' + esc(st.code) +
+           "</code></pre>";
+    }
+    h += "</div>";
+  });
+  if(L.takeaway) h += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
+  out.innerHTML = h;
+}
+
+/* ---------- routing ---------- */
+function go(page, arg){
+  VIEW.page = page;
+  window.S.view = VIEW;
+  var m = main();
+  m.scrollTop = 0;
+  window.scrollTo(0,0);
+  if(page === "home")           home();
+  else if(page === "activity")  activity();
+  else if(page === "sources")   sources();
+  else if(page === "board")     board(arg);
+  else if(page === "net"       && window.renderNet)      window.renderNet();
+  else if(page === "lab"       && window.renderLab)      window.renderLab();
+  else if(page === "sqlboard"  && window.renderSqlBoard) window.renderSqlBoard();
+  else home();
+}
+window.render = function(){ go(VIEW.page); };
+
+document.addEventListener("click", function(e){
+  var b = e.target.closest && e.target.closest("[data-go]");
+  if(b) go(b.dataset.go);
+});
+
+/* ---------- boot ---------- */
+async function boot(){
+  try{
+    ME = await api.get("/api/craxlearn/me");
+  }catch(err){
+    ME = null;
+  }
+  var signedIn = !!ME;
+  el("gate").hidden = signedIn;
+  main().hidden = !signedIn;
+  if(!signedIn){
+    el("who").innerHTML = "";
+    gateForm("in");
+    return;
+  }
+  el("who").innerHTML = "<b>" + esc(ME.user.name) + "</b>" +
+    esc(ME.institution ? ME.institution.name : (ME.role || "learner"));
+  go("home");
+}
+
+el("tabIn").onclick = function(){
+  el("tabIn").setAttribute("aria-selected","true");
+  el("tabUp").setAttribute("aria-selected","false");
+  gateForm("in");
+};
+el("tabUp").onclick = function(){
+  el("tabUp").setAttribute("aria-selected","true");
+  el("tabIn").setAttribute("aria-selected","false");
+  gateForm("up");
+};
+el("homeBtn").onclick = function(){ go("home"); };
+el("scaleBtn").onclick = function(){
+  scale(document.documentElement.getAttribute("data-scale") === "board"
+        ? "desk" : "board");
+};
+el("outBtn").onclick = async function(){
+  try{ await api.post("/api/auth/logout"); }catch(e){}
+  ME = null;
+  boot();
+};
+
+scale();
+boot();
+})();
+</script>
+</body>
+</html>

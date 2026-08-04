@@ -225,6 +225,11 @@ class User(Base):
     # already has rows, so existing users would silently miss the column.
     # Read it through open_to_work_on(), which treats NULL as off.
     open_to_work = Column(Boolean, default=False)
+    # Date of birth. Nullable, and NULL is not an adult — the job side, a
+    # subscription and being shown to an employer all need a proven age,
+    # and "we never asked" is not proof. Read it through craxlearn.adult(),
+    # never by comparing years here.
+    dob = Column(Date)
     # Employer access is applied for and approved, never self-granted. Anyone
     # who could tick a box at signup could see candidate profiles, and the
     # whole promise to candidates rests on who is on the other side.
@@ -614,6 +619,16 @@ class School(Base):
     name = Column(String(200), nullable=False)
     city = Column(String(120), default="")
     country = Column(String(120), default="")
+    # What this institution bought. "craxlearn" is the teaching product on
+    # its own: no job board, no resume builder, no subscription pages, for
+    # anybody enrolled here whatever their age. A coaching centre teaching
+    # working adults can set "both".
+    #
+    # Nullable, and NULL reads as craxlearn-only. A school enrolled before
+    # this column existed gets the safer half of the product on the next
+    # deploy rather than the job board, which is the right way round for a
+    # default nobody has looked at yet.
+    product = Column(String(16), default="craxlearn")   # craxlearn | both
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -1049,6 +1064,123 @@ class LessonIn(BaseModel):
 # App
 # --------------------------------------------------------------------------
 app = FastAPI(title="Craxle", docs_url="/api/docs", redoc_url=None)
+
+# --------------------------------------------------------------------------
+# Craxlearn: the teaching product, on its own
+# --------------------------------------------------------------------------
+# Set CRAXLEARN_ONLY on a server an institution runs for itself and the job
+# half of this product does not exist on it — not hidden, not gated, not
+# reachable, for anybody including an admin. That is the difference between
+# a school running a learning tool and a school running a job board with the
+# job board switched off, and it is the difference an IT department asks
+# about.
+import craxlearn as _cl_boot                                        # noqa: E402
+
+CRAXLEARN_ONLY = env("CRAXLEARN_ONLY", "0").strip().lower() in (
+    "1", "true", "yes", "on")
+
+# Demand a stated date of birth from everybody, not only from institution
+# learners. Off by default: switching it on locks out every existing account
+# until each one comes back and fills in a date, which is a decision with a
+# support queue attached rather than a default.
+REQUIRE_DOB = env("REQUIRE_DOB", "0").strip().lower() in (
+    "1", "true", "yes", "on")
+if CRAXLEARN_ONLY:
+    print(f"  {_cl_boot.NAME} only — the job board is not served here")
+
+
+def _learning_only(db, user):
+    """Whether the job half is closed to this person, and why.
+
+    Three reasons, checked hardest first, because the message matters as
+    much as the verdict — "your school did not buy this" and "you are not
+    old enough" want completely different things from whoever reads them.
+
+    An institution can open the job side for its learners. It cannot open
+    it for a learner who is under age: the two conditions are ANDed and the
+    age one is never the institution's to waive.
+    """
+    if CRAXLEARN_ONLY:
+        return {"only": True, "why": "deployment",
+                "message": f"This is a {_cl_boot.NAME} server. The job "
+                           f"board is not part of it."}
+    if user is None:
+        return {"only": False, "why": "", "message": ""}
+
+    scope = _scope_of(db, user)
+    if _cl_boot.is_institution(scope):
+        sid = _cl_boot.school_id_of(scope)
+        sc = db.get(School, sid) if sid else None
+        if (getattr(sc, "product", None) or "craxlearn") != "both":
+            return {"only": True, "why": "institution",
+                    "message": f"Your institution uses {_cl_boot.NAME}, "
+                               f"the learning half of Craxle. The job board "
+                               f"is not part of it."}
+
+    # Admins run the site and need every surface to debug it. They are still
+    # subject to the deployment switch above, which is the one an institution
+    # is relying on.
+    if user.is_admin:
+        return {"only": False, "why": "", "message": ""}
+
+    # Proof is demanded where children are: inside an institution, always.
+    # Outside one, a stated age is believed in both directions and silence
+    # keeps what it had — see craxlearn.age_ok for why that is not a hole
+    # left open out of laziness.
+    proof = _cl_boot.is_institution(scope) or REQUIRE_DOB
+    if not _cl_boot.age_ok(getattr(user, "dob", None), dt.date.today(), proof):
+        return {"only": True, "why": "age",
+                "message": f"The job board, subscriptions and being seen by "
+                           f"employers are for learners aged "
+                           f"{_cl_boot.MIN_JOB_AGE} and over. Add your date "
+                           f"of birth in your profile to open them."}
+    return {"only": False, "why": "", "message": ""}
+
+
+@app.middleware("http")
+async def _craxlearn_gate(request, call_next):
+    """Close the job half at the door, on one list, for every route.
+
+    A dependency on each job-side endpoint would be the same check written
+    fifty times, and the fifty-first — added next month by somebody who did
+    not know — would be open. Here there is one list, it is matched by path
+    prefix, and tests/test_craxlearn_only.py walks the live route table and
+    fails if a route appears that belongs to neither half.
+
+    Nothing here authenticates. It reads the session only to find out who is
+    asking; an invalid or missing one falls through to the endpoint's own
+    `Depends(current_user)`, which is still the only thing that decides
+    whether somebody is signed in.
+    """
+    if not _cl_boot.is_job_side(request.url.path):
+        return await call_next(request)
+
+    if CRAXLEARN_ONLY:
+        return JSONResponse(status_code=404, content={
+            "detail": f"This is a {_cl_boot.NAME} server. The job board is "
+                      f"not part of it."})
+
+    user, db = None, None
+    try:
+        token = request.cookies.get("vp_session")
+        if token:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            db = SessionLocal()
+            user = db.get(User, int(payload["sub"]))
+        if user is not None:
+            verdict = _learning_only(db, user)
+            if verdict["only"]:
+                return JSONResponse(status_code=403, content={
+                    "detail": verdict["message"], "craxlearn": verdict["why"]})
+    except Exception:
+        # A bad cookie, an expired token, a database blip. None of them are
+        # this function's business — it decides what a known user may reach,
+        # and an unknown user is the endpoint's problem, as it always was.
+        pass
+    finally:
+        if db is not None:
+            db.close()
+    return await call_next(request)
 
 
 # Tracks replaced by a rewritten version — skipped so nothing appears twice
@@ -1877,6 +2009,7 @@ def head_user(user: User = Depends(current_user),
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = teacher_row(user, db)
     role = "admin" if user.is_admin else (t.role if t else "student")
+    gate = _learning_only(db, user)
     return {
         "id": user.id, "name": user.name, "email": user.email,
         # Carried here so the page can show the Pro badge on first paint.
@@ -1897,6 +2030,15 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "role": role,
         "school": (t.school if t else ""),
         "joined": user.created_at.isoformat() if user.created_at else None,
+        # The job half of the sidebar, or the absence of it. The server
+        # refuses those routes either way; this is so the page does not
+        # offer a door it knows will not open.
+        "craxlearn_only": gate["only"],
+        "craxlearn_why": gate["why"],
+        "craxlearn_message": gate["message"],
+        "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+        "adult": _cl.adult(getattr(user, "dob", None), dt.date.today()),
+        "dob": user.dob.isoformat() if getattr(user, "dob", None) else "",
     }
 
 
@@ -4004,6 +4146,89 @@ def _record_skills(db, user, skills):
             db.rollback()
             print(f"Skill unlock not stored: {type(e).__name__}: {e}")
     return out
+
+
+class DobIn(BaseModel):
+    dob: str = Field(default="", max_length=10)   # YYYY-MM-DD, or "" to clear
+
+
+@app.post("/api/craxlearn/dob")
+def craxlearn_set_dob(body: DobIn, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Record a date of birth, which is what opens the job side.
+
+    Not verification, and not described as it. This is a stated date, the
+    same as every other site asks for, and it exists so that the default is
+    closed rather than open — a learner who has not said is not shown to
+    employers. A school that needs real proof of age has processes for that
+    which no web form replaces.
+    """
+    raw = (body.dob or "").strip()
+    if not raw:
+        user.dob = None
+        db.commit()
+        return {"ok": True, "dob": "", "adult": False}
+    try:
+        got = dt.date.fromisoformat(raw)
+    except ValueError:
+        raise HTTPException(400, "Give the date as YYYY-MM-DD")
+    today = dt.date.today()
+    if got > today:
+        raise HTTPException(400, "That date is in the future")
+    if _cl.age_on(got, today) > 120:
+        raise HTTPException(400, "Check that date — it is over 120 years ago")
+    user.dob = got
+    db.commit()
+    return {"ok": True, "dob": got.isoformat(),
+            "age": _cl.age_on(got, today), "adult": _cl.adult(got, today)}
+
+
+@app.get("/api/craxlearn/me")
+def craxlearn_me(user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    """Everything the institution app needs to paint itself once.
+
+    A separate boot call from /api/auth/me on purpose. That one answers "who
+    is signed in" for the whole of Craxle; this answers "what does this
+    institution's app show", which is a different question with a different
+    audience — and merging them would put a school's product entitlement
+    into the payload every job seeker fetches on every page load.
+    """
+    scope = _scope_of(db, user)
+    sid = _cl.school_id_of(scope)
+    sc = db.get(School, sid) if sid else None
+    ta = (db.query(TeacherAccess)
+            .filter(TeacherAccess.user_id == user.id).first())
+    gate = _learning_only(db, user)
+
+    classes = (db.query(Klass)
+                 .join(ClassMember, ClassMember.class_id == Klass.id)
+                 .filter(ClassMember.user_id == user.id).all())
+    if ta:
+        classes = (classes + db.query(Klass).filter(
+            Klass.teacher_id == user.id).all())
+
+    dob = getattr(user, "dob", None)
+    return {
+        "product": _cl.NAME,
+        "user": {"id": user.id, "name": user.name, "email": user.email},
+        "role": ("admin" if user.is_admin
+                 else (ta.role if ta else "student")),
+        "institution": ({"id": sc.id, "name": sc.name, "city": sc.city or "",
+                         "country": sc.country or "",
+                         "product": sc.product or "craxlearn"} if sc else None),
+        "scope": scope,
+        # What this app will and will not show, and why — so the page can
+        # say the reason rather than silently missing a menu item.
+        "learning_only": gate["only"], "why": gate["why"],
+        "message": gate["message"],
+        "deployment_only": CRAXLEARN_ONLY,
+        "adult": _cl.adult(dob, dt.date.today()),
+        "dob": dob.isoformat() if dob else "",
+        "classes": [{"id": k.id, "name": k.name,
+                     "mine": k.teacher_id == user.id} for k in classes],
+        "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+    }
 
 
 @app.get("/api/craxlearn/sources")
@@ -13780,6 +14005,11 @@ def static_file(filename: str, ext: str):
 # ---------------------------- static pages --------------------------------
 @app.get("/")
 def index():
+    # An institution running its own server gets its own app at the root.
+    # Anything else would mean the first thing a classroom sees is the job
+    # board it did not buy.
+    if CRAXLEARN_ONLY:
+        return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
 
 
@@ -13807,10 +14037,28 @@ def admin_page():
     return FileResponse(BASE_DIR / "admin.html")
 
 
+@app.get("/craxlearn")
+def craxlearn_page():
+    """The institution app. A separate page, like the admin panel.
+
+    Separate rather than a mode of the main app, because that is what a
+    school is actually buying: a URL you can put on the board at the front
+    of a classroom and hand to a fourteen-year-old, with nothing on it that
+    is not teaching. A single app with the job half hidden is one bug away
+    from showing it, and the person who finds that bug is a child.
+    """
+    return FileResponse(BASE_DIR / "craxlearn.html")
+
+
 @app.exception_handler(404)
 def not_found(request: Request, exc):
     if request.url.path.startswith("/api/"):
         return JSONResponse({"detail": "Not found"}, status_code=404)
+    # On a Craxlearn-only server the main app is not what anybody typing a
+    # wrong URL wanted, and serving it would put a job board in front of a
+    # classroom by way of a typo.
+    if CRAXLEARN_ONLY:
+        return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
 
 

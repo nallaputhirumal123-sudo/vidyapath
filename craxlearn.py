@@ -116,6 +116,137 @@ def scope_from_key(k):
 
 
 # --------------------------------------------------------------------------
+# Craxlearn on its own: the learning half, without the job board
+# --------------------------------------------------------------------------
+# A school does not want a job board in front of its fourteen-year-olds, and
+# a fourteen-year-old cannot lawfully be sold a subscription or shown to an
+# employer. Both are true at once and they need different mechanisms, because
+# they fail in different directions.
+#
+# The INSTITUTION switch is about what a place has bought. A school running
+# Craxlearn on the board at the front of a classroom is running a teaching
+# tool; the job board is not part of it and should not be reachable, by
+# anybody there, at any age. Default off, because a default that has to be
+# turned off is a default that will be found switched on somewhere.
+#
+# The AGE gate is about the individual and it is not negotiable by the
+# institution. A coaching centre for working adults can turn the job side on
+# for its learners; that still does not make it visible to a sixteen-year-old
+# sitting in the room. The two are ANDed and the age gate is the harder of
+# the two, always.
+#
+# And a deployment switch above both, for an institution running its own
+# instance: with CRAXLEARN_ONLY set, the job half of the product does not
+# exist on that server for anybody, including its admins.
+
+MIN_JOB_AGE = 18
+
+# Every route that belongs to the job board rather than to the learning
+# product. Matched by prefix on the path, which is why this can be one list
+# instead of a decorator on fifty endpoints — the endpoint that gets added
+# next week is covered by being named like its neighbours, and the test that
+# walks the live route table catches it if it is not.
+JOB_SIDE = (
+    "/api/jobs",       # the board itself: search, detail, categories
+    "/api/job/",
+    "/api/career",     # roles and their skills, counted from live postings
+    "/api/resume",     # the builder, the parser, the ATS check
+    "/api/apply",      # the autofill extension's pairing and profile
+    "/api/interview",  # interview preparation for a role
+    "/api/billing",    # a subscription is a thing sold to an adult
+    "/api/employer",   # applying to become an employer
+    "/api/hire",       # the hiring side: posting, searching candidates
+    "/api/invites",    # employer introductions
+    "/api/me/invites",
+    "/api/me/open-to-work",
+)
+
+# Pages in the single-page app that belong to the same half. The server is
+# what actually enforces this — hiding a sidebar item stops nobody who can
+# type — but the client needs the same list so it does not offer a door that
+# will not open.
+JOB_PAGES = ("careers", "resume", "plans", "hiring", "track", "interview")
+
+
+def is_job_side(path):
+    """Is this request for the job board rather than for the learning tool?
+
+    A plain prefix match, which is deliberately greedy: "/api/career" also
+    catches a hypothetical "/api/careers-advice". That is the safe direction
+    and the only one worth defaulting to. Over-matching closes something a
+    school was never promised and somebody complains; under-matching opens
+    the job board to a fourteen-year-old and nobody complains until it has
+    been happening for a term.
+
+    If a teaching route ever genuinely needs a name starting with one of
+    these, rename the route. Do not add an exception here — an exception
+    list is a second thing to keep right, and it will be wrong first.
+    """
+    p = str(path or "")
+    return any(p.startswith(pre) for pre in JOB_SIDE)
+
+
+def age_on(dob, today):
+    """Whole years, counted the way an age is counted.
+
+    A birthday that has not happened yet this year has not happened. Doing
+    this with (today - dob).days / 365.25 puts somebody over the line up to
+    a day early, which is a day of being shown to employers before it is
+    lawful — small, and not the kind of small that is fine.
+    """
+    if dob is None or today is None:
+        return None
+    years = today.year - dob.year
+    if (today.month, today.day) < (dob.month, dob.day):
+        years -= 1
+    return years
+
+
+def adult(dob, today):
+    """Old enough for the job side, and PROVEN so.
+
+    An unknown date of birth is not proof. Used wherever the answer has to
+    be positive: showing somebody to employers, selling them a subscription,
+    or anything inside an institution.
+    """
+    got = age_on(dob, today)
+    return got is not None and got >= MIN_JOB_AGE
+
+
+def age_ok(dob, today, proof_required):
+    """May this person reach the job side, on age alone?
+
+    Two answers, and the difference is where children actually are.
+
+    Inside an institution, `proof_required` is true and there is no way
+    round it: a school hands us a room of teenagers and an empty birthday
+    field is a teenager until it says otherwise.
+
+    Outside one, an empty field is not evidence of a child. Every account
+    on the open site was created by somebody accepting terms that say the
+    paid product is for adults, and treating that silence as "under 18"
+    would, on the day it shipped, take the job board, the resume builder
+    and their own billing page away from every existing user without one
+    of them having done anything. That is not a safety measure, it is an
+    outage — and an outage teaches the next person to ship the gate loose.
+
+    So outside an institution the rule is: a stated age is believed, in
+    both directions, and silence keeps what it had. Somebody who tells us
+    they are fifteen is fifteen.
+
+    Set REQUIRE_DOB on a deployment that wants proof from everybody. It is
+    off by default because turning it on locks out every existing account
+    until each one comes back and fills in a date, and that is a decision
+    with a support queue attached — it should be made deliberately, by
+    somebody who has planned the email.
+    """
+    got = age_on(dob, today)
+    if got is not None:
+        return got >= MIN_JOB_AGE
+    return not proof_required
+
+
+# --------------------------------------------------------------------------
 # What may be recorded about a learner
 # --------------------------------------------------------------------------
 # The kinds of activity worth keeping. Anything not on this list is not

@@ -18,7 +18,8 @@ A job board and learning platform. Two products in one codebase:
 |---|---|
 | `main.py` | The entire backend. ~7,000 lines, FastAPI + SQLAlchemy. |
 | `dalia.py` | Who the tutor is: the grade-band adapter, the system prompt, and the allowlist of panels she may open. No model call, no network. |
-| `craxlearn.py` | Which pool a learner's questions live in, and the registry of open sources answers are drawn from. Policy, not plumbing. |
+| `craxlearn.py` | Which pool a learner's questions live in, which half of the product an account may reach, and the registry of open sources. Policy, not plumbing. |
+| `craxlearn.html` | **Craxlearn**: the institution app. A separate page for schools, colleges and coaching centres, sized for the display at the front of a classroom. No job-board code in it at all. Served at `/craxlearn`. |
 | `index.html` | The learner/candidate app. One page, ~300KB, inline CSS and JS. |
 | `admin.html` | Admin panel. Separate page, same pattern. |
 | `terms.html`, `privacy.html` | Legal. Read them before changing anything that touches personal data. |
@@ -61,6 +62,8 @@ Six suites, all runnable directly, all must pass before committing:
   the four network labs, each run through the real packet engine
 - `test_craxlearn.py` — the fence between two institutions' cached answers,
   and that every source of answer material is an open one
+- `test_craxlearn_only.py` — what an institution and an under-18 cannot
+  reach, asserted at the API rather than in the sidebar
 
 They run against the local SQLite database and create real rows. That is
 deliberate: matching quality is only meaningful against real job data.
@@ -80,6 +83,27 @@ exactly this reason. Prefer Python scripts over heredocs for edits.
 
 **One inline script per HTML file.** A syntax error anywhere in `index.html`'s
 script takes down the whole app, not one feature. There is no module boundary.
+
+**Craxlearn is a separate page, not a mode.** `craxlearn.html` is what a
+school buys: a URL to put on a classroom board and hand to a fourteen-year-old.
+It contains no job-board code, which is the point — a single app with the job
+half hidden behind a flag is one bug away from showing it, and the person who
+finds that bug is a child. `tests/test_craxlearn_only.py` greps the served page
+for `/api/jobs`, `/api/billing` and friends and fails if any appear.
+
+**The job half is closed by one middleware, not by fifty dependencies.**
+`_craxlearn_gate` matches `craxlearn.JOB_SIDE` by path prefix. The matching is
+deliberately greedy and there is no exception list: if a teaching route ever
+needs a name starting with a job-side prefix, rename the route. A test walks
+the live route table and fails if any route belongs to neither half, so the
+endpoint somebody adds next month is covered or the build goes red.
+
+**Proof of age is demanded inside institutions, not outside them.** An empty
+`dob` blocks the job side for an institution learner and does not for anybody
+else — see `craxlearn.age_ok`. Making silence mean "child" everywhere was
+tried and it takes the job board, the resume builder and their own billing
+page away from every existing account on the day it ships. `REQUIRE_DOB=1`
+turns it on for a deployment that has planned the email.
 
 **The cache key IS the question.** `AskCache` is keyed on the normalised
 question text and serves one person's stored answer to the next person who
@@ -154,6 +178,8 @@ Set in Railway. None have secrets in code.
 | `JOB_ALERT_MIN` / `JOB_ALERT_FLOOR` | 90 / 70. MIN flags an exceptional match; FLOOR is the bar for the best of what actually arrived. Measured on the live board, nothing scores above ~77, so a single bar at 80+ means silence — see v3.32.0 |
 | `JOB_ALERT_MAX` | Matches one sweep may send. Everything above the bar goes, one alert each |
 | `GEMINI_API_KEY` / `GROQ_API_KEY` | AI features; the app runs without them |
+| `CRAXLEARN_ONLY` | Serve only the teaching half. The job board 404s for everybody including admins, and `/` serves `craxlearn.html`. For an institution running its own instance |
+| `REQUIRE_DOB` | Demand a stated date of birth from everybody, not only institution learners. Off by default: switching it on locks out every existing account until each fills one in |
 
 ## Colour and contrast
 

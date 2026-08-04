@@ -1830,11 +1830,19 @@ function renderNav(){
    + nav("net","🌐","Packet walkthrough")
    + nav("sqlboard","🗄️","SQL board");
 
-  h+=`<div class="navsec">Get hired</div>`
-   + nav("careers","🎓","Career board")
-   + nav("resume","📄","Resume builder")
-   + nav("plans","⚡","Plans &amp; billing")
-   + nav("hiring","🏢","Hiring");
+  /* The job half, when this account has one. A Craxlearn institution and
+     anybody under 18 do not: the server refuses those routes either way,
+     and offering a door that will not open is worse than not offering it.
+     USER.hidden_pages is the server's own list, so this cannot drift from
+     what is actually enforced. */
+  const hidden = new Set(USER.hidden_pages||[]);
+  if(!USER.craxlearn_only){
+    h+=`<div class="navsec">Get hired</div>`
+     + (hidden.has("careers")?"":nav("careers","🎓","Career board"))
+     + (hidden.has("resume") ?"":nav("resume","📄","Resume builder"))
+     + (hidden.has("plans")  ?"":nav("plans","⚡","Plans &amp; billing"))
+     + (hidden.has("hiring") ?"":nav("hiring","🏢","Hiring"));
+  }
 
   const list=activeTracks();
   h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
