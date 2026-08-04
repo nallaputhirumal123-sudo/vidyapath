@@ -225,6 +225,22 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .whint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
   text-align:center;color:var(--muted);pointer-events:none;font-size:.8rem}
 
+/* A viewer takes whatever is left after the controls above it, and follows
+   the space when it is dragged. A fixed height is wrong in both directions
+   at once on a board: a small picture on a wall, or a picture taller than
+   the quarter it was put in. Controls keep their own size; only the viewer
+   is elastic, so nothing is ever pushed out of reach. */
+.fillcol{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
+  gap:.6rem}
+.fillcol > *{flex:0 0 auto}
+.fillcol > .viewer{flex:1 1 auto;min-height:0;position:relative;
+  overflow:hidden;padding:0}
+/* Out of the flow, so the viewer's height is something it is told, never
+   something the thing inside it argues about. */
+.viewer > canvas,.viewer > iframe{position:absolute;left:0;top:0;
+  width:100%;height:100%;border:0;display:block}
+.viewer > .note,.viewer > .muted{padding:1rem}
+
 /* The boards render into #main and bring their own CSS. They were written
    for a 16px page, so they are scaled down relative to the room-sized base
    rather than left to fill a wall with one input box. */
@@ -391,6 +407,20 @@ var el = function(id){ return document.getElementById(id); };
 var PANES = [{ page:"home", arg:null }];
 var LIVE = 0;          // the space a new page opens into
 var DRAW = 0;          // the space currently being drawn
+var PAINTING = false;  // true while that drawing is in progress
+
+/* What a space is showing, so that splitting the screen — which rebuilds
+   every space — comes back to the same structure or the same search rather
+   than to an empty box. The live space is the one whose controls were just
+   used: a tap anywhere in a space makes it live before the control sees the
+   click. */
+function remember(arg){
+  /* During a repaint the space being drawn is not necessarily the live one,
+     and writing to the live one would overwrite what a DIFFERENT space is
+     showing. */
+  var i = PAINTING ? DRAW : LIVE;
+  if(PANES[i]) PANES[i].arg = arg;
+}
 
 function paneBody(){
   var p = document.querySelector('.paneBody[data-i="' + DRAW + '"]');
@@ -518,11 +548,12 @@ function paintPanes(){
 }
 
 async function drawPane(i){
-  var was = DRAW;
+  var was = DRAW, wasPainting = PAINTING;
   DRAW = i;
+  PAINTING = true;
   try{ await paint(PANES[i].page, PANES[i].arg); }
   catch(e){ /* one space failing must not stop the others drawing */ }
-  finally{ DRAW = was; }
+  finally{ DRAW = was; PAINTING = wasPainting; }
 }
 
 function wirePanes(){
@@ -1265,7 +1296,10 @@ async function show3D(host, scene){
  */
 async function structure(name){
   var n = (name || "").trim();
-  main().innerHTML =
+  var host = main();
+  host.classList.add("noscroll");
+  host.innerHTML =
+    '<div class="fillcol">' +
     '<div class="eyebrow">3D structures</div>' +
     '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
       '<input id="stName" style="flex:1 1 14rem" value="' + esc(n) + '" ' +
@@ -1274,11 +1308,13 @@ async function structure(name){
     '</div><div class="muted" id="stMsg" style="margin-top:.4rem">' +
       "Measured — from PubChem, the Protein Data Bank, or a published table. " +
       "Free to look at as many as you like.</div></div>" +
-    '<div id="stHost" class="card" style="min-height:24rem;padding:.4rem"></div>';
+    '<div id="stHost" class="card viewer" data-fill="1"></div>' +
+    "</div>";
 
   var run = async function(){
     var want = (el("stName").value || "").trim();
     if(want.length < 2) return;
+    remember(want);
     el("stMsg").textContent = "Looking…";
     el("stHost").innerHTML = "";
     try{
@@ -1311,6 +1347,7 @@ async function find(term){
   var run = async function(){
     var q = (el("fq").value || "").trim();
     if(q.length < 2) return;
+    remember(q);
     el("fMsg").textContent = "Searching…";
     el("fOut").innerHTML = "";
     var d;
@@ -1648,9 +1685,13 @@ async function phet(pick){
 
   var chosen = pick || d.sims[0].id;
   var sim = d.sims.filter(function(s){ return s.id === chosen; })[0] || d.sims[0];
+  remember(sim.id);
 
-  main().innerHTML = '<div class="eyebrow">Simulations</div>' +
-    '<div class="card" style="padding:.7rem">' +
+  var host = main();
+  host.classList.add("noscroll");
+  host.innerHTML = '<div class="fillcol">' +
+    '<div class="eyebrow">Simulations</div>' +
+    '<div class="card" style="padding:.7rem;max-height:40%;overflow-y:auto">' +
       Object.keys(subs).sort().map(function(k){
         return '<div style="margin-bottom:.4rem"><span class="muted">' + esc(k) +
           "</span><br>" + subs[k].map(function(x){
@@ -1660,13 +1701,13 @@ async function phet(pick){
           }).join("") + "</div>";
       }).join("") +
     "</div>" +
-    '<div class="card" style="padding:.3rem">' +
+    '<div class="card viewer" style="background:#000">' +
       '<iframe src="' + esc(sim.url) + '" title="' + esc(sim.title) + '" ' +
-        'style="width:100%;height:62vh;border:0;border-radius:12px;' +
-        'background:#000" allowfullscreen></iframe>' +
-      '<div class="muted" style="padding:.4rem">' + esc(sim.title) + " · " +
-        esc(d.licence) + ' · <a href="' + esc(sim.page) +
-        '" target="_blank" rel="noopener">on PhET</a></div>' +
+        'style="border-radius:12px;background:#000" allowfullscreen></iframe>' +
+    "</div>" +
+    '<div class="muted">' + esc(sim.title) + " · " +
+      esc(d.licence) + ' · <a href="' + esc(sim.page) +
+      '" target="_blank" rel="noopener">on PhET</a></div>' +
     "</div>";
 
   main().querySelectorAll("[data-sim]").forEach(function(b2){

@@ -53,6 +53,33 @@
    * It also means one less thing that can be missing when somebody opens a
    * lesson on a bad connection.
    */
+  /* How big to draw a scene.
+   *
+   * A host can ask for the scene to FILL it by carrying data-fill="1". That
+   * is for a board, where the space a viewer is in gets dragged to another
+   * size in the middle of a lesson and a fixed height is either a small
+   * picture on a wall or one taller than the space it was given. Everywhere
+   * else keeps the height the scene asked for, so a lesson's figures stay
+   * the size they were written to be.
+   *
+   * Padding is taken off, because clientWidth and clientHeight include it
+   * and a canvas sized to them overflows its own box by exactly that much.
+   */
+  function pad(el, a, b) {
+    var cs = getComputedStyle(el);
+    return (parseFloat(cs[a]) || 0) + (parseFloat(cs[b]) || 0);
+  }
+  function hostW(el, fallback) {
+    if (el.dataset.fill !== "1") return fallback;
+    var w = el.clientWidth - pad(el, "paddingLeft", "paddingRight");
+    return w > 40 ? Math.round(w) : fallback;
+  }
+  function hostH(el, fallback) {
+    if (el.dataset.fill !== "1") return fallback;
+    var h = el.clientHeight - pad(el, "paddingTop", "paddingBottom");
+    return h > 40 ? Math.round(h) : fallback;
+  }
+
   function orbit(cam, dom, radius) {
     // phi is measured down from straight up, so 0.44pi opens about ten
     // degrees above the horizon — almost side-on. It was 0.35pi, looking down
@@ -1059,13 +1086,19 @@
         return function () {};
       }
 
-      var w = el.clientWidth || 480, h = spec.height || 300;
+      var w = hostW(el, el.clientWidth || 480);
+      var h = hostH(el, spec.height || 300);
       var scene = new THREE.Scene();
       var cam = new THREE.PerspectiveCamera(45, w / h, 0.1, 400);
       var ren = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       ren.setPixelRatio(Math.min(devicePixelRatio, 2));
       ren.setSize(w, h);
       el.innerHTML = "";
+      /* A block, not the default inline: an inline canvas sits on a text
+         baseline, so the host is a few pixels taller than the canvas — and
+         a host that is measured to size that canvas would then grow by
+         those few pixels every time the observer fired. */
+      ren.domElement.style.display = "block";
       el.appendChild(ren.domElement);
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.62));
@@ -1138,10 +1171,13 @@
       })(t0);
 
       var ro = new ResizeObserver(function () {
-        var nw = el.clientWidth || w;
-        cam.aspect = nw / h;
+        var nw = hostW(el, el.clientWidth || w);
+        var nh = hostH(el, h);
+        if (nw === w && nh === h) return;
+        w = nw; h = nh;
+        cam.aspect = nw / nh;
         cam.updateProjectionMatrix();
-        ren.setSize(nw, h);
+        ren.setSize(nw, nh);
       });
       ro.observe(el);
 
