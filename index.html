@@ -989,8 +989,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     <section class="lhero">
       <span class="lbadge">FREE TO BROWSE · OPEN TO EVERYONE</span>
       <h1>Find the job.<br>Learn what it <span>asks for</span>.</h1>
-      <p>Live US postings, scored against your resume, with the skills you are
-         missing taught on the spot.</p>
+      <p>Live jobs across India, scored against your resume, with the skills
+         you are missing taught on the spot.</p>
       <div class="row" style="justify-content:center">
         <a class="btn big" href="#join">Start free →</a>
       </div>
@@ -1099,7 +1099,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     <section class="lsec" id="support" style="display:none">
       <h2>Support</h2>
       <div class="eyebrow" style="margin-top:0">What you get</div>
-      <div class="lline">💼 <b>Live US jobs</b> — every open role we can reach, refreshed through the day. Free.</div>
+      <div class="lline">💼 <b>Live jobs across India</b> — every open role we can reach, refreshed through the day. Free.</div>
       <div class="lline">🎯 <b>Resume match</b> — a score against any posting, with the exact skills you are short. Free.</div>
       <div class="lline">📄 <b>The posting in full</b> — read the job here before you decide to apply. Free.</div>
       <div class="lline">💬 <b>Ask Axle</b> — any question, any subject, written out on a board and read aloud. Free.</div>
@@ -1128,7 +1128,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     </section>
 
     <footer class="lfoot">
-      Craxle · Live US jobs, matched to your resume · Free to browse<br>
+      Craxle · Live jobs across India, matched to your resume · Free to browse<br>
       <a href="#support" id="supportLink" style="color:var(--dim)">Support</a> ·
       <a href="/privacy.html" style="color:var(--dim)">Privacy Policy</a> ·
       <a href="/terms.html" style="color:var(--dim)">Terms</a>
@@ -1833,6 +1833,7 @@ async function logout(){
  */
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
   "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
+  "notices", "fees",
   "resume", "plans", "hiring", "studio"]);
 
 function restoreView(){
@@ -2099,6 +2100,12 @@ function renderNav(){
   if(USER.is_teacher||USER.is_admin){
     h+=`<div class="navsec">Manage</div>`;
     if(USER.is_teacher) h+=nav("teacher","🧑‍🏫","Teacher dashboard");
+    /* Anybody who teaches can send an update; only whoever runs the
+       school keeps the fees. Both screens existed and neither had a way
+       in, which is the third time this session. */
+    if(USER.is_teacher) h+=nav("notices","📢","Updates");
+    if(USER.role==="head"||USER.role==="schooladmin"||USER.is_admin)
+      h+=nav("fees","💳","Fees");
     if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
   }
   h+=`<div style="height:14px"></div>`;
@@ -4969,6 +4976,161 @@ function noticeReset(){
   NOTICE = {audience:"all", ids:[], classId:0, editing:0, found:[], busy:false};
 }
 
+/* Fees, as the person keeping them actually reads them.
+ *
+ * Never "what does Ila owe" — always "what is outstanding, who is overdue,
+ * what is coming". So: totals, then overdue, then what falls due next.
+ */
+let FEES = {book:null, busy:false};
+
+/* Stored in paise, shown in rupees, converted in exactly two places. Doing
+   the division wherever it happens to be needed is how a rounding error
+   reaches an invoice. */
+function paise(rupees){ return Math.round(parseFloat(rupees||0)*100); }
+function rupees(p){
+  return "₹" + ((p||0)/100).toLocaleString("en-IN",
+    {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+async function renderFees(){
+  $("#main").innerHTML=`<div class="h1">💳 Fees</div>
+    <p class="sub">What has come in, what is still owed, and what falls due
+      next.</p>
+    <div id="feeBody">Loading…</div>`;
+  /* The class list is loaded here as well as by the updates screen. It is
+     shared state that only one of them filled, so opening Fees first left the
+     dropdown empty and the only class you could bill was "everybody". */
+  try{
+    const cl=await api.get("/api/teacher/classes");
+    HEAD_CLASSES=(cl && (cl.classes||cl.rows))||[];
+  }catch(e){ HEAD_CLASSES=HEAD_CLASSES||[]; }
+  try{ FEES.book=await api.get("/api/office/fees"); }
+  catch(e){
+    document.getElementById("feeBody").innerHTML=
+      `<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`;
+    return;
+  }
+  feePaint();
+}
+
+function feePaint(){
+  const box=document.getElementById("feeBody");
+  if(!box||!FEES.book) return;
+  const b=FEES.book, t=b.totals||{};
+  const up=b.upcoming||[], recent=b.recent||[];
+  const overdue=up.filter(i=>i.overdue);
+
+  const tile=(label,val,accent)=>`<div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--dim);letter-spacing:.4px">${label}</div>
+      <div style="font-size:19px;font-weight:700;margin-top:3px${
+        accent?";color:"+accent:""}">${val}</div></div>`;
+
+  const row=i=>`<div style="display:grid;
+      grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;
+      gap:10px;align-items:center;padding:8px 0;
+      border-top:1px solid var(--line,#2a2a2a)">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
+        ${esc(i.who)}<div style="font-size:11.5px;color:var(--dim)">${
+          esc(i.title)}</div></span>
+      <span style="font-size:12.5px;color:${i.overdue?"#e5534b":"var(--dim)"}">
+        ${i.due_on?esc(i.due_on):"no date"}${i.overdue?" · overdue":""}</span>
+      <span style="font-variant-numeric:tabular-nums;text-align:right">
+        ${rupees(i.outstanding)}</span>
+      <button class="btn ghost sm" data-cls="feepaid" data-id="${i.id}"
+        data-amt="${i.outstanding}">Mark paid</button></div>`;
+
+  box.innerHTML=`
+    <div class="two" style="gap:10px;margin-bottom:6px">
+      ${tile("OUTSTANDING", rupees(t.outstanding))}
+      ${tile("OVERDUE", rupees(t.overdue), t.overdue?"#e5534b":"")}
+    </div>
+    <div class="two" style="gap:10px;margin-bottom:16px">
+      ${tile("COLLECTED", rupees(t.collected))}
+      ${tile("LEARNERS BILLED", String(t.learners||0))}
+    </div>
+
+    <div class="eyebrow">Bill a class</div>
+    <div class="card" style="padding:14px;margin-bottom:18px">
+      <p style="font-size:11.5px;color:var(--dim);margin:0 0 10px">
+        One fee, put on every learner in the class at once. Running it twice
+        does not bill anybody twice.</p>
+      <div class="field"><label>Class</label>
+        <select id="feeClass" class="ask-input">
+          <option value="0">Every learner in the school</option>
+          ${(HEAD_CLASSES||[]).map(c=>
+            `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
+        </select></div>
+      <div class="two">
+        <div class="field"><label>What it is for</label>
+          <input id="feeTitle" class="ask-input"
+            placeholder="e.g. Term 2 tuition"/></div>
+        <div class="field"><label>Amount (₹)</label>
+          <input id="feeAmt" class="ask-input" type="number" min="0"
+            step="0.01" placeholder="15000"/></div>
+      </div>
+      <div class="field"><label>Due on</label>
+        <input id="feeDue" class="ask-input" type="date"/></div>
+      <button class="btn sm" data-cls="feeplan">Bill the class</button>
+    </div>
+
+    <div class="eyebrow">Still owed ${overdue.length
+      ?`<span style="color:#e5534b">· ${overdue.length} overdue</span>`:""}</div>
+    <div class="card" style="padding:12px;margin-bottom:18px">
+      ${up.length
+        ? `<div style="display:grid;
+             grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;
+             gap:10px;font-size:11px;color:var(--dim);padding-bottom:4px">
+             <span>LEARNER</span><span>DUE</span>
+             <span style="text-align:right">AMOUNT</span><span></span></div>`
+           + overdue.map(row).join("")
+           + up.filter(i=>!i.overdue).map(row).join("")
+        : `<div style="color:var(--dim);font-size:13px">Nothing outstanding.</div>`}
+    </div>
+
+    <div class="eyebrow">Recently paid</div>
+    <div class="card" style="padding:12px">
+      ${recent.length
+        ? recent.slice(0,20).map(i=>`<div class="row"
+            style="justify-content:space-between;gap:8px;padding:7px 0;
+            border-top:1px solid var(--line,#2a2a2a)">
+            <span style="min-width:0">${esc(i.who)}
+              <span style="font-size:11.5px;color:var(--dim)">· ${
+                esc(i.title)}</span></span>
+            <span style="font-variant-numeric:tabular-nums">${
+              rupees(i.paid)}</span></div>`).join("")
+        : `<div style="color:var(--dim);font-size:13px">Nothing paid yet.</div>`}
+    </div>`;
+}
+
+async function feePlan(){
+  if(FEES.busy) return;
+  const title=($("#feeTitle").value||"").trim();
+  if(title.length<2){ toast("Say what the fee is for."); return; }
+  const amt=paise($("#feeAmt").value);
+  if(!(amt>0)){ toast("Put an amount on it."); return; }
+  FEES.busy=true;
+  try{
+    const r=await api.post("/api/office/fee/plan",{
+      class_id:+($("#feeClass").value||0), title:title,
+      amount:amt, due_on:$("#feeDue").value||"", kind:"fee"});
+    toast(r.billed
+      ? `Billed ${r.billed} learner${r.billed===1?"":"s"}.`+
+        (r.skipped?` ${r.skipped} already had it.`:"")
+      : "Everybody already had that one.");
+    $("#feeTitle").value=""; $("#feeAmt").value="";
+    await renderFees();
+  }catch(e){ toast(e.message); }
+  FEES.busy=false;
+}
+
+async function feeMarkPaid(fid, amt){
+  if(!confirm("Mark this as paid in full?")) return;
+  try{ await api.post("/api/office/fee/"+fid+"/paid",{paid:+amt}); }
+  catch(e){ toast(e.message); return; }
+  await renderFees();
+  toast("Marked paid.");
+}
+
 async function renderNotices(){
   $("#main").innerHTML = `<div class="h1">Updates</div>
     <p class="sub">What this school is being told, and who is being told it.</p>
@@ -5525,6 +5687,8 @@ document.addEventListener("click",e=>{
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
   else if(k==="notices") renderNotices();
+  else if(k==="feeplan") feePlan();
+  else if(k==="feepaid") feeMarkPaid(id, b.dataset.amt);
   else if(k==="rosdel") rosDel(id, cid);
   else if(k==="rosedit") rosEdit(id);
   else if(k==="rossave") rosSave(id);
@@ -8499,6 +8663,8 @@ function render(){
   else if(v.page==="scan")      renderScanner();
   else if(v.page==="lab")       renderLab();
   else if(v.page==="net")       renderNet();
+  else if(v.page==="notices")   renderNotices();
+  else if(v.page==="fees")      renderFees();
   else if(v.page==="class")     renderClass();
   else if(v.page==="careers")   renderCareers();
   else if(v.page==="resume")    renderResume();
@@ -8588,6 +8754,8 @@ document.addEventListener("click",e=>{
   else if(n==="hiring")    S.view={page:"hiring"};
   else if(n==="studio")    S.view={page:"studio"};
   else if(n==="teacher")   S.view={page:"teacher"};
+  else if(n==="notices")   S.view={page:"notices"};
+  else if(n==="fees")      S.view={page:"fees"};
   else if(n==="track")     S.view={page:"track",track:b.dataset.id};
   else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};
   else if(n==="quiz")      S.view={page:"quiz",track:b.dataset.id};
