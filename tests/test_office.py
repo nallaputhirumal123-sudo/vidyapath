@@ -114,8 +114,13 @@ payload = {"class_id": klass.id, "day": DAY,
 r = tutor.post("/api/office/attendance", json=payload)
 check("a teacher cannot mark attendance", r.status_code == 403,
       str(r.status_code))
+# The head teacher and the office are one role now, shown as School admin: in
+# the schools this is sold to they are one person, and the split meant the head
+# either could not see whether a child had been marked present or was quietly
+# handed the office's password.
 r = head.post("/api/office/attendance", json=payload)
-check("nor can the head teacher", r.status_code == 403, str(r.status_code))
+check("the head teacher can, being the School admin",
+      r.status_code == 200, str(r.status_code))
 r = kid.post("/api/office/attendance", json=payload)
 check("nor a learner", r.status_code == 403, str(r.status_code))
 
@@ -173,9 +178,6 @@ check("no register taken is not 100%", lone_st["attendance_pct"] is None,
 print("\nFees")
 fee = {"user_id": kid_u.id, "title": "Term 2 tuition", "amount": 1500000,
        "due_on": "2026-09-15"}
-r = head.post("/api/office/fee", json=fee)
-check("a head teacher cannot set a fee", r.status_code == 403,
-      str(r.status_code))
 r = tutor.post("/api/office/fee", json=fee)
 check("nor a teacher", r.status_code == 403, str(r.status_code))
 
@@ -288,8 +290,11 @@ r = head.post("/api/head/staff", json={"name": "Me", "email": head_u.email,
                                        "role": "schooladmin"})
 check("the head cannot promote themselves", r.status_code == 400,
       str(r.status_code))
-check("and still cannot keep the register",
-      head.post("/api/office/attendance", json=payload).status_code == 403)
+# Being School admin already, the head gains nothing by appointing themselves
+# — but the appointment must still be refused, or that check is the only thing
+# standing between an ordinary teacher and the office.
+check("and keeps the register as School admin",
+      head.post("/api/office/attendance", json=payload).status_code == 200)
 
 r = head.post("/api/head/staff", json={"name": "Xavier P",
                                        "email": f"x{stamp}@example.com",
