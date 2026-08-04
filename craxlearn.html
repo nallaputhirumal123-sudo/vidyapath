@@ -241,6 +241,25 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   width:100%;height:100%;border:0;display:block}
 .viewer > .note,.viewer > .muted{padding:1rem}
 
+/* A figure inside a lesson. The 2D renderers work out their own height from
+   the width they are given, so they get a plain block; a 3D scene has no
+   natural height, so it is told a shape and fills it. */
+.fig{background:var(--panel2);border-radius:12px;overflow:hidden;
+  margin:.4rem 0}
+.fig3d{position:relative;aspect-ratio:16/10}
+.fig3d > canvas{position:absolute;left:0;top:0;display:block}
+.figcap{font-size:.68rem;color:var(--muted);margin:.7rem 0 .2rem}
+.lessonBody img{max-width:100%;border-radius:12px;display:block}
+
+/* Listening. A board is across the room, so the only thing that says the
+   microphone is open has to be visible from there. */
+.iconbtn.mic.listening{background:var(--accent);border-color:var(--accent);
+  color:#10151c;animation:micpulse 1.1s ease-in-out infinite}
+@keyframes micpulse{50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){
+  .iconbtn.mic.listening{animation:none}
+}
+
 /* The boards render into #main and bring their own CSS. They were written
    for a 16px page, so they are scaled down relative to the room-sized base
    rather than left to fill a wall with one input box. */
@@ -309,7 +328,9 @@ window.esc = function (s) {
 <script src="sqlboard.js?v=7c5033791d"></script>
 <script src="net.js?v=0338e61617"></script>
 <script src="lab.js?v=63294b493d"></script>
-<script src="three3d.js?v=252535ecb2"></script>
+<script src="draw.js?v=89efe3a887"></script>
+<script src="sketch.js?v=665dcd5a1b"></script>
+<script src="three3d.js?v=d4abae1b11"></script>
 <script src="scanner.js?v=2f02744728"></script>
 <script>
 /* Craxlearn — the institution app.
@@ -1287,6 +1308,111 @@ async function show3D(host, scene){
   }
 }
 
+/* ---------- saying it instead of typing it ----------
+ *
+ * What is heard becomes the TOPIC, never the answer. A teacher says
+ * "photosynthesis" and the board explains photosynthesis, with the same
+ * diagrams and the same 3D it would have built had she typed the word —
+ * it does not read her sentence back at her. The words land in the box
+ * first, so a misheard one can be corrected before it is taught.
+ *
+ * One listen per press, not a conversation. A teacher names a topic and
+ * turns back to the class; a recogniser left running would transcribe the
+ * lesson, and on a board in a full classroom that is both useless and a
+ * microphone nobody asked to leave open.
+ *
+ * Recognition is the browser's own. In Chrome that is Google's recogniser:
+ * good at Indian English, and free per minute, because the audio never
+ * reaches our servers. A paid speech API would put a per-second bill on the
+ * most open-ended thing in a classroom.
+ */
+var MIC_TROUBLE = {
+  "not-allowed": "This board is blocking the microphone. Allow it for this " +
+    "site — the padlock in the address bar — and try again.",
+  "service-not-allowed": "This board is blocking the microphone. Allow it " +
+    "for this site and try again.",
+  "no-speech": "I did not catch anything. Tap the mic and say it straight after.",
+  "audio-capture": "No microphone was found on this board. Check it is " +
+    "plugged in and not in use by another app.",
+  "network": "Speech recognition needs the network and could not reach it. " +
+    "Type the topic instead.",
+  "aborted": "",   // stopped on purpose; say nothing
+  "language-not-supported": "This board has no Indian English for speech. " +
+    "Trying again in US English — say it once more.",
+  "bad-grammar": "The microphone returned something unusable. Try again."
+};
+
+var MIC = { rec: null, btn: null, fallback: false };
+
+function micStop(){
+  if(MIC.rec){ try{ MIC.rec.abort(); }catch(e){} }
+  MIC.rec = null;
+  if(MIC.btn){ MIC.btn.classList.remove("listening"); MIC.btn = null; }
+}
+
+/* Listen once, put the words in `box`, then run `then`. `say` reports
+   trouble wherever this particular tool shows its messages. */
+function hearInto(btn, box, then, say){
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    say("This board's browser cannot listen. Chrome and Edge can; Firefox " +
+        "cannot. Type the topic instead.");
+    return;
+  }
+  /* A second press stops it. Without this it tried to open a second
+     recogniser and threw, which reads as a mic that will not let go. */
+  if(MIC.rec){ micStop(); say(""); return; }
+
+  var r = new SR();
+  MIC.rec = r;
+  MIC.btn = btn;
+  btn.classList.add("listening");
+  r.lang = MIC.fallback ? "en-US" : "en-IN";
+  r.interimResults = false;
+  r.maxAlternatives = 1;
+  say("Listening — say the topic.");
+
+  r.onresult = function(ev){
+    var heard = ((ev.results[0][0] || {}).transcript || "").trim();
+    micStop();
+    if(!heard){ say("I did not catch that. Try once more."); return; }
+    box.value = heard;
+    say("");
+    then();
+  };
+  r.onerror = function(ev){
+    var code = (ev && ev.error) || "";
+    micStop();
+    /* Some browsers ship no Indian English and refuse the locale outright.
+       One silent retry in US English, which every one of them has. */
+    if(code === "language-not-supported" && !MIC.fallback){
+      MIC.fallback = true;
+      hearInto(btn, box, then, say);
+      return;
+    }
+    var m = MIC_TROUBLE[code];
+    say(m !== undefined ? m
+        : "The microphone reported “" + (code || "an unknown fault") +
+          "”. Try again, or type it instead.");
+  };
+  r.onend = function(){ micStop(); };
+  try{ r.start(); }
+  catch(e){
+    micStop();
+    say("The microphone was already busy. Try again.");
+  }
+}
+
+/* The button itself, so every tool that takes a topic gets the same one. */
+function micButton(id){
+  return '<button class="iconbtn mic" id="' + id + '" ' +
+    'title="Say it instead of typing it">🎤</button>';
+}
+
+/* Leaving a page with the microphone live is not acceptable, and on a board
+   the page changes every time a space is switched. */
+window.addEventListener("pagehide", micStop);
+
 /* ---------- any structure worth turning around ----------
  *
  * Only ones somebody measured. A name with nothing behind it says so rather
@@ -1304,6 +1430,7 @@ async function structure(name){
     '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
       '<input id="stName" style="flex:1 1 14rem" value="' + esc(n) + '" ' +
         'placeholder="caffeine · silicon · graphene · haemoglobin · the solar system">' +
+      micButton("stMic") +
       '<button class="btn" id="stGo">Show it</button>' +
     '</div><div class="muted" id="stMsg" style="margin-top:.4rem">' +
       "Measured — from PubChem, the Protein Data Bank, or a published table. " +
@@ -1328,6 +1455,12 @@ async function structure(name){
   };
   el("stGo").onclick = run;
   el("stName").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  el("stMic").onclick = function(){
+    hearInto(el("stMic"), el("stName"), run, function(m){
+      el("stMsg").textContent = m ||
+        "Measured — from PubChem, the Protein Data Bank, or a published table.";
+    });
+  };
   if(n) run();
 }
 
@@ -1339,6 +1472,7 @@ async function find(term){
     '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
       '<input id="fq" style="flex:1 1 14rem" value="' + esc(t) + '" ' +
         'placeholder="a mitochondrion · Saturn · a titration">' +
+      micButton("fMic") +
       '<button class="btn" id="fGo">Search</button>' +
     '</div><div class="muted" id="fMsg" style="margin-top:.4rem">' +
       "Public catalogues only, with the licence beside each result.</div></div>" +
@@ -1377,6 +1511,12 @@ async function find(term){
   };
   el("fGo").onclick = run;
   el("fq").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  el("fMic").onclick = function(){
+    hearInto(el("fMic"), el("fq"), run, function(m){
+      el("fMsg").textContent = m ||
+        "Public catalogues only, with the licence beside each result.";
+    });
+  };
   if(t) run();
 }
 
@@ -2287,20 +2427,36 @@ async function board(topic){
       '<input id="bTopic" style="flex:1 1 16rem" ' +
         'placeholder="Anything — photosynthesis, longest prefix match, the quadratic formula" ' +
         'value="' + esc(t) + '">' +
+      micButton("bMic") +
       '<select id="bLevel">' +
         ["Class 6","Class 8","Class 10","Class 12","Undergraduate","Research"]
           .map(function(l){ return '<option>' + l + "</option>"; }).join("") +
       "</select>" +
       '<button class="btn" id="bGo">Teach it</button>' +
+    '</div><div class="muted" id="bMsg" style="margin-top:.4rem">' +
+      "Say it or type it — either way the board explains the idea, with a " +
+      "drawing or something to turn around where one helps." +
     "</div></div><div id=\"bOut\"></div>";
   el("bGo").onclick = teach;
   el("bTopic").onkeydown = function(e){ if(e.key === "Enter") teach(); };
+  /* Spoken and typed go down the same path on purpose: what she said is the
+     topic, and what comes back is the concept explained — never her sentence
+     repeated. */
+  el("bMic").onclick = function(){
+    hearInto(el("bMic"), el("bTopic"), teach, function(m){
+      var b = el("bMsg");
+      if(b) b.textContent = m || "Say it or type it — either way the board " +
+        "explains the idea, with a drawing or something to turn around " +
+        "where one helps.";
+    });
+  };
   if(t) teach();
 }
 
 async function teach(){
   var topic = (el("bTopic").value||"").trim();
   if(topic.length < 2) return;
+  remember(topic);
   var level = el("bLevel").value;
   var out = el("bOut");
   out.innerHTML = '<div class="card muted">Building the lesson…</div>';
@@ -2313,6 +2469,23 @@ async function teach(){
   }
   var L = d.lesson || {};
   var h = "<h1>" + esc(L.title || topic) + "</h1>";
+
+  /* A photograph of the real thing, when the catalogues have one. It is the
+     lesson's, not a step's, so it goes at the top with its credit. */
+  if(L.photo && L.photo.url){
+    h += '<div class="card"><img src="' + esc(L.photo.url) + '" alt="" ' +
+      'style="max-width:100%;border-radius:12px;display:block">' +
+      '<div class="muted" style="margin-top:.5rem">' +
+      esc(L.photo.title || "") +
+      (L.photo.credit ? " · " + esc(L.photo.credit) : "") +
+      (L.photo.licence ? " · " + esc(L.photo.licence) : "") + "</div></div>";
+  }
+
+  /* The figures a step asks for are mounted AFTER this html is in the
+     document: all three renderers measure the element they are given, and a
+     string has no width. So the markup leaves an empty, identified box for
+     each and the mounting happens below. */
+  var figures = [];
   (L.steps || []).forEach(function(st, i){
     var body = typeof st === "string" ? st : (st.t || "");
     h += '<div class="card"><div class="muted">Step ' + (i+1) +
@@ -2324,9 +2497,37 @@ async function teach(){
            'padding:.7rem;border-radius:12px"><code>' + esc(st.code) +
            "</code></pre>";
     }
+    if(st && st.draw){
+      h += '<div class="figcap">✏️ ' + esc(st.draw.caption || "") + "</div>" +
+           '<div class="fig" id="bDraw' + i + '"></div>';
+      figures.push({ how:"draw", id:"bDraw" + i, spec:st.draw });
+    }
+    if(st && st.sketch){
+      h += '<div class="figcap">✏️ ' + esc(st.sketch.caption || "") + "</div>" +
+           '<div class="fig" id="bSketch' + i + '"></div>';
+      figures.push({ how:"sketch", id:"bSketch" + i, spec:st.sketch });
+    }
+    if(st && st.scene){
+      h += '<div class="figcap">🧊 ' +
+           esc(st.scene.caption || "Drag to turn it, pinch or scroll to zoom") +
+           "</div>" +
+           '<div class="fig fig3d" data-fill="1" id="bScene' + i + '"></div>';
+      figures.push({ how:"scene", id:"bScene" + i, spec:st.scene });
+    }
     h += "</div>";
   });
   if(L.takeaway) h += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
+
+  /* Where the lesson could go next. The model already returns these and
+     they were being thrown away; on a board they are the question a teacher
+     would otherwise have to think of while thirty people watch. */
+  if((L.deeper || []).length){
+    h += '<div class="eyebrow">Go further</div><div class="card">' +
+      L.deeper.map(function(x){
+        return '<button class="btn ghost" data-deeper="' + esc(x) +
+          '" style="margin:.2rem .3rem 0 0">' + esc(x) + "</button>";
+      }).join("") + "</div>";
+  }
 
   /* The point of teaching on a board that is part of the platform: what the
      class just watched becomes the work they take away, without anybody
@@ -2348,6 +2549,32 @@ async function teach(){
       "</div></div>";
   }
   out.innerHTML = h;
+
+  /* Now that every box is a real element with a real width, fill them.
+     One failing figure must not take the rest of the lesson down with it —
+     a lesson with a missing drawing is still a lesson. */
+  for(var fi = 0; fi < figures.length; fi++){
+    var f = figures[fi], host = el(f.id);
+    if(!host) continue;
+    try{
+      if(f.how === "draw" && window.Draw) Draw.mount(host, f.spec);
+      else if(f.how === "sketch" && window.Sketch) Sketch.mount(host, f.spec);
+      else if(f.how === "scene") await show3D(host, f.spec);
+      else host.innerHTML = '<div class="muted" style="padding:1rem">' +
+        "This drawing needs a file the board could not load.</div>";
+    }catch(e){
+      host.innerHTML = '<div class="muted" style="padding:1rem">' +
+        "This drawing could not be built.</div>";
+    }
+  }
+
+  out.querySelectorAll("[data-deeper]").forEach(function(b){
+    b.onclick = function(){
+      el("bTopic").value = b.dataset.deeper;
+      remember(b.dataset.deeper);
+      teach();
+    };
+  });
 
   var go = el("asgGo");
   if(go) go.onclick = async function(){
