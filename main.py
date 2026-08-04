@@ -826,6 +826,14 @@ class SchoolNotice(Base):
     file_name = Column(String(160), default="")
     mime = Column(String(80), default="")
     size = Column(Integer, default=0)
+    # Who it is for: "" or "all" is the whole school, and is what every
+    # notice written before this column existed means. Also "teachers",
+    # "students", "class" (with class_id) and "people" (with audience_ids).
+    # Nullable with a default, because _migrate_columns adds this to a table
+    # that already has notices in it.
+    audience = Column(String(16), default="all")
+    audience_ids = Column(Text, default="")     # comma-separated User ids
+    class_id = Column(Integer, default=0, index=True)
     # Shown first and in a different colour. For a closure or a deadline,
     # not for the newsletter — a page where everything is urgent has no
     # urgent on it.
@@ -2362,13 +2370,28 @@ SCHOOL_ROLES = ("teacher", "head", "schooladmin")
 
 
 def is_school_admin(user: User, db: Session) -> bool:
+    """Who runs the school.
+
+    'head' and 'schooladmin' were two roles: the head teacher ran teaching —
+    staff, classes, registers — and a separate office kept attendance, fees
+    and notices. They are one role now, shown as School admin, because in the
+    schools this is actually sold to they are one person. Splitting them meant
+    the head either could not see whether a child had been marked present or
+    was quietly handed the office's password, and the second is what really
+    happened.
+
+    Both stored roles are still accepted. Accounts already granted 'head' and
+    accounts already granted 'schooladmin' both keep working exactly as they
+    are, and nothing has to be migrated.
+    """
     t = teacher_row(user, db)
-    return user.is_admin or (t is not None and t.role == "schooladmin")
+    return user.is_admin or (t is not None
+                             and t.role in ("schooladmin", "head"))
 
 
 def school_admin_user(user: User = Depends(current_user),
                       db: Session = Depends(get_db)) -> User:
-    """Attendance, fees and notices. Not the head, and not a teacher.
+    """Attendance, fees and notices — the School admin, not a subject teacher.
 
     Platform admins pass because they have to be able to fix a school's data
     when it goes wrong, and a support call that cannot be answered without
@@ -2376,8 +2399,9 @@ def school_admin_user(user: User = Depends(current_user),
     """
     if not is_school_admin(user, db):
         raise HTTPException(
-            403, "School office access required. Attendance, fees and school "
-                 "notices are kept by the office, not by teaching staff.")
+            403, "School admin access required. Attendance, fees and notices "
+                 "are kept by whoever runs the school, not by subject "
+                 "teachers.")
     return user
 
 
@@ -5199,12 +5223,59 @@ def craxlearn_me(user: User = Depends(current_user),
 # Written by the office. Read by everybody. A teacher cannot touch any of it
 # and neither can a head teacher — see school_admin_user for why.
 
+NOTICE_AUDIENCES = ("all", "teachers", "students", "class", "people")
+
+
 class NoticeIn(BaseModel):
     title: str = Field(min_length=2, max_length=240)
     body: str = Field(default="", max_length=8000)
     urgent: bool = False
     starts_on: str = Field(default="", max_length=20)
     ends_on: str = Field(default="", max_length=20)
+    # Who it reaches. Defaults to everybody, which is what every notice
+    # written before this existed meant.
+    audience: str = Field(default="all", max_length=16)
+    audience_ids: str = Field(default="", max_length=4000)
+    class_id: int = 0
+
+
+def _audience_of(body):
+    """Validate the target, refusing one that would silently reach nobody."""
+    aud = (body.audience or "all").strip().lower()
+    if aud not in NOTICE_AUDIENCES:
+        raise HTTPException(400, "Send it to everybody, the teachers, the "
+                                 "students, one class, or named people.")
+    ids = ""
+    if aud == "people":
+        ids = ",".join(str(int(x)) for x in
+                       re.findall(r"\d+", body.audience_ids or ""))
+        if not ids:
+            # Silently reaching nobody is the worst outcome here: it looks
+            # sent and nothing arrives.
+            raise HTTPException(400, "Choose at least one person.")
+    cid = int(body.class_id or 0)
+    if aud == "class" and not cid:
+        raise HTTPException(400, "Choose which class.")
+    return aud, ids, cid
+
+
+def _notice_reaches(n, user, db):
+    """Is this notice addressed to this person?"""
+    aud = (n.audience or "all")
+    if aud in ("", "all"):
+        return True
+    if aud == "people":
+        return str(user.id) in (n.audience_ids or "").split(",")
+    staff = teacher_row(user, db) is not None
+    if aud == "teachers":
+        return staff
+    if aud == "students":
+        return not staff
+    if aud == "class":
+        return bool(db.query(ClassMember).filter(
+            ClassMember.class_id == n.class_id,
+            ClassMember.user_id == user.id).first())
+    return True
 
 
 def _notice_json(n):
@@ -5213,6 +5284,9 @@ def _notice_json(n):
             "ends_on": n.ends_on or "",
             "file_name": n.file_name or "", "mime": n.mime or "",
             "size": n.size or 0, "has_file": bool(n.file_data),
+            "audience": n.audience or "all",
+            "audience_ids": n.audience_ids or "",
+            "class_id": n.class_id or 0,
             "at": n.created_at.isoformat() if n.created_at else ""}
 
 
@@ -5321,11 +5395,13 @@ def head_remove_staff(uid: int, user: User = Depends(head_user),
 @app.post("/api/office/notice")
 def add_notice(body: NoticeIn, user: User = Depends(notice_author_user),
                db: Session = Depends(get_db)):
+    aud, ids, cid = _audience_of(body)
     n = SchoolNotice(school_id=_school_of(user, db), author_id=user.id,
                      title=body.title.strip()[:240],
                      body=body.body.strip()[:8000], urgent=bool(body.urgent),
                      starts_on=body.starts_on.strip()[:20],
-                     ends_on=body.ends_on.strip()[:20])
+                     ends_on=body.ends_on.strip()[:20],
+                     audience=aud, audience_ids=ids, class_id=cid)
     db.add(n)
     db.commit()
     db.refresh(n)
@@ -5343,6 +5419,55 @@ def _my_notice(db, nid, user):
     if not user.is_admin and n.school_id != _school_of(user, db):
         raise HTTPException(403, "That notice belongs to another school")
     return n
+
+
+def _school_of_anyone(user: User, db: Session) -> int:
+    """Which school this person belongs to, staff or child.
+
+    _school_of answers for staff and returns 0 for everybody else, which is
+    right where it is used and wrong wherever a learner has to be recognised
+    as belonging somewhere — a child fetching the timetable attached to their
+    own school's notice was refused it.
+    """
+    sid = _school_of(user, db)
+    if sid:
+        return sid
+    t = teacher_row(user, db)
+    if t and t.school_id:
+        return t.school_id
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == user.id).first())
+    return (row[0] if row and row[0] else 0)
+
+
+@app.get("/api/my/notices")
+def notices_for_me(user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    """What the school has said to me.
+
+    Staff had nowhere to read a notice at all: the only feed was the
+    learner's standing panel, so anything addressed to teachers was written
+    and never seen. Dates are honoured here as they are there — a notice with
+    dates on it is only a notice between them.
+    """
+    sid = _school_of_anyone(user, db)
+    if not sid:
+        return {"notices": []}
+    today = dt.date.today().isoformat()
+    out = []
+    for n in (db.query(SchoolNotice)
+                .filter(SchoolNotice.school_id == sid)
+                .order_by(SchoolNotice.urgent.desc(),
+                          SchoolNotice.created_at.desc()).limit(60).all()):
+        if n.starts_on and n.starts_on > today:
+            continue
+        if n.ends_on and n.ends_on < today:
+            continue
+        if not _notice_reaches(n, user, db):
+            continue
+        out.append(_notice_json(n))
+    return {"notices": out}
 
 
 @app.get("/api/office/notices")
@@ -5378,6 +5503,7 @@ def edit_notice(nid: int, body: NoticeIn,
     n.urgent = bool(body.urgent)
     n.starts_on = body.starts_on.strip()[:20]
     n.ends_on = body.ends_on.strip()[:20]
+    n.audience, n.audience_ids, n.class_id = _audience_of(body)
     db.commit()
     db.refresh(n)
     return {"ok": True, "notice": _notice_json(n)}
@@ -5431,8 +5557,11 @@ def notice_file(nid: int, user: User = Depends(current_user),
     n = db.get(SchoolNotice, nid)
     if not n or not n.file_data:
         raise HTTPException(404, "Not found")
-    if not user.is_admin and n.school_id and n.school_id != _school_of(user, db):
+    if not user.is_admin and n.school_id             and n.school_id != _school_of_anyone(user, db):
         raise HTTPException(403, "That notice belongs to another school")
+    # And only if it was addressed to them. An attachment is the notice.
+    if not user.is_admin and not _notice_reaches(n, user, db):
+        raise HTTPException(403, "That notice was not addressed to you")
     try:
         raw = base64.b64decode(n.file_data)
     except Exception:
@@ -5441,6 +5570,55 @@ def notice_file(nid: int, user: User = Depends(current_user),
         content=raw, media_type=n.mime or "application/octet-stream",
         headers={"Content-Disposition":
                  f'inline; filename="{(n.file_name or "notice")[:80]}"'})
+
+
+@app.get("/api/head/people")
+def head_find_people(q: str = "", kind: str = "",
+                     user: User = Depends(notice_author_user),
+                     db: Session = Depends(get_db)):
+    """Find somebody to address a notice to, by name or by id.
+
+    A school with four hundred children cannot be a dropdown. Typing part of
+    a name is how anybody actually looks for a person; typing the id is how
+    you confirm you have the right one of two children called Ravi.
+
+    Returns staff and learners in this school only, with the id the notice
+    needs. Never anybody else's school: this is a list of children's names.
+    """
+    sid = _school_of_anyone(user, db)
+    if not sid and not user.is_admin:
+        return {"people": []}
+    term = (q or "").strip().lower()[:80]
+    want = (kind or "").strip().lower()
+    out = []
+
+    if want in ("", "teacher", "teachers"):
+        rows = (db.query(TeacherAccess, User)
+                  .join(User, User.id == TeacherAccess.user_id))
+        if not user.is_admin:
+            rows = rows.filter(TeacherAccess.school_id == sid)
+        for ta, u in rows.limit(500).all():
+            out.append({"id": u.id, "name": u.name or u.email,
+                        "kind": "teacher", "role": ta.role or "teacher",
+                        "where": ""})
+
+    if want in ("", "student", "students"):
+        rows = (db.query(RosterName, Klass)
+                  .join(Klass, Klass.id == RosterName.class_id)
+                  .filter(RosterName.claimed_by != 0))
+        if not user.is_admin:
+            rows = rows.filter(Klass.school_id == sid)
+        for r, k in rows.limit(2000).all():
+            out.append({"id": r.claimed_by, "name": r.name,
+                        "kind": "student", "role": "student",
+                        "where": k.name})
+
+    if term:
+        # By name, or by the id typed straight in.
+        out = [p for p in out
+               if term in p["name"].lower() or term == str(p["id"])]
+    out.sort(key=lambda p: (p["kind"], p["name"].lower()))
+    return {"people": out[:200], "count": len(out)}
 
 
 @app.get("/api/head/students")
@@ -5756,6 +5934,11 @@ def my_standing(user: User = Depends(current_user),
             if n.starts_on and n.starts_on > today:
                 continue
             if n.ends_on and n.ends_on < today:
+                continue
+            # Addressed to this person, or to everybody. A staff meeting
+            # reaching four hundred children is how the panel stops being
+            # read at all.
+            if not _notice_reaches(n, user, db):
                 continue
             notices.append(_notice_json(n))
 
