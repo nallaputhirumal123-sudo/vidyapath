@@ -2774,6 +2774,26 @@ def _gen_code(db, prefix, model, field, length=4):
     return prefix + secrets.token_hex(3).upper()
 
 
+def _gen_head_code(db) -> str:
+    """A school admin's code: ten digits, nothing else.
+
+    The old form was HEAD- plus four letters, which is fine to read out and
+    awkward to type on a board or a phone with a numeric keypad up — and it
+    announces in the code itself what it unlocks, which is the one thing worth
+    not advertising about a code that opens a whole school.
+
+    Ten digits is 10^10, ten thousand times the space of the four-letter form,
+    and every character is on the number pad. Codes already issued keep
+    working: nothing here matches on shape, it is a lookup by value.
+    """
+    import random
+    for _ in range(25):
+        code = "".join(random.choice("0123456789") for _ in range(10))
+        if not db.query(TeacherCode).filter(TeacherCode.code == code).first():
+            return code
+    return str(secrets.randbelow(9_000_000_000) + 1_000_000_000)
+
+
 def _gen_join_code(db) -> str:
     # Six, not four. A class code returns the first names of the children
     # in that class, so the space it is drawn from has to be large enough
@@ -3626,8 +3646,8 @@ def admin_create_school(body: SchoolIn, user: User = Depends(admin_user),
     db.add(sc)
     db.commit()
     db.refresh(sc)
-    # auto-create a head-teacher code for this school
-    code = _gen_code(db, "HEAD-", TeacherCode, TeacherCode.code)
+    # auto-create the school admin's code for this school
+    code = _gen_head_code(db)
     db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
     db.commit()
     return {"id": sc.id, "name": sc.name, "head_code": code}
@@ -3643,7 +3663,7 @@ def admin_new_head_code(sid: int, user: User = Depends(admin_user),
     for old in db.query(TeacherCode).filter(TeacherCode.school_id == sid,
                                             TeacherCode.is_head == True).all():  # noqa: E712
         old.active = False
-    code = _gen_code(db, "HEAD-", TeacherCode, TeacherCode.code)
+    code = _gen_head_code(db)
     db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
     db.commit()
     return {"head_code": code}
@@ -5944,6 +5964,108 @@ def set_fee(body: FeeIn, user: User = Depends(school_admin_user),
 
 class FeePayIn(BaseModel):
     paid: int = 0                          # paise, the new total received
+
+
+class FeePlanIn(BaseModel):
+    class_id: int = 0            # 0 = every learner in the school
+    title: str = Field(min_length=2, max_length=240)
+    note: str = Field(default="", max_length=2000)
+    amount: int = 0              # paise
+    due_on: str = Field(default="", max_length=20)
+    kind: str = Field(default="fee", max_length=12)
+
+
+@app.post("/api/office/fee/plan")
+def office_fee_plan(body: FeePlanIn, user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """One fee, put on every learner in a class or in the school.
+
+    Term fees are the same number for everybody, and setting them one child at
+    a time is how a class of forty gets thirty-nine of them and nobody notices
+    until a parent asks why they were not told.
+
+    Skips a learner who already has this exact title outstanding, so running
+    it twice does not bill anybody twice — which is the mistake that costs a
+    school its parents' trust rather than an afternoon.
+    """
+    sid = _school_of(user, db)
+    q = (db.query(ClassMember.user_id).join(Klass, Klass.id == ClassMember.class_id))
+    if body.class_id:
+        _own_class(db, body.class_id, user)
+        q = q.filter(ClassMember.class_id == body.class_id)
+    elif sid:
+        q = q.filter(Klass.school_id == sid)
+    elif not user.is_admin:
+        raise HTTPException(403, "No school on this account")
+    uids = sorted({r[0] for r in q.all()})
+    if not uids:
+        raise HTTPException(400, "Nobody is enrolled there yet.")
+
+    title = body.title.strip()[:240]
+    already = {f.user_id for f in db.query(FeeItem)
+               .filter(FeeItem.user_id.in_(uids), FeeItem.title == title,
+                       FeeItem.paid < FeeItem.amount).all()}
+    made = 0
+    for uid in uids:
+        if uid in already:
+            continue
+        db.add(FeeItem(school_id=sid, user_id=uid, title=title,
+                       note=body.note.strip()[:2000],
+                       amount=max(int(body.amount or 0), 0),
+                       due_on=body.due_on.strip()[:20],
+                       kind=(body.kind or "fee").strip()[:12],
+                       marked_by=user.id))
+        made += 1
+    db.commit()
+    return {"ok": True, "billed": made, "skipped": len(already),
+            "learners": len(uids)}
+
+
+@app.get("/api/office/fees")
+def office_fee_book(user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """What has come in and what is still to come, for the whole school.
+
+    The office could set a fee on a learner and see that learner. It could not
+    see the school: how much is outstanding, who is overdue today, what falls
+    due next. That is the question an admin actually has — and answering it by
+    opening four hundred learners one at a time is the reason schools keep
+    this in a spreadsheet instead.
+    """
+    sid = _school_of(user, db)
+    q = db.query(FeeItem)
+    if not user.is_admin:
+        q = q.filter(FeeItem.school_id == sid)
+    rows = q.order_by(FeeItem.created_at.desc()).limit(2000).all()
+    names = {u.id: (u.name or u.email)
+             for u in db.query(User).filter(
+                 User.id.in_([f.user_id for f in rows] or [0])).all()}
+    today = dt.date.today().isoformat()
+
+    def one(f):
+        out = max((f.amount or 0) - (f.paid or 0), 0)
+        return {"id": f.id, "who": names.get(f.user_id, ""),
+                "user_id": f.user_id, "title": f.title,
+                "amount": f.amount or 0, "paid": f.paid or 0,
+                "outstanding": out, "due_on": f.due_on or "",
+                "kind": f.kind or "fee",
+                "overdue": bool(out and f.due_on and f.due_on < today),
+                "at": f.created_at.isoformat() if f.created_at else "",
+                "paid_at": f.paid_at.isoformat() if f.paid_at else ""}
+
+    items = [one(f) for f in rows]
+    return {
+        "recent": [i for i in items if i["paid"]][:100],
+        "upcoming": sorted([i for i in items if i["outstanding"]],
+                           key=lambda i: (i["due_on"] or "9999")),
+        "totals": {
+            "billed": sum(i["amount"] for i in items),
+            "collected": sum(i["paid"] for i in items),
+            "outstanding": sum(i["outstanding"] for i in items),
+            "overdue": sum(i["outstanding"] for i in items if i["overdue"]),
+            "learners": len({i["user_id"] for i in items}),
+        },
+    }
 
 
 @app.post("/api/office/fee/{fid}/paid")

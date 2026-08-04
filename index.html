@@ -1677,7 +1677,9 @@ function setJoinRole(role){
     b.classList.toggle("on", b.dataset.jrole===JOIN_ROLE));
   const teacher = JOIN_ROLE==="teacher";
   const code=$("#jn_code");
-  if(code) code.placeholder = teacher ? "T-4M2X or HEAD-9QRS" : "VP-7K3Q";
+  // A school admin's code is ten digits and a subject code is T- plus
+  // four; the placeholder shows both because one field takes either.
+  if(code) code.placeholder = teacher ? "T-4M2X or 4820561973" : "VP-7K3Q";
   const staff=$("#jn_staff");
   if(staff) staff.style.display = teacher ? "" : "none";
   const hint=$("#jn_hint");
