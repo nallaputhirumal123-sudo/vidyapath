@@ -8921,7 +8921,19 @@ def _crawl_window_wait():
 # Every token below was curl-verified against boards-api.greenhouse.io
 # before it was added, with the job count it returned. Guessing slugs once
 # put 153 dead tokens in this list, so nothing goes in unanswered.
-_GREENHOUSE = ("anthropic,block,zscaler,purestorage,netskope,"
+# India first, since the board is India-only. Each of these was fetched
+# live and kept only because its jobs are actually IN India — a token that
+# answers but posts only US roles is worse than one that 404s, because it
+# looks like it is working. Counts at the time of checking: postman 27/28,
+# razorpay 61/61, phonepe 96/96, groww 24/24, druva 32/38, netradyne 40/44.
+_GREENHOUSE = ("postman,razorpaysoftwareprivatelimited,phonepe,groww,"
+               "druva,netradyne,"
+               # The rest are US-headquartered and stay because many of them
+               # do post India roles; the country filter drops the ones that
+               # do not, so nothing out of scope can reach a learner. They
+               # cost crawl slots, which is the argument for pruning them
+               # once the India sources above prove they carry the board.
+               "anthropic,block,zscaler,purestorage,netskope,"
                "abnormalsecurity,hightouch,newrelic,fastly,pagerduty,"
                "yugabyte,dremio,netlify,"
                "stripe,figma,databricks,cloudflare,coinbase,robinhood,"
@@ -8936,9 +8948,12 @@ _GREENHOUSE = ("anthropic,block,zscaler,purestorage,netskope,"
                # Automation Engineer, kentik Network Intelligence
                # Advisor, cribl Site Reliability Engineer.
                "netbrain,kentik,cribl")
-_LEVER = ("palantir,cred,meesho,nium,matchgroup,alloy,veeva,shieldai,"
+# cred 4/4 and meesho 44/46 in India, both re-verified.
+_LEVER = ("cred,meesho,palantir,nium,matchgroup,alloy,veeva,shieldai,"
           "relay,d2l,wattpad,knix")
-_ASHBY = ("openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
+# sarvam 57/57 and atlan 5/5 in India.
+_ASHBY = ("sarvam,atlan,"
+          "openai,ramp,linear,vanta,replit,clickhouse,supabase,cursor,"
           "elevenlabs,decagon,mercor,sierra,suno,perplexity,zed,harvey,"
           "modal,warp,browserbase,lovable,synthesia,cognition,"
           "fireworksai,baseten,langchain,n8n,runway,character,writer,"
