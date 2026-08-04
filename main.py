@@ -9620,20 +9620,19 @@ def _jsearch_slice(used: int = 0):
 # staffing and contract work, so it is worth paging properly.
 JOOBLE_PAGES = int(env("JOOBLE_PAGES", "10") or 10)
 
-# Adzuna country codes. Override with ADZUNA_COUNTRIES="in,gb,us".
-# Default to the countries the board actually keeps. Fetching the other
-# fourteen spent free-tier quota on jobs that _job_in_scope discards a
-# moment later — and India was fetched FIRST, so the allowance could be
-# gone before US or Canada were reached. Widen this only alongside
-# JOB_COUNTRIES.
+# Adzuna country codes. Override with ADZUNA_COUNTRIES="in,gb".
+# Only the countries the board actually keeps: fetching the others spends
+# free-tier quota on postings _job_in_scope discards a moment later. This
+# used to be "us" while India was fetched first and discarded, which is the
+# same waste in the opposite direction. Widen only alongside JOB_COUNTRIES.
 ADZUNA_COUNTRIES = env("ADZUNA_COUNTRIES",
-                       "us").split(",")
+                       "in").split(",")
 # 50 results per page. Adzuna is the only source returning contract and
 # staffing work, so it is worth pulling deeply — but it is rate limited, so
 # the depth has to stay inside the free tier. The arithmetic, at the current
-# JOB_REFRESH_HOURS=6 and JOB_COUNTRIES=us,ca:
-#     2 countries x 10 pages = 20 calls per crawl
-#     4 crawls a day        = 80 calls a day
+# JOB_REFRESH_HOURS=6 and JOB_COUNTRIES=India:
+#     1 country x 10 pages = 10 calls per crawl
+#     4 crawls a day       = 40 calls a day
 # comfortably under Adzuna's free allowance. Adding countries or crawling
 # more often multiplies this, so raise JOB_REFRESH_HOURS before raising here.
 ADZUNA_PAGES = int(env("ADZUNA_PAGES", "10") or 10)
@@ -10145,8 +10144,12 @@ RETIRED_SOURCES = ("themuse",)
 # "Technical and non-technical" means both sides of a tech company — engineers
 # and the product, design, support and QA roles around them — not every job in
 # every industry.
+# India. The board serves learners here, the lessons set their examples here,
+# and a US posting on it is a job almost nobody reading can take — it was
+# noise dressed as opportunity. Set JOB_COUNTRIES to widen it again.
 ALLOWED_COUNTRIES = {c.strip().upper() for c in
-                     (env("JOB_COUNTRIES", "US") or "US").split(",") if c.strip()}
+                     (env("JOB_COUNTRIES", "INDIA") or "INDIA").split(",")
+                     if c.strip()}
 ALLOWED_FAMILIES = {f.strip().lower() for f in
                     (env("JOB_FAMILIES",
                          "network,security,sysadmin,devops,backend,frontend,"
@@ -10317,14 +10320,23 @@ def _job_in_scope(r):
             return False
     c = (r.get("country") or "").strip().upper()
     if not c:
+        # Work it out from the location rather than assuming. This used to
+        # answer "is it American?" — a US hint passed, anything else was
+        # rejected — which is a US-only board written underneath the setting
+        # that is supposed to decide. On an India board it threw away every
+        # Bengaluru posting whose feed did not name the country.
         loc = (r.get("location") or "")
-        if _US_HINT_RE.search(loc) or _US_ABBR_RE.search(loc):
-            return True
-        return not _NON_US_RE.search(loc)
+        c = (_country_of(loc) or "").strip().upper()
+    if not c:
+        # A bare "Remote" names no country at all. Keep it: remote work is
+        # the one kind somebody here can genuinely take from anywhere, and
+        # discarding it silently is how a board looks empty.
+        return bool(_is_remote(r.get("location") or ""))
     if c in ALLOWED_COUNTRIES:
         return True
     aliases = {"UNITED STATES": "US", "USA": "US", "U.S.": "US",
-               "UNITED STATES OF AMERICA": "US", "CANADA": "CA"}
+               "UNITED STATES OF AMERICA": "US", "CANADA": "CA",
+               "IN": "INDIA", "BHARAT": "INDIA"}
     return aliases.get(c, c) in ALLOWED_COUNTRIES
 
 
