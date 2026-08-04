@@ -1,4 +1,4 @@
-"""Restamp the ?v= hash on every script index.html loads.
+"""Restamp the ?v= hash on every script the app pages load.
 
 Those hashes exist to defeat browser caching, and they are written into the
 HTML by hand — so the moment a .js file changes without its hash being
@@ -20,7 +20,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HTML = os.path.join(ROOT, "index.html")
+# Every page that loads a module of its own. craxlearn.html shares the board
+# modules with index.html, so a stale hash there is the same fault in a room
+# full of learners rather than on one job seeker's laptop.
+HTMLS = ["index.html", "craxlearn.html"]
 
 PATTERN = re.compile(r"([a-zA-Z0-9_-]+\.js)\?v=([a-f0-9]+)")
 
@@ -31,7 +34,17 @@ def digest(path):
 
 
 def main(write=True):
-    src = io.open(HTML, encoding="utf-8").read()
+    rc = 0
+    for name in HTMLS:
+        rc |= stamp_one(os.path.join(ROOT, name), name, write)
+    return rc
+
+
+def stamp_one(html_path, label, write=True):
+    if not os.path.exists(html_path):
+        print(f"  !! {label} is not on disk")
+        return 1
+    src = io.open(html_path, encoding="utf-8").read()
     changed, missing = [], []
 
     def swap(m):
@@ -51,10 +64,10 @@ def main(write=True):
     for name, old, new in changed:
         print(f"  {name}: {old} -> {new}")
     if not changed:
-        print("  every asset hash already matches its file")
+        print(f"  {label}: every asset hash already matches its file")
     if write and changed:
-        io.open(HTML, "w", encoding="utf-8", newline="").write(out)
-        print(f"  index.html restamped ({len(changed)} changed)")
+        io.open(html_path, "w", encoding="utf-8", newline="").write(out)
+        print(f"  {label} restamped ({len(changed)} changed)")
     return 1 if missing else 0
 
 

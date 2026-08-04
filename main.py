@@ -36,7 +36,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, DateTime, Date,
-    ForeignKey, UniqueConstraint, func, cast, case, or_,
+    ForeignKey, UniqueConstraint, func, cast, case, or_, event,
 )
 from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
                             relationship, defer)
@@ -225,6 +225,11 @@ class User(Base):
     # already has rows, so existing users would silently miss the column.
     # Read it through open_to_work_on(), which treats NULL as off.
     open_to_work = Column(Boolean, default=False)
+    # Date of birth. Nullable, and NULL is not an adult — the job side, a
+    # subscription and being shown to an employer all need a proven age,
+    # and "we never asked" is not proof. Read it through craxlearn.adult(),
+    # never by comparing years here.
+    dob = Column(Date)
     # Employer access is applied for and approved, never self-granted. Anyone
     # who could tick a box at signup could see candidate profiles, and the
     # whole promise to candidates rests on who is on the other side.
@@ -328,12 +333,94 @@ class AskCache(Base):
     __tablename__ = "ask_cache"
     id = Column(Integer, primary_key=True)
     qkey = Column(String(500), unique=True, nullable=False, index=True)
+    # Which pool this row belongs to: "public", or "school:<id>". It is
+    # already the first field of qkey, so the uniqueness constraint does the
+    # real separating; this column exists so a row can be found, counted and
+    # deleted by institution without parsing a key. Nullable, and NULL reads
+    # as public — every row written before this column existed was written
+    # by somebody outside an institution, because institutions could not
+    # reach this table separately until now.
+    scope = Column(String(40), default="public", index=True)
     subject = Column(String(60), default="")
     level = Column(String(60), default="")
     question = Column(Text, default="")
     lesson = Column(Text, default="{}")     # JSON: {title, steps[], takeaway}
     hits = Column(Integer, default=0)       # how many times served from cache
     created_at = Column(DateTime(timezone=True), default=now)
+
+
+class SkillUnlock(Base):
+    """Something a learner actually finished, kept in the matcher's words.
+
+    The tutor marks a skill as unlocked when the learner has done the thing
+    — solved the problem, read the capture, got the query right — and this
+    is where those land, so the resume builder and the job matcher can use
+    them.
+
+    Two columns rather than one, and that is the whole design. `label` is
+    what the learner sees on their resume, in the words a person writes:
+    "TCP three-way handshake". `tokens` is what the matcher can act on, in
+    the only words it knows: `tcp`. A single column would have to be one or
+    the other, and a table full of "Computer Networking Protocols" is a
+    table that looks like progress and moves nobody one place up a match
+    list.
+
+    `tokens` may be blank, and often is. Plenty of real skills — balancing
+    redox equations, reading a balance sheet — have no word on a technology
+    job board, and an honest empty column is better than filing them under
+    the nearest thing that does.
+    """
+    __tablename__ = "skill_unlocks"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    label = Column(String(60), default="", index=True)
+    tokens = Column(String(120), default="")   # comma-joined, matcher words
+    times = Column(Integer, default=1)         # how often it has come up
+    created_at = Column(DateTime(timezone=True), default=now)
+    last_at = Column(DateTime(timezone=True), default=now)
+
+
+@event.listens_for(AskCache, "before_insert")
+def _ask_cache_scope(mapper, connection, target):
+    """Fill the scope column from the key, on every insert, without asking.
+
+    Twelve places in this file write to this table and more will be added.
+    Asking each of them to remember a scope is asking for the one that
+    forgets — and the row it writes is not a bug that shows up as an error,
+    it is a school's question sitting in a pool the public reads.
+
+    So it is taken from the key, which is the field the uniqueness
+    constraint already enforces and therefore the only field that can be
+    trusted to say which pool a row is really in. There is nothing to
+    remember and nothing to get wrong.
+    """
+    target.scope = _cl.scope_from_key(target.qkey)
+
+
+class LearnRecord(Base):
+    """What one learner searched or asked, kept where their institution is.
+
+    This is the record a school is entitled to: what its students have been
+    asking about, so it can see what a class is stuck on. It is also the most
+    revealing thing here, which is why `scope` is on the row rather than
+    derived at read time — a query that forgets to join through the class
+    membership returns everybody's, and that is not a mistake worth leaving
+    available.
+
+    Written on every ask, board topic and spoken turn. Never read across a
+    scope boundary, and never used to source an answer for anybody.
+    """
+    __tablename__ = "learn_records"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     index=True)
+    scope = Column(String(40), default="public", index=True)
+    school_id = Column(Integer, default=0, index=True)
+    kind = Column(String(12), default="ask")     # craxlearn.RECORD_KINDS
+    text = Column(String(220), default="")       # the question, trimmed
+    subject = Column(String(60), default="")
+    level = Column(String(60), default="")
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
 class JobAlert(Base):
@@ -532,6 +619,16 @@ class School(Base):
     name = Column(String(200), nullable=False)
     city = Column(String(120), default="")
     country = Column(String(120), default="")
+    # What this institution bought. "craxlearn" is the teaching product on
+    # its own: no job board, no resume builder, no subscription pages, for
+    # anybody enrolled here whatever their age. A coaching centre teaching
+    # working adults can set "both".
+    #
+    # Nullable, and NULL reads as craxlearn-only. A school enrolled before
+    # this column existed gets the safer half of the product on the next
+    # deploy rather than the job board, which is the right way round for a
+    # default nobody has looked at yet.
+    product = Column(String(16), default="craxlearn")   # craxlearn | both
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -967,6 +1064,123 @@ class LessonIn(BaseModel):
 # App
 # --------------------------------------------------------------------------
 app = FastAPI(title="Craxle", docs_url="/api/docs", redoc_url=None)
+
+# --------------------------------------------------------------------------
+# Craxlearn: the teaching product, on its own
+# --------------------------------------------------------------------------
+# Set CRAXLEARN_ONLY on a server an institution runs for itself and the job
+# half of this product does not exist on it — not hidden, not gated, not
+# reachable, for anybody including an admin. That is the difference between
+# a school running a learning tool and a school running a job board with the
+# job board switched off, and it is the difference an IT department asks
+# about.
+import craxlearn as _cl_boot                                        # noqa: E402
+
+CRAXLEARN_ONLY = env("CRAXLEARN_ONLY", "0").strip().lower() in (
+    "1", "true", "yes", "on")
+
+# Demand a stated date of birth from everybody, not only from institution
+# learners. Off by default: switching it on locks out every existing account
+# until each one comes back and fills in a date, which is a decision with a
+# support queue attached rather than a default.
+REQUIRE_DOB = env("REQUIRE_DOB", "0").strip().lower() in (
+    "1", "true", "yes", "on")
+if CRAXLEARN_ONLY:
+    print(f"  {_cl_boot.NAME} only — the job board is not served here")
+
+
+def _learning_only(db, user):
+    """Whether the job half is closed to this person, and why.
+
+    Three reasons, checked hardest first, because the message matters as
+    much as the verdict — "your school did not buy this" and "you are not
+    old enough" want completely different things from whoever reads them.
+
+    An institution can open the job side for its learners. It cannot open
+    it for a learner who is under age: the two conditions are ANDed and the
+    age one is never the institution's to waive.
+    """
+    if CRAXLEARN_ONLY:
+        return {"only": True, "why": "deployment",
+                "message": f"This is a {_cl_boot.NAME} server. The job "
+                           f"board is not part of it."}
+    if user is None:
+        return {"only": False, "why": "", "message": ""}
+
+    scope = _scope_of(db, user)
+    if _cl_boot.is_institution(scope):
+        sid = _cl_boot.school_id_of(scope)
+        sc = db.get(School, sid) if sid else None
+        if (getattr(sc, "product", None) or "craxlearn") != "both":
+            return {"only": True, "why": "institution",
+                    "message": f"Your institution uses {_cl_boot.NAME}, "
+                               f"the learning half of Craxle. The job board "
+                               f"is not part of it."}
+
+    # Admins run the site and need every surface to debug it. They are still
+    # subject to the deployment switch above, which is the one an institution
+    # is relying on.
+    if user.is_admin:
+        return {"only": False, "why": "", "message": ""}
+
+    # Proof is demanded where children are: inside an institution, always.
+    # Outside one, a stated age is believed in both directions and silence
+    # keeps what it had — see craxlearn.age_ok for why that is not a hole
+    # left open out of laziness.
+    proof = _cl_boot.is_institution(scope) or REQUIRE_DOB
+    if not _cl_boot.age_ok(getattr(user, "dob", None), dt.date.today(), proof):
+        return {"only": True, "why": "age",
+                "message": f"The job board, subscriptions and being seen by "
+                           f"employers are for learners aged "
+                           f"{_cl_boot.MIN_JOB_AGE} and over. Add your date "
+                           f"of birth in your profile to open them."}
+    return {"only": False, "why": "", "message": ""}
+
+
+@app.middleware("http")
+async def _craxlearn_gate(request, call_next):
+    """Close the job half at the door, on one list, for every route.
+
+    A dependency on each job-side endpoint would be the same check written
+    fifty times, and the fifty-first — added next month by somebody who did
+    not know — would be open. Here there is one list, it is matched by path
+    prefix, and tests/test_craxlearn_only.py walks the live route table and
+    fails if a route appears that belongs to neither half.
+
+    Nothing here authenticates. It reads the session only to find out who is
+    asking; an invalid or missing one falls through to the endpoint's own
+    `Depends(current_user)`, which is still the only thing that decides
+    whether somebody is signed in.
+    """
+    if not _cl_boot.is_job_side(request.url.path):
+        return await call_next(request)
+
+    if CRAXLEARN_ONLY:
+        return JSONResponse(status_code=404, content={
+            "detail": f"This is a {_cl_boot.NAME} server. The job board is "
+                      f"not part of it."})
+
+    user, db = None, None
+    try:
+        token = request.cookies.get("vp_session")
+        if token:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            db = SessionLocal()
+            user = db.get(User, int(payload["sub"]))
+        if user is not None:
+            verdict = _learning_only(db, user)
+            if verdict["only"]:
+                return JSONResponse(status_code=403, content={
+                    "detail": verdict["message"], "craxlearn": verdict["why"]})
+    except Exception:
+        # A bad cookie, an expired token, a database blip. None of them are
+        # this function's business — it decides what a known user may reach,
+        # and an unknown user is the endpoint's problem, as it always was.
+        pass
+    finally:
+        if db is not None:
+            db.close()
+    return await call_next(request)
 
 
 # Tracks replaced by a rewritten version — skipped so nothing appears twice
@@ -1795,6 +2009,7 @@ def head_user(user: User = Depends(current_user),
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = teacher_row(user, db)
     role = "admin" if user.is_admin else (t.role if t else "student")
+    gate = _learning_only(db, user)
     return {
         "id": user.id, "name": user.name, "email": user.email,
         # Carried here so the page can show the Pro badge on first paint.
@@ -1815,6 +2030,15 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "role": role,
         "school": (t.school if t else ""),
         "joined": user.created_at.isoformat() if user.created_at else None,
+        # The job half of the sidebar, or the absence of it. The server
+        # refuses those routes either way; this is so the page does not
+        # offer a door it knows will not open.
+        "craxlearn_only": gate["only"],
+        "craxlearn_why": gate["why"],
+        "craxlearn_message": gate["message"],
+        "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+        "adult": _cl.adult(getattr(user, "dob", None), dt.date.today()),
+        "dob": user.dob.isoformat() if getattr(user, "dob", None) else "",
     }
 
 
@@ -2919,6 +3143,78 @@ def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = De
 # ---------------------------- Ask Axle -----------------------------------
 import re as _re
 
+# Who the tutor is, what grade she is pitching at, and the short list of
+# panels she is allowed to open. Kept out of this file because the same
+# persona has to reach the board, the voice and the corner bot, and three
+# copies of it drifted into three different teachers.
+import dalia as _dalia                                              # noqa: E402
+
+# Where a learner's questions are kept, and where answers may be sourced
+# from. Both halves of that are policy rather than plumbing, so they live in
+# one readable file instead of being spread across the endpoints that
+# happen to enforce them.
+import craxlearn as _cl                                             # noqa: E402
+
+
+def _scope_of(db, user):
+    """Which pool this person's questions and answers belong to.
+
+    A teacher's institution is on their access row. A student's comes
+    through the class they joined, which is the only link a student has to a
+    school at all.
+
+    Read on every cached request, so it is one indexed lookup and then a
+    second only for people who are not teachers. Wrong in the safe direction
+    on failure: anybody the query cannot resolve who nonetheless has a class
+    membership is treated as an institution learner with an unknown school,
+    never as a member of the public pool.
+    """
+    ta = (db.query(TeacherAccess)
+            .filter(TeacherAccess.user_id == user.id).first())
+    if ta:
+        return _cl.scope_of(ta.school_id, in_institution=True)
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == user.id).first())
+    if row is None:
+        return _cl.PUBLIC
+    return _cl.scope_of(row[0], in_institution=True)
+
+
+def _record_learning(db, user, scope, kind, text, subject="", level=""):
+    """Note that this was asked, inside the asker's own institution.
+
+    Fire and forget, exactly like the client-side history it sits beside: an
+    answer must never fail because the record did. A learner who gets a 500
+    instead of a lesson because a logging table was locked has been failed
+    by the part of the system that was supposed to be invisible.
+    """
+    text = _cl.redact(text)
+    if not text or kind not in _cl.RECORD_KINDS:
+        return
+    try:
+        db.add(LearnRecord(user_id=user.id, scope=scope,
+                           school_id=_cl.school_id_of(scope), kind=kind,
+                           text=text, subject=(subject or "")[:60],
+                           level=(level or "")[:60]))
+        db.commit()
+        # Trimmed here rather than by a sweep, so the table cannot grow
+        # unbounded between deploys on a site with no scheduled jobs.
+        n = (db.query(func.count(LearnRecord.id))
+               .filter(LearnRecord.user_id == user.id).scalar() or 0)
+        if n > _cl.KEEP_PER_LEARNER:
+            old = (db.query(LearnRecord.id)
+                     .filter(LearnRecord.user_id == user.id)
+                     .order_by(LearnRecord.created_at.asc())
+                     .limit(n - _cl.KEEP_PER_LEARNER).all())
+            (db.query(LearnRecord)
+               .filter(LearnRecord.id.in_([r[0] for r in old]))
+               .delete(synchronize_session=False))
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Learning record not stored: {type(e).__name__}: {e}")
+
 
 class AskIn(BaseModel):
     question: str = Field(..., min_length=2, max_length=500)
@@ -3321,10 +3617,17 @@ def _ai_bump(db, user):
     db.commit()
 
 
-def _ai_cache_key(prefix, *parts):
+def _ai_cache_key(prefix, *parts, scope=None):
+    """A cache key, inside one pool.
+
+    `scope` is keyword-only and defaults to the private side of the fence.
+    A caller that forgets it gets an institution-shaped key that simply
+    misses the public pool — which costs a model call. Defaulting the other
+    way would have cost a learner's resume text landing in a row another
+    institution can read, and those two mistakes are not the same size."""
     import hashlib
     h = hashlib.sha256("||".join(p or "" for p in parts).encode("utf-8", "ignore")).hexdigest()
-    return f"{prefix}:{h}"
+    return _cl.key(scope or _cl.PUBLIC, prefix, h)[:500]
 
 
 def _ai_cache_get(db, qkey):
@@ -3798,6 +4101,257 @@ async def _call_model(question: str, subject: str, level: str) -> dict:
     return _parse_lesson(text, question)
 
 
+def _spoken(text: str) -> str:
+    """A reply fit to be read aloud.
+
+    Belt and braces: the prompt says no markdown, but a stray asterisk or
+    hash read out as "asterisk" is the kind of thing that makes a voice
+    sound broken, and it only takes one.
+    """
+    text = _re.sub(r"[*#`_]+", "", text or "")
+    return _re.sub(r"\s{2,}", " ", text).strip()[:1200]
+
+
+def _record_skills(db, user, skills):
+    """Store what the learner just finished, and hand it back to the page.
+
+    Idempotent on (user, label): a learner who works through the same idea
+    twice has one skill, not two, and the count of how often it came up is
+    worth more than a second row saying the same thing.
+
+    Never raises. A skill that fails to store is a missing line on a resume;
+    a skill that fails to store and takes the answer down with it is a tutor
+    that stopped talking. The commit is guarded for exactly that reason.
+    """
+    out = []
+    for sk in skills or []:
+        label, tokens = sk["label"], ",".join(sk["tokens"])
+        row = (db.query(SkillUnlock)
+                 .filter(SkillUnlock.user_id == user.id,
+                         SkillUnlock.label == label).first())
+        if row:
+            row.times = (row.times or 0) + 1
+            row.last_at = now()
+            # A later lesson may know words the earlier one did not.
+            if tokens and not row.tokens:
+                row.tokens = tokens
+        else:
+            db.add(SkillUnlock(user_id=user.id, label=label, tokens=tokens,
+                               times=1))
+        out.append({"skill": label, "tokens": list(sk["tokens"])})
+    if out:
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Skill unlock not stored: {type(e).__name__}: {e}")
+    return out
+
+
+class DobIn(BaseModel):
+    dob: str = Field(default="", max_length=10)   # YYYY-MM-DD, or "" to clear
+
+
+@app.post("/api/craxlearn/dob")
+def craxlearn_set_dob(body: DobIn, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Record a date of birth, which is what opens the job side.
+
+    Not verification, and not described as it. This is a stated date, the
+    same as every other site asks for, and it exists so that the default is
+    closed rather than open — a learner who has not said is not shown to
+    employers. A school that needs real proof of age has processes for that
+    which no web form replaces.
+    """
+    raw = (body.dob or "").strip()
+    if not raw:
+        user.dob = None
+        db.commit()
+        return {"ok": True, "dob": "", "adult": False}
+    try:
+        got = dt.date.fromisoformat(raw)
+    except ValueError:
+        raise HTTPException(400, "Give the date as YYYY-MM-DD")
+    today = dt.date.today()
+    if got > today:
+        raise HTTPException(400, "That date is in the future")
+    if _cl.age_on(got, today) > 120:
+        raise HTTPException(400, "Check that date — it is over 120 years ago")
+    user.dob = got
+    db.commit()
+    return {"ok": True, "dob": got.isoformat(),
+            "age": _cl.age_on(got, today), "adult": _cl.adult(got, today)}
+
+
+@app.get("/api/craxlearn/me")
+def craxlearn_me(user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    """Everything the institution app needs to paint itself once.
+
+    A separate boot call from /api/auth/me on purpose. That one answers "who
+    is signed in" for the whole of Craxle; this answers "what does this
+    institution's app show", which is a different question with a different
+    audience — and merging them would put a school's product entitlement
+    into the payload every job seeker fetches on every page load.
+    """
+    scope = _scope_of(db, user)
+    sid = _cl.school_id_of(scope)
+    sc = db.get(School, sid) if sid else None
+    ta = (db.query(TeacherAccess)
+            .filter(TeacherAccess.user_id == user.id).first())
+    gate = _learning_only(db, user)
+
+    classes = (db.query(Klass)
+                 .join(ClassMember, ClassMember.class_id == Klass.id)
+                 .filter(ClassMember.user_id == user.id).all())
+    if ta:
+        classes = (classes + db.query(Klass).filter(
+            Klass.teacher_id == user.id).all())
+
+    dob = getattr(user, "dob", None)
+    return {
+        "product": _cl.NAME,
+        "user": {"id": user.id, "name": user.name, "email": user.email},
+        "role": ("admin" if user.is_admin
+                 else (ta.role if ta else "student")),
+        "institution": ({"id": sc.id, "name": sc.name, "city": sc.city or "",
+                         "country": sc.country or "",
+                         "product": sc.product or "craxlearn"} if sc else None),
+        "scope": scope,
+        # What this app will and will not show, and why — so the page can
+        # say the reason rather than silently missing a menu item.
+        "learning_only": gate["only"], "why": gate["why"],
+        "message": gate["message"],
+        "deployment_only": CRAXLEARN_ONLY,
+        "adult": _cl.adult(dob, dt.date.today()),
+        "dob": dob.isoformat() if dob else "",
+        "classes": [{"id": k.id, "name": k.name,
+                     "mine": k.teacher_id == user.id} for k in classes],
+        "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+    }
+
+
+@app.get("/api/craxlearn/sources")
+def craxlearn_sources():
+    """Where the answers come from, with licences. Open to anybody.
+
+    Unauthenticated on purpose. "Where does your content come from" is the
+    first question an institution asks and it is usually asked before anyone
+    has an account — by a procurement officer, a head of department, a
+    parent. Making them sign up to read the answer is a bad answer.
+    """
+    return _cl.public_registry()
+
+
+@app.get("/api/craxlearn/activity")
+def craxlearn_activity(user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """What has been asked, inside the asker's own institution.
+
+    Two different answers to two different people, and the difference is the
+    whole point:
+
+    A **teacher or head** gets their school's activity as topic counts — what
+    is being asked and how often, so they can see the class is stuck on
+    stoichiometry. Aggregated, with no learner attached to any row. A school
+    needs to know what its students are struggling with; it does not need a
+    transcript of each child's questions to know that, and building the
+    transcript view because it was easy is how a teaching tool becomes a
+    surveillance tool. If a school genuinely needs per-student detail for a
+    safeguarding reason, that is a deliberate feature with its own consent
+    conversation, not a side effect of this endpoint.
+
+    A **learner** gets their own, in full, because it is theirs.
+
+    Neither can see another institution's, and nothing here reads a row
+    outside the caller's own scope.
+    """
+    scope = _scope_of(db, user)
+    ta = (db.query(TeacherAccess)
+            .filter(TeacherAccess.user_id == user.id).first())
+
+    if ta and _cl.is_institution(scope):
+        rows = (db.query(LearnRecord.text, LearnRecord.kind,
+                         func.count(LearnRecord.id).label("n"),
+                         func.max(LearnRecord.created_at).label("last"))
+                  .filter(LearnRecord.scope == scope)
+                  .group_by(LearnRecord.text, LearnRecord.kind)
+                  .order_by(func.count(LearnRecord.id).desc())
+                  .limit(100).all())
+        return {
+            "view": "school", "school": ta.school or "", "scope": scope,
+            "learners": (db.query(func.count(func.distinct(
+                LearnRecord.user_id)))
+                .filter(LearnRecord.scope == scope).scalar() or 0),
+            "topics": [{"text": r[0], "kind": r[1], "asked": r[2],
+                        "last": r[3].isoformat() if r[3] else ""}
+                       for r in rows],
+        }
+
+    rows = (db.query(LearnRecord)
+              .filter(LearnRecord.user_id == user.id)
+              .order_by(LearnRecord.created_at.desc()).limit(100).all())
+    return {
+        "view": "mine", "scope": scope,
+        "topics": [{"text": r.text, "kind": r.kind, "subject": r.subject,
+                    "level": r.level,
+                    "at": r.created_at.isoformat() if r.created_at else ""}
+                   for r in rows],
+    }
+
+
+@app.delete("/api/craxlearn/activity")
+def craxlearn_activity_clear(user: User = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    """Delete my own record of what I asked. Only ever my own.
+
+    A teacher clearing this clears their own questions, not their school's.
+    Giving one account a button that wipes an institution's history is the
+    kind of thing that gets pressed once and explained forever.
+    """
+    n = (db.query(LearnRecord).filter(LearnRecord.user_id == user.id)
+           .delete(synchronize_session=False))
+    db.commit()
+    return {"ok": True, "deleted": n}
+
+
+@app.get("/api/skills/unlocked")
+def skills_unlocked(user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Everything this learner has finished, and who is hiring for it.
+
+    The count beside each skill is the argument for having learned it, and
+    it is the same count the careers page shows — read from the live board
+    rather than from a claim in a syllabus. A skill with no matcher word
+    still appears, with no count: the learner earned it, and a résumé line
+    is worth having whether or not a job board has a word for it.
+    """
+    rows = (db.query(SkillUnlock)
+              .filter(SkillUnlock.user_id == user.id)
+              .order_by(SkillUnlock.last_at.desc()).limit(200).all())
+    out = []
+    for r in rows:
+        tokens = [t for t in (r.tokens or "").split(",") if t]
+        jobs = 0
+        for t in tokens:
+            # The skills column is a comma-joined list written at ingest, so
+            # a bare LIKE would match "sql" inside "postgresql". The commas
+            # are what make the boundary.
+            #
+            # Concatenated with Python's + rather than func.concat: that
+            # compiles to the || operator, which both SQLite and Postgres
+            # have. CONCAT() only arrived in SQLite 3.44, and the local
+            # database is whatever the machine happens to ship.
+            padded = "," + func.coalesce(Job.skills, "") + ","
+            jobs = max(jobs, db.query(func.count(Job.id)).filter(
+                Job.is_open == True,                            # noqa: E712
+                padded.like(f"%,{t},%")).scalar() or 0)
+        out.append({"skill": r.label, "tokens": tokens, "jobs": jobs,
+                    "times": r.times or 1,
+                    "since": r.created_at.isoformat() if r.created_at else ""})
+    return {"skills": out, "total": len(out)}
+
+
 class TalkIn(BaseModel):
     said: str = Field(min_length=1, max_length=600)
     subject: str = Field(default="General", max_length=60)
@@ -3827,52 +4381,37 @@ async def ask_talk(body: TalkIn, user: User = Depends(current_user),
     # Cached on the question plus the immediate context. Everyone asks "what
     # is a JOIN" out loud eventually, and the second person should not cost
     # anything.
+    #
+    # The key says "dalia" rather than "talk" on purpose. The rows under the
+    # old key were written by a different prompt with a different persona and
+    # no control tags in it; served under this endpoint they would be a
+    # tutor who can never open anything, for as long as the cache lives.
     tail = " | ".join(body.history[-2:])[:300]
-    qkey = f"talk|{_norm_q(level)}|{_norm_q(tail)}|{_norm_q(said)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "dalia", _norm_q(level), _norm_q(tail),
+                   _norm_q(said))[:500]
+    # Recorded before the cache is consulted, not after. What a learner
+    # asked is a fact about them whether or not it cost a model call, and a
+    # record that only catches the misses is a record of nothing useful —
+    # the popular questions, which is to say the ones a school most wants to
+    # see, are exactly the ones that hit.
+    _record_learning(db, user, scope, "talk", said, body.subject, level)
+
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
         db.commit()
-        return {"say": row.lesson, "cached": True}
+        # Parsed on the way out rather than stored parsed: the raw reply is
+        # what was cached, so a cache hit opens the same panels the first
+        # asker got. Storing only the spoken half meant the second person to
+        # ask about the handshake heard about a packet capture that never
+        # appeared.
+        say, controls, skills = _dalia.parse(row.lesson)
+        return {"say": _spoken(say), "board": controls,
+                "skills": _record_skills(db, user, skills), "cached": True}
 
     _ai_enforce_limit(db, user)
-    hist = ("\n".join(f"- {h}" for h in body.history[-4:])
-            if body.history else "(this is the first thing they said)")
-    prompt = (
-        "You are Axle, talking out loud with someone who is learning. This is "
-        "speech, not writing — they will hear it, not read it.\n"
-        f"They are studying at this level: {level}.\n"
-        f"WHAT HAS BEEN SAID SO FAR:\n{hist}\n"
-        f"THEY JUST SAID: {said}\n\n"
-        "Reply the way a good tutor talks. Rules:\n"
-        "- Two to five sentences. Stop, so they can answer.\n"
-        "- Answer the question actually asked, and refer back to what was "
-        "said before when it matters.\n"
-        "- No lists, no bullet points, no headings, no markdown, no code "
-        "blocks, no asterisks. It is being read by a voice.\n"
-        "- Say numbers and symbols as words: 'x squared', not 'x^2'.\n"
-        "- ANSWER THE QUESTION. That is what you are for. A general "
-        "question has a general answer: asked how to solve a squared "
-        "plus b squared, say that it does not factorise over the reals "
-        "the way a squared minus b squared does, and what that means "
-        "for them. Do not ask for values you do not need.\n"
-        "- Ask a question back only when the question genuinely cannot "
-        "be answered at all without it, and never twice in a row. If "
-        "you asked something last turn and they answered, answer them "
-        "now — a second question in place of a reply is how somebody "
-        "ends up having a conversation with no answer in it.\n"
-        "- Never quiz them. Do not ask what two times two is on the way "
-        "to a result. Socratic questioning is for checking that "
-        "something you already taught has landed, not for making "
-        "somebody who asked for help work for the answer.\n"
-        "- If a number would make the answer concrete and they have not "
-        "given one, pick a sensible one and say you are picking it: "
-        "\"take a as 2 and b as 4\" is an answer, \"which values did "
-        "you mean?\" is a delay.\n"
-        "- If you do not know, say so. Do not invent a fact, a citation or a "
-        "number.\n"
-        "- Plain speech. No 'Great question!' and no summarising what they "
-        "just said back at them.")
+    prompt = _dalia.talk_prompt(said, body.history, level, body.subject)
     try:
         text = (await _ai_text(prompt, 400)).strip()
     except Exception as e:
@@ -3881,20 +4420,23 @@ async def ask_talk(body: TalkIn, user: User = Depends(current_user),
     if not text:
         raise HTTPException(502, "Nothing came back — say that again?")
 
-    # Belt and braces: the model was told not to, but a stray asterisk or hash
-    # read aloud as "asterisk" is the kind of thing that makes a voice sound
-    # broken.
-    text = _re.sub(r"[*#`_]+", "", text)
-    text = _re.sub(r"\s{2,}", " ", text).strip()[:1200]
+    say, controls, skills = _dalia.parse(text)
+    if not say:
+        # Every word of it was tags. Nothing to say and nothing to play.
+        raise HTTPException(502, "Nothing came back — say that again?")
 
     _ai_bump(db, user)
+    # The raw reply, tags and all. What is spoken is derived from it on
+    # every read, so changing how a tag is handled changes every cached
+    # answer too instead of only the ones asked after the deploy.
     db.add(AskCache(qkey=qkey, subject=body.subject[:60], level=level,
-                    question=said[:2000], lesson=text, hits=0))
+                    question=said[:2000], lesson=text[:4000], hits=0))
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-    return {"say": text, "cached": False}
+    return {"say": _spoken(say), "board": controls,
+            "skills": _record_skills(db, user, skills), "cached": False}
 
 
 @app.post("/api/ask/image")
@@ -3934,7 +4476,8 @@ async def ask_with_image(image: UploadFile = File(...),
     subject = (subject or "General").strip()[:60]
     level = (level or "Intermediate").strip()[:60]
     digest = hashlib.sha256(raw).hexdigest()[:32]
-    qkey = f"askimg|{digest}|{_norm_q(level)}|{_norm_q(q)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "askimg", digest, _norm_q(level), _norm_q(q))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     cached = _cached_json(db, row)
     if cached:
@@ -4241,7 +4784,7 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user),
         raise HTTPException(400, "Paste the full job description first")
     rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
     # Same resume + same JD → serve the stored result for free (no quota used).
-    ckey = _ai_cache_key("rmatch", rtext, jd[:3500])
+    ckey = _ai_cache_key("rmatch", rtext, jd[:3500], scope=_scope_of(db, user))
     cached = _ai_cache_get(db, ckey)
     if cached is not None:
         return cached
@@ -5108,7 +5651,10 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
     # a level the UI no longer offers.
     level = (body.level or "Intermediate").strip()[:60]
     question = body.question.strip()
-    qkey = f"{_norm_q(subject)}|{_norm_q(level)}|{_norm_q(question)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "ask", _norm_q(subject), _norm_q(level),
+                   _norm_q(question))[:500]
+    _record_learning(db, user, scope, "ask", question, subject, level)
 
     # 1) Cache hit — free and instant, and counts a hit for the stats.
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
@@ -9300,7 +9846,9 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
 
     # Cached like Ask Axle: the same topic at the same level is the same
     # lesson, and the second person to ask should not cost anything.
-    qkey = f"board|{_norm_q(level)}|{_norm_q(topic)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "board", _norm_q(level), _norm_q(topic))[:500]
+    _record_learning(db, user, scope, "board", topic, "board", level)
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     _tr.phase("cache lookup")
     if row:
@@ -9707,7 +10255,8 @@ async def sql_explain(body: SqlRunIn, user: User = Depends(current_user),
     verdict = _sqlc.mark(ex, sql)
     lesson, cached = await _sql_lesson(
         db, user, _sql_explain_prompt(ex, sql, verdict["why"]),
-        f"sqlx2|{ex['id']}|{_norm_q(sql)}"[:500], sql, ex["skill"])
+        _cl.key(_scope_of(db, user), "sqlx2", ex["id"],
+                _norm_q(sql))[:500], sql, ex["skill"])
     return {"lesson": lesson, "short": verdict["why"], "cached": cached}
 
 
@@ -9734,7 +10283,8 @@ async def sql_ask(body: SqlAskIn, user: User = Depends(current_user),
     q = body.question.strip()
     lesson, cached = await _sql_lesson(
         db, user, _sql_ask_prompt(ex, body.sql, q),
-        f"sqlq|{body.exercise}|{_norm_q(q)}"[:500], q,
+        _cl.key(_scope_of(db, user), "sqlq", body.exercise,
+                _norm_q(q))[:500], q,
         ex["skill"] if ex else "ask")
     return {"lesson": lesson, "cached": cached}
 
@@ -9783,7 +10333,7 @@ async def scan(image: UploadFile = File(...),
         raise HTTPException(503, "The AI tutor is not switched on")
 
     digest = hashlib.sha256(raw).hexdigest()
-    qkey = f"scan|{digest}"
+    qkey = _cl.key(_scope_of(db, user), "scan", digest)[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     out = _cached_json(db, row, need=None)
     if out:
@@ -10264,7 +10814,8 @@ async def build_course(body: CourseIn, user: User = Depends(current_user),
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
     topic = body.topic.strip()
-    qkey = f"course|{_norm_q(body.level)}|{_norm_q(topic)}"[:500]
+    qkey = _cl.key(_scope_of(db, user), "course", _norm_q(body.level),
+                   _norm_q(topic))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     course = _cached_json(db, row, need=None)
     if course:
@@ -10648,10 +11199,14 @@ async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
     # Cached on the unordered pair: mixing A with B is the same question as
     # mixing B with A, and the first person to ask pays for both.
     if what:
-        qkey = f"labany|{_norm_q(body.subject)}|{_norm_q(what)}"[:500]
+        qkey = _cl.key(_scope_of(db, user), "labany", _norm_q(body.subject),
+                       _norm_q(what))[:500]
     else:
+        # Two reagents off a fixed shelf, in a fixed order. Nobody's words
+        # are in this key, so it pools for everybody and the first person
+        # to mix them pays for the whole site.
         pair = " + ".join(sorted([_norm_q(a), _norm_q(b)]))
-        qkey = f"labmix|{pair}"[:500]
+        qkey = _cl.key(_cl.PUBLIC, "labmix", pair)[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
@@ -10780,7 +11335,7 @@ async def lab_photo(image: UploadFile = File(...),
 
     q = (question or "").strip()[:200]
     digest = hashlib.sha256(raw).hexdigest()[:32]
-    qkey = f"labpic|{digest}|{_norm_q(q)}"[:500]
+    qkey = _cl.key(_scope_of(db, user), "labpic", digest, _norm_q(q))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
@@ -12275,7 +12830,8 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
                        "checklist and keyword lists above are all we can give you.")
         return kit
 
-    ckey = _ai_cache_key("akit", rtext[:2500], str(job.id))
+    ckey = _ai_cache_key("akit", rtext[:2500], str(job.id),
+                         scope=_scope_of(db, user))
     cached = _ai_cache_get(db, ckey)
     if cached is not None:
         return {**kit, **cached, "cached": True}
@@ -13449,6 +14005,11 @@ def static_file(filename: str, ext: str):
 # ---------------------------- static pages --------------------------------
 @app.get("/")
 def index():
+    # An institution running its own server gets its own app at the root.
+    # Anything else would mean the first thing a classroom sees is the job
+    # board it did not buy.
+    if CRAXLEARN_ONLY:
+        return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
 
 
@@ -13476,10 +14037,28 @@ def admin_page():
     return FileResponse(BASE_DIR / "admin.html")
 
 
+@app.get("/craxlearn")
+def craxlearn_page():
+    """The institution app. A separate page, like the admin panel.
+
+    Separate rather than a mode of the main app, because that is what a
+    school is actually buying: a URL you can put on the board at the front
+    of a classroom and hand to a fourteen-year-old, with nothing on it that
+    is not teaching. A single app with the job half hidden is one bug away
+    from showing it, and the person who finds that bug is a child.
+    """
+    return FileResponse(BASE_DIR / "craxlearn.html")
+
+
 @app.exception_handler(404)
 def not_found(request: Request, exc):
     if request.url.path.startswith("/api/"):
         return JSONResponse({"detail": "Not found"}, status_code=404)
+    # On a Craxlearn-only server the main app is not what anybody typing a
+    # wrong URL wanted, and serving it would put a job board in front of a
+    # classroom by way of a typo.
+    if CRAXLEARN_ONLY:
+        return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
 
 

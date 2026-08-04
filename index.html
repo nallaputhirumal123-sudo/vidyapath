@@ -1111,14 +1111,14 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <!-- ?v= busts the browser cache on deploy. Without it a returning visitor
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=df48c07ae5"></script>
-<script src="net.js?v=fb9437a505"></script>
+<script src="net.js?v=02a45f7443"></script>
 <script src="scanner.js?v=24daa2ab69"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
 <script src="three3d.js?v=252535ecb2"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
-<script src="bot.js?v=b85eb22fea"></script>
+<script src="bot.js?v=cb1734b493"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -1830,11 +1830,19 @@ function renderNav(){
    + nav("net","🌐","Packet walkthrough")
    + nav("sqlboard","🗄️","SQL board");
 
-  h+=`<div class="navsec">Get hired</div>`
-   + nav("careers","🎓","Career board")
-   + nav("resume","📄","Resume builder")
-   + nav("plans","⚡","Plans &amp; billing")
-   + nav("hiring","🏢","Hiring");
+  /* The job half, when this account has one. A Craxlearn institution and
+     anybody under 18 do not: the server refuses those routes either way,
+     and offering a door that will not open is worse than not offering it.
+     USER.hidden_pages is the server's own list, so this cannot drift from
+     what is actually enforced. */
+  const hidden = new Set(USER.hidden_pages||[]);
+  if(!USER.craxlearn_only){
+    h+=`<div class="navsec">Get hired</div>`
+     + (hidden.has("careers")?"":nav("careers","🎓","Career board"))
+     + (hidden.has("resume") ?"":nav("resume","📄","Resume builder"))
+     + (hidden.has("plans")  ?"":nav("plans","⚡","Plans &amp; billing"))
+     + (hidden.has("hiring") ?"":nav("hiring","🏢","Hiring"));
+  }
 
   const list=activeTracks();
   h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;

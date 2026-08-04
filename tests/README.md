@@ -26,6 +26,34 @@ unsigned webhooks are rejected so nobody can grant themselves a plan, expired
 and reused reset tokens fail, hostile input never 500s, limits are enforced
 rather than suggested, and source files and the database are not served.
 
+**test_dalia.py** — who the tutor thinks she is teaching, and what she is
+allowed to put on the screen. The grade band read out of a free-text level
+("Class 8", "B.Tech 2nd year", "PhD"), the control tags parsed back out of a
+reply, and — the bulk of it — everything that gets DROPPED: a sandbox language
+nothing here runs, a network topology nobody built, markup smuggled in as a
+topic. The four network labs are each run through the real packet engine and
+their verdicts compared with the ones documented beside them, so a lab cannot
+quietly start teaching the wrong answer. Ends with the talk endpoint end to
+end against a stubbed model, including that a cached reply still opens the
+same panels the first asker got.
+
+**test_craxlearn.py** — the boundary between two institutions. Two schools and
+a member of the public ask the same question; each pays for it, each gets its
+own cache row, and neither can reach the others'. A head teacher sees their own
+school's topics as counts and never another school's, and clearing your own
+history does not clear the school's. Plus the source registry: every source
+used for answers, explanations, 2D, 3D or sandbox material is asserted to be
+open, and the one closed dependency is asserted to be listed and marked.
+
+**test_craxlearn_only.py** — the three walls between a classroom and the job
+board, asserted at the API rather than in the sidebar, because hiding a menu
+item stops nobody who can type a URL. A school that bought Craxlearn is refused
+at any age; a coaching centre that bought both is refused for anyone under 18,
+which is not the centre's to waive; and `CRAXLEARN_ONLY` refuses everybody
+including admins. Also greps the served `/craxlearn` page for job-side strings,
+and walks the live route table so a route belonging to neither half fails the
+build.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,

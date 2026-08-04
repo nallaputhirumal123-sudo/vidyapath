@@ -1,4 +1,4 @@
-"""Every ?v= hash in index.html must match the file it points at.
+"""Every ?v= hash in an app page must match the file it points at.
 
 The hashes exist to defeat browser caching, and they are written into the HTML
 by hand. So a .js file can change while its URL does not — and then every
@@ -36,24 +36,30 @@ def check(name, ok, detail=""):
         print(f"  FAIL  {name}  {detail}")
 
 
-html = io.open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
-refs = re.findall(r"([a-zA-Z0-9_-]+\.js)\?v=([a-f0-9]+)", html)
-check("index.html stamps its scripts", len(refs) >= 5, f"{len(refs)} found")
+PAGES = ["index.html", "craxlearn.html"]
+refs, unstamped = [], []
+for page in PAGES:
+    html = io.open(os.path.join(ROOT, page), encoding="utf-8").read()
+    found = re.findall(r"([a-zA-Z0-9_-]+\.js)\?v=([a-f0-9]+)", html)
+    check(f"{page} stamps its scripts", len(found) >= 3, f"{len(found)} found")
+    refs += [(page, n, v) for n, v in found]
+    # A script loaded without a stamp is cached forever with no way to
+    # bust it.
+    unstamped += [f"{page}:{m}" for m in
+                  re.findall(r'<script src="([^"]+)"', html)
+                  if m.endswith(".js") and "?v=" not in m and "//" not in m]
 
-for name, stamped in refs:
+for page, name, stamped in refs:
     path = os.path.join(ROOT, name)
     if not os.path.exists(path):
         check(f"{name} exists", False, "referenced but not on disk")
         continue
     with io.open(path, "rb") as fh:
         real = hashlib.sha256(fh.read()).hexdigest()[:10]
-    check(f"{name} hash is current", stamped == real,
+    check(f"{page}: {name} hash is current", stamped == real,
           real if stamped == real else
           f"html says {stamped}, file is {real} — run tools/stamp_assets.py")
 
-# A script loaded without a stamp is cached forever with no way to bust it.
-unstamped = [m for m in re.findall(r'<script src="([^"]+)"', html)
-             if m.endswith(".js") and "?v=" not in m and "//" not in m]
 check("no local script is loaded unstamped", not unstamped,
       ", ".join(unstamped[:4]))
 
