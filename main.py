@@ -12318,6 +12318,48 @@ def _trim_to_depth(lesson, topic):
     return lesson
 
 
+# A full stop that is really the end of a sentence: followed by space and a
+# capital, and not preceded by an abbreviation or an initial. Bounded
+# quantifiers throughout — an unbounded one here is how verify.py stopped
+# finishing on a long lesson and blocked the event loop.
+_SENT_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
+_ABBREV = ("fig.", "eq.", "no.", "vs.", "etc.", "e.g.", "i.e.", "approx.",
+           "dr.", "mr.", "mrs.", "ms.", "prof.", "st.", "cf.", "al.")
+_LINE_MIN = 200      # shorter than this is already a line, not a paragraph
+_LINE_MAX = 14       # a step that splits past this was never prose
+
+
+def _as_lines(text):
+    """One idea per line, whoever had to work it out.
+
+    The model is asked for newlines and often gives them. When it does, they
+    are its own judgement about where the ideas divide and they are kept
+    untouched. When it does not, the step is split at sentence ends so the
+    board can still show it line by line.
+    """
+    t = (text or "").strip()
+    if not t or "\n" in t or len(t) < _LINE_MIN:
+        return t
+
+    parts, buf = [], ""
+    for piece in _SENT_END.split(t):
+        buf = (buf + " " + piece).strip() if buf else piece
+        low = buf.lower()
+        # Do not break on "Fig. 3" or "J. Bose" — the stop belongs to the
+        # abbreviation, and the next capital is part of the same sentence.
+        if any(low.endswith(a) for a in _ABBREV) or re.search(r"\b[A-Z]\.$", buf):
+            continue
+        parts.append(buf)
+        buf = ""
+    if buf:
+        parts.append(buf)
+
+    parts = [p.strip() for p in parts if p.strip()]
+    if len(parts) < 2 or len(parts) > _LINE_MAX:
+        return t
+    return "\n".join(parts)
+
+
 def _clean_board(d, topic):
     """Validate the model's lesson into something safe to render.
 
@@ -12337,7 +12379,10 @@ def _clean_board(d, topic):
             "scene": _scene.clean(raw.get("scene")),
             "sketch": _sketch.clean(raw.get("sketch")),
             "draw": _draw.clean(raw.get("draw")),
-            "t": txt(raw.get("t")),
+            # Split here if the model returned a paragraph. The board
+            # renders one line per idea and always has; what it kept
+            # receiving was prose that had no lines to render.
+            "t": _as_lines(txt(raw.get("t"))),
             # Where this step happens — the console, the portal, the query
             # tool. Shown as a caption above the screen so nobody has to guess
             # whether they are looking at a shell or a router.

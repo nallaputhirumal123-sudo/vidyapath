@@ -1139,6 +1139,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sqlboard.js?v=eece7ffc7b"></script>
 <script src="net.js?v=4381cbbb1f"></script>
 <script src="quizui.js?v=db22a5df88"></script>
+<script src="marker.js?v=7660307525"></script>
 <script src="scanner.js?v=227051446b"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
@@ -1805,6 +1806,7 @@ async function boot(){
   handleCheckoutReturn();
 
   TUTOR.init();
+  sbMarkerInit();
   refreshNotif();
   if(!window._notifPoll) window._notifPoll=setInterval(refreshNotif, 60000);
   const first=(USER.name||"").trim().split(" ")[0];
@@ -3137,6 +3139,124 @@ function sbNewTopic(){
 const SAVED_PREFIX="sbsave_";
 let LIB={open:false,tab:"saved",saved:null,busy:false};
 
+/* Marking something on the board.
+ *
+ * Scoped to the lesson frame: a mark in the follow-up box or in a menu is not
+ * a question about the subject, and offering "Ask Axle" there would be noise.
+ */
+function sbMarkerInit(){
+  if(!window.Marker || sbMarkerInit.done) return;
+  sbMarkerInit.done = true;
+  Marker.init({
+    scope: ".ask-frame",
+    toast: (m)=>toast(m),
+    onAsk: async (text)=>{
+      const r = await api.post("/api/ask", {
+        question: text,
+        subject: (window.ASK && ASK.subject) || "General",
+        level: (window.ASK && ASK.level) || "Intermediate"
+      });
+      return r.lesson;
+    }
+  });
+}
+
+/* What a PDF becomes, decided by the person who uploaded it.
+ *
+ * Showing it costs nothing and never leaves the browser. Writing it up is a
+ * model call. Asking first is the difference between a tool and a bill. */
+let PDF_PICKED=null;
+
+function sbPdfPick(){
+  const f=document.getElementById("sbPdfFile");
+  if(!f) return;
+  f.value="";
+  f.onchange=()=>{
+    const file=f.files&&f.files[0];
+    if(!file) return;
+    if(file.type!=="application/pdf" && !/\.pdf$/i.test(file.name||"")){
+      toast("That is not a PDF."); return;
+    }
+    PDF_PICKED=file;
+    sbPdfChoose(file);
+  };
+  f.click();
+}
+
+function sbPdfChoose(file){
+  const w=document.createElement("div"); w.id="pdfWrap";
+  w.style.cssText="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);"+
+    "display:flex;align-items:center;justify-content:center;padding:16px";
+  const kb=Math.round(file.size/1024);
+  w.innerHTML=`<div style="background:var(--card,#141414);border:1px solid
+      var(--line,#2a2a2a);border-radius:14px;max-width:470px;width:100%;
+      padding:18px">
+    <b style="font-size:16px">${esc(file.name)}</b>
+    <div style="font-size:11.5px;color:var(--dim);margin:3px 0 14px">${kb} KB
+      — what should the board do with it?</div>
+    <button class="btn wide" data-pdfdo="show" style="margin-bottom:9px">
+      Show the document</button>
+    <div style="font-size:11.5px;color:var(--dim);margin:-4px 0 12px">
+      The pages as they are. Nothing is sent anywhere.</div>
+    <button class="btn wide ghost" data-pdfdo="lesson">
+      Write it up as a lesson</button>
+    <div style="font-size:11.5px;color:var(--dim);margin:5px 0 12px">
+      Axle reads it and teaches it in short lines, from the document only.</div>
+    <button class="btn ghost sm" data-pdfdo="cancel"
+      style="width:100%">Cancel</button>
+  </div>`;
+  document.body.appendChild(w);
+}
+
+function sbPdfClose(){
+  const w=document.getElementById("pdfWrap"); if(w) w.remove();
+}
+
+/* The file is already here, so showing it needs no server and no upload. */
+function sbPdfShow(file){
+  sbPdfClose();
+  const url=URL.createObjectURL(file);
+  const w=document.createElement("div"); w.id="pdfView";
+  w.style.cssText="position:fixed;inset:0;z-index:9000;background:#0b0d0f;"+
+    "display:flex;flex-direction:column";
+  w.innerHTML=`<div style="display:flex;align-items:center;gap:10px;
+      padding:10px 14px;border-bottom:1px solid var(--line,#2a2a2a)">
+      <b style="font-size:14px">${esc(file.name)}</b>
+      <button class="btn ghost sm" data-pdfdo="teachthis">Explain this in
+        class</button>
+      <button class="btn ghost sm" data-pdfdo="closeview"
+        style="margin-left:auto">Close</button></div>
+    <iframe src="${url}" style="flex:1;border:0;background:#fff"
+      title="${esc(file.name)}"></iframe>`;
+  document.body.appendChild(w);
+  /* Revoked when the viewer closes, not before: an iframe that is still
+     showing the document still needs the URL to exist. */
+  w._url=url;
+}
+
+function sbPdfCloseView(){
+  const w=document.getElementById("pdfView");
+  if(!w) return;
+  if(w._url) try{ URL.revokeObjectURL(w._url); }catch(e){}
+  w.remove();
+}
+
+async function sbPdfLesson(file){
+  sbPdfClose();
+  if(!file) return;
+  SB.busy=true; SB.error=""; PICK.open=false; sbPaint();
+  try{
+    const fd=new FormData(); fd.append("file", file);
+    const r=await api.upload("/api/teach/pdf", fd);
+    SB.lesson=r.lesson;
+    SB.topic=(r.lesson&&r.lesson.title)||file.name;
+    SB.i=0; SB.trail=[];
+  }catch(e){ SB.error=e.message||"That PDF would not turn into a lesson."; }
+  SB.busy=false;
+  sbPaint();
+  sbMountScene();
+}
+
 function sbKeep(){
   if(SB.busy){ toast("Still building that lesson — one moment."); return; }
   const l=SB.lesson;
@@ -3709,6 +3829,8 @@ function sbToolsHTML(){
             <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
             <button class="btn ghost sm" data-sbkeep="1">★ Keep this explanation</button>
             <button class="btn ghost sm" data-sblib="1">📚 My notes</button>
+            <button class="btn ghost sm" data-sbpdf-up="1">📄 Teach from a PDF</button>
+            <input type="file" id="sbPdfFile" accept="application/pdf" style="display:none"/>
       <!-- Explicit, because the alternative was ambiguous: typing into the
            follow-up box continues the same lesson, and there was nothing that
            plainly said "this is a different question now". -->
@@ -6792,6 +6914,15 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-sbnote]")) return sbSaveNote();
   if(e.target.closest("[data-sbpdf]")) return sbPrint();
   if(e.target.closest("[data-sbkeep]")) return sbKeep();
+  if(e.target.closest("[data-sbpdf-up]")) return sbPdfPick();
+  { const p=e.target.closest("[data-pdfdo]");
+    if(p){ const d=p.dataset.pdfdo;
+      if(d==="show") return sbPdfShow(PDF_PICKED);
+      if(d==="lesson") return sbPdfLesson(PDF_PICKED);
+      if(d==="cancel") return sbPdfClose();
+      if(d==="closeview") return sbPdfCloseView();
+      if(d==="teachthis"){ sbPdfCloseView();
+                           return sbPdfLesson(PDF_PICKED); } } }
   if(e.target.closest("[data-sblib]")) return libOpen("saved");
   { const t=e.target.closest("[data-libtab]");
     if(t){ LIB.tab=t.dataset.libtab; libPaint();
