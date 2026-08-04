@@ -1090,7 +1090,13 @@
       var h = hostH(el, spec.height || 300);
       var scene = new THREE.Scene();
       var cam = new THREE.PerspectiveCamera(45, w / h, 0.1, 400);
-      var ren = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      /* preserveDrawingBuffer so the scene can be photographed for the
+         printed sheet. WebGL may discard its drawing buffer as soon as
+         it has been composited, and toDataURL on a discarded buffer
+         returns a blank rectangle — which reads as a broken diagram
+         rather than as a missing one. */
+      var ren = new THREE.WebGLRenderer({ antialias: true, alpha: true,
+                                          preserveDrawingBuffer: true });
       ren.setPixelRatio(Math.min(devicePixelRatio, 2));
       ren.setSize(w, h);
       el.innerHTML = "";

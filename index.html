@@ -1134,7 +1134,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
-<script src="three3d.js?v=83d0910f0b"></script>
+<script src="three3d.js?v=2825c4b40c"></script>
 <script src="lab.js?v=c536df7feb"></script>
 <script src="bot.js?v=176bf0cdda"></script>
 <script>
@@ -3202,7 +3202,58 @@ function libRemove(key,isNote){
     .catch(()=>toast("Could not remove that."));
 }
 
-function sbPrint(opts){
+/* Photograph a lesson's figures so they can be printed.
+ *
+ * The board mounts only the step it is showing, so most of a lesson's pictures
+ * are not in the document when somebody presses print. Each is mounted into an
+ * off-screen box at a fixed printable size, given two frames to draw, read off
+ * its canvas, and torn down.
+ *
+ * Everything here is best-effort. A figure that will not draw must cost the
+ * sheet that one picture, never the lesson — printing is the last thing
+ * somebody does before leaving the room.
+ */
+async function sbCaptureFigures(lesson){
+  const shots={};
+  if(!lesson||!lesson.steps) return shots;
+  const host=document.createElement("div");
+  host.setAttribute("aria-hidden","true");
+  host.style.cssText="position:fixed;left:-10000px;top:0;width:760px;"+
+    "height:470px;pointer-events:none;opacity:0";
+  document.body.appendChild(host);
+  const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  try{
+    for(let i=0;i<lesson.steps.length;i++){
+      const st=lesson.steps[i]||{};
+      for(const kind of ["draw","sketch","scene"]){
+        if(!st[kind]) continue;
+        const box=document.createElement("div");
+        box.style.cssText="width:760px;height:470px";
+        host.innerHTML=""; host.appendChild(box);
+        let handle=null;
+        try{
+          if(kind==="draw"&&window.Draw) handle=Draw.mount(box,st.draw);
+          else if(kind==="sketch"&&window.Sketch) handle=Sketch.mount(box,st.sketch);
+          else if(kind==="scene"&&window.Three3D) handle=await Three3D.mount(box,st.scene);
+          else continue;
+          await frame();
+          const cv=box.querySelector("canvas");
+          if(cv&&cv.width&&cv.height) shots[i+":"+kind]=cv.toDataURL("image/png");
+        }catch(e){
+          /* One figure that will not draw is one missing picture, not a
+             failed print. */
+        }
+        try{
+          if(typeof handle==="function") handle();
+          else if(handle&&handle.dispose) handle.dispose();
+        }catch(e){}
+      }
+    }
+  } finally { host.remove(); }
+  return shots;
+}
+
+async function sbPrint(opts){
   const nl=String.fromCharCode(10);
   /* Defaults to the board's own lesson. A saved explanation passes its
      own, so that keeping something and printing it are the same sheet. */
@@ -3224,6 +3275,19 @@ function sbPrint(opts){
        question produced it. */
     l.asked = topic;
   }
+  const note=opts.note!==undefined?opts.note:(S.notes[sbNoteKey()]||"").trim();
+  /* Opened here, inside the click that asked for it. A pop-up blocker
+     only allows window.open during a user gesture, and photographing the
+     figures below is asynchronous — open it afterwards and the window is
+     blocked, leaving somebody told to allow pop-ups for a click that did
+     open one. It says what it is doing, then gets rewritten. */
+  const w=window.open("","_blank");
+  if(!w) return toast("Allow pop-ups to save this as a PDF.");
+  w.document.write("<title>Preparing…</title>"+
+    "<p style='font:15px sans-serif;color:#555;padding:28px'>"+
+    "Drawing the diagrams for printing…</p>");
+  const figs=await sbCaptureFigures(l);
+  w.document.open();
   /* Lessons are written one idea per line — that is what the prompt asks
      for and how the board shows them. Joining those lines back into a
      paragraph on paper undoes the only thing making them readable. */
@@ -3232,16 +3296,23 @@ function sbPrint(opts){
     if(parts.length<2) return `<p>${mathText(esc(parts[0]||""))}</p>`;
     return "<ul>"+parts.map(x=>`<li>${mathText(esc(x))}</li>`).join("")+"</ul>";
   };
+  /* A photographed figure if there is one, and the caption on its own if
+     the drawing failed — a caption still says what was meant to be here,
+     which is what the bracketed placeholder was doing badly. */
+  const fig=(k,kind,spec)=>{
+    if(!spec) return "";
+    const cap=esc(spec.caption||spec.kind||"");
+    const src=figs[k+":"+kind];
+    if(!src) return cap?`<p class="figcap"><i>${cap}</i></p>`:"";
+    return `<figure><img class="fig" src="${src}" alt="${cap}"/>`+
+      (cap?`<figcaption>${cap}</figcaption>`:"")+`</figure>`;
+  };
   const steps=l.steps.map((st,k)=>
     `<h3>Step ${k+1}</h3>${bullets(st.t)}`+
     (st.where?`<div class="wh">🖥 ${esc(st.where)}</div>`:"")+
     (st.code?`<pre>${esc(st.code)}</pre>`:"")+
-    (st.scene?`<p><i>[3D scene: ${esc(st.scene.caption||st.scene.kind)}]</i></p>`:"")+
-    (st.sketch?`<p><i>[sketch: ${esc(st.sketch.caption||st.sketch.kind)}]</i></p>`:"")
+    fig(k,"draw",st.draw)+fig(k,"sketch",st.sketch)+fig(k,"scene",st.scene)
   ).join(nl);
-  const note=opts.note!==undefined?opts.note:(S.notes[sbNoteKey()]||"").trim();
-  const w=window.open("","_blank");
-  if(!w) return toast("Allow pop-ups to save this as a PDF.");
   const when=new Date().toLocaleDateString(undefined,
     {year:"numeric",month:"long",day:"numeric"});
   w.document.write(`<html><head><title>${esc(topic||l.title)} — Craxle</title>
@@ -3262,6 +3333,11 @@ function sbPrint(opts){
       .hd .rt{margin-left:auto;font-size:11px;color:#777;text-align:right}
       h1{font-size:24px;margin:0 0 2px}h3{margin:20px 0 4px;font-size:15px}
       ul{margin:4px 0 0;padding-left:20px}
+      figure{margin:12px 0;page-break-inside:avoid;text-align:center}
+      img.fig{max-width:100%;height:auto;border:1px solid #ddd;
+        border-radius:6px}
+      figcaption{font-size:11pt;color:#666;margin-top:5px}
+      .figcap{color:#666;font-size:11pt}
       li{margin:0 0 5px;page-break-inside:avoid}
       .mfrac{display:inline-flex;flex-direction:column;text-align:center;
         vertical-align:-.45em;margin:0 .18em;line-height:1.15}
