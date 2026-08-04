@@ -816,6 +816,16 @@ class SchoolNotice(Base):
     author_id = Column(Integer, default=0)
     title = Column(String(240), nullable=False)
     body = Column(Text, default="")
+    # The thing being talked about: a timetable, a consent form, a photograph
+    # of the notice board. Base64 in the row, the same way class material and
+    # assignment scans already are — one fewer moving part than object
+    # storage, and a notice carries a page rather than a film.
+    # Nullable, because _migrate_columns adds them to tables that already
+    # exist and a NOT NULL column cannot be added to a populated table.
+    file_data = Column(Text, default="")
+    file_name = Column(String(160), default="")
+    mime = Column(String(80), default="")
+    size = Column(Integer, default=0)
     # Shown first and in a different colour. For a closure or a deadline,
     # not for the newsletter — a page where everything is urgent has no
     # urgent on it.
@@ -5201,6 +5211,8 @@ def _notice_json(n):
     return {"id": n.id, "title": n.title, "body": n.body or "",
             "urgent": bool(n.urgent), "starts_on": n.starts_on or "",
             "ends_on": n.ends_on or "",
+            "file_name": n.file_name or "", "mime": n.mime or "",
+            "size": n.size or 0, "has_file": bool(n.file_data),
             "at": n.created_at.isoformat() if n.created_at else ""}
 
 
@@ -5318,6 +5330,147 @@ def add_notice(body: NoticeIn, user: User = Depends(notice_author_user),
     db.commit()
     db.refresh(n)
     return {"ok": True, "notice": _notice_json(n)}
+
+
+MAX_NOTICE_MB = 8
+
+
+def _my_notice(db, nid, user):
+    """One notice, if it belongs to the school this person runs."""
+    n = db.get(SchoolNotice, nid)
+    if not n:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and n.school_id != _school_of(user, db):
+        raise HTTPException(403, "That notice belongs to another school")
+    return n
+
+
+@app.get("/api/office/notices")
+def list_notices(user: User = Depends(notice_author_user),
+                 db: Session = Depends(get_db)):
+    """Everything this school has put up, live or not.
+
+    Deliberately unfiltered by date, unlike the learner's view. Somebody
+    deciding what to say next needs to see what has already been said —
+    including the notice that expired yesterday and the one that starts on
+    Monday, which are exactly the two a date filter hides.
+    """
+    sid = _school_of(user, db)
+    q = db.query(SchoolNotice)
+    if not user.is_admin:
+        q = q.filter(SchoolNotice.school_id == sid)
+    rows = q.order_by(SchoolNotice.created_at.desc()).limit(200).all()
+    return {"notices": [_notice_json(n) for n in rows]}
+
+
+@app.patch("/api/office/notice/{nid}")
+def edit_notice(nid: int, body: NoticeIn,
+                user: User = Depends(notice_author_user),
+                db: Session = Depends(get_db)):
+    """Correct one, rather than deleting and rewriting it.
+
+    A wrong time used to be fixed by removing the notice and posting a new
+    one, and in between the school was told nothing at all.
+    """
+    n = _my_notice(db, nid, user)
+    n.title = body.title.strip()[:240]
+    n.body = body.body.strip()[:8000]
+    n.urgent = bool(body.urgent)
+    n.starts_on = body.starts_on.strip()[:20]
+    n.ends_on = body.ends_on.strip()[:20]
+    db.commit()
+    db.refresh(n)
+    return {"ok": True, "notice": _notice_json(n)}
+
+
+@app.post("/api/office/notice/{nid}/file")
+async def attach_to_notice(nid: int, file: UploadFile = File(...),
+                           user: User = Depends(notice_author_user),
+                           db: Session = Depends(get_db)):
+    """A picture or a PDF, on a notice that already exists."""
+    n = _my_notice(db, nid, user)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "That file was empty.")
+    if len(raw) > MAX_NOTICE_MB * 1024 * 1024:
+        raise HTTPException(400, f"Keep it under {MAX_NOTICE_MB}MB.")
+    mime = (file.content_type or "").lower()
+    # A notice is read by every child in the school, so what can be put on
+    # one is a short list rather than whatever the browser reported.
+    if not (mime.startswith("image/") or mime == "application/pdf"):
+        raise HTTPException(400, "Attach a picture or a PDF.")
+    n.file_data = base64.b64encode(raw).decode()
+    n.file_name = (file.filename or "attachment")[:160]
+    n.mime = mime[:80]
+    n.size = len(raw)
+    db.commit()
+    db.refresh(n)
+    return {"ok": True, "notice": _notice_json(n)}
+
+
+@app.delete("/api/office/notice/{nid}/file")
+def unattach_notice(nid: int, user: User = Depends(notice_author_user),
+                    db: Session = Depends(get_db)):
+    n = _my_notice(db, nid, user)
+    n.file_data = ""
+    n.file_name = ""
+    n.mime = ""
+    n.size = 0
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/office/notice/{nid}/file")
+def notice_file(nid: int, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """The attachment, for anybody the notice was addressed to.
+
+    Read by the whole school, so this checks membership of the school rather
+    than of a class — which is the point of a notice.
+    """
+    n = db.get(SchoolNotice, nid)
+    if not n or not n.file_data:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and n.school_id and n.school_id != _school_of(user, db):
+        raise HTTPException(403, "That notice belongs to another school")
+    try:
+        raw = base64.b64decode(n.file_data)
+    except Exception:
+        raise HTTPException(500, "That file is stored damaged")
+    return Response(
+        content=raw, media_type=n.mime or "application/octet-stream",
+        headers={"Content-Disposition":
+                 f'inline; filename="{(n.file_name or "notice")[:80]}"'})
+
+
+@app.get("/api/head/students")
+def head_list_students(user: User = Depends(head_user),
+                       db: Session = Depends(get_db)):
+    """Every child on every register in this school, and who has signed in.
+
+    A head could see the staff and could type one class register at a time,
+    but there was nowhere to see the learners together — so "how many have
+    actually signed in" was answered by opening every class in turn.
+    """
+    t = teacher_row(user, db)
+    sid = (t.school_id if t else 0)
+    q = db.query(Klass)
+    if not user.is_admin:
+        q = q.filter(Klass.school_id == sid)
+    classes = q.order_by(Klass.name.asc()).all()
+    out, signed, total = [], 0, 0
+    for k in classes:
+        rows = (db.query(RosterName)
+                  .filter(RosterName.class_id == k.id)
+                  .order_by(RosterName.name.asc()).all())
+        total += len(rows)
+        signed += sum(1 for r in rows if r.claimed_by)
+        out.append({"class_id": k.id, "class_name": k.name,
+                    "join_code": k.join_code,
+                    "students": [{"id": r.id, "name": r.name,
+                                  "signed_in": bool(r.claimed_by)}
+                                 for r in rows]})
+    return {"classes": out, "total": total, "signed_in": signed}
 
 
 @app.delete("/api/office/notice/{nid}")
@@ -5671,6 +5824,50 @@ def get_roster(cid: int, user: User = Depends(teacher_user),
                db: Session = Depends(get_db)):
     _own_class(db, cid, user)
     return _roster_json(db, cid)
+
+
+class RenameIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+
+
+@app.patch("/api/teacher/roster/{rid}")
+def rename_roster_name(rid: int, body: RenameIn,
+                       user: User = Depends(teacher_user),
+                       db: Session = Depends(get_db)):
+    """Correct a name, including one already claimed.
+
+    Deleting was the only way to fix a spelling, and deleting a claimed name
+    is refused precisely because there is an account behind it — so a child
+    whose name was typed wrong was stuck with it for the year.
+
+    Renaming is safe where deleting is not: the row keeps its id and its
+    claim, so the account, its class and its work are all untouched. Only
+    what it is called changes, which is the whole point.
+    """
+    r = db.get(RosterName, rid)
+    if not r:
+        raise HTTPException(404, "Not found")
+    _own_class(db, r.class_id, user)
+    new = body.name.strip()[:120]
+    if not new:
+        raise HTTPException(400, "A name cannot be blank.")
+    clash = (db.query(RosterName)
+               .filter(RosterName.class_id == r.class_id,
+                       func.lower(RosterName.name) == new.lower(),
+                       RosterName.id != r.id).first())
+    if clash:
+        raise HTTPException(409, "Another child in this class is already "
+                                 "called that.")
+    r.name = new
+    # The account keeps its own display name in step, or a child sees one
+    # name on the register and another at the top of the screen.
+    if r.claimed_by:
+        u = db.get(User, r.claimed_by)
+        if u:
+            u.name = new
+    db.commit()
+    return {"ok": True, "id": r.id, "name": r.name,
+            "signed_in": bool(r.claimed_by)}
 
 
 @app.delete("/api/teacher/roster/{rid}")
