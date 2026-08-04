@@ -278,10 +278,6 @@ input,select{font-family:inherit}
   background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:9px;padding:11px 14px;
   font-size:14px;font-weight:600;cursor:pointer;margin-bottom:14px;transition:box-shadow .15s}
 .gbtn:hover{box-shadow:0 1px 6px rgba(0,0,0,.18)}
-.rolerow{display:flex;gap:8px}
-.rolebtn{flex:1;font-size:15px;padding:11px 10px;border-radius:10px;cursor:pointer;border:1px solid var(--line,#2a2a2a);background:transparent;color:inherit;font-weight:650}
-.rolebtn:hover{border-color:var(--accent,#ffb020)}
-.rolebtn.on{border-color:var(--accent,#ffb020);background:rgba(255,176,32,.12);color:var(--accent,#ffb020)}
 .gor{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:11.5px;margin:6px 0 16px;
   text-transform:uppercase;letter-spacing:.6px}
 .gor:before,.gor:after{content:"";flex:1;height:1px;background:var(--line)}
@@ -990,6 +986,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
         <div class="tabs">
           <button class="tab on" id="tabLogin">Sign in</button>
           <button class="tab" id="tabSignup">Create account</button>
+          <button class="tab" id="tabJoin">Join with code</button>
         </div>
         <div class="msg" id="authMsg"></div>
 
@@ -998,6 +995,21 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
           Continue with Google
         </a>
         <div class="gor" id="googleOr" style="display:none"><span>or use email</span></div>
+
+        <!-- The code decides where you land. A subject code (T-) claims
+             the subject and opens the teaching side; a class code (VP-)
+             enrols and opens the class. Nobody states which they are —
+             the code already knows, and the server has always read it. -->
+        <form id="joinForm" style="display:none">
+          <div class="field"><label>Email</label>
+            <input type="email" id="jn_email" required autocomplete="email"/></div>
+          <div class="field"><label>Password</label>
+            <input type="password" id="jn_pw" required autocomplete="current-password"/></div>
+          <div class="field"><label>Your code</label>
+            <input type="text" id="jn_code" required placeholder="VP-7K3Q or T-4M2X" autocapitalize="characters"/>
+            <small style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">From your school or your teacher. It takes you to the right place on its own.</small></div>
+          <button class="btn wide" type="submit" id="jn_btn">Join &rarr;</button>
+        </form>
 
         <form id="loginForm">
           <div class="field"><label>Email</label><input type="email" id="li_email" required autocomplete="email"/></div>
@@ -1009,16 +1021,6 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
         </form>
 
         <form id="signupForm" style="display:none">
-          <!-- Who you are, before anything that depends on it. The
-               join code alone used to decide this, in one line at the
-               bottom, phrased so that neither a student nor a teacher
-               was sure it was meant for them. -->
-          <div class="field"><label>I am a</label>
-            <div class="rolerow">
-              <button type="button" class="rolebtn on" data-role="learner">Learner</button>
-              <button type="button" class="rolebtn" data-role="teacher">Teacher</button>
-            </div>
-          </div>
           <div class="field"><label>Full name</label><input type="text" id="su_name" required minlength="2"/></div>
           <div class="field"><label>Email</label><input type="email" id="su_email" required autocomplete="email"/></div>
           <div class="field"><label>Password — 8 characters minimum</label><input type="password" id="su_pw" required minlength="8" autocomplete="new-password"/></div>
@@ -1026,7 +1028,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
             <div class="field"><label>College (optional)</label><input type="text" id="su_college"/></div>
             <div class="field"><label>City (optional)</label><input type="text" id="su_city"/></div>
           </div>
-          <div class="field" id="su_degreeWrap"><label>Your degree (optional)</label>
+          <div class="field"><label>Your degree (optional)</label>
             <select id="su_degree">
               <option value="">Prefer not to say</option>
               <option>School student — class 8-12</option>
@@ -1039,9 +1041,9 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
           </div>
           <div class="field" id="su_schoolWrap" style="display:none"><label>Your school</label>
             <select id="su_school"><option value="">— Select your school —</option></select></div>
-          <div class="field"><label id="su_codeLabel">Join code (from your school or teacher)</label>
+          <div class="field"><label>Join code (optional)</label>
             <input type="text" id="su_code" placeholder="e.g. VP-7K3Q"/>
-            <small id="su_codeHint" style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">Leave it blank if you are learning on your own.</small></div>
+            <small style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">Only if your school gave you one. You can join with a code later.</small></div>
           <button class="btn wide" type="submit" id="su_btn">Create account →</button>
         </form>
 
@@ -1507,46 +1509,6 @@ function closeDrawer(){
 }
 
 /* ===================== AUTH FLOW ===================== */
-/* Which half of the form is yours.
- *
- * The join code alone used to decide whether an account became a student or
- * a teacher, in one line at the bottom of a long form, phrased so that
- * neither was sure it was meant for them. A teacher saw a field for
- * students; a student without a code left it blank and never learned it
- * mattered.
- *
- * This changes only what is asked and what it is called. The role still
- * travels as the same code to the same endpoint — the server decides what an
- * account may reach and enforces it there, which is where it belongs.
- */
-var SIGNUP_ROLE = "learner";
-
-function setSignupRole(role){
-  SIGNUP_ROLE = role === "teacher" ? "teacher" : "learner";
-  document.querySelectorAll("[data-role]").forEach(function(b){
-    b.classList.toggle("on", b.dataset.role === SIGNUP_ROLE);
-  });
-  var teacher = SIGNUP_ROLE === "teacher";
-  // A teacher is not asked what degree they are studying for.
-  var deg = document.getElementById("su_degreeWrap");
-  if(deg) deg.style.display = teacher ? "none" : "";
-  var label = document.getElementById("su_codeLabel");
-  if(label) label.textContent = teacher
-    ? "Your subject code (from your school)"
-    : "Join code (from your school or teacher)";
-  var code = document.getElementById("su_code");
-  if(code) code.placeholder = teacher ? "e.g. PHY-921" : "e.g. VP-7K3Q";
-  var hint = document.getElementById("su_codeHint");
-  if(hint) hint.textContent = teacher
-    ? "This is what puts your classes and your school on your account."
-    : "Leave it blank if you are learning on your own.";
-}
-
-document.addEventListener("click", function(e){
-  var b = e.target.closest && e.target.closest("[data-role]");
-  if(b) setSignupRole(b.dataset.role);
-});
-
 function showGate(){ $("#loading").style.display="none"; $("#app").classList.remove("on"); $("#topbar").style.display="none"; $("#gate").style.display="block"; const b=$("#msgFab"); if(b)b.style.display="none"; }
 function showApp(){  $("#loading").style.display="none"; $("#gate").style.display="none"; $("#app").classList.add("on"); $("#topbar").style.removeProperty("display"); if(typeof paintMsgFab==="function") paintMsgFab(); }
 function authMsg(text, ok){ const m=$("#authMsg"); m.className="msg "+(ok?"ok":"err"); m.textContent=text; if(!text) m.className="msg"; }
@@ -1613,8 +1575,55 @@ function showResetForm(){
   f.style.display="";
   authMsg("Choose a new password for your account.", true);
 }
-$("#tabLogin").onclick=()=>{$("#tabLogin").classList.add("on");$("#tabSignup").classList.remove("on");$("#loginForm").style.display="";$("#signupForm").style.display="none";authMsg("");};
-$("#tabSignup").onclick=()=>{$("#tabSignup").classList.add("on");$("#tabLogin").classList.remove("on");$("#signupForm").style.display="";$("#loginForm").style.display="none";authMsg("");};
+/* Three ways in, one of which is a code. */
+function gateTab(which){
+  const tabs={login:"#tabLogin",signup:"#tabSignup",join:"#tabJoin"};
+  const forms={login:"#loginForm",signup:"#signupForm",join:"#joinForm"};
+  Object.keys(tabs).forEach(k=>{
+    $(tabs[k]).classList.toggle("on",k===which);
+    $(forms[k]).style.display = k===which ? "" : "none";
+  });
+  authMsg("");
+}
+$("#tabLogin").onclick=()=>gateTab("login");
+$("#tabSignup").onclick=()=>gateTab("signup");
+$("#tabJoin").onclick=()=>gateTab("join");
+
+/* Sign in, redeem the code, then go where the code says.
+   Joining needs an account, so this signs in first. If the code is
+   wrong the sign-in still stands — the person is in, and is told
+   what was wrong with the code rather than being thrown out. */
+$("#joinForm").onsubmit=async e=>{
+  e.preventDefault();
+  const b=$("#jn_btn"); b.disabled=true; b.textContent="Joining…";
+  authMsg("");
+  try{
+    USER=await api.post("/api/auth/login",
+      {email:$("#jn_email").value,password:$("#jn_pw").value});
+    AUTHED=true;
+    let landed=null;
+    try{
+      landed=await api.post("/api/class/join",
+        {code:$("#jn_code").value.trim()});
+    }catch(codeErr){
+      await boot();
+      toast(codeErr.message||"That code was not recognised.");
+      b.disabled=false; b.textContent="Join →";
+      return;
+    }
+    await boot();
+    /* A subject code opens the teaching side, a class code the
+       class. This is the whole point of the code being the thing
+       you enter rather than a box you tick. */
+    const role=String((landed&&landed.role)||"");
+    S.view={page: role.indexOf("teacher")>-1 ? "teacher" : "class"};
+    render();
+    if(landed&&landed.subject) toast("You now teach "+landed.subject+
+      (landed["class"]?" in "+landed["class"]:"")+".");
+    else if(landed&&landed["class"]) toast("Joined "+landed["class"]+".");
+  }catch(err){ authMsg(err.message); }
+  b.disabled=false; b.textContent="Join →";
+};
 
 $("#loginForm").onsubmit=async e=>{
   e.preventDefault(); const b=$("#li_btn"); b.disabled=true; b.textContent="Signing in…"; authMsg("");
