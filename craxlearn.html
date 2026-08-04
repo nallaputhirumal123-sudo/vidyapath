@@ -157,36 +157,147 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 
    Stacked rather than side by side under 900px, because two half-width
    columns on a phone are two unreadable columns. */
-#panes{display:flex;flex-wrap:wrap;align-items:stretch;
-  min-height:calc(100vh - 4rem)}
-.pane{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1 1 0}
-/* Four spaces on a wide board is two rows of two, not four thin columns —
-   a column narrower than about 22rem holds nothing a class can read. */
-#panes.grid{align-content:stretch}
-#panes.grid .pane{flex:1 1 calc(50% - 5px);max-width:calc(50% - 5px);
-  height:calc((100vh - 4rem) / 2)}
-#panes.grid .grip{display:none}
+/* A grid rather than wrapped flex, because a grid can be dragged.
+   The columns and rows are set from JS as plain fr numbers, so one drag
+   handle changes one template and every layout resizes the same way.
+
+   Handles float over the gaps rather than sitting in the flow: a divider
+   that is a grid item has to be counted in every template, and it was
+   forgetting to count it that left three and four spaces unadjustable. */
+#panes{display:grid;gap:8px;position:relative;
+  grid-template-columns:1fr;grid-template-rows:1fr;
+  height:calc(100vh - 4rem)}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;
+  overflow:hidden}
+.pane.wide{grid-column:1 / -1}
 .paneHead{
   display:flex;align-items:center;gap:.4rem;padding:.4rem var(--pad);
-  border-bottom:1px solid var(--line);background:var(--panel2);
+  border-bottom:1px solid var(--line);background:var(--panel2);flex:0 0 auto;
 }
 .pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
 .paneHead select{font-size:.66rem;min-height:1.9rem;padding:.2rem .45rem}
-.paneBody{flex:1 1 auto;overflow-y:auto;padding:var(--pad);
+.paneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--pad);
   -webkit-overflow-scrolling:touch}
 #panes.one .paneHead{display:none}
 #panes.one .paneBody{max-width:1500px;margin:0 auto;width:100%}
-.grip{
-  flex:0 0 10px;cursor:col-resize;background:var(--line);
-  background-clip:content-box;border-left:4px solid var(--bg);
-  border-right:4px solid var(--bg);touch-action:none;
-}
-.grip:active{background:var(--accent)}
+
+/* The handles. Wide enough for a finger on a board, drawn narrow. */
+.grip{position:absolute;z-index:20;touch-action:none;background:transparent}
+.grip::after{content:"";position:absolute;background:var(--line);
+  border-radius:3px}
+.grip:hover::after,.grip.on::after{background:var(--accent)}
+/* The two handles cross in the middle of a 2x2, and whichever is later in
+   the DOM would win there — which is the exact point a finger lands on a
+   board. The vertical one takes the crossing: it is the shorter of the two
+   hit areas, while the horizontal one spans the whole width and loses only
+   a 22px band it can be grabbed either side of. */
+.grip.v{top:0;bottom:0;width:22px;margin-left:-11px;cursor:col-resize;
+  z-index:22}
+.grip.h{z-index:21}
+.grip.v::after{left:9px;top:8px;bottom:8px;width:4px}
+.grip.h{left:0;right:0;height:22px;margin-top:-11px;cursor:row-resize}
+.grip.h::after{top:9px;left:8px;right:8px;height:4px}
+
 @media(max-width:900px){
-  #panes{flex-direction:column}
-  .grip{flex:0 0 10px;cursor:row-resize;border:none;border-top:4px solid var(--bg);
-    border-bottom:4px solid var(--bg)}
+  /* One column on a phone: two half-width columns are two unreadable ones.
+     The rows still drag. */
+  #panes{grid-template-columns:1fr !important}
+  .pane.wide{grid-column:1}
+  .grip.v{display:none}
 }
+
+/* The writing space owns its whole pane and never scrolls: the surface IS
+   the space it was given. The canvas is taken out of the flow so it can
+   only ever be told its size, never argue about it — a canvas left in a
+   flex column can grow the box that is sizing it, and the two then chase
+   each other bigger every frame. */
+.paneBody.noscroll{overflow:hidden;display:flex;flex-direction:column}
+.wboard{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:.5rem}
+/* The tools take one row in a full pane and are allowed to wrap in a
+   quarter of one rather than overflow. They are kept small so wrapping is
+   rare: every row they take is a row off the surface. */
+.wtools{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;flex:0 0 auto}
+.wtools .btn{padding:.3rem .6rem;font-size:.72rem;min-height:2rem}
+.wtools .iconbtn{width:2rem;min-height:2rem;padding:0}
+.wsurf{flex:1 1 auto;min-height:0;position:relative}
+.wsurf canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
+  touch-action:none}
+.whint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  text-align:center;color:var(--muted);pointer-events:none;font-size:.8rem}
+
+/* A viewer takes whatever is left after the controls above it, and follows
+   the space when it is dragged. A fixed height is wrong in both directions
+   at once on a board: a small picture on a wall, or a picture taller than
+   the quarter it was put in. Controls keep their own size; only the viewer
+   is elastic, so nothing is ever pushed out of reach. */
+.fillcol{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
+  gap:.6rem}
+.fillcol > *{flex:0 0 auto}
+.fillcol > .viewer{flex:1 1 auto;min-height:0;position:relative;
+  overflow:hidden;padding:0}
+/* Out of the flow, so the viewer's height is something it is told, never
+   something the thing inside it argues about. */
+.viewer > canvas,.viewer > iframe{position:absolute;left:0;top:0;
+  width:100%;height:100%;border:0;display:block}
+.viewer > .note,.viewer > .muted{padding:1rem}
+
+/* A figure inside a lesson. The 2D renderers work out their own height from
+   the width they are given, so they get a plain block; a 3D scene has no
+   natural height, so it is told a shape and fills it. */
+.fig{background:var(--panel2);border-radius:12px;overflow:hidden;
+  margin:.4rem 0}
+.fig3d{position:relative;aspect-ratio:16/10}
+.fig3d > canvas{position:absolute;left:0;top:0;display:block}
+.figcap{font-size:.68rem;color:var(--muted);margin:.7rem 0 .2rem}
+.lessonBody img{max-width:100%;border-radius:12px;display:block}
+
+/* A lesson as pages. The controls sit at the top with the title, because on
+   a wall-mounted board the bottom of the screen is below the shoulder of
+   whoever is standing at it. */
+.lessonBar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;
+  margin:.2rem 0 .6rem}
+.lessonBar h1{font-size:1.1rem}
+.lessonBar .iconbtn{font-size:1.2rem;min-width:2.6rem;min-height:2.6rem}
+.lessonBar .iconbtn[disabled]{opacity:.35}
+.lessonPage{animation:pageIn .18s ease-out}
+/* A lesson kept on the subject page, opened where it is. */
+.lessonKept{margin-top:.6rem;padding-top:.6rem;
+  border-top:1px solid var(--line)}
+.lessonKept p{margin:.4rem 0}
+
+/* A classroom's subjects, and who teaches each. */
+.subjects{display:grid;gap:.4rem;margin-top:.6rem;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,11rem),1fr))}
+.subject{background:var(--panel2);border:1px solid var(--line);
+  border-radius:12px;padding:.55rem .7rem;display:flex;
+  flex-direction:column;gap:.15rem}
+.subject.mine{border-color:var(--accent)}
+.subject span{font-size:.66rem}
+@keyframes pageIn{from{opacity:.4}}
+@media(prefers-reduced-motion:reduce){.lessonPage{animation:none}}
+
+/* Listening. A board is across the room, so the only thing that says the
+   microphone is open has to be visible from there. */
+.iconbtn.mic.listening{background:var(--accent);border-color:var(--accent);
+  color:#10151c;animation:micpulse 1.1s ease-in-out infinite}
+@keyframes micpulse{50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){
+  .iconbtn.mic.listening{animation:none}
+}
+
+/* The pairing code is read off a board from the back of a room, so it is
+   set at the size that makes that possible and no smaller. */
+.remoteCode{font-size:clamp(2rem,9vw,4.5rem);letter-spacing:.18em;
+  font-weight:700;text-align:center;color:var(--accent);
+  margin:.6rem 0 1rem;font-family:ui-monospace,Menlo,Consolas,monospace}
+
+/* The remote itself. It is used one-handed, without looking down, in a room
+   where somebody is talking — so everything on it is thumb-sized. */
+.phone{max-width:32rem;margin:0 auto;padding:var(--pad)}
+.phone .btn,.phone .iconbtn{min-height:2.8rem}
+.phRow{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.phGrid{display:grid;gap:.5rem;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,9rem),1fr))}
 
 /* The boards render into #main and bring their own CSS. They were written
    for a 16px page, so they are scaled down relative to the room-sized base
@@ -221,6 +332,8 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
       <button role="tab" id="tabCode" aria-selected="true">Class code</button>
       <button role="tab" id="tabIn" aria-selected="false">Sign in</button>
       <button role="tab" id="tabUp" aria-selected="false">New account</button>
+      <button role="tab" id="tabRemote" aria-selected="false">Remote</button>
+      <button role="tab" id="tabOpen" aria-selected="false">Just the board</button>
     </div>
     <div id="gateForm"></div>
     <div id="gateMsg" class="muted" style="margin-top:.7rem"></div>
@@ -256,7 +369,9 @@ window.esc = function (s) {
 <script src="sqlboard.js?v=7c5033791d"></script>
 <script src="net.js?v=0338e61617"></script>
 <script src="lab.js?v=63294b493d"></script>
-<script src="three3d.js?v=252535ecb2"></script>
+<script src="draw.js?v=89efe3a887"></script>
+<script src="sketch.js?v=665dcd5a1b"></script>
+<script src="three3d.js?v=d4abae1b11"></script>
 <script src="scanner.js?v=2f02744728"></script>
 <script>
 /* Craxlearn — the institution app.
@@ -354,6 +469,20 @@ var el = function(id){ return document.getElementById(id); };
 var PANES = [{ page:"home", arg:null }];
 var LIVE = 0;          // the space a new page opens into
 var DRAW = 0;          // the space currently being drawn
+var PAINTING = false;  // true while that drawing is in progress
+
+/* What a space is showing, so that splitting the screen — which rebuilds
+   every space — comes back to the same structure or the same search rather
+   than to an empty box. The live space is the one whose controls were just
+   used: a tap anywhere in a space makes it live before the control sees the
+   click. */
+function remember(arg){
+  /* During a repaint the space being drawn is not necessarily the live one,
+     and writing to the live one would overwrite what a DIFFERENT space is
+     showing. */
+  var i = PAINTING ? DRAW : LIVE;
+  if(PANES[i]) PANES[i].arg = arg;
+}
 
 function paneBody(){
   var p = document.querySelector('.paneBody[data-i="' + DRAW + '"]');
@@ -369,37 +498,85 @@ var TOOL_NAMES = {
   net:"Packet walkthrough", lab:"The lab", sqlboard:"SQL board",
   materials:"Study material", roster:"Class register", roll:"Your classes",
   inbox:"To review", activity:"What the class is asking",
-  sources:"Where answers come from", assignment:"Assignment",
+  sources:"Where answers come from", remote:"Remote",
+  assignment:"Assignment",
   student:"A student", review:"Reviewing"
 };
 
+/* A space that has been drilled into — an open lesson, one student's record —
+   is still, as far as its selector is concerned, the tool it came from. Without
+   this the selector goes blank the moment a teacher opens a lesson, because no
+   option matches "lesson". */
+var PARENT = {
+  lesson:"tracks", track:"tracks", exam:"tracks",
+  assignment:"roll", student:"roll", review:"inbox"
+};
+function toolOf(page){ return PARENT[page] || page; }
+
 var MAX_PANES = 4;
+
+/* How the spaces are arranged, and where the drag handles go.
+ *
+ * SPLIT is the fraction of the width the left column takes, ROWS the
+ * fraction of the height the top row takes. One pair of numbers drives
+ * every layout, which is why three and four spaces are now adjustable and
+ * were not before: the old flex version had a divider only for two.
+ *
+ *   1  one space
+ *   2  two columns            — vertical handle
+ *   3  two columns, two rows, the third spanning the bottom
+ *                             — vertical + horizontal handles
+ *   4  two by two             — vertical + horizontal handles
+ */
+var SPLIT = 0.5, ROWS = 0.5;
+
+function layout(){
+  var n = PANES.length;
+  var wrap = el("panes");
+  var cols = (n === 1) ? "1fr"
+                       : (SPLIT.toFixed(3) + "fr " + (1 - SPLIT).toFixed(3) + "fr");
+  var rows = (n <= 2) ? "1fr"
+                      : (ROWS.toFixed(3) + "fr " + (1 - ROWS).toFixed(3) + "fr");
+  wrap.style.gridTemplateColumns = cols;
+  wrap.style.gridTemplateRows = rows;
+  /* Three spaces: the third takes the whole bottom row rather than leaving
+     a hole, which is what a teacher expects when they add one. */
+  wrap.querySelectorAll(".pane").forEach(function(p, i){
+    p.classList.toggle("wide", n === 3 && i === 2);
+  });
+  var v = wrap.querySelector(".grip.v"), h = wrap.querySelector(".grip.h");
+  if(v){
+    v.hidden = n < 2;
+    v.style.left = (SPLIT * 100) + "%";
+  }
+  if(h){
+    h.hidden = n < 3;
+    h.style.top = (ROWS * 100) + "%";
+  }
+}
 
 function paintPanes(){
   var wrap = el("panes");
-  wrap.className = PANES.length === 1 ? "one"
-                 : PANES.length >= 3 ? "grid" : "";
+  wrap.className = PANES.length === 1 ? "one" : "";
   var html = "";
   PANES.forEach(function(p, i){
-    if(i && PANES.length === 2){
-      html += '<div class="grip" data-grip="' + i + '"></div>';
-    }
     html += '<div class="pane" data-i="' + i + '" data-live="' +
-      (i === LIVE ? 1 : 0) + '"' +
-      /* Only a row layout gets an inline width. In the 2x2 the stylesheet
-         owns it, and an inline flex here beat that rule and laid four
-         spaces out as four unreadable columns. */
-      (PANES.length === 2 ? ' style="flex:' + (p.flex || 1) + ' 1 0"' : "") +
-      ">" +
+      (i === LIVE ? 1 : 0) + '">' +
       '<div class="paneHead">' +
         '<select data-pick="' + i + '">' +
           Object.keys(TOOL_NAMES).filter(function(k){
             if(["assignment","student","review","lesson","track",
                 "exam"].indexOf(k) >= 0) return false;
+            /* An open board offers what works without an account, and the
+               Remote — which is where it explains what signing in would
+               add. Offering the rest would be a menu of things that all
+               answer "sign in first". */
+            if(OPEN && OPEN_TOOLS.indexOf(k) < 0
+               && k !== "home" && k !== "remote") return false;
             /* Each tool names its own fields by id, so two copies of one
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
-            if(k === "home" || k === p.page) return true;
+            if(k === "home" || k === toolOf(p.page)) return true;
             /* One module tool at a time, anywhere. They are separate files
                that each ask for "#main" and repaint themselves; two of them
                open at once would both be pinned to one space. */
@@ -408,10 +585,11 @@ function paintPanes(){
                     return j !== i && MODULE_TOOLS.indexOf(q.page) >= 0; })){
               return false;
             }
-            return !PANES.some(function(q, j){ return j !== i && q.page === k; });
+            return !PANES.some(function(q, j){
+              return j !== i && toolOf(q.page) === k; });
           }).map(function(k){
             return '<option value="' + k + '"' +
-              (k === p.page ? " selected" : "") + ">" +
+              (k === toolOf(p.page) ? " selected" : "") + ">" +
               esc(TOOL_NAMES[k]) + "</option>";
           }).join("") +
         "</select>" +
@@ -424,10 +602,14 @@ function paintPanes(){
       '<div class="paneBody" data-i="' + i + '"></div>' +
       "</div>";
   });
+  // The two handles live outside the panes and are positioned over the gaps,
+  // so they do not have to be counted in any grid template.
+  html += '<div class="grip v" hidden></div><div class="grip h" hidden></div>';
   wrap.innerHTML = html;
   // Every body element was just replaced, so the old pin points at a node
   // that is no longer in the document.
   MODULE_HOST = null;
+  layout();
   wirePanes();
   (async function(){
     for(var i = 0; i < PANES.length; i++) await drawPane(i);
@@ -435,15 +617,17 @@ function paintPanes(){
 }
 
 async function drawPane(i){
-  var was = DRAW;
+  var was = DRAW, wasPainting = PAINTING;
   DRAW = i;
+  PAINTING = true;
   try{ await paint(PANES[i].page, PANES[i].arg); }
   catch(e){ /* one space failing must not stop the others drawing */ }
-  finally{ DRAW = was; }
+  finally{ DRAW = was; PAINTING = wasPainting; }
 }
 
 function wirePanes(){
-  el("panes").querySelectorAll("[data-pick]").forEach(function(sel){
+  var wrap = el("panes");
+  wrap.querySelectorAll("[data-pick]").forEach(function(sel){
     sel.onchange = function(){
       var i = +sel.dataset.pick;
       PANES[i] = { page: sel.value, arg: null, flex: PANES[i].flex };
@@ -451,53 +635,61 @@ function wirePanes(){
       paintPanes();
     };
   });
-  el("panes").querySelectorAll("[data-close]").forEach(function(b){
+  wrap.querySelectorAll("[data-close]").forEach(function(b){
     b.onclick = function(){
       PANES.splice(+b.dataset.close, 1);
       LIVE = 0;
       paintPanes();
     };
   });
-  el("panes").querySelectorAll("[data-shot]").forEach(function(b){
+  wrap.querySelectorAll("[data-shot]").forEach(function(b){
     b.onclick = function(){ shoot(); };
   });
-  el("panes").querySelectorAll(".pane").forEach(function(p){
+  wrap.querySelectorAll(".pane").forEach(function(p){
     p.addEventListener("pointerdown", function(){
       var i = +p.dataset.i;
       if(i === LIVE) return;
       LIVE = i;
-      el("panes").querySelectorAll(".pane").forEach(function(q){
+      wrap.querySelectorAll(".pane").forEach(function(q){
         q.dataset.live = (+q.dataset.i === LIVE) ? 1 : 0;
       });
     }, true);
   });
 
-  /* Dragging the divider. Widths are kept as flex ratios rather than pixels
-     so rotating a board or plugging in a different screen keeps the split
-     the teacher chose instead of leaving one pane 200px wide. */
-  el("panes").querySelectorAll("[data-grip]").forEach(function(g){
+  /* Dragging. Both handles work the same way: read where the pointer is
+     as a fraction of the grid, clamp it so a space can never be dragged to
+     nothing, and rewrite the template. Fractions rather than pixels, so
+     rotating a board or plugging in another screen keeps the proportions
+     the teacher chose. */
+  wrap.querySelectorAll(".grip").forEach(function(g){
+    var vertical = g.classList.contains("v");
     g.addEventListener("pointerdown", function(e){
       e.preventDefault();
       g.setPointerCapture(e.pointerId);
-      var wrap = el("panes");
-      var vertical = window.matchMedia("(max-width:900px)").matches;
+      g.classList.add("on");
       function move(ev){
         var r = wrap.getBoundingClientRect();
-        var f = vertical ? (ev.clientY - r.top) / r.height
-                         : (ev.clientX - r.left) / r.width;
+        var f = vertical ? (ev.clientX - r.left) / r.width
+                         : (ev.clientY - r.top) / r.height;
         f = Math.min(0.85, Math.max(0.15, f));
-        PANES[0].flex = f;
-        PANES[1].flex = 1 - f;
-        wrap.querySelectorAll(".pane").forEach(function(p, i){
-          p.style.flex = (PANES[i].flex || 1) + " 1 0";
-        });
+        if(vertical) SPLIT = f; else ROWS = f;
+        layout();
       }
       function up(){
+        g.classList.remove("on");
         g.removeEventListener("pointermove", move);
         g.removeEventListener("pointerup", up);
+        g.removeEventListener("pointercancel", up);
       }
       g.addEventListener("pointermove", move);
       g.addEventListener("pointerup", up);
+      g.addEventListener("pointercancel", up);
+    });
+    /* Double-tap a handle to put it back to even. Faster than dragging it
+       back, and on a board a dragged handle is easy to nudge by accident. */
+    g.addEventListener("dblclick", function(){
+      if(vertical) SPLIT = 0.5; else ROWS = 0.5;
+      layout();
     });
   });
 }
@@ -687,7 +879,9 @@ var TILES = [
   { page:"lab",    ic:"🧪", name:"The lab",
     sub:"Mix real reagents and run real experiments. Every reaction from a table, never guessed." },
   { page:"sqlboard", ic:"🗄️", name:"SQL board",
-    sub:"Write queries against a real database and see what comes back." }
+    sub:"Write queries against a real database and see what comes back." },
+  { page:"remote", ic:"📱", name:"Remote",
+    sub:"Drive this board from your phone, so you can teach facing the room." }
 ];
 
 var TEACHER_TILES = [
@@ -835,8 +1029,50 @@ function home(){
              : "") +
          "</div></div>";
   }
+
+  /* A student has one classroom, and that classroom has several subjects
+     with a different teacher in front of each. Naming the room alone left a
+     learner unable to answer the only two questions they ever ask about it:
+     what am I taught here, and who do I ask. */
+  var rooms = (ME.classes || []).filter(function(c){
+    return teacher ? c.mine : true; });
+  if(rooms.length){
+    h += '<div class="eyebrow">' +
+      (teacher ? "The classrooms you teach" : "Your classroom") + "</div>";
+    h += rooms.map(function(c){
+      var subs = c.subjects || [];
+      return '<div class="card"><b>' + esc(c.name) + "</b>" +
+        (c.school ? '<span class="muted"> · ' + esc(c.school) + "</span>" : "") +
+        (subs.length
+          ? '<div class="subjects">' + subs.map(function(x){
+              return '<div class="subject' + (x.mine ? " mine" : "") + '">' +
+                "<b>" + esc(x.name) + "</b>" +
+                '<span class="muted">' +
+                  (x.mine ? "you teach this"
+                          : (x.teacher ? esc(x.teacher)
+                                       : "no teacher yet")) +
+                "</span></div>";
+            }).join("") + "</div>"
+          : '<div class="muted" style="margin-top:.4rem">' +
+            (teacher
+              ? "No subjects in this class yet. A head teacher creates them."
+              : "Your school has not listed this class's subjects yet.") +
+            "</div>") +
+        "</div>";
+    }).join("");
+  }
+  /* Remote stays on an open board even though it needs an account: it is
+     where "use your phone" lives, and a teacher looking for it must find
+     the answer rather than find nothing. */
+  var offer = OPEN
+    ? TILES.filter(function(t){
+        return OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote"; })
+    : TILES;
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
-       TILES.map(tile).join("") + "</div>";
+       offer.map(tile).join("") + "</div>";
+  if(OPEN){
+    h += signInPrompt("teach a topic, keep a lesson, or use your phone");
+  }
   if(!teacher && (ME.classes || []).length){
     h += '<div class="eyebrow">From your teacher</div><div class="tiles">' +
       tile({ page:"materials", ic:"📎", name:"Study material",
@@ -878,11 +1114,32 @@ var PENS = [
   { name:"Blue",  colour:"#5aa9e0" }
 ];
 
+/* The board fills whatever space it is given, and then holds that shape.
+ *
+ * An empty board takes the pane's own proportions, so opening the writing
+ * space never shows an empty margin — the surface simply IS the space. The
+ * moment there is something written on it the shape is fixed, and further
+ * dragging fits the board inside the pane rather than stretching it. That
+ * is what every fixed-surface board on the market does, and the reason is
+ * the same for all of them: a surface that stretched would turn a circle
+ * drawn in a tall pane into an ellipse when the pane is dragged wide, and
+ * handwriting into something nobody can read. Fitting also means nothing
+ * ever goes out of reach, which is the point of not scrolling. */
+var BOARD_W = 1600;
+
+/* What is on the board outlives the element it is drawn on. Splitting the
+   screen rebuilds every space, and a teacher who added a second space
+   halfway through an explanation should not come back to a blank board.
+   `h` is the board's height in the same units — its shape, once locked. */
+var BOARD_INK = { strokes: [], undone: [], h: 900 };
+
 function write(){
-  main().innerHTML =
-    '<div class="eyebrow">Writing space</div>' +
-    '<div class="card" style="padding:.7rem">' +
-      '<div id="wTools" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem">' +
+  var host = main();
+  /* The space stops scrolling and becomes a column: toolbar, then surface. */
+  host.classList.add("noscroll");
+  host.innerHTML =
+    '<div class="wboard">' +
+      '<div id="wTools" class="wtools">' +
         PENS.map(function(p, i){
           return '<button class="iconbtn" data-pen="' + i + '" title="' + p.name + '" ' +
             'style="background:' + p.colour + ';border-color:' + p.colour +
@@ -890,76 +1147,181 @@ function write(){
         }).join("") +
         '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
         '<input type="range" id="wSize" min="2" max="28" value="5" ' +
-          'title="Thickness" style="width:7rem">' +
+          'title="Thickness" style="width:6rem">' +
+        '<button class="iconbtn" id="wUndo" title="Undo">↶</button>' +
+        '<button class="iconbtn" id="wRedo" title="Redo">↷</button>' +
         '<span class="grow"></span>' +
         '<button class="btn ghost" id="wClear">Clear</button>' +
-        '<button class="btn ghost" id="wShot">Save as picture</button>' +
+        '<button class="btn ghost" id="wShot" title="Save the board as a picture">Save</button>' +
       "</div>" +
-      '<canvas id="wCanvas" style="width:100%;height:62vh;touch-action:none;' +
-        'background:var(--panel2);border-radius:12px;display:block"></canvas>' +
-      '<div class="muted" id="wMsg" style="margin-top:.4rem">' +
-        "Write with a finger, a stylus or a mouse.</div>" +
-    "</div>";
+      '<div class="wsurf" id="wSurf">' +
+        '<canvas id="wCanvas"></canvas>' +
+        '<div class="whint" id="wHint">' +
+          "Write with a finger, a stylus or a mouse." +
+        "</div>" +
+      "</div>" +
+    "</div>" +
+    (OPEN ? signInPrompt("keep this on your subject's page") : "");
 
-  var cv = el("wCanvas");
+  var cv = el("wCanvas"), surf = el("wSurf");
   var ctx = cv.getContext("2d");
-  var pen = PENS[0].colour, size = 5, erasing = false, drawing = false;
+  var pen = PENS[0].colour, size = 5, erasing = false;
 
-  /* Sized to the device's real pixels, or a 4K board draws a blurry line
-     over a stretched bitmap. Redrawn from a saved copy so resizing (or
-     rotating the board) does not wipe what is on it. */
-  function fit(){
-    var keep = null;
-    try{ keep = cv.width ? ctx.getImageData(0, 0, cv.width, cv.height) : null; }
-    catch(e){ keep = null; }
-    var r = cv.getBoundingClientRect();
-    var dpr = window.devicePixelRatio || 1;
-    cv.width = Math.max(1, Math.round(r.width * dpr));
-    cv.height = Math.max(1, Math.round(r.height * dpr));
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    if(keep) try{ ctx.putImageData(keep, 0, 0); }catch(e){}
+  /* What is on the board, kept as points rather than pixels.
+     A stroke is { c: colour, e: true when it rubs out, w: thickness,
+     p: [[x, y, pressure], ...] } with x and y in board units. Because it is
+     points, the board can be drawn again at any size — which is what makes
+     dragging a pane bigger keep the writing instead of cropping it, and what
+     makes the exported picture sharp even when the pane was a quarter of a
+     phone screen. */
+  var strokes = BOARD_INK.strokes, undone = BOARD_INK.undone, live = null;
+
+  /* Where the board sits inside the pane, and how big one board unit is.
+     Recomputed on every draw because the pane is dragged mid-lesson. */
+  var S = 1, OX = 0, OY = 0, DPR = 1, BH = BOARD_INK.h;
+  function measure(){
+    var r = surf.getBoundingClientRect();
+    DPR = window.devicePixelRatio || 1;
+    var w = Math.max(1, Math.round(r.width * DPR));
+    var h = Math.max(1, Math.round(r.height * DPR));
+    if(cv.width !== w) cv.width = w;
+    if(cv.height !== h) cv.height = h;
+    /* Nothing written yet, and nothing to bring back with Redo: the board
+       is free to take the shape of the space it is in, and fill it exactly.
+       Bounded, so a sliver of a pane does not produce a board that is all
+       height and no width. */
+    if(!strokes.length && !undone.length && !live){
+      BOARD_INK.h = Math.max(BOARD_W / 4,
+                     Math.min(BOARD_W * 3, Math.round(BOARD_W * h / w)));
+    }
+    BH = BOARD_INK.h;
+    S  = Math.min(w / BOARD_W, h / BH);
+    OX = (w - BOARD_W * S) / 2;
+    OY = (h - BH * S) / 2;
   }
-  fit();
-  window.addEventListener("resize", fit);
 
+  function penWidth(s, pressure){
+    return Math.max(0.5, (s.e ? s.w * 3 : s.w) * S * (0.6 + pressure * 0.8));
+  }
+
+  /* One stroke, in whatever size the board currently is. Segment by segment
+     so a stylus's pressure still varies along it. */
+  function drawStroke(c, s, scale, ox, oy){
+    c.globalCompositeOperation = s.e ? "destination-out" : "source-over";
+    c.strokeStyle = s.c;
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    var pts = s.p;
+    for(var i = 1; i < pts.length; i++){
+      c.lineWidth = Math.max(0.5, (s.e ? s.w * 3 : s.w) * scale
+                                  * (0.6 + pts[i][2] * 0.8));
+      c.beginPath();
+      c.moveTo(ox + pts[i - 1][0] * scale, oy + pts[i - 1][1] * scale);
+      c.lineTo(ox + pts[i][0] * scale, oy + pts[i][1] * scale);
+      c.stroke();
+    }
+  }
+
+  /* The whole board, onto any context. The screen and the exported picture
+     go through the same function at different sizes, so what is saved is
+     exactly what is shown. */
+  var BOARD_BG = "#131c28";
+  function paintBoard(c, scale, ox, oy, w, h){
+    c.globalCompositeOperation = "source-over";
+    c.clearRect(0, 0, w, h);
+    /* The surface, drawn rather than assumed: when the pane is a different
+       shape to the board, the margin is pane and this is where writing
+       actually lands. */
+    c.fillStyle = BOARD_BG;
+    var bw = BOARD_W * scale, bh = BH * scale;
+    if(c.roundRect){
+      c.beginPath();
+      c.roundRect(ox, oy, bw, bh, 12 * scale);
+      c.fill();
+    }else{
+      c.fillRect(ox, oy, bw, bh);
+    }
+    var all = strokes.concat(live ? [live] : []);
+    for(var i = 0; i < all.length; i++) drawStroke(c, all[i], scale, ox, oy);
+    c.globalCompositeOperation = "source-over";
+  }
+
+  function redraw(){
+    measure();
+    paintBoard(ctx, S, OX, OY, cv.width, cv.height);
+    var hint = el("wHint");
+    if(hint) hint.hidden = strokes.length > 0 || !!live;
+  }
+
+  /* The pane is dragged, the board is rotated, the browser zooms: all of
+     them arrive here, and all of them are answered by drawing again rather
+     than by stretching a bitmap. */
+  if(window.ResizeObserver){
+    new ResizeObserver(function(){ redraw(); }).observe(surf);
+  }else{
+    window.addEventListener("resize", redraw);
+  }
+  redraw();
+
+  /* Screen position to board units. Clamped, so a stroke that runs off the
+     edge stops at the edge instead of being stored somewhere it can never
+     be seen again. */
   function at(e){
     var r = cv.getBoundingClientRect();
-    var dpr = window.devicePixelRatio || 1;
-    return { x:(e.clientX - r.left) * dpr, y:(e.clientY - r.top) * dpr };
-  }
-  function stroke(from, to, e){
-    ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
-    ctx.strokeStyle = pen;
-    /* A stylus that reports pressure is used with it; everything else draws
-       at the chosen thickness. */
-    var p = (e && e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
-    ctx.lineWidth = (erasing ? size * 3 : size) * (window.devicePixelRatio || 1)
-                    * (0.6 + p * 0.8);
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
+    var x = ((e.clientX - r.left) * DPR - OX) / S;
+    var y = ((e.clientY - r.top) * DPR - OY) / S;
+    var p = (e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
+    return [Math.min(BOARD_W, Math.max(0, x)),
+            Math.min(BH, Math.max(0, y)), p];
   }
 
-  var last = null;
+  /* Drawing paints only the new segment — redrawing every stroke on every
+     pointer sample is what makes a board feel like it is lagging behind
+     the pen. */
+  function extend(pt){
+    var pts = live.p;
+    pts.push(pt);
+    if(pts.length < 2) return;
+    var a = pts[pts.length - 2], b = pt;
+    ctx.globalCompositeOperation = live.e ? "destination-out" : "source-over";
+    ctx.strokeStyle = live.c;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = penWidth(live, b[2]);
+    ctx.beginPath();
+    ctx.moveTo(OX + a[0] * S, OY + a[1] * S);
+    ctx.lineTo(OX + b[0] * S, OY + b[1] * S);
+    ctx.stroke();
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   cv.addEventListener("pointerdown", function(e){
-    drawing = true;
-    last = at(e);
+    e.preventDefault();
     cv.setPointerCapture(e.pointerId);
-    stroke(last, { x:last.x + 0.01, y:last.y }, e);   // a dot is a mark too
+    var hint = el("wHint");
+    if(hint) hint.hidden = true;
+    live = { c: pen, e: erasing, w: size, p: [] };
+    var p0 = at(e);
+    live.p.push(p0);
+    extend([p0[0] + 0.01, p0[1], p0[2]]);   // a dot is a mark too
   });
   cv.addEventListener("pointermove", function(e){
-    if(!drawing) return;
+    if(!live) return;
+    /* A stylus reports far faster than the screen repaints. Reading the
+       samples the browser held back is the difference between handwriting
+       and a polygon. */
     var pts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null) || [e];
-    for(var i = 0; i < pts.length; i++){
-      var now_ = at(pts[i]);
-      stroke(last, now_, pts[i]);
-      last = now_;
-    }
+    for(var i = 0; i < pts.length; i++) extend(at(pts[i]));
   });
   ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
-    cv.addEventListener(ev, function(){ drawing = false; last = null; });
+    cv.addEventListener(ev, function(){
+      if(!live) return;
+      if(live.p.length > 1){
+        strokes.push(live);
+        undone.length = 0;    // a new mark ends the redo trail
+      }
+      live = null;
+    });
   });
 
   el("wTools").querySelectorAll("[data-pen]").forEach(function(b){
@@ -970,28 +1332,41 @@ function write(){
     };
   });
   el("wSize").oninput = function(){ size = +el("wSize").value; };
-  el("wClear").onclick = function(){
-    ctx.globalCompositeOperation = "source-over";
-    ctx.clearRect(0, 0, cv.width, cv.height);
+  /* Undo, because Clear on its own is a lesson's worth of working thrown
+     away by one mis-tap, and every board a teacher has used has this. */
+  el("wUndo").onclick = function(){
+    if(!strokes.length) return;
+    undone.push(strokes.pop());
+    redraw();
   };
-  /* A picture of what is on the board, which is what "screenshot" means in
-     a classroom — the working, not the browser chrome around it. Drawn onto
-     a solid background first, or a transparent PNG opens as black on black
-     in half the apps a teacher will send it to. */
+  el("wRedo").onclick = function(){
+    if(!undone.length) return;
+    strokes.push(undone.pop());
+    redraw();
+  };
+  el("wClear").onclick = function(){
+    if(strokes.length && !confirm("Rub out everything on the board?")) return;
+    /* Clear is undoable: it is one tap away from a lesson's working. */
+    undone.unshift.apply(undone, strokes.slice().reverse());
+    strokes.length = 0;
+    redraw();
+  };
+  /* A picture of the board — the working, not the browser chrome around it.
+     Drawn from the points at a fixed size rather than copied off the screen,
+     so what a teacher sends to a class is the same sharp picture whether
+     they wrote it full screen or in a corner of a four-way split. Solid
+     background first, or a transparent PNG opens as black on black in half
+     the apps it will be sent to. */
   el("wShot").onclick = function(){
     var out = document.createElement("canvas");
-    out.width = cv.width;
-    out.height = cv.height;
-    var o = out.getContext("2d");
-    o.fillStyle = "#0e1621";
-    o.fillRect(0, 0, out.width, out.height);
-    o.drawImage(cv, 0, 0);
+    out.width = BOARD_W * 2;
+    out.height = Math.round(BH * 2);
+    paintBoard(out.getContext("2d"), 2, 0, 0, out.width, out.height);
     var a = document.createElement("a");
     a.href = out.toDataURL("image/png");
     a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
                    .replace(/[:T]/g, "-") + ".png";
     a.click();
-    el("wMsg").textContent = "Saved as a picture.";
   };
 }
 
@@ -1026,6 +1401,501 @@ async function show3D(host, scene){
   }
 }
 
+/* The subjects a teacher may file under in one class. Not a text box: a
+   class has subjects and each subject has a teacher, and typing the name
+   lets the same subject be filed as "Biology", "biology" and "Bio" in one
+   term — which nobody notices until a class cannot find last week's work.
+   The server checks this again; this is so the screen offers the truth. */
+function subjectsFor(cid){
+  var c = (ME.classes || []).filter(function(x){ return x.id === +cid; })[0];
+  return (c && c.my_subjects) || [];
+}
+function subjectPicker(id, cid){
+  var subs = subjectsFor(cid);
+  if(!subs.length){
+    return '<span class="muted" id="' + id + 'Note">' +
+      "no subject here yet</span>" +
+      '<input id="' + id + '" type="hidden" value="">';
+  }
+  return '<select id="' + id + '">' + subs.map(function(x){
+    return '<option>' + esc(x) + "</option>"; }).join("") + "</select>";
+}
+
+/* ---------- the board anybody can teach on ----------
+ *
+ * A board in a classroom is used by whoever is standing in front of it, and
+ * making the first thing it says be "sign in" is how a smart board becomes
+ * the thing nobody switches on. So the writing space and the calculator open
+ * with no account at all: pick up the pen, teach, rub it out.
+ *
+ * Signing in is what makes the board YOURS for that lesson, and it buys the
+ * two things that need to know who you are — keeping what you taught on your
+ * subject's page, and driving the board from your phone. Nothing is saved
+ * anywhere until somebody has said who they are, which is also the right
+ * answer for a machine a hundred children walk past every day.
+ *
+ * What is on the board survives signing in, because the ink is kept in the
+ * page and not in the element: a teacher who starts writing and then signs in
+ * to keep it does not lose the thing she signed in to keep.
+ */
+var OPEN = false;                    // running with no account
+
+var OPEN_TOOLS = ["write", "calc"];  // everything that needs no server
+
+function openBoard(){
+  OPEN = true;
+  ME = { user:{ name:"This board" }, role:"guest", classes:[],
+         institution:null, open:true };
+  el("gate").hidden = true;
+  el("app").hidden = false;
+  el("who").innerHTML = "<b>This board</b>not signed in";
+  PANES = [{ page:"write", arg:null }];
+  LIVE = 0;
+  paintPanes();
+}
+
+/* The one thing an open board says about itself: what signing in would add.
+   Shown where the Keep and Remote blocks would be, so the answer is in the
+   place the question is asked rather than in a menu. */
+function signInPrompt(what){
+  return '<div class="note">' +
+    "<b>Sign in to " + esc(what) + ".</b> This board is open — anybody can " +
+    "teach on it, and nothing is kept. Signing in puts what you teach on " +
+    "your own subject's page and lets your phone drive the board." +
+    ' <button class="btn" data-signin="1" style="margin-top:.6rem">' +
+    "Sign in</button></div>";
+}
+
+function wireSignIn(host){
+  (host || document).querySelectorAll("[data-signin]").forEach(function(b){
+    b.onclick = function(){
+      /* Straight to the sign-in form, with the board still behind it: the
+         ink is in the page, so it is still there afterwards. */
+      OPEN = false;
+      el("app").hidden = true;
+      el("gate").hidden = false;
+      tab("In");
+    };
+  });
+}
+
+/* ---------- the phone as a remote control ----------
+ *
+ * A board is bolted to a wall. Reaching it means turning your back on the
+ * room, and the microphone in it is across a classroom from whoever is
+ * talking. The phone already in a teacher's hand solves both: it is a
+ * keypad she can see without looking up, and its microphone is six inches
+ * from her mouth.
+ *
+ * The phone is NOT signed in. This product allows one login per account, so
+ * a teacher who signed in on her phone would sign the board out from under
+ * the class she is standing in front of. It holds a six-character code
+ * instead, and that code buys exactly one thing: permission to change what
+ * is on that one screen.
+ */
+var REMOTE = { on:false, code:"", timer:0, missed:0 };
+
+function remotePanel(){
+  var host = main();
+  if(OPEN){
+    host.innerHTML = '<div class="eyebrow">Remote</div>' +
+      signInPrompt("drive this board from your phone");
+    wireSignIn(host);
+    return;
+  }
+  host.innerHTML =
+    '<div class="eyebrow">Remote</div>' +
+    '<div class="card">' +
+      '<p class="muted" style="margin-top:0">Drive this board from your ' +
+        "phone. Open Craxlearn on the phone, tap <b>Remote</b> on the sign-in " +
+        "screen, and type the code below. You do not sign in on the phone — " +
+        "signing in there would sign this board out." +
+      "</p>" +
+      '<div id="rmCode" class="remoteCode">' +
+        (REMOTE.on ? esc(REMOTE.code) : "— — — — — —") + "</div>" +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+        '<button class="btn" id="rmOn"' + (REMOTE.on ? " hidden" : "") +
+          ">Turn the remote on</button>" +
+        '<button class="btn ghost" id="rmOff"' + (REMOTE.on ? "" : " hidden") +
+          ">Turn it off</button>" +
+      "</div>" +
+      '<div class="muted" id="rmMsg" style="margin-top:.6rem">' +
+        (REMOTE.on ? "Listening. Anything the phone taps happens here."
+                   : "Off. Nothing can drive this board.") + "</div>" +
+    "</div>" +
+    '<div class="eyebrow">What the phone can do</div>' +
+    '<div class="card muted">' +
+      "Say or type a topic and have it taught here · turn the pages of a " +
+      "lesson · open any of the tools · add and close spaces · change pen " +
+      "colour, undo, and rub out the writing space." +
+      "<br><br>It cannot see a learner's record, a class list or a mark. " +
+      "A remote changes what is on a screen; that is all this one does." +
+    "</div>";
+
+  el("rmOn").onclick = remoteOn;
+  el("rmOff").onclick = remoteOff;
+}
+
+async function remoteOn(){
+  var msg = el("rmMsg");
+  if(msg) msg.textContent = "Asking for a code…";
+  try{
+    var d = await api.post("/api/craxlearn/remote/open", {});
+    REMOTE.on = true;
+    REMOTE.code = d.code;
+    REMOTE.missed = 0;
+    remoteWatch();
+    if(PANES[LIVE] && PANES[LIVE].page === "remote") remotePanel();
+  }catch(e){
+    if(msg) msg.textContent = e.message;
+  }
+}
+
+async function remoteOff(){
+  REMOTE.on = false;
+  REMOTE.code = "";
+  clearTimeout(REMOTE.timer);
+  REMOTE.timer = 0;
+  try{ await api.post("/api/craxlearn/remote/close", {}); }catch(e){}
+  if(PANES[LIVE] && PANES[LIVE].page === "remote") remotePanel();
+}
+
+/* Polling, not a socket. The one thing nobody controls here is a school's
+   network, and a socket that dies in a corridor is a remote that stops
+   working halfway through a lesson with nothing to show for it. Two seconds
+   is under the time it takes to look up from a phone. */
+function remoteWatch(){
+  clearTimeout(REMOTE.timer);
+  if(!REMOTE.on) return;
+  REMOTE.timer = setTimeout(async function(){
+    if(!REMOTE.on) return;
+    try{
+      var d = await api.get("/api/craxlearn/remote/poll");
+      REMOTE.missed = 0;
+      if(!d.linked){ REMOTE.on = false; return; }
+      for(var i = 0; i < (d.cmds || []).length; i++){
+        try{ await remoteDo(d.cmds[i]); }
+        catch(e){ /* one bad command must not stop the rest */ }
+      }
+    }catch(e){
+      /* A blip is a blip. Enough of them in a row and the board has lost
+         the server, which is worth saying rather than polling forever. */
+      REMOTE.missed++;
+      if(REMOTE.missed > 30){ REMOTE.on = false; return; }
+    }
+    remoteWatch();
+  }, 2000);
+}
+
+/* What a command actually does to this screen. Everything here goes through
+   the same functions a tap on the board would, so the remote can never do
+   something the board itself cannot. */
+async function remoteDo(c){
+  var k = c.kind, p = c.payload || {};
+  if(k === "home"){ go("home"); return; }
+  if(k === "go"){
+    if(TOOL_NAMES[p.page]) go(p.page, p.arg || null);
+    return;
+  }
+  if(k === "teach"){
+    var topic = (p.topic || "").trim();
+    if(topic.length < 2) return;
+    /* Into the live space, so a teacher can leave a diagram up beside it. */
+    go("board", topic);
+    return;
+  }
+  if(k === "slide"){
+    if(!LESSON) return;
+    if(p.to === "next") lessonGo(LESSON.at + 1);
+    else if(p.to === "back") lessonGo(LESSON.at - 1);
+    else lessonGo(+p.to || 0);
+    return;
+  }
+  if(k === "split"){ el("splitBtn").click(); return; }
+  if(k === "close"){
+    var x = document.querySelector('[data-close="' + LIVE + '"]');
+    if(x) x.click();
+    return;
+  }
+  /* The writing space, driven through its own controls: they are the only
+     things that know where its ink lives. */
+  if(k === "pen"){
+    var b = document.querySelector('[data-pen="' + (p.i || 0) + '"]');
+    if(b) b.click();
+    return;
+  }
+  if(k === "clear"){ if(el("wClear")) el("wClear").click(); return; }
+  if(k === "undo"){ if(el("wUndo")) el("wUndo").click(); return; }
+  if(k === "redo"){ if(el("wRedo")) el("wRedo").click(); return; }
+}
+
+/* ---------- the phone end ----------
+ *
+ * A separate screen, not the app: the phone is not signed in, so there is
+ * nothing here that reads anything. It sends and it says whether the board
+ * heard.
+ */
+var PHONE = { code:"", board:"", level:"Class 10" };
+
+function openForm(){
+  el("gateForm").innerHTML =
+    '<p class="muted" style="margin-top:0">Open the writing space and the ' +
+      "calculator with no account. Anybody can teach on this board — nothing " +
+      "is kept, and nothing about the school is shown." +
+    "</p>" +
+    '<button class="btn" id="obGo">Open the board</button>' +
+    '<p class="muted">Sign in when you want to keep what you taught on your ' +
+      "subject's page, or drive the board from your phone. What you have " +
+      "already written stays on the board when you do.</p>";
+  el("obGo").onclick = openBoard;
+}
+
+function remoteJoinForm(){
+  el("gateForm").innerHTML =
+    '<p class="muted" style="margin-top:0">Turn on the remote on the board ' +
+      "— <b>Remote</b> in its tools — and type the six characters it shows." +
+    "</p>" +
+    '<input id="rjCode" placeholder="Code from the board" maxlength="8" ' +
+      'autocapitalize="characters" autocomplete="off" ' +
+      'style="text-transform:uppercase;letter-spacing:.25em;font-size:1.2rem;' +
+      'text-align:center">' +
+    '<button class="btn" id="rjGo">Use this phone as the remote</button>';
+  el("rjGo").onclick = remoteJoin;
+  el("rjCode").onkeydown = function(e){ if(e.key === "Enter") remoteJoin(); };
+}
+
+async function remoteJoin(){
+  var msg = el("gateMsg");
+  var code = ((el("rjCode") || {}).value || "").trim().toUpperCase();
+  if(code.length < 4){ msg.textContent = "Type the code shown on the board."; return; }
+  msg.textContent = "Looking for that board…";
+  try{
+    var d = await api.post("/api/craxlearn/remote/join", { code: code });
+    PHONE.code = d.code;
+    PHONE.board = d.board;
+    msg.textContent = "";
+    phoneScreen();
+  }catch(e){
+    msg.textContent = e.message;
+  }
+}
+
+async function phoneSend(kind, payload){
+  var msg = el("phMsg");
+  try{
+    var d = await api.post("/api/craxlearn/remote/cmd",
+                           { code: PHONE.code, kind: kind, payload: payload || {} });
+    if(msg){
+      msg.textContent = d.board_awake ? "Sent."
+        : "Sent — but the board has not answered for a while. Is it awake " +
+          "and on Craxlearn?";
+    }
+  }catch(e){
+    if(msg) msg.textContent = e.message;
+  }
+}
+
+/* The remote itself. Big targets, because it is used without looking at it,
+   in a room where somebody is talking. */
+function phoneScreen(){
+  el("gate").hidden = true;
+  el("app").hidden = false;
+  el("panes").innerHTML =
+    '<div class="phone">' +
+      '<div class="eyebrow">Remote · ' + esc(PHONE.board) + "</div>" +
+
+      '<div class="card">' +
+        '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+          '<input id="phTopic" style="flex:1 1 12rem" ' +
+            'placeholder="A topic to teach on the board">' +
+          micButton("phMic") +
+        "</div>" +
+        '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">' +
+          '<select id="phLevel" style="flex:0 0 auto">' +
+            ["Class 6","Class 8","Class 10","Class 12","Undergraduate","Research"]
+              .map(function(l){
+                return '<option' + (l === PHONE.level ? " selected" : "") +
+                  ">" + l + "</option>"; }).join("") +
+          "</select>" +
+          '<button class="btn" id="phTeach" style="flex:1 1 8rem">Teach it</button>' +
+        "</div>" +
+        '<div class="muted" id="phMsg" style="margin-top:.5rem">' +
+          "Say it or type it. What comes up on the board is the idea " +
+          "explained, not what you said." +
+        "</div>" +
+      "</div>" +
+
+      '<div class="eyebrow">The lesson</div>' +
+      '<div class="card phRow">' +
+        '<button class="btn ghost" data-cmd="slide" data-to="back">‹ Back</button>' +
+        '<button class="btn" data-cmd="slide" data-to="next">Next ›</button>' +
+      "</div>" +
+
+      '<div class="eyebrow">Open on the board</div>' +
+      '<div class="card phGrid">' +
+        [["board","Ask the board"],["write","Writing space"],
+         ["structure","3D structures"],["find","Search the sources"],
+         ["phet","Simulations"],["calc","Calculator"],
+         ["tracks","Courses and exams"],["sqlboard","SQL board"]]
+          .map(function(t){
+            return '<button class="btn ghost" data-cmd="go" data-page="' +
+              t[0] + '">' + esc(t[1]) + "</button>";
+          }).join("") +
+      "</div>" +
+
+      '<div class="eyebrow">The writing space</div>' +
+      '<div class="card phRow">' +
+        PENS.map(function(p, i){
+          return '<button class="iconbtn" data-cmd="pen" data-i="' + i + '" ' +
+            'title="' + p.name + '" style="background:' + p.colour +
+            ';border-color:' + p.colour + ';width:2.4rem;min-height:2.4rem"></button>';
+        }).join("") +
+        '<button class="btn ghost" data-cmd="undo">Undo</button>' +
+        '<button class="btn ghost" data-cmd="redo">Redo</button>' +
+        '<button class="btn ghost" data-cmd="clear">Clear</button>' +
+      "</div>" +
+
+      '<div class="eyebrow">The screen</div>' +
+      '<div class="card phRow">' +
+        '<button class="btn ghost" data-cmd="split">Another space</button>' +
+        '<button class="btn ghost" data-cmd="close">Close this one</button>' +
+        '<button class="btn ghost" data-cmd="home">Home</button>' +
+      "</div>" +
+
+      '<p class="muted">This phone is not signed in. It can change what is ' +
+        "on the board and nothing else — no records, no marks, no class " +
+        "lists.</p>" +
+    "</div>";
+
+  el("phTeach").onclick = function(){
+    var t = (el("phTopic").value || "").trim();
+    if(t.length < 2){ el("phMsg").textContent = "Say or type a topic first."; return; }
+    PHONE.level = el("phLevel").value;
+    phoneSend("teach", { topic: t, level: PHONE.level });
+  };
+  el("phMic").onclick = function(){
+    hearInto(el("phMic"), el("phTopic"), function(){
+      PHONE.level = el("phLevel").value;
+      phoneSend("teach", { topic: (el("phTopic").value || "").trim(),
+                           level: PHONE.level });
+    }, function(m){
+      el("phMsg").textContent = m || "Say it or type it.";
+    });
+  };
+  el("panes").querySelectorAll("[data-cmd]").forEach(function(b){
+    b.onclick = function(){
+      phoneSend(b.dataset.cmd, { page: b.dataset.page || "",
+                                 to: b.dataset.to || "",
+                                 i: b.dataset.i || 0 });
+    };
+  });
+}
+
+/* ---------- saying it instead of typing it ----------
+ *
+ * What is heard becomes the TOPIC, never the answer. A teacher says
+ * "photosynthesis" and the board explains photosynthesis, with the same
+ * diagrams and the same 3D it would have built had she typed the word —
+ * it does not read her sentence back at her. The words land in the box
+ * first, so a misheard one can be corrected before it is taught.
+ *
+ * One listen per press, not a conversation. A teacher names a topic and
+ * turns back to the class; a recogniser left running would transcribe the
+ * lesson, and on a board in a full classroom that is both useless and a
+ * microphone nobody asked to leave open.
+ *
+ * Recognition is the browser's own. In Chrome that is Google's recogniser:
+ * good at Indian English, and free per minute, because the audio never
+ * reaches our servers. A paid speech API would put a per-second bill on the
+ * most open-ended thing in a classroom.
+ */
+var MIC_TROUBLE = {
+  "not-allowed": "This board is blocking the microphone. Allow it for this " +
+    "site — the padlock in the address bar — and try again.",
+  "service-not-allowed": "This board is blocking the microphone. Allow it " +
+    "for this site and try again.",
+  "no-speech": "I did not catch anything. Tap the mic and say it straight after.",
+  "audio-capture": "No microphone was found on this board. Check it is " +
+    "plugged in and not in use by another app.",
+  "network": "Speech recognition needs the network and could not reach it. " +
+    "Type the topic instead.",
+  "aborted": "",   // stopped on purpose; say nothing
+  "language-not-supported": "This board has no Indian English for speech. " +
+    "Trying again in US English — say it once more.",
+  "bad-grammar": "The microphone returned something unusable. Try again."
+};
+
+var MIC = { rec: null, btn: null, fallback: false };
+
+function micStop(){
+  if(MIC.rec){ try{ MIC.rec.abort(); }catch(e){} }
+  MIC.rec = null;
+  if(MIC.btn){ MIC.btn.classList.remove("listening"); MIC.btn = null; }
+}
+
+/* Listen once, put the words in `box`, then run `then`. `say` reports
+   trouble wherever this particular tool shows its messages. */
+function hearInto(btn, box, then, say){
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    say("This board's browser cannot listen. Chrome and Edge can; Firefox " +
+        "cannot. Type the topic instead.");
+    return;
+  }
+  /* A second press stops it. Without this it tried to open a second
+     recogniser and threw, which reads as a mic that will not let go. */
+  if(MIC.rec){ micStop(); say(""); return; }
+
+  var r = new SR();
+  MIC.rec = r;
+  MIC.btn = btn;
+  btn.classList.add("listening");
+  r.lang = MIC.fallback ? "en-US" : "en-IN";
+  r.interimResults = false;
+  r.maxAlternatives = 1;
+  say("Listening — say the topic.");
+
+  r.onresult = function(ev){
+    var heard = ((ev.results[0][0] || {}).transcript || "").trim();
+    micStop();
+    if(!heard){ say("I did not catch that. Try once more."); return; }
+    box.value = heard;
+    say("");
+    then();
+  };
+  r.onerror = function(ev){
+    var code = (ev && ev.error) || "";
+    micStop();
+    /* Some browsers ship no Indian English and refuse the locale outright.
+       One silent retry in US English, which every one of them has. */
+    if(code === "language-not-supported" && !MIC.fallback){
+      MIC.fallback = true;
+      hearInto(btn, box, then, say);
+      return;
+    }
+    var m = MIC_TROUBLE[code];
+    say(m !== undefined ? m
+        : "The microphone reported “" + (code || "an unknown fault") +
+          "”. Try again, or type it instead.");
+  };
+  r.onend = function(){ micStop(); };
+  try{ r.start(); }
+  catch(e){
+    micStop();
+    say("The microphone was already busy. Try again.");
+  }
+}
+
+/* The button itself, so every tool that takes a topic gets the same one. */
+function micButton(id){
+  return '<button class="iconbtn mic" id="' + id + '" ' +
+    'title="Say it instead of typing it">🎤</button>';
+}
+
+/* Leaving a page with the microphone live is not acceptable, and on a board
+   the page changes every time a space is switched. */
+window.addEventListener("pagehide", micStop);
+
 /* ---------- any structure worth turning around ----------
  *
  * Only ones somebody measured. A name with nothing behind it says so rather
@@ -1035,20 +1905,26 @@ async function show3D(host, scene){
  */
 async function structure(name){
   var n = (name || "").trim();
-  main().innerHTML =
+  var host = main();
+  host.classList.add("noscroll");
+  host.innerHTML =
+    '<div class="fillcol">' +
     '<div class="eyebrow">3D structures</div>' +
     '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
       '<input id="stName" style="flex:1 1 14rem" value="' + esc(n) + '" ' +
         'placeholder="caffeine · silicon · graphene · haemoglobin · the solar system">' +
+      micButton("stMic") +
       '<button class="btn" id="stGo">Show it</button>' +
     '</div><div class="muted" id="stMsg" style="margin-top:.4rem">' +
       "Measured — from PubChem, the Protein Data Bank, or a published table. " +
       "Free to look at as many as you like.</div></div>" +
-    '<div id="stHost" class="card" style="min-height:24rem;padding:.4rem"></div>';
+    '<div id="stHost" class="card viewer" data-fill="1"></div>' +
+    "</div>";
 
   var run = async function(){
     var want = (el("stName").value || "").trim();
     if(want.length < 2) return;
+    remember(want);
     el("stMsg").textContent = "Looking…";
     el("stHost").innerHTML = "";
     try{
@@ -1062,6 +1938,12 @@ async function structure(name){
   };
   el("stGo").onclick = run;
   el("stName").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  el("stMic").onclick = function(){
+    hearInto(el("stMic"), el("stName"), run, function(m){
+      el("stMsg").textContent = m ||
+        "Measured — from PubChem, the Protein Data Bank, or a published table.";
+    });
+  };
   if(n) run();
 }
 
@@ -1073,6 +1955,7 @@ async function find(term){
     '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
       '<input id="fq" style="flex:1 1 14rem" value="' + esc(t) + '" ' +
         'placeholder="a mitochondrion · Saturn · a titration">' +
+      micButton("fMic") +
       '<button class="btn" id="fGo">Search</button>' +
     '</div><div class="muted" id="fMsg" style="margin-top:.4rem">' +
       "Public catalogues only, with the licence beside each result.</div></div>" +
@@ -1081,6 +1964,7 @@ async function find(term){
   var run = async function(){
     var q = (el("fq").value || "").trim();
     if(q.length < 2) return;
+    remember(q);
     el("fMsg").textContent = "Searching…";
     el("fOut").innerHTML = "";
     var d;
@@ -1110,6 +1994,12 @@ async function find(term){
   };
   el("fGo").onclick = run;
   el("fq").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  el("fMic").onclick = function(){
+    hearInto(el("fMic"), el("fq"), run, function(m){
+      el("fMsg").textContent = m ||
+        "Public catalogues only, with the licence beside each result.";
+    });
+  };
   if(t) run();
 }
 
@@ -1418,9 +2308,13 @@ async function phet(pick){
 
   var chosen = pick || d.sims[0].id;
   var sim = d.sims.filter(function(s){ return s.id === chosen; })[0] || d.sims[0];
+  remember(sim.id);
 
-  main().innerHTML = '<div class="eyebrow">Simulations</div>' +
-    '<div class="card" style="padding:.7rem">' +
+  var host = main();
+  host.classList.add("noscroll");
+  host.innerHTML = '<div class="fillcol">' +
+    '<div class="eyebrow">Simulations</div>' +
+    '<div class="card" style="padding:.7rem;max-height:40%;overflow-y:auto">' +
       Object.keys(subs).sort().map(function(k){
         return '<div style="margin-bottom:.4rem"><span class="muted">' + esc(k) +
           "</span><br>" + subs[k].map(function(x){
@@ -1430,13 +2324,13 @@ async function phet(pick){
           }).join("") + "</div>";
       }).join("") +
     "</div>" +
-    '<div class="card" style="padding:.3rem">' +
+    '<div class="card viewer" style="background:#000">' +
       '<iframe src="' + esc(sim.url) + '" title="' + esc(sim.title) + '" ' +
-        'style="width:100%;height:62vh;border:0;border-radius:12px;' +
-        'background:#000" allowfullscreen></iframe>' +
-      '<div class="muted" style="padding:.4rem">' + esc(sim.title) + " · " +
-        esc(d.licence) + ' · <a href="' + esc(sim.page) +
-        '" target="_blank" rel="noopener">on PhET</a></div>' +
+        'style="border-radius:12px;background:#000" allowfullscreen></iframe>' +
+    "</div>" +
+    '<div class="muted">' + esc(sim.title) + " · " +
+      esc(d.licence) + ' · <a href="' + esc(sim.page) +
+      '" target="_blank" rel="noopener">on PhET</a></div>' +
     "</div>";
 
   main().querySelectorAll("[data-sim]").forEach(function(b2){
@@ -1539,7 +2433,13 @@ async function materials(){
     h += '<div class="card muted">Nothing here yet.</div>';
   }else{
     h += (d.materials).map(function(m){
-      var open = m.kind === "link"
+      /* A lesson kept from the board opens where it is. A link and a file
+         cannot — they live somewhere else — but the words of a lesson are
+         right here, and making somebody download them to read them is how a
+         revision note goes unread the night before an exam. */
+      var open = m.kind === "lesson"
+        ? '<button class="btn ghost" data-openmat="' + m.id + '">Read it</button>'
+        : m.kind === "link"
         ? '<a class="btn ghost" href="' + esc(m.url) + '" target="_blank" rel="noopener">Open the link</a>'
         : '<a class="btn ghost" href="/api/material/' + m.id + '/file" target="_blank">Open ' +
           esc(m.file_name || "the file") + "</a>";
@@ -1555,7 +2455,26 @@ async function materials(){
           open +
           (m.size ? '<span class="muted">' + Math.max(1, Math.round(m.size/1000)) + " KB</span>" : "") +
           (isTeacher() ? '<button class="btn ghost" data-delmat="' + m.id + '">Remove</button>' : "") +
-        "</div></div>";
+        "</div>" +
+        (m.kind === "lesson"
+          ? '<div class="lessonKept" id="mBody' + m.id + '" hidden>' +
+            m.body.split("\n").map(function(ln){
+              return ln.trim() ? "<p>" + esc(ln) + "</p>" : "";
+            }).join("") +
+            /* The pictures the lesson was taught with, kept beside its
+               words. A lesson whose point was the molecule the class turned
+               around is not that lesson with the molecule taken out. */
+            (m.figures || []).map(function(f, i){
+              return '<div class="figcap">' +
+                (f.how === "scene" ? "🧊 " : "✏️ ") +
+                esc((f.spec && f.spec.caption) || "") + "</div>" +
+                '<div class="fig' + (f.how === "scene" ? " fig3d" : "") +
+                '"' + (f.how === "scene" ? ' data-fill="1"' : "") +
+                ' id="mFig' + m.id + "_" + i + '"></div>';
+            }).join("") +
+            "</div>"
+          : "") +
+        "</div>";
     }).join("");
   }
 
@@ -1585,6 +2504,24 @@ async function materials(){
   var pick = el("clsPick");
   if(pick) pick.onchange = function(){ ME.pickedClass = +pick.value; materials(); };
 
+  main().querySelectorAll("[data-openmat]").forEach(function(b){
+    b.onclick = async function(){
+      var id = b.dataset.openmat, box = el("mBody" + id);
+      if(!box) return;
+      box.hidden = !box.hidden;
+      b.textContent = box.hidden ? "Read it" : "Close it";
+      /* Mounted when it is opened, not when the list is drawn: a subject
+         page with a term's lessons on it would otherwise start every 3D
+         scene on it at once, all of them behind a closed card. */
+      if(box.hidden || box.dataset.drawn) return;
+      box.dataset.drawn = "1";
+      var mat = (d.materials || []).filter(function(x){
+        return String(x.id) === String(id); })[0];
+      await mountFigures(((mat && mat.figures) || []).map(function(f, i){
+        return { how: f.how, id: "mFig" + id + "_" + i, spec: f.spec };
+      }));
+    };
+  });
   main().querySelectorAll("[data-delmat]").forEach(function(b){
     b.onclick = async function(){
       try{ await api.del("/api/teacher/material/" + b.dataset.delmat); materials(); }
@@ -2016,20 +2953,286 @@ async function board(topic){
       '<input id="bTopic" style="flex:1 1 16rem" ' +
         'placeholder="Anything — photosynthesis, longest prefix match, the quadratic formula" ' +
         'value="' + esc(t) + '">' +
+      micButton("bMic") +
       '<select id="bLevel">' +
         ["Class 6","Class 8","Class 10","Class 12","Undergraduate","Research"]
           .map(function(l){ return '<option>' + l + "</option>"; }).join("") +
       "</select>" +
       '<button class="btn" id="bGo">Teach it</button>' +
+    '</div><div class="muted" id="bMsg" style="margin-top:.4rem">' +
+      "Say it or type it — either way the board explains the idea, with a " +
+      "drawing or something to turn around where one helps." +
     "</div></div><div id=\"bOut\"></div>";
   el("bGo").onclick = teach;
   el("bTopic").onkeydown = function(e){ if(e.key === "Enter") teach(); };
+  /* Spoken and typed go down the same path on purpose: what she said is the
+     topic, and what comes back is the concept explained — never her sentence
+     repeated. */
+  el("bMic").onclick = function(){
+    hearInto(el("bMic"), el("bTopic"), teach, function(m){
+      var b = el("bMsg");
+      if(b) b.textContent = m || "Say it or type it — either way the board " +
+        "explains the idea, with a drawing or something to turn around " +
+        "where one helps.";
+    });
+  };
   if(t) teach();
+}
+
+/* A taught lesson, as pages.
+ *
+ * A board is not a document. Thirty people are looking at one screen from
+ * across a room, and a teacher who has to find her place in a scroll after
+ * every question has lost the room. So a lesson is pages by default: one
+ * step at a time, filling the space, with Next and Back big enough to hit
+ * without looking.
+ *
+ * Scrolling is still there for anybody who wants the whole thing at once —
+ * revising from it, or reading it on a phone — and which one you get is
+ * remembered, because it is a preference and not a decision to make again
+ * every lesson.
+ */
+var LESSON = null;   // the lesson on the board, its pages, and where we are
+
+function lessonView(){
+  try{ return localStorage.getItem("cl.lessonView") === "scroll"
+         ? "scroll" : "pages"; }
+  catch(e){ return "pages"; }
+}
+function setLessonView(v){
+  try{ localStorage.setItem("cl.lessonView", v); }catch(e){}
+}
+
+/* One step becomes one page. A step carrying a drawing is a page of its own
+   whatever else is on it — two figures on one board page is two things
+   nobody is looking at. */
+function lessonPages(L, topic){
+  var pages = [];
+
+  if(L.photo && L.photo.url){
+    pages.push({
+      title: L.title || topic,
+      html: '<div class="card"><img src="' + esc(L.photo.url) + '" alt="" ' +
+        'style="max-width:100%;border-radius:12px;display:block">' +
+        '<div class="muted" style="margin-top:.5rem">' +
+        esc(L.photo.title || "") +
+        (L.photo.credit ? " · " + esc(L.photo.credit) : "") +
+        (L.photo.licence ? " · " + esc(L.photo.licence) : "") + "</div></div>",
+      figures: []
+    });
+  }
+
+  (L.steps || []).forEach(function(st, i){
+    var body = typeof st === "string" ? st : (st.t || "");
+    var figs = [];
+    var h = '<div class="card"><div class="muted">Step ' + (i + 1) +
+      (st && st.where ? " · " + esc(st.where) : "") + "</div>" +
+      body.split("\n").filter(Boolean)
+          .map(function(ln){ return "<p>" + esc(ln) + "</p>"; }).join("");
+    if(st && st.code){
+      h += '<pre class="wrap" style="font-size:.62rem;background:var(--panel2);' +
+           'padding:.7rem;border-radius:12px"><code>' + esc(st.code) +
+           "</code></pre>";
+    }
+    if(st && st.draw){
+      h += '<div class="figcap">✏️ ' + esc(st.draw.caption || "") + "</div>" +
+           '<div class="fig" id="bDraw' + i + '"></div>';
+      figs.push({ how:"draw", id:"bDraw" + i, spec:st.draw });
+    }
+    if(st && st.sketch){
+      h += '<div class="figcap">✏️ ' + esc(st.sketch.caption || "") + "</div>" +
+           '<div class="fig" id="bSketch' + i + '"></div>';
+      figs.push({ how:"sketch", id:"bSketch" + i, spec:st.sketch });
+    }
+    if(st && st.scene){
+      h += '<div class="figcap">🧊 ' +
+           esc(st.scene.caption || "Drag to turn it, pinch or scroll to zoom") +
+           "</div>" +
+           '<div class="fig fig3d" data-fill="1" id="bScene' + i + '"></div>';
+      figs.push({ how:"scene", id:"bScene" + i, spec:st.scene });
+    }
+    h += "</div>";
+    pages.push({ title: L.title || topic, html: h, figures: figs });
+  });
+
+  /* The last page: what to remember, and where it could go next. Both were
+     being thrown away before — on a board the second one is the question a
+     teacher would otherwise have to think of while thirty people watch. */
+  var last = "";
+  if(L.takeaway) last += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
+  if((L.deeper || []).length){
+    last += '<div class="eyebrow">Go further</div><div class="card">' +
+      L.deeper.map(function(x){
+        return '<button class="btn ghost" data-deeper="' + esc(x) +
+          '" style="margin:.2rem .3rem 0 0">' + esc(x) + "</button>";
+      }).join("") + "</div>";
+  }
+  if(last) pages.push({ title: L.title || topic, html: last, figures: [] });
+
+  if(!pages.length){
+    pages.push({ title: L.title || topic,
+                 html: '<div class="note">This lesson came back empty.</div>',
+                 figures: [] });
+  }
+  return pages;
+}
+
+/* Fill the figure boxes on a page. Only ever the page being shown: three
+   live 3D scenes on a wall-mounted board is three renderers competing for
+   one GPU, and two of them are behind the one anybody is looking at. */
+async function mountFigures(figures){
+  for(var i = 0; i < figures.length; i++){
+    var f = figures[i], host = el(f.id);
+    if(!host) continue;
+    try{
+      if(f.how === "draw" && window.Draw) Draw.mount(host, f.spec);
+      else if(f.how === "sketch" && window.Sketch) Sketch.mount(host, f.spec);
+      else if(f.how === "scene") await show3D(host, f.spec);
+      else host.innerHTML = '<div class="muted" style="padding:1rem">' +
+        "This drawing needs a file the board could not load.</div>";
+    }catch(e){
+      /* One figure failing must not take the lesson with it. A lesson with a
+         missing drawing is still a lesson. */
+      host.innerHTML = '<div class="muted" style="padding:1rem">' +
+        "This drawing could not be built.</div>";
+    }
+  }
+}
+
+function lessonGo(to){
+  if(!LESSON) return;
+  var n = LESSON.pages.length;
+  LESSON.at = Math.max(0, Math.min(n - 1, to));
+  paintLesson();
+}
+
+function paintLesson(){
+  var out = el("bOut");
+  if(!out || !LESSON) return;
+  var pages = LESSON.pages, n = pages.length;
+  var scrolling = LESSON.view === "scroll";
+
+  var bar =
+    '<div class="lessonBar">' +
+      '<h1 style="margin:0;flex:1 1 12rem">' + esc(LESSON.title) + "</h1>" +
+      (scrolling ? "" :
+        '<button class="iconbtn" id="bPrev" title="Back">‹</button>' +
+        '<span class="muted" id="bWhere">' + (LESSON.at + 1) + " / " + n + "</span>" +
+        '<button class="iconbtn" id="bNext" title="Next">›</button>') +
+      '<button class="btn ghost" id="bView" title="' +
+        (scrolling ? "Show it a page at a time" : "Show the whole thing to scroll") +
+        '">' + (scrolling ? "Pages" : "Scroll") + "</button>" +
+    "</div>";
+
+  if(scrolling){
+    out.innerHTML = bar + '<div class="lessonScroll">' +
+      pages.map(function(p){ return p.html; }).join("") + "</div>" + LESSON.tail;
+    var all = [];
+    pages.forEach(function(p){ all = all.concat(p.figures); });
+    mountFigures(all);
+  }else{
+    var p = pages[LESSON.at];
+    /* Keeping it and setting it are under every page, not only the last.
+       A teacher decides to keep a lesson at the moment it lands, which is
+       rarely the moment she happens to be on the closing page — and an
+       action you can only reach by paging to the end is one nobody finds. */
+    out.innerHTML = bar + '<div class="lessonPage">' + p.html + "</div>" +
+      LESSON.tail;
+    mountFigures(p.figures);
+    var prev = el("bPrev"), next = el("bNext");
+    if(prev){
+      prev.disabled = LESSON.at === 0;
+      prev.onclick = function(){ lessonGo(LESSON.at - 1); };
+    }
+    if(next){
+      next.disabled = LESSON.at === n - 1;
+      next.onclick = function(){ lessonGo(LESSON.at + 1); };
+    }
+  }
+
+  el("bView").onclick = function(){
+    LESSON.view = scrolling ? "pages" : "scroll";
+    setLessonView(LESSON.view);
+    paintLesson();
+  };
+
+  out.querySelectorAll("[data-deeper]").forEach(function(b){
+    b.onclick = function(){
+      el("bTopic").value = b.dataset.deeper;
+      remember(b.dataset.deeper);
+      teach();
+    };
+  });
+  wireAssign();
+}
+
+/* Turning a taught lesson into the work a class takes away, without anybody
+   retyping it. Teachers only, and only for classes they hold. */
+function wireAssign(){
+  /* The subjects offered belong to the class chosen, so they change with
+     it — a teacher who holds Biology in 9-A and nothing in 9-B must not be
+     shown Biology while 9-B is selected. */
+  [["asgClass", "asgSubject"], ["savClass", "savSubject"]].forEach(function(p){
+    var pick = el(p[0]);
+    if(!pick) return;
+    pick.onchange = function(){
+      var box = el(p[1]);
+      if(!box || !box.parentNode) return;
+      var span = document.createElement("span");
+      span.innerHTML = subjectPicker(p[1], pick.value);
+      box.parentNode.replaceChild(span.firstChild, box);
+      var note = el(p[1] + "Note");
+      if(note) note.remove();
+    };
+  });
+
+  var save = el("savGo");
+  if(save && LESSON) save.onclick = async function(){
+    var msg = el("savMsg");
+    msg.textContent = "Saving…";
+    try{
+      await api.post("/api/craxlearn/board/save", {
+        class_id: +el("savClass").value,
+        topic: LESSON.topic,
+        title: LESSON.title,
+        subject: (el("savSubject").value || "").trim(),
+        note: (el("savNote").value || "").trim(),
+        lesson: LESSON.raw
+      });
+      msg.textContent = "Saved. It is on that class's Study material page now.";
+    }catch(e){
+      msg.textContent = e.message;
+    }
+  };
+
+  var go = el("asgGo");
+  if(!go || !LESSON) return;
+  go.onclick = async function(){
+    var msg = el("asgMsg");
+    msg.textContent = "Setting…";
+    try{
+      var r = await api.post("/api/craxlearn/board/assign", {
+        class_id: +el("asgClass").value,
+        topic: LESSON.topic,
+        title: LESSON.title,
+        subject: (el("asgSubject") || {}).value || "",
+        due_date: el("asgDue").value || "",
+        task: el("asgTask").value || "",
+        lesson: LESSON.raw
+      });
+      msg.textContent = "Set for " + r.students + " student" +
+        (r.students === 1 ? "" : "s") + ". It is on their home screen now.";
+      await refreshMe();
+    }catch(e){
+      msg.textContent = e.message;
+    }
+  };
 }
 
 async function teach(){
   var topic = (el("bTopic").value||"").trim();
   if(topic.length < 2) return;
+  remember(topic);
   var level = el("bLevel").value;
   var out = el("bOut");
   out.innerHTML = '<div class="card muted">Building the lesson…</div>';
@@ -2041,32 +3244,16 @@ async function teach(){
     return;
   }
   var L = d.lesson || {};
-  var h = "<h1>" + esc(L.title || topic) + "</h1>";
-  (L.steps || []).forEach(function(st, i){
-    var body = typeof st === "string" ? st : (st.t || "");
-    h += '<div class="card"><div class="muted">Step ' + (i+1) +
-         (st && st.where ? " · " + esc(st.where) : "") + "</div>" +
-         body.split("\n").filter(Boolean)
-             .map(function(ln){ return "<p>" + esc(ln) + "</p>"; }).join("");
-    if(st && st.code){
-      h += '<pre class="wrap" style="font-size:.62rem;background:var(--panel2);' +
-           'padding:.7rem;border-radius:12px"><code>' + esc(st.code) +
-           "</code></pre>";
-    }
-    h += "</div>";
-  });
-  if(L.takeaway) h += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
 
-  /* The point of teaching on a board that is part of the platform: what the
-     class just watched becomes the work they take away, without anybody
-     retyping it. Teachers only, and only for classes they hold. */
   var mine = (ME.classes || []).filter(function(c){ return c.mine; });
+  var tail = "";
   if(isTeacher() && mine.length){
-    h += '<div class="eyebrow">Set this for a class</div><div class="card">' +
+    tail = '<div class="eyebrow">Set this for a class</div><div class="card">' +
       '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
         '<select id="asgClass">' + mine.map(function(c){
           return '<option value="' + c.id + '">' + esc(c.name) + "</option>";
         }).join("") + "</select>" +
+        subjectPicker("asgSubject", mine[0].id) +
         '<input id="asgDue" type="date" title="Due date (optional)">' +
         '<input id="asgTask" style="flex:1 1 14rem" ' +
           'placeholder="What they have to do (optional)">' +
@@ -2074,28 +3261,33 @@ async function teach(){
       "</div>" +
       '<div class="muted" id="asgMsg" style="margin-top:.5rem">' +
         "It appears on their home screen straight away — there is nothing to publish." +
+      "</div></div>" +
+
+      /* Keeping it is a different thing from setting it, and both are
+         wanted. An assignment is work with a deadline that disappears once
+         it is marked; this files the explanation itself under its subject,
+         where the teacher can open it again next year and the class can
+         read it again the night before an exam. */
+      '<div class="eyebrow">Keep it on the subject page</div><div class="card">' +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<select id="savClass">' + mine.map(function(c){
+          return '<option value="' + c.id + '">' + esc(c.name) + "</option>";
+        }).join("") + "</select>" +
+        subjectPicker("savSubject", mine[0].id) +
+        '<input id="savNote" style="flex:1 1 12rem" ' +
+          'placeholder="A line about it (optional)">' +
+        '<button class="btn" id="savGo">Save it</button>' +
+      "</div>" +
+      '<div class="muted" id="savMsg" style="margin-top:.5rem">' +
+        "It goes to Study material for that class, under the subject you " +
+        "give it. Both you and your students can open it there." +
       "</div></div>";
   }
-  out.innerHTML = h;
 
-  var go = el("asgGo");
-  if(go) go.onclick = async function(){
-    var msg = el("asgMsg");
-    msg.textContent = "Setting…";
-    try{
-      var r = await api.post("/api/craxlearn/board/assign", {
-        class_id: +el("asgClass").value,
-        topic: topic,
-        title: L.title || topic,
-        due_date: el("asgDue").value || "",
-        task: el("asgTask").value || "",
-        lesson: L
-      });
-      msg.textContent = "Set for " + r.students + " student" +
-        (r.students === 1 ? "" : "s") + ". It is on their home screen now.";
-      await refreshMe();
-    }catch(e){ msg.textContent = e.message; }
-  };
+  LESSON = { raw: L, topic: topic, title: L.title || topic,
+             pages: lessonPages(L, topic), at: 0,
+             view: lessonView(), tail: tail };
+  paintLesson();
 }
 
 /* ---------- routing ---------- */
@@ -2119,9 +3311,13 @@ function mod(render){
   return render();
 }
 
-function paint(page, arg){
+async function paint(page, arg){
   var m = main();
-  if(m) m.scrollTop = 0;
+  if(m){ m.scrollTop = 0; m.classList.remove("noscroll"); }
+  /* Whatever the page turns out to be, the sign-in prompts on it are live.
+     One place rather than in each tool, because a prompt that does nothing
+     when tapped is worse than no prompt. */
+  if(OPEN) setTimeout(function(){ wireSignIn(main()); }, 0);
   /* Every branch RETURNS, so an async page's promise reaches drawPane and
      DRAW keeps pointing at this space until it has finished writing. */
   if(page === "home")           return home();
@@ -2130,6 +3326,7 @@ function paint(page, arg){
   else if(page === "inbox")     return inbox();
   else if(page === "materials") return materials();
   else if(page === "write")     return write();
+  else if(page === "remote")    return remotePanel();
   else if(page === "calc")      return calc();
   else if(page === "roll")      return roll();
   else if(page === "student")   return student(arg);
@@ -2223,16 +3420,20 @@ async function boot(){
 }
 
 function tab(which){
-  ["Code","In","Up"].forEach(function(t){
+  ["Code","In","Up","Remote","Open"].forEach(function(t){
     el("tab" + t).setAttribute("aria-selected", String(t === which));
   });
   el("gateMsg").textContent = "";
   if(which === "Code") codeForm();
+  else if(which === "Remote") remoteJoinForm();
+  else if(which === "Open") openForm();
   else gateForm(which === "Up" ? "up" : "in");
 }
 el("tabCode").onclick = function(){ tab("Code"); };
 el("tabIn").onclick   = function(){ tab("In"); };
 el("tabUp").onclick   = function(){ tab("Up"); };
+el("tabRemote").onclick = function(){ tab("Remote"); };
+el("tabOpen").onclick = function(){ tab("Open"); };
 el("homeBtn").onclick = function(){ go("home"); };
 el("shotBtn").onclick = function(){ shoot(); };
 /* One press adds a space, up to four; the fifth press goes back to one.
@@ -2248,8 +3449,13 @@ el("splitBtn").onclick = function(){
     PANES = PANES.map(function(p){
       return { page:p.page, arg:p.arg, flex:1 };
     });
-    PANES.push({ page: PANES.length === 1 ? "write" : "home",
-                 arg: null, flex: 1 });
+    /* A board beside whatever is being taught is the split a teacher wants
+       first — but not a second copy of it. Every tool names its fields by
+       id, so two of one tool would both write into the same boxes. */
+    var want = ["write", "home"].filter(function(k){
+      return !PANES.some(function(q){ return toolOf(q.page) === k; });
+    });
+    PANES.push({ page: want[0] || "home", arg: null, flex: 1 });
     LIVE = PANES.length - 1;
   }
   el("splitBtn").title = PANES.length >= MAX_PANES
