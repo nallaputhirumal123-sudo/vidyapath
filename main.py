@@ -5415,11 +5415,20 @@ MATERIAL_MIMES = {
 }
 
 
-def _material_json(m, with_url=True):
+def _material_json(m, with_url=True, by=""):
+    """One piece of material, as a class sees it.
+
+    `by` is passed in rather than looked up here: a list of two hundred
+    would otherwise be two hundred queries for a name, and the caller
+    already has to touch the user table once to get them all.
+    """
     d = {"id": m.id, "title": m.title, "note": m.note or "",
          "subject": m.subject or "", "kind": "link" if m.url else "file",
          "file_name": m.file_name or "", "size": m.size or 0,
          "mime": m.mime or "",
+         # Who put it there. A class given a reading list by nobody in
+         # particular does not know which teacher to ask about it.
+         "by": by or "",
          "at": m.created_at.isoformat() if m.created_at else ""}
     if with_url and m.url:
         d["url"] = m.url
@@ -5451,7 +5460,7 @@ def add_material_link(cid: int, body: LinkIn,
     db.add(m)
     db.commit()
     db.refresh(m)
-    return {"ok": True, "material": _material_json(m)}
+    return {"ok": True, "material": _material_json(m, by=user.name)}
 
 
 @app.post("/api/teacher/class/{cid}/material/file")
@@ -5492,7 +5501,7 @@ async def add_material_file(cid: int, file: UploadFile = File(...),
     db.add(m)
     db.commit()
     db.refresh(m)
-    return {"ok": True, "material": _material_json(m)}
+    return {"ok": True, "material": _material_json(m, by=user.name)}
 
 
 @app.get("/api/class/{cid}/materials")
@@ -5507,7 +5516,12 @@ def class_materials(cid: int, user: User = Depends(current_user),
     _in_class_or_teaching(db, cid, user)
     rows = (db.query(Material).filter(Material.class_id == cid)
               .order_by(Material.created_at.desc()).limit(200).all())
-    return {"materials": [_material_json(m) for m in rows]}
+    # One query for every teacher named, rather than one per row.
+    ids = {m.teacher_id for m in rows if m.teacher_id}
+    names = {u.id: u.name for u in db.query(User).filter(User.id.in_(ids)).all()} \
+        if ids else {}
+    return {"materials": [_material_json(m, by=names.get(m.teacher_id, ""))
+                          for m in rows]}
 
 
 @app.get("/api/material/{mid}/file")
