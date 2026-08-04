@@ -2103,7 +2103,10 @@ function renderNav(){
     /* Anybody who teaches can send an update; only whoever runs the
        school keeps the fees. Both screens existed and neither had a way
        in, which is the third time this session. */
-    if(USER.is_teacher) h+=nav("notices","📢","Updates");
+    /* Everybody who can be sent an update needs somewhere to read one.
+       This was staff-only, which meant the entire targeting system delivered
+       to an inbox that did not exist. */
+    h+=nav("notices","📢","Updates");
     if(USER.role==="head"||USER.role==="schooladmin"||USER.is_admin)
       h+=nav("fees","💳","Fees");
     if(USER.is_admin) h+=`<a class="navitem" href="/admin"><span class="ic">⚙️</span><span class="nm">Admin panel</span></a>`;
@@ -5132,17 +5135,55 @@ async function feeMarkPaid(fid, amt){
 }
 
 async function renderNotices(){
+  /* Staff see the composer and what they have sent. Everybody, staff
+     included, sees what was sent TO them — which had no screen at all, so
+     every targeted update landed nowhere a person could read it. */
+  const staff = !!(USER && (USER.is_teacher || USER.is_admin));
   $("#main").innerHTML = `<div class="h1">Updates</div>
-    <p class="sub">What this school is being told, and who is being told it.</p>
-    <div id="ntCompose"></div>
-    <div class="eyebrow" style="margin-top:18px">Already sent</div>
-    <div id="ntList" class="card" style="padding:12px">Loading…</div>`;
+    <p class="sub">${staff
+      ? "What your school is being told, and who is being told it."
+      : "What your school and your teachers have told you."}</p>
+    <div class="eyebrow">For you</div>
+    <div id="ntMine" class="card" style="padding:12px;margin-bottom:18px">
+      Loading…</div>
+    ${staff ? `<div id="ntCompose"></div>
+      <div class="eyebrow" style="margin-top:18px">Sent by you</div>
+      <div id="ntList" class="card" style="padding:12px">Loading…</div>` : ""}`;
+  noticeInbox();
+  if(!staff) return;
   try{
     const d = await api.get("/api/teacher/classes");
     HEAD_CLASSES = (d && (d.classes || d.rows)) || [];
   }catch(e){ HEAD_CLASSES = []; }
   noticeCompose();
   noticeList();
+}
+
+/* What was addressed to me. The server has already decided that — by class,
+   by role, by name — so this only draws what arrives. */
+async function noticeInbox(){
+  const box=document.getElementById("ntMine");
+  if(!box) return;
+  let d;
+  try{ d=await api.get("/api/my/notices"); }
+  catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+    `${esc(e.message)}</div>`; return; }
+  const rows=(d&&d.notices)||[];
+  if(!rows.length){
+    box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
+      `Nothing for you right now.</div>`;
+    return;
+  }
+  box.innerHTML=rows.map(n=>`<div style="padding:9px 0;
+      border-bottom:1px solid var(--line,#2a2a2a)">
+      <div style="font-weight:650">${n.urgent?"❗ ":""}${esc(n.title)}</div>
+      ${n.body?`<div style="white-space:pre-wrap;margin-top:3px">${
+        esc(n.body)}</div>`:""}
+      <div style="font-size:11.5px;color:var(--dim);margin-top:4px">${
+        n.at?new Date(n.at).toLocaleDateString():""}${
+        n.has_file?` · <a href="/api/office/notice/${n.id}/file"
+          target="_blank" rel="noopener">📎 ${esc(n.file_name)}</a>`:""}</div>
+    </div>`).join("");
 }
 
 function noticeCompose(){
