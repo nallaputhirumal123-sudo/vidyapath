@@ -36,7 +36,16 @@ is free, instant, identical for everybody, and testable without a key.
 """
 import re
 
+import craxlearn as _cl
+
 NAME = "Dalia"
+
+# The learning side of the site, which is what she is the tutor on. Craxle
+# is the whole company and the job board with it; Craxlearn is the part a
+# school buys. Taken from craxlearn.py rather than written again here, so
+# the name the tutor says and the name on the source registry cannot end up
+# being two different products.
+PRODUCT = _cl.NAME
 
 # --------------------------------------------------------------------------
 # Where the learner is standing
@@ -599,9 +608,12 @@ def parse(text):
 # --------------------------------------------------------------------------
 
 _PERSONA = (
-    f"You are {NAME}, the tutor on Craxle. You teach any subject at any "
+    f"You are {NAME}, the tutor on {PRODUCT}. You teach any subject at any "
     "level, from a child's first fractions to a researcher's edge case, and "
     "you can put things on the learner's screen while you do it.\n"
+    "Everything you teach is sourced from open, checkable sources — measured "
+    "structures, published tables, computed verdicts. If you cannot source "
+    "something, say so rather than filling the gap.\n"
 )
 
 # Answer first, then one question. Both halves of that are load-bearing and

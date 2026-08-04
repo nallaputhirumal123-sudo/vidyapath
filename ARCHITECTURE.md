@@ -18,6 +18,7 @@ A job board and learning platform. Two products in one codebase:
 |---|---|
 | `main.py` | The entire backend. ~7,000 lines, FastAPI + SQLAlchemy. |
 | `dalia.py` | Who the tutor is: the grade-band adapter, the system prompt, and the allowlist of panels she may open. No model call, no network. |
+| `craxlearn.py` | Which pool a learner's questions live in, and the registry of open sources answers are drawn from. Policy, not plumbing. |
 | `index.html` | The learner/candidate app. One page, ~300KB, inline CSS and JS. |
 | `admin.html` | Admin panel. Separate page, same pattern. |
 | `terms.html`, `privacy.html` | Legal. Read them before changing anything that touches personal data. |
@@ -58,6 +59,8 @@ Six suites, all runnable directly, all must pass before committing:
 - `test_free_trial.py` — what the free plan does and does not include
 - `test_dalia.py` — the tutor's grade band, the panels she may open, and
   the four network labs, each run through the real packet engine
+- `test_craxlearn.py` — the fence between two institutions' cached answers,
+  and that every source of answer material is an open one
 
 They run against the local SQLite database and create real rows. That is
 deliberate: matching quality is only meaningful against real job data.
@@ -77,6 +80,16 @@ exactly this reason. Prefer Python scripts over heredocs for edits.
 
 **One inline script per HTML file.** A syntax error anywhere in `index.html`'s
 script takes down the whole app, not one feature. There is no module boundary.
+
+**The cache key IS the question.** `AskCache` is keyed on the normalised
+question text and serves one person's stored answer to the next person who
+asks the same thing. That is the whole cost model, and it means an unscoped
+key is a route from one school's session into another's. Every key is now
+built by `craxlearn.key(scope, ...)`, the scope goes first, and the `scope`
+column is filled by a `before_insert` listener rather than by the twelve
+places that write to the table — because the one that forgets would not
+raise, it would quietly serve a school's question to a stranger. Never build
+a cache key by hand.
 
 **Nothing is deployed until it is pushed.** Railway auto-deploys `main`.
 Check `https://craxle.com/api/version` — it reports version and commit.

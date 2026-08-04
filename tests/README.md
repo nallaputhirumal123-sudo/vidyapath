@@ -37,6 +37,14 @@ quietly start teaching the wrong answer. Ends with the talk endpoint end to
 end against a stubbed model, including that a cached reply still opens the
 same panels the first asker got.
 
+**test_craxlearn.py** — the boundary between two institutions. Two schools and
+a member of the public ask the same question; each pays for it, each gets its
+own cache row, and neither can reach the others'. A head teacher sees their own
+school's topics as counts and never another school's, and clearing your own
+history does not clear the school's. Plus the source registry: every source
+used for answers, explanations, 2D, 3D or sandbox material is asserted to be
+open, and the one closed dependency is asserted to be listed and marked.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,

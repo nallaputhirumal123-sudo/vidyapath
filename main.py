@@ -36,7 +36,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, DateTime, Date,
-    ForeignKey, UniqueConstraint, func, cast, case, or_,
+    ForeignKey, UniqueConstraint, func, cast, case, or_, event,
 )
 from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
                             relationship, defer)
@@ -328,6 +328,14 @@ class AskCache(Base):
     __tablename__ = "ask_cache"
     id = Column(Integer, primary_key=True)
     qkey = Column(String(500), unique=True, nullable=False, index=True)
+    # Which pool this row belongs to: "public", or "school:<id>". It is
+    # already the first field of qkey, so the uniqueness constraint does the
+    # real separating; this column exists so a row can be found, counted and
+    # deleted by institution without parsing a key. Nullable, and NULL reads
+    # as public — every row written before this column existed was written
+    # by somebody outside an institution, because institutions could not
+    # reach this table separately until now.
+    scope = Column(String(40), default="public", index=True)
     subject = Column(String(60), default="")
     level = Column(String(60), default="")
     question = Column(Text, default="")
@@ -365,6 +373,49 @@ class SkillUnlock(Base):
     times = Column(Integer, default=1)         # how often it has come up
     created_at = Column(DateTime(timezone=True), default=now)
     last_at = Column(DateTime(timezone=True), default=now)
+
+
+@event.listens_for(AskCache, "before_insert")
+def _ask_cache_scope(mapper, connection, target):
+    """Fill the scope column from the key, on every insert, without asking.
+
+    Twelve places in this file write to this table and more will be added.
+    Asking each of them to remember a scope is asking for the one that
+    forgets — and the row it writes is not a bug that shows up as an error,
+    it is a school's question sitting in a pool the public reads.
+
+    So it is taken from the key, which is the field the uniqueness
+    constraint already enforces and therefore the only field that can be
+    trusted to say which pool a row is really in. There is nothing to
+    remember and nothing to get wrong.
+    """
+    target.scope = _cl.scope_from_key(target.qkey)
+
+
+class LearnRecord(Base):
+    """What one learner searched or asked, kept where their institution is.
+
+    This is the record a school is entitled to: what its students have been
+    asking about, so it can see what a class is stuck on. It is also the most
+    revealing thing here, which is why `scope` is on the row rather than
+    derived at read time — a query that forgets to join through the class
+    membership returns everybody's, and that is not a mistake worth leaving
+    available.
+
+    Written on every ask, board topic and spoken turn. Never read across a
+    scope boundary, and never used to source an answer for anybody.
+    """
+    __tablename__ = "learn_records"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     index=True)
+    scope = Column(String(40), default="public", index=True)
+    school_id = Column(Integer, default=0, index=True)
+    kind = Column(String(12), default="ask")     # craxlearn.RECORD_KINDS
+    text = Column(String(220), default="")       # the question, trimmed
+    subject = Column(String(60), default="")
+    level = Column(String(60), default="")
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
 class JobAlert(Base):
@@ -2956,6 +3007,72 @@ import re as _re
 # copies of it drifted into three different teachers.
 import dalia as _dalia                                              # noqa: E402
 
+# Where a learner's questions are kept, and where answers may be sourced
+# from. Both halves of that are policy rather than plumbing, so they live in
+# one readable file instead of being spread across the endpoints that
+# happen to enforce them.
+import craxlearn as _cl                                             # noqa: E402
+
+
+def _scope_of(db, user):
+    """Which pool this person's questions and answers belong to.
+
+    A teacher's institution is on their access row. A student's comes
+    through the class they joined, which is the only link a student has to a
+    school at all.
+
+    Read on every cached request, so it is one indexed lookup and then a
+    second only for people who are not teachers. Wrong in the safe direction
+    on failure: anybody the query cannot resolve who nonetheless has a class
+    membership is treated as an institution learner with an unknown school,
+    never as a member of the public pool.
+    """
+    ta = (db.query(TeacherAccess)
+            .filter(TeacherAccess.user_id == user.id).first())
+    if ta:
+        return _cl.scope_of(ta.school_id, in_institution=True)
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == user.id).first())
+    if row is None:
+        return _cl.PUBLIC
+    return _cl.scope_of(row[0], in_institution=True)
+
+
+def _record_learning(db, user, scope, kind, text, subject="", level=""):
+    """Note that this was asked, inside the asker's own institution.
+
+    Fire and forget, exactly like the client-side history it sits beside: an
+    answer must never fail because the record did. A learner who gets a 500
+    instead of a lesson because a logging table was locked has been failed
+    by the part of the system that was supposed to be invisible.
+    """
+    text = _cl.redact(text)
+    if not text or kind not in _cl.RECORD_KINDS:
+        return
+    try:
+        db.add(LearnRecord(user_id=user.id, scope=scope,
+                           school_id=_cl.school_id_of(scope), kind=kind,
+                           text=text, subject=(subject or "")[:60],
+                           level=(level or "")[:60]))
+        db.commit()
+        # Trimmed here rather than by a sweep, so the table cannot grow
+        # unbounded between deploys on a site with no scheduled jobs.
+        n = (db.query(func.count(LearnRecord.id))
+               .filter(LearnRecord.user_id == user.id).scalar() or 0)
+        if n > _cl.KEEP_PER_LEARNER:
+            old = (db.query(LearnRecord.id)
+                     .filter(LearnRecord.user_id == user.id)
+                     .order_by(LearnRecord.created_at.asc())
+                     .limit(n - _cl.KEEP_PER_LEARNER).all())
+            (db.query(LearnRecord)
+               .filter(LearnRecord.id.in_([r[0] for r in old]))
+               .delete(synchronize_session=False))
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Learning record not stored: {type(e).__name__}: {e}")
+
 
 class AskIn(BaseModel):
     question: str = Field(..., min_length=2, max_length=500)
@@ -3358,10 +3475,17 @@ def _ai_bump(db, user):
     db.commit()
 
 
-def _ai_cache_key(prefix, *parts):
+def _ai_cache_key(prefix, *parts, scope=None):
+    """A cache key, inside one pool.
+
+    `scope` is keyword-only and defaults to the private side of the fence.
+    A caller that forgets it gets an institution-shaped key that simply
+    misses the public pool — which costs a model call. Defaulting the other
+    way would have cost a learner's resume text landing in a row another
+    institution can read, and those two mistakes are not the same size."""
     import hashlib
     h = hashlib.sha256("||".join(p or "" for p in parts).encode("utf-8", "ignore")).hexdigest()
-    return f"{prefix}:{h}"
+    return _cl.key(scope or _cl.PUBLIC, prefix, h)[:500]
 
 
 def _ai_cache_get(db, qkey):
@@ -3882,6 +4006,90 @@ def _record_skills(db, user, skills):
     return out
 
 
+@app.get("/api/craxlearn/sources")
+def craxlearn_sources():
+    """Where the answers come from, with licences. Open to anybody.
+
+    Unauthenticated on purpose. "Where does your content come from" is the
+    first question an institution asks and it is usually asked before anyone
+    has an account — by a procurement officer, a head of department, a
+    parent. Making them sign up to read the answer is a bad answer.
+    """
+    return _cl.public_registry()
+
+
+@app.get("/api/craxlearn/activity")
+def craxlearn_activity(user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """What has been asked, inside the asker's own institution.
+
+    Two different answers to two different people, and the difference is the
+    whole point:
+
+    A **teacher or head** gets their school's activity as topic counts — what
+    is being asked and how often, so they can see the class is stuck on
+    stoichiometry. Aggregated, with no learner attached to any row. A school
+    needs to know what its students are struggling with; it does not need a
+    transcript of each child's questions to know that, and building the
+    transcript view because it was easy is how a teaching tool becomes a
+    surveillance tool. If a school genuinely needs per-student detail for a
+    safeguarding reason, that is a deliberate feature with its own consent
+    conversation, not a side effect of this endpoint.
+
+    A **learner** gets their own, in full, because it is theirs.
+
+    Neither can see another institution's, and nothing here reads a row
+    outside the caller's own scope.
+    """
+    scope = _scope_of(db, user)
+    ta = (db.query(TeacherAccess)
+            .filter(TeacherAccess.user_id == user.id).first())
+
+    if ta and _cl.is_institution(scope):
+        rows = (db.query(LearnRecord.text, LearnRecord.kind,
+                         func.count(LearnRecord.id).label("n"),
+                         func.max(LearnRecord.created_at).label("last"))
+                  .filter(LearnRecord.scope == scope)
+                  .group_by(LearnRecord.text, LearnRecord.kind)
+                  .order_by(func.count(LearnRecord.id).desc())
+                  .limit(100).all())
+        return {
+            "view": "school", "school": ta.school or "", "scope": scope,
+            "learners": (db.query(func.count(func.distinct(
+                LearnRecord.user_id)))
+                .filter(LearnRecord.scope == scope).scalar() or 0),
+            "topics": [{"text": r[0], "kind": r[1], "asked": r[2],
+                        "last": r[3].isoformat() if r[3] else ""}
+                       for r in rows],
+        }
+
+    rows = (db.query(LearnRecord)
+              .filter(LearnRecord.user_id == user.id)
+              .order_by(LearnRecord.created_at.desc()).limit(100).all())
+    return {
+        "view": "mine", "scope": scope,
+        "topics": [{"text": r.text, "kind": r.kind, "subject": r.subject,
+                    "level": r.level,
+                    "at": r.created_at.isoformat() if r.created_at else ""}
+                   for r in rows],
+    }
+
+
+@app.delete("/api/craxlearn/activity")
+def craxlearn_activity_clear(user: User = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    """Delete my own record of what I asked. Only ever my own.
+
+    A teacher clearing this clears their own questions, not their school's.
+    Giving one account a button that wipes an institution's history is the
+    kind of thing that gets pressed once and explained forever.
+    """
+    n = (db.query(LearnRecord).filter(LearnRecord.user_id == user.id)
+           .delete(synchronize_session=False))
+    db.commit()
+    return {"ok": True, "deleted": n}
+
+
 @app.get("/api/skills/unlocked")
 def skills_unlocked(user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
@@ -3954,7 +4162,16 @@ async def ask_talk(body: TalkIn, user: User = Depends(current_user),
     # no control tags in it; served under this endpoint they would be a
     # tutor who can never open anything, for as long as the cache lives.
     tail = " | ".join(body.history[-2:])[:300]
-    qkey = f"dalia|{_norm_q(level)}|{_norm_q(tail)}|{_norm_q(said)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "dalia", _norm_q(level), _norm_q(tail),
+                   _norm_q(said))[:500]
+    # Recorded before the cache is consulted, not after. What a learner
+    # asked is a fact about them whether or not it cost a model call, and a
+    # record that only catches the misses is a record of nothing useful —
+    # the popular questions, which is to say the ones a school most wants to
+    # see, are exactly the ones that hit.
+    _record_learning(db, user, scope, "talk", said, body.subject, level)
+
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
@@ -4034,7 +4251,8 @@ async def ask_with_image(image: UploadFile = File(...),
     subject = (subject or "General").strip()[:60]
     level = (level or "Intermediate").strip()[:60]
     digest = hashlib.sha256(raw).hexdigest()[:32]
-    qkey = f"askimg|{digest}|{_norm_q(level)}|{_norm_q(q)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "askimg", digest, _norm_q(level), _norm_q(q))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     cached = _cached_json(db, row)
     if cached:
@@ -4341,7 +4559,7 @@ async def resume_match(body: MatchIn, user: User = Depends(current_user),
         raise HTTPException(400, "Paste the full job description first")
     rtext = ((body.resume_text or "").strip() or _resume_text(body.resume or {}))[:5000]
     # Same resume + same JD → serve the stored result for free (no quota used).
-    ckey = _ai_cache_key("rmatch", rtext, jd[:3500])
+    ckey = _ai_cache_key("rmatch", rtext, jd[:3500], scope=_scope_of(db, user))
     cached = _ai_cache_get(db, ckey)
     if cached is not None:
         return cached
@@ -5208,7 +5426,10 @@ async def ask_vidya(body: AskIn, user: User = Depends(current_user),
     # a level the UI no longer offers.
     level = (body.level or "Intermediate").strip()[:60]
     question = body.question.strip()
-    qkey = f"{_norm_q(subject)}|{_norm_q(level)}|{_norm_q(question)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "ask", _norm_q(subject), _norm_q(level),
+                   _norm_q(question))[:500]
+    _record_learning(db, user, scope, "ask", question, subject, level)
 
     # 1) Cache hit — free and instant, and counts a hit for the stats.
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
@@ -9400,7 +9621,9 @@ async def board_lesson(body: BoardIn, user: User = Depends(current_user),
 
     # Cached like Ask Axle: the same topic at the same level is the same
     # lesson, and the second person to ask should not cost anything.
-    qkey = f"board|{_norm_q(level)}|{_norm_q(topic)}"[:500]
+    scope = _scope_of(db, user)
+    qkey = _cl.key(scope, "board", _norm_q(level), _norm_q(topic))[:500]
+    _record_learning(db, user, scope, "board", topic, "board", level)
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     _tr.phase("cache lookup")
     if row:
@@ -9807,7 +10030,8 @@ async def sql_explain(body: SqlRunIn, user: User = Depends(current_user),
     verdict = _sqlc.mark(ex, sql)
     lesson, cached = await _sql_lesson(
         db, user, _sql_explain_prompt(ex, sql, verdict["why"]),
-        f"sqlx2|{ex['id']}|{_norm_q(sql)}"[:500], sql, ex["skill"])
+        _cl.key(_scope_of(db, user), "sqlx2", ex["id"],
+                _norm_q(sql))[:500], sql, ex["skill"])
     return {"lesson": lesson, "short": verdict["why"], "cached": cached}
 
 
@@ -9834,7 +10058,8 @@ async def sql_ask(body: SqlAskIn, user: User = Depends(current_user),
     q = body.question.strip()
     lesson, cached = await _sql_lesson(
         db, user, _sql_ask_prompt(ex, body.sql, q),
-        f"sqlq|{body.exercise}|{_norm_q(q)}"[:500], q,
+        _cl.key(_scope_of(db, user), "sqlq", body.exercise,
+                _norm_q(q))[:500], q,
         ex["skill"] if ex else "ask")
     return {"lesson": lesson, "cached": cached}
 
@@ -9883,7 +10108,7 @@ async def scan(image: UploadFile = File(...),
         raise HTTPException(503, "The AI tutor is not switched on")
 
     digest = hashlib.sha256(raw).hexdigest()
-    qkey = f"scan|{digest}"
+    qkey = _cl.key(_scope_of(db, user), "scan", digest)[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     out = _cached_json(db, row, need=None)
     if out:
@@ -10364,7 +10589,8 @@ async def build_course(body: CourseIn, user: User = Depends(current_user),
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
     topic = body.topic.strip()
-    qkey = f"course|{_norm_q(body.level)}|{_norm_q(topic)}"[:500]
+    qkey = _cl.key(_scope_of(db, user), "course", _norm_q(body.level),
+                   _norm_q(topic))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     course = _cached_json(db, row, need=None)
     if course:
@@ -10748,10 +10974,14 @@ async def lab_explain(body: MixAskIn, user: User = Depends(current_user),
     # Cached on the unordered pair: mixing A with B is the same question as
     # mixing B with A, and the first person to ask pays for both.
     if what:
-        qkey = f"labany|{_norm_q(body.subject)}|{_norm_q(what)}"[:500]
+        qkey = _cl.key(_scope_of(db, user), "labany", _norm_q(body.subject),
+                       _norm_q(what))[:500]
     else:
+        # Two reagents off a fixed shelf, in a fixed order. Nobody's words
+        # are in this key, so it pools for everybody and the first person
+        # to mix them pays for the whole site.
         pair = " + ".join(sorted([_norm_q(a), _norm_q(b)]))
-        qkey = f"labmix|{pair}"[:500]
+        qkey = _cl.key(_cl.PUBLIC, "labmix", pair)[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
@@ -10880,7 +11110,7 @@ async def lab_photo(image: UploadFile = File(...),
 
     q = (question or "").strip()[:200]
     digest = hashlib.sha256(raw).hexdigest()[:32]
-    qkey = f"labpic|{digest}|{_norm_q(q)}"[:500]
+    qkey = _cl.key(_scope_of(db, user), "labpic", digest, _norm_q(q))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     if row:
         row.hits = (row.hits or 0) + 1
@@ -12375,7 +12605,8 @@ async def apply_kit(body: ApplyKitIn, user: User = Depends(current_user),
                        "checklist and keyword lists above are all we can give you.")
         return kit
 
-    ckey = _ai_cache_key("akit", rtext[:2500], str(job.id))
+    ckey = _ai_cache_key("akit", rtext[:2500], str(job.id),
+                         scope=_scope_of(db, user))
     cached = _ai_cache_get(db, ckey)
     if cached is not None:
         return {**kit, **cached, "cached": True}
