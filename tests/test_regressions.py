@@ -198,6 +198,34 @@ ck("the same job never alerts twice", second["created"] == 0,
 
 print("\n" + "=" * 60)
 print(f"REGRESSION PASS {len(P)}   FAIL {len(F)}")
+
+# ---- the admin dashboard 500ing on SQLite ---------------------------------
+# CAST(x AS DATE) was used to group signups by day with a comment saying it
+# "works on both SQLite and Postgres". It does not: SQLite has no DATE type,
+# so it applies numeric affinity and returns an integer, and SQLAlchemy's
+# Date processor then calls fromisoformat on it and raises. Postgres does the
+# right thing — so the whole admin dashboard 500ed locally and nowhere else,
+# which is to say it 500ed only for whoever was working on it.
+try:
+    _admin = m.SessionLocal()
+    _u = _admin.query(m.User).filter(m.User.is_admin == True).first()  # noqa: E712
+    if _u is None:
+        _u = m.User(name="Stats Admin", email=f"stats{int(time.time())}@example.com",
+                    password_hash=m.hash_pw("StatsPass123!"), is_admin=True)
+        _admin.add(_u)
+        _admin.commit()
+    _stats = m.admin_stats(user=_u, db=_admin)
+    ck("admin dashboard stats do not crash on SQLite",
+       isinstance(_stats.get("signups"), list), "returned")
+    ck("and every signup day is an ISO date string",
+       all(isinstance(r["date"], str) and len(r["date"]) == 10
+           for r in _stats["signups"]),
+       str(_stats["signups"][:2]))
+    _admin.close()
+except Exception as _e:
+    ck("admin dashboard stats do not crash on SQLite", False,
+       f"{type(_e).__name__}: {_e}")
+
 print("=" * 60)
 if F:
     print("\nFAILURES:")
