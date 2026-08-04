@@ -278,6 +278,12 @@ input,select{font-family:inherit}
   background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:9px;padding:11px 14px;
   font-size:14px;font-weight:600;cursor:pointer;margin-bottom:14px;transition:box-shadow .15s}
 .gbtn:hover{box-shadow:0 1px 6px rgba(0,0,0,.18)}
+.rolerow{display:flex;gap:8px}
+.rolebtn{flex:1;font-size:15px;padding:11px 10px;border-radius:10px;cursor:pointer;border:1px solid var(--line,#2a2a2a);background:transparent;color:inherit;font-weight:650}
+.rolebtn:hover{border-color:var(--accent,#ffb020)}
+.rolebtn.on{border-color:var(--accent,#ffb020);background:rgba(255,176,32,.12);color:var(--accent,#ffb020)}
+.namebtn{display:block;width:100%;text-align:left;padding:11px 13px;margin-bottom:7px;border-radius:10px;cursor:pointer;font-size:15px;border:1px solid var(--line,#2a2a2a);background:transparent;color:inherit;font-weight:600}
+.namebtn:hover{border-color:var(--accent,#ffb020);background:rgba(255,176,32,.10)}
 .gor{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:11.5px;margin:6px 0 16px;
   text-transform:uppercase;letter-spacing:.6px}
 .gor:before,.gor:after{content:"";flex:1;height:1px;background:var(--line)}
@@ -1001,14 +1007,17 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
              enrols and opens the class. Nobody states which they are —
              the code already knows, and the server has always read it. -->
         <form id="joinForm" style="display:none">
-          <div class="field"><label>Email</label>
-            <input type="email" id="jn_email" required autocomplete="email"/></div>
-          <div class="field"><label>Password</label>
-            <input type="password" id="jn_pw" required autocomplete="current-password"/></div>
+          <div class="field"><label>I am a</label>
+            <div class="rolerow">
+              <button type="button" class="rolebtn on" data-jrole="student">Student</button>
+              <button type="button" class="rolebtn" data-jrole="teacher">Teacher</button>
+            </div>
+          </div>
           <div class="field"><label>Your code</label>
-            <input type="text" id="jn_code" required placeholder="VP-7K3Q or T-4M2X" autocapitalize="characters"/>
-            <small style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">From your school or your teacher. It takes you to the right place on its own.</small></div>
-          <button class="btn wide" type="submit" id="jn_btn">Join &rarr;</button>
+            <input type="text" id="jn_code" required placeholder="VP-7K3Q" autocapitalize="characters"/>
+            <small id="jn_hint" style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">The code your teacher gave you. You will tap your name next — there is no password.</small></div>
+          <button class="btn wide" type="submit" id="jn_btn">Continue &rarr;</button>
+          <div id="jn_names" style="margin-top:12px"></div>
         </form>
 
         <form id="loginForm">
@@ -1589,40 +1598,109 @@ $("#tabLogin").onclick=()=>gateTab("login");
 $("#tabSignup").onclick=()=>gateTab("signup");
 $("#tabJoin").onclick=()=>gateTab("join");
 
-/* Sign in, redeem the code, then go where the code says.
-   Joining needs an account, so this signs in first. If the code is
-   wrong the sign-in still stands — the person is in, and is told
-   what was wrong with the code rather than being thrown out. */
+/* A code, and which kind of person you are.
+ *
+ * A child at a classroom board should not be typing a password, and they do
+ * not have to: a class code returns the free names on that register, they tap
+ * theirs, and a real account is created behind it with a synthetic email and a
+ * random password hash nobody holds. Nothing to phish, nothing to forget.
+ *
+ * A teacher code is a different thing and is deliberately not passwordless. A
+ * class code claims ONE name off ONE register and that name is then taken. A
+ * teacher code grants rights over a school's classes and stays valid for
+ * everybody the school hands it to — so anyone who learned it would become a
+ * teacher of that school, seeing registers, marks and submitted work. It
+ * carries across to account creation instead.
+ */
+let JOIN_ROLE="student";
+function setJoinRole(role){
+  JOIN_ROLE = role==="teacher" ? "teacher" : "student";
+  document.querySelectorAll("[data-jrole]").forEach(b=>
+    b.classList.toggle("on", b.dataset.jrole===JOIN_ROLE));
+  const teacher = JOIN_ROLE==="teacher";
+  const code=$("#jn_code");
+  if(code) code.placeholder = teacher ? "T-4M2X or HEAD-9QRS" : "VP-7K3Q";
+  const hint=$("#jn_hint");
+  if(hint) hint.textContent = teacher
+    ? "Your subject or head-teacher code. A teacher account needs a password, "+
+      "because this code opens a whole school's registers and marks."
+    : "The code your teacher gave you. You will tap your name next — there is "+
+      "no password.";
+  $("#jn_names").innerHTML="";
+  authMsg("");
+}
+document.addEventListener("click", e=>{
+  const b=e.target.closest && e.target.closest("[data-jrole]");
+  if(b) setJoinRole(b.dataset.jrole);
+});
+
 $("#joinForm").onsubmit=async e=>{
   e.preventDefault();
-  const b=$("#jn_btn"); b.disabled=true; b.textContent="Joining…";
-  authMsg("");
-  try{
-    USER=await api.post("/api/auth/login",
-      {email:$("#jn_email").value,password:$("#jn_pw").value});
-    AUTHED=true;
-    let landed=null;
-    try{
-      landed=await api.post("/api/class/join",
-        {code:$("#jn_code").value.trim()});
-    }catch(codeErr){
-      await boot();
-      toast(codeErr.message||"That code was not recognised.");
-      b.disabled=false; b.textContent="Join →";
-      return;
-    }
-    await boot();
-    /* A subject code opens the teaching side, a class code the
-       class. This is the whole point of the code being the thing
-       you enter rather than a box you tick. */
-    const role=String((landed&&landed.role)||"");
-    S.view={page: role.indexOf("teacher")>-1 ? "teacher" : "class"};
-    render();
-    if(landed&&landed.subject) toast("You now teach "+landed.subject+
-      (landed["class"]?" in "+landed["class"]:"")+".");
-    else if(landed&&landed["class"]) toast("Joined "+landed["class"]+".");
-  }catch(err){ authMsg(err.message); }
-  b.disabled=false; b.textContent="Join →";
+  const code=$("#jn_code").value.trim();
+  if(code.length<3){ authMsg("Type the code you were given."); return; }
+  const b=$("#jn_btn"); b.disabled=true; authMsg("");
+
+  /* A teacher code needs an account behind it. Carry the code over rather
+     than making somebody type it twice, and say why the form changed. */
+  if(JOIN_ROLE==="teacher"){
+    b.disabled=false;
+    gateTab("signup");
+    const f=$("#su_code"); if(f) f.value=code;
+    authMsg("A teacher account needs a password — this code opens a school's "+
+            "registers and marks. Your details below, and the code is "+
+            "already filled in.");
+    const n=$("#su_name"); if(n) n.focus();
+    return;
+  }
+
+  b.textContent="Looking…";
+  let d;
+  try{ d=await api.post("/api/craxlearn/code",{code:code}); }
+  catch(err){ authMsg(err.message); b.disabled=false;
+              b.textContent="Continue →"; return; }
+  b.disabled=false; b.textContent="Continue →";
+
+  if(!d.roster_ready){
+    authMsg("Your teacher has not put the class register in yet. Ask them to "+
+            "add the names, then try again.");
+    return;
+  }
+  if(!(d.names||[]).length){
+    authMsg("Everybody on this register has already signed in. If none of "+
+            "them is you, ask your teacher to add your name.");
+    return;
+  }
+
+  $("#jn_names").innerHTML =
+    `<div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">`+
+    `${esc(d.class_name)}${d.school?" · "+esc(d.school):""} — tap your name.`+
+    `</div>`+
+    d.names.map(n=>`<button type="button" class="namebtn" `+
+      `data-claim="${n.id}">${esc(n.name)}</button>`).join("");
+
+  $("#jn_names").querySelectorAll("[data-claim]").forEach(btn=>{
+    btn.onclick=async()=>{
+      authMsg("Signing you in…");
+      try{
+        await api.post("/api/craxlearn/claim",
+                       {code:code, roster_id:+btn.dataset.claim});
+        /* Claiming sets the session cookie but returns only a name, and the
+           app needs the whole user — boot() reads USER.name at the end and
+           throws on null, which left somebody signed in with half a page
+           built and no greeting. This is the same restore the page does on
+           load, so a claimed account arrives in exactly the state a
+           password sign-in would. */
+        USER=await api.get("/api/auth/me");
+        AUTHED=true;
+        await boot();
+      }catch(err){
+        authMsg(err.message);
+        /* Somebody took that name while this list was on screen. Ask again
+           rather than leaving a dead button under their finger. */
+        if(err.status===409) $("#joinForm").dispatchEvent(new Event("submit"));
+      }
+    };
+  });
 };
 
 $("#loginForm").onsubmit=async e=>{
