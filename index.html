@@ -3378,6 +3378,44 @@ async function sbPdfLesson(file){
  * It goes to study material rather than to assignments: nobody has to hand
  * this in, and it should still be there next term.
  */
+/* The class a teacher is standing in front of, remembered.
+ *
+ * Filing a lesson asked which class and which subject every single time, of a
+ * teacher who has been teaching 9-A Physics for the last forty minutes. So the
+ * choice is remembered — in the same per-user notes everything else uses, so
+ * it survives the board being restarted and follows them to another room.
+ *
+ * The subject is not remembered separately: it is looked up from the class,
+ * because the server already knows which subjects this teacher holds there.
+ * Remembering it would be a second copy of a fact that can go stale.
+ */
+function sbClassKey(){ return "boardclass"; }
+
+function sbRememberedClass(){
+  return +((S.notes||{})[sbClassKey()] || 0);
+}
+
+function sbRememberClass(cid){
+  S.notes[sbClassKey()] = String(cid || "");
+  api.post("/api/note", {key:sbClassKey(), value:String(cid || "")})
+     .catch(()=>{});
+}
+
+/* Which subject this teacher takes in that class. Asked of the server rather
+   than stored, so a timetable change is reflected without anybody clearing
+   anything. */
+async function sbMySubject(cid){
+  try{
+    const d = await api.get("/api/class/" + cid + "/subjects");
+    const mine = (d.subjects || []).filter(x =>
+      x.teacher_id && USER && x.teacher_id === USER.id);
+    if(mine.length === 1) return mine[0].subject;
+    /* Two subjects in one class is a real timetable, not an error — but it is
+       the one case the board cannot decide, so it asks. */
+    return "";
+  }catch(e){ return ""; }
+}
+
 async function sbFileToClass(){
   if(SB.busy){ toast("Still building that lesson — one moment."); return; }
   const l=SB.lesson;
@@ -3393,6 +3431,26 @@ async function sbFileToClass(){
     return;
   }
 
+  /* If they have told us once which class they are in, and they take exactly
+     one subject there, file it and say so. Asking a teacher mid-lesson to
+     retype what the system already knows is the whole complaint. */
+  const remembered = sbRememberedClass();
+  if(remembered && classes.some(c=>+c.id === remembered)){
+    const subject = await sbMySubject(remembered);
+    if(subject){
+      const cls = classes.find(c=>+c.id === remembered) || {};
+      try{
+        await api.post("/api/craxlearn/board/save", {
+          class_id: remembered,
+          topic: (SB.topic||l.title||"").slice(0,200),
+          title: (l.title||SB.topic||"").slice(0,240),
+          subject: subject, note: "", lesson: l});
+      }catch(e){ toast(e.message); return; }
+      toast("Saved to " + (cls.name||"your class") + " · " + subject + ".");
+      return;
+    }
+  }
+
   const w=document.createElement("div"); w.id="fileWrap";
   w.style.cssText="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);"+
     "display:flex;align-items:center;justify-content:center;padding:16px";
@@ -3405,7 +3463,8 @@ async function sbFileToClass(){
       homework. Nobody hands it in, and it is still there next term.</div>
     <div class="field"><label>Class</label>
       <select id="flClass" class="ask-input">
-        ${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}
+        ${classes.map(c=>`<option value="${c.id}" ${
+          +c.id===sbRememberedClass()?"selected":""}>${esc(c.name)}</option>`).join("")}
       </select></div>
     <div class="field"><label>Subject</label>
       <input id="flSubject" class="ask-input" placeholder="e.g. Science"/></div>
@@ -3439,7 +3498,11 @@ async function sbFileGo(){
       lesson:l});
   }catch(e){ toast(e.message); return; }
   sbFileClose();
-  toast("Saved to the class's study material.");
+  /* Remembered from here on, so the next lesson in the same room files
+     without asking. */
+  sbRememberClass(cid);
+  toast("Saved to the class's study material. Next time it will go straight "
+        "there.");
 }
 
 function sbKeep(){
