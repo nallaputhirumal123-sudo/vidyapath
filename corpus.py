@@ -164,6 +164,18 @@ _NOT_A_TITLE = re.compile(
     r"answers?|exercises?|activity|figure|table|notes?)[\s\d.:-]*$", re.I)
 
 
+_LEADING_NUMBER = re.compile(r"^\d+(?:\.\d+)?[\s.:)-]+")
+# Prepositions and conjunctions only. "a", "an" and "the" were here too and
+# made this greedy: "6.1 Perimeter" ran on into "A closed figure is…", because
+# an article is how an ordinary sentence starts at least as often as it is how
+# a heading continues.
+_CONTINUES = re.compile(
+    r"^(?:to|of|and|or|in|for|from|with|through|between|into)\b", re.I)
+_UNFINISHED = re.compile(
+    r"\b(?:and|or|of|the|a|an|in|to|for|from|with|through|between|into)$",
+    re.I)
+
+
 def title_of(text, fallback=""):
     """The chapter's own heading.
 
@@ -172,22 +184,60 @@ def title_of(text, fallback=""):
     above the title. Every chapter was then indexed under the same name, so a
     search could find the right passage and could not tell you which chapter
     it came from.
+
+    Three more faults showed up in a real run of twenty chapters: "7
+    Temperature and" and "8 A Journey through" were cut off mid-heading, "3
+    Mindful Eating: A Path" carried its chapter number, and "6.1 Perimeter"
+    was a section heading rather than the chapter. NCERT's newer books set a
+    heading across two or three lines, so taking one line takes a fragment —
+    and the title is indexed as searchable text, so a fragment is a worse
+    search and not only a worse label.
     """
-    for ln in (text or "").splitlines()[:60]:
-        ln = ln.strip()
-        if not (4 <= len(ln) <= 80):
+    lines = [ln.strip() for ln in (text or "").splitlines()[:60]]
+    for i, ln in enumerate(lines):
+        if not (3 <= len(ln) <= 80) or _NOT_A_TITLE.match(ln):
             continue
-        if _NOT_A_TITLE.match(ln):
+        # "retpahC" — one chapter set the word Chapter as rotated sidebar
+        # text, and it comes out of the PDF backwards. It is furniture either
+        # way round, and a chapter titled "retpahC" is worse than one titled
+        # nothing because it looks like content.
+        if _NOT_A_TITLE.match(ln[::-1]):
             continue
-        if ln[0].isdigit() and len(ln) < 12:      # a bare chapter number
+        # "3 Mindful Eating" and "6.1 Perimeter": the number is which chapter
+        # it is, not what it is called.
+        head = _LEADING_NUMBER.sub("", ln).strip()
+        if len(head) < 3 or sum(c.isalpha() for c in head) < 3:
             continue
-        letters = [c for c in ln if c.isalpha()]
-        if len(letters) < 4:
+        if head.lower() == head:          # prose, not a heading
             continue
-        # A heading is Title Case or CAPITALS; a sentence of prose is not.
-        if ln.lower() == ln:
-            continue
-        return ln.strip(" .:-")
+        # A heading ending on a preposition or an article is half a heading,
+        # and so is a very short one. Take the next line while that is true.
+        parts = [head]
+        for nxt in lines[i + 1:i + 4]:
+            # The joined title so far, not the last line appended to it.
+            # Checking the last line alone kept "PATTERNS IN MATHEMATICS"
+            # going, because "MATHEMATICS" is short — and swallowed the first
+            # sentence of the chapter.
+            tail = " ".join(parts).rstrip()
+            if not nxt or len(nxt) > 60 or _NOT_A_TITLE.match(nxt):
+                break
+            # A line beginning "to", "of", "and" is the rest of the heading
+            # above it: "Mindful Eating: A Path" / "to a Healthy Body".
+            # No "the heading looks short, take another line" rule. It was
+            # here and it swallowed "6.1 Perimeter" into "Perimeter A closed
+            # figure is…", because a short heading is usually just a short
+            # heading. Where a heading really is cut off it says so — it ends
+            # on a preposition, or the next line opens with one.
+            continues = _CONTINUES.match(nxt)
+            if not (continues or tail.endswith((",", ":", "-", "—"))
+                    or _UNFINISHED.search(tail)):
+                break
+            if nxt.lower() == nxt and not continues:
+                break
+            parts.append(nxt)
+        title = re.sub(r"\s+", " ", " ".join(parts)).strip(" .:-—")
+        if len(title) >= 3:
+            return title[:90]
     return fallback
 
 
