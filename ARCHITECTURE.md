@@ -19,6 +19,7 @@ A job board and learning platform. Two products in one codebase:
 | `main.py` | The entire backend. ~7,000 lines, FastAPI + SQLAlchemy. |
 | `dalia.py` | Who the tutor is: the grade-band adapter, the system prompt, and the allowlist of panels she may open. No model call, no network. |
 | `craxlearn.py` | Which pool a learner's questions live in, which half of the product an account may reach, and the registry of open sources. Policy, not plumbing. |
+| `craxlearn.webmanifest`, `craxlearn-sw.js` | What makes Craxlearn installable on a smart board. The worker caches the shell only — never `/api/`, because a stale mark or fee balance is worse than none. |
 | `craxlearn.html` | **Craxlearn**: the institution app. A separate page for schools, colleges and coaching centres, sized for the display at the front of a classroom. No job-board code in it at all. Served at `/craxlearn`. |
 | `index.html` | The learner/candidate app. One page, ~300KB, inline CSS and JS. |
 | `admin.html` | Admin panel. Separate page, same pattern. |
@@ -64,6 +65,13 @@ Six suites, all runnable directly, all must pass before committing:
   and that every source of answer material is an open one
 - `test_craxlearn_only.py` — what an institution and an under-18 cannot
   reach, asserted at the API rather than in the sidebar
+- `test_classwork.py` — board → assignment → submission → review, end to end
+- `test_office.py` — attendance, fees and notices, and the staff who may not
+  touch them
+- `test_roll.py` — which learners a teacher may see, and the calculator's
+  allowlist
+- `test_classcode.py` — code-only login, materials, and the account reset
+  (runs against its own database)
 
 They run against the local SQLite database and create real rows. That is
 deliberate: matching quality is only meaningful against real job data.
@@ -83,6 +91,15 @@ exactly this reason. Prefer Python scripts over heredocs for edits.
 
 **One inline script per HTML file.** A syntax error anywhere in `index.html`'s
 script takes down the whole app, not one feature. There is no module boundary.
+
+**`onupdate=now` fires on every write, including yours.** `Submission.updated_at`
+means "when the student last handed in", and a teacher marking the work is a
+write to that row — so it moved to the marking time, and "waiting again"
+(computed from `updated_at > reviewed_at`) fired the instant anything was
+reviewed. Assigning the old value back does NOT fix it: an identical value is
+not a change, so the column stays out of the UPDATE and `onupdate` applies
+anyway. `flag_modified(sub, "updated_at")` is what forces it into the SET
+clause. Watch for this on any column with `onupdate`.
 
 **Craxlearn is a separate page, not a mode.** `craxlearn.html` is what a
 school buys: a URL to put on a classroom board and hand to a fourteen-year-old.
@@ -104,6 +121,38 @@ else — see `craxlearn.age_ok`. Making silence mean "child" everywhere was
 tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
+
+**Craxlearn's spaces: `main()` is not `#main`.** Up to four tools open at
+once, and the board modules ask for `#main` by name — so `window.$` answers
+that with whichever space is being drawn into. Two traps came out of it and
+both are fixed: an inline `flex` in `paintPanes` beat the 2x2 grid rule and
+laid four spaces out as four unreadable columns, and an async page function
+resolved after `DRAW` had moved on and wrote its result into the wrong space.
+Renders are now awaited one at a time so `DRAW` stays put, and a tool already
+open elsewhere is not offered — every tool names its fields by id, so two
+copies would write into the same boxes.
+
+**External URLs are verified before a class sees them.** PhET sim ids are
+candidates in `craxlearn.PHET_SIMS`, and `/api/craxlearn/phet` fetches each
+one before offering it. An id we have wrong simply never appears. Never
+hardcode an external URL into a lesson surface without a check — the cost of
+a wrong one is a 404 on the board mid-lesson with thirty people watching.
+
+**Who may see a learner is one function.** `_may_see_learner` — the rule is
+the CLASSROOM, not the school. Everything showing a learner's detail goes
+through it, written once, because two copies would drift until one let
+somebody through. A subject teacher sees the rooms they hold a subject in; a
+head and the office see their school. Lookup by student id searches only
+inside that set and answers 404 for a code that exists elsewhere: "exists but
+not yours" is still a fact about somebody's child.
+
+**Three school roles, and the split is deliberate.** `teacher` is the class
+and nothing else; `head` runs the teaching and creates staff profiles;
+`schooladmin` is the office and owns attendance, fees and notices. A head
+cannot keep the register and a teacher cannot write off a fee — schools have
+separated those duties for a century and copying it is cheaper than explaining
+why we did not. A head can *appoint* the office but not appoint themselves to
+it: `/api/head/staff` refuses to change the requesting account's own role.
 
 **The cache key IS the question.** `AskCache` is keyed on the normalised
 question text and serves one person's stored answer to the next person who

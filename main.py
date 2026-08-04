@@ -40,6 +40,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import (declarative_base, sessionmaker, Session,
                             relationship, defer)
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.exc import IntegrityError
 
 # --------------------------------------------------------------------------
@@ -230,6 +231,15 @@ class User(Base):
     # and "we never asked" is not proof. Read it through craxlearn.adult(),
     # never by comparing years here.
     dob = Column(Date)
+    # How this account signs in. "" is an ordinary email/Google account and
+    # gets the whole product. "classcode" is a learner who typed a class
+    # code and nothing else: no email, no password, no way to reach the job
+    # half of the site at any age, because there is no adult behind it who
+    # agreed to anything.
+    #
+    # Nullable, and NULL means ordinary — every account that existed before
+    # this column was an ordinary one.
+    kind = Column(String(16), default="")
     # Employer access is applied for and approved, never self-granted. Anyone
     # who could tick a box at signup could see candidate profiles, and the
     # whole promise to candidates rests on who is on the other side.
@@ -727,6 +737,11 @@ class Assignment(Base):
     pdf_data = Column(Text, default="")            # base64 PDF of uploaded pages
     pdf_name = Column(String(160), default="")
     due_date = Column(String(20), default="")      # ISO date string, optional
+    # The board topic this was set from, when it was set from the board.
+    # Kept so a student who is stuck can have the same lesson taught to them
+    # again instead of only being told to do it. Nullable: assignments typed
+    # by hand have no topic and that is not a gap.
+    board_topic = Column(String(200), default="")
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -740,9 +755,159 @@ class Submission(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                      nullable=False, index=True)
     response = Column(Text, default="")
+    # What the teacher said back, and when. Separate from the chat thread on
+    # purpose: a thread is a conversation and this is the verdict, and a
+    # student scrolling a conversation to find out whether their work was
+    # accepted has been given the wrong shape.
+    #
+    # reviewed_at is what "waiting for me" is computed from, so it is the
+    # one that must be set even when there is nothing to say. All nullable:
+    # every submission that existed before this column did is unreviewed,
+    # which is exactly what NULL should mean here.
+    feedback = Column(Text, default="")
+    reviewed_at = Column(DateTime(timezone=True))
+    reviewed_by = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=now)
     updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
     __table_args__ = (UniqueConstraint("assignment_id", "user_id", name="uq_sub_user"),)
+
+
+class RosterName(Base):
+    """One name on a class register, typed by the teacher before the lesson.
+
+    This is what makes a code-only login work. A learner types the class
+    code and picks their own name off the list — no email, no password,
+    nothing to remember and nothing to lose. The teacher already knows who
+    is in the room, so asking them once is cheaper than asking thirty
+    children to invent credentials.
+
+    `claimed_by` is what stops two people being the same pupil. Once a name
+    is taken it disappears from the list, and the account behind it is the
+    only one that name will ever sign in as.
+    """
+    __tablename__ = "roster_names"
+    id = Column(Integer, primary_key=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    # The school's own identifier for this child, typed by the teacher next
+    # to the name. Optional: a class of thirty first-names is fine without
+    # one, and a school with two Asha Raos is not. It is what a teacher
+    # types to look somebody up, because it is what is already written on
+    # everything else in the building.
+    student_code = Column(String(40), default="", index=True)
+    claimed_by = Column(Integer, default=0, index=True)   # User.id, 0 = free
+    claimed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=now)
+
+
+class SchoolNotice(Base):
+    """Something the school office wants everybody to know.
+
+    Fee deadlines, closures, exam timetables, the things a paper letter used
+    to carry home in a bag. Written by the office, read by every learner in
+    the school — not per class, because a school closure is not a class
+    matter and making the office post it thirty times is how it gets posted
+    twice and missed everywhere else.
+    """
+    __tablename__ = "school_notices"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    author_id = Column(Integer, default=0)
+    title = Column(String(240), nullable=False)
+    body = Column(Text, default="")
+    # Shown first and in a different colour. For a closure or a deadline,
+    # not for the newsletter — a page where everything is urgent has no
+    # urgent on it.
+    urgent = Column(Boolean, default=False)
+    starts_on = Column(String(20), default="")     # ISO date, optional
+    ends_on = Column(String(20), default="")       # ISO date, optional
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
+class Attendance(Base):
+    """One learner, one day, present or not.
+
+    A row per day rather than a running percentage, because a percentage
+    cannot be corrected. "Marked absent on the 14th, and it was wrong" is
+    the single most common thing a parent rings about, and a stored total
+    has nothing to correct.
+
+    The percentage the student sees is computed from these rows every time.
+    """
+    __tablename__ = "attendance"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    class_id = Column(Integer, default=0, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    day = Column(String(20), nullable=False, index=True)   # ISO date
+    present = Column(Boolean, default=True)
+    note = Column(String(200), default="")     # "late", "medical", …
+    marked_by = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=now)
+    __table_args__ = (UniqueConstraint("user_id", "day", name="uq_att_day"),)
+
+
+class FeeItem(Base):
+    """Something a learner owes, or has paid.
+
+    Amounts are integers in the smallest unit — paise — for the same reason
+    the plan prices are: a fee balance that is out by a rounding error is a
+    fee balance somebody has to reconcile by hand.
+
+    Nothing here takes a payment. It records what the office already knows,
+    so a learner can see their balance without ringing up. The office marks
+    it paid when the money arrives, wherever it arrived.
+    """
+    __tablename__ = "fee_items"
+    id = Column(Integer, primary_key=True)
+    school_id = Column(Integer, default=0, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    title = Column(String(240), nullable=False)     # "Term 2 tuition"
+    note = Column(Text, default="")
+    amount = Column(Integer, default=0)             # paise, what is owed
+    paid = Column(Integer, default=0)               # paise, what has arrived
+    currency = Column(String(8), default="INR")
+    due_on = Column(String(20), default="")         # ISO date, optional
+    # Something the learner has to buy rather than pay the school for — a
+    # workbook, a lab coat. Same row, because "what do I still have to sort
+    # out" is one question and answering it from two lists is how one half
+    # gets forgotten.
+    kind = Column(String(12), default="fee")        # fee | buy
+    marked_by = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+    paid_at = Column(DateTime(timezone=True))
+
+
+class Material(Base):
+    """Reference material a teacher puts in front of one class.
+
+    A link, or a file the teacher uploaded. Files are stored base64 in the
+    row, the same way an assignment's page scans already are — one fewer
+    moving part than object storage, and the sizes involved are a slide deck
+    rather than a video.
+
+    Deliberately not attached to an assignment. Material outlives the piece
+    of work it was first needed for: the textbook chapter is still the
+    textbook chapter next term, and filing it under one homework is how it
+    becomes unfindable.
+    """
+    __tablename__ = "materials"
+    id = Column(Integer, primary_key=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    teacher_id = Column(Integer, default=0)
+    subject = Column(String(80), default="")
+    title = Column(String(240), nullable=False)
+    note = Column(Text, default="")           # why they should read it
+    url = Column(Text, default="")            # a link, when it is a link
+    file_data = Column(Text, default="")      # base64, when it is a file
+    file_name = Column(String(160), default="")
+    mime = Column(String(80), default="")
+    size = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
 class AssignmentMessage(Base):
@@ -917,7 +1082,15 @@ def send_email(to: str, subject: str, body: str):
         print(f"Email to {to} failed: {type(e).__name__}: {e}")
 
 
-MAX_DEVICES = int(env("MAX_DEVICES", "2") or 2)
+# One login per account, and signing in anywhere else ends the first one.
+#
+# Was two — a phone and a laptop is ordinary use — but a class account is not
+# an ordinary account. Thirty children with one code between them is exactly
+# the sharing the limit exists to stop, and two devices makes it twice as
+# easy. One means the second person to sign in takes the account and the
+# first is told plainly why they were dropped, which is the behaviour a
+# teacher can explain in a sentence.
+MAX_DEVICES = int(env("MAX_DEVICES", "1") or 1)
 
 
 def _sessions(user) -> list:
@@ -973,9 +1146,13 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if (user.session_token and not user.is_admin
             and payload.get("st") not in _sessions(user)):
         raise HTTPException(
-            401, f"Signed out because this account is in use on more than "
-                 f"{MAX_DEVICES} devices. Craxle allows {MAX_DEVICES} at a "
-                 f"time — sign in again here to use this one.")
+            401, ("Signed out because this account was used to sign in "
+                  "somewhere else. One device at a time — sign in again "
+                  "here to use this one."
+                  if MAX_DEVICES == 1 else
+                  f"Signed out because this account is in use on more than "
+                  f"{MAX_DEVICES} devices. Craxle allows {MAX_DEVICES} at a "
+                  f"time — sign in again here to use this one."))
     # touch last_seen at most once a minute
     try:
         last = user.last_seen
@@ -1106,6 +1283,17 @@ def _learning_only(db, user):
                            f"board is not part of it."}
     if user is None:
         return {"only": False, "why": "", "message": ""}
+
+    # A class-code account is closed to the job half permanently, before
+    # anything else is considered. There is no adult behind it who agreed to
+    # anything, no email to reach them at, and no date of birth that could
+    # ever open it — so this is checked before the school's own setting,
+    # which cannot override it either.
+    if (getattr(user, "kind", "") or "") == "classcode":
+        return {"only": True, "why": "classcode",
+                "message": f"This is a class login. {_cl_boot.NAME} is the "
+                           f"whole of it — there is no job board, and "
+                           f"nothing here to buy."}
 
     scope = _scope_of(db, user)
     if _cl_boot.is_institution(scope):
@@ -2005,11 +2193,55 @@ def head_user(user: User = Depends(current_user),
     return user
 
 
+# The school office. A third role beside head and teacher, and the split is
+# the point rather than an implementation detail:
+#
+#   teacher       the class and nothing else — assignments, material, marking
+#   head          runs the teaching: creates classes, subjects, and profiles
+#   schooladmin   runs the school: attendance, fees, notices
+#
+# A teacher marking a child absent, or a head quietly writing off a fee, is
+# the kind of thing a school has separated duties for since long before any
+# of this was software. Copying that separation is cheaper than explaining
+# why we did not.
+#
+# The head creates the profiles, including this one, because somebody has to
+# and it is the head who knows who works there.
+SCHOOL_ROLES = ("teacher", "head", "schooladmin")
+
+
+def is_school_admin(user: User, db: Session) -> bool:
+    t = teacher_row(user, db)
+    return user.is_admin or (t is not None and t.role == "schooladmin")
+
+
+def school_admin_user(user: User = Depends(current_user),
+                      db: Session = Depends(get_db)) -> User:
+    """Attendance, fees and notices. Not the head, and not a teacher.
+
+    Platform admins pass because they have to be able to fix a school's data
+    when it goes wrong, and a support call that cannot be answered without
+    asking the customer to do it themselves is not support.
+    """
+    if not is_school_admin(user, db):
+        raise HTTPException(
+            403, "School office access required. Attendance, fees and school "
+                 "notices are kept by the office, not by teaching staff.")
+    return user
+
+
+def _school_of(user: User, db: Session):
+    """Which school this member of staff belongs to, and 0 for a platform admin."""
+    t = teacher_row(user, db)
+    return (t.school_id if t else 0) or 0
+
+
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = teacher_row(user, db)
     role = "admin" if user.is_admin else (t.role if t else "student")
     gate = _learning_only(db, user)
+    _ = SCHOOL_ROLES
     return {
         "id": user.id, "name": user.name, "email": user.email,
         # Carried here so the page can show the Pro badge on first paint.
@@ -2118,6 +2350,7 @@ def _asg_json(a, done=None):
          "body": a.body or "", "due_date": a.due_date or "",
          "has_pdf": bool(a.pdf_data), "pdf_name": a.pdf_name or "",
          "teacher_id": a.teacher_id or 0,
+         "board_topic": getattr(a, "board_topic", "") or "",
          "kind": a.kind, "lesson_slug": a.lesson_slug or ""}
     if done is not None:
         d["done"] = done
@@ -2456,8 +2689,9 @@ def my_enrolled_classes(user: User = Depends(current_user),
     """Everything the student needs for the weekly table across all teachers."""
     memberships = db.query(ClassMember, Klass).join(Klass, Klass.id == ClassMember.class_id) \
         .filter(ClassMember.user_id == user.id).all()
-    my_subs = {r[0] for r in db.query(Submission.assignment_id)
-               .filter(Submission.user_id == user.id).all()}
+    mine = {r.assignment_id: r for r in db.query(Submission)
+            .filter(Submission.user_id == user.id).all()}
+    my_subs = set(mine)
     classes = []
     for cm, k in memberships:
         teacher = db.get(User, k.teacher_id)
@@ -2469,7 +2703,11 @@ def my_enrolled_classes(user: User = Depends(current_user),
             "id": k.id, "name": k.name, "school": k.school,
             "teacher": teacher.name if teacher else "",
             "schedule": [{"day": s.day, "text": s.text} for s in sched],
-            "assignments": [{**_asg_json(a, a.id in my_subs)} for a in assignments],
+            "assignments": [
+                {**_asg_json(a, a.id in my_subs),
+                 "reviewed": bool(mine[a.id].reviewed_at) if a.id in mine else False,
+                 "feedback": (mine[a.id].feedback or "") if a.id in mine else ""}
+                for a in assignments],
         })
     return {"classes": classes}
 
@@ -2492,7 +2730,13 @@ def assignment_detail(aid: int, user: User = Depends(current_user),
             "class_name": k.name if k else "",
             "teacher_name": teacher.name if teacher else "",
             "my_response": sub.response if sub else "",
-            "submitted_at": sub.updated_at.isoformat() if sub and sub.updated_at else None}
+            "submitted_at": sub.updated_at.isoformat() if sub and sub.updated_at else None,
+            # The verdict, where there is one. A student who has submitted
+            # and heard nothing should be able to see that plainly rather
+            # than reading it as silence from a teacher.
+            "feedback": (sub.feedback or "") if sub else "",
+            "reviewed_at": (sub.reviewed_at.isoformat()
+                            if sub and sub.reviewed_at else None)}
 
 
 @app.post("/api/assignment/{aid}/submit")
@@ -2578,11 +2822,17 @@ def assignment_submissions(aid: int, user: User = Depends(teacher_user),
     students = []
     for cm, u in members:
         s = subs.get(u.id)
+        fresh = bool(s and s.reviewed_at and s.updated_at
+                     and s.updated_at > s.reviewed_at)
         students.append({"id": u.id, "name": u.name,
                          "response": s.response if s else "",
                          "submitted": bool(s),
+                         "feedback": (s.feedback or "") if s else "",
+                         "reviewed": bool(s and s.reviewed_at) and not fresh,
+                         "resubmitted": fresh,
                          "at": s.updated_at.isoformat() if s and s.updated_at else None})
-    students.sort(key=lambda r: (not r["submitted"], r["name"].lower()))
+    students.sort(key=lambda r: (not r["submitted"], r["reviewed"],
+                                 r["name"].lower()))
     return {"id": a.id, "subject": a.subject, "title": a.title, "body": a.body,
             "students": students}
 
@@ -2905,6 +3155,97 @@ def admin_delete_school(sid: int, user: User = Depends(admin_user),
     return {"ok": True}
 
 
+class ResetUsersIn(BaseModel):
+    # Typed out in full, by hand, every time. A confirm flag is a checkbox
+    # somebody ticks without reading; a sentence they have to type is a
+    # sentence they have to read first.
+    confirm: str = Field(default="", max_length=80)
+    keep_schools: bool = True
+
+
+RESET_PHRASE = "DELETE ALL NON ADMIN ACCOUNTS"
+
+
+@app.get("/api/admin/reset-users/preview")
+def admin_reset_preview(user: User = Depends(admin_user),
+                        db: Session = Depends(get_db)):
+    """What deleting every non-admin account would actually destroy.
+
+    Shown before, never after. The counts that matter are the ones somebody
+    would regret: paid subscriptions, submitted work, saved resumes. A
+    number on the screen is the only thing standing between "start fresh"
+    and finding out on Monday what start fresh meant.
+    """
+    q = db.query(User).filter(User.is_admin == False)          # noqa: E712
+    ids = [r[0] for r in q.with_entities(User.id).all()]
+    paid = q.filter(User.plan != "free").count()
+    return {
+        "phrase": RESET_PHRASE,
+        "users": len(ids),
+        "paying": paid,
+        "submissions": (db.query(func.count(Submission.id))
+                        .filter(Submission.user_id.in_(ids)).scalar() or 0
+                        if ids else 0),
+        "resumes": (db.query(func.count(Note.id))
+                    .filter(Note.user_id.in_(ids),
+                            Note.k.like("resume%")).scalar() or 0
+                    if ids else 0),
+        "teachers": db.query(func.count(TeacherAccess.id)).scalar() or 0,
+        "warning": ("This cannot be undone. Paying subscribers keep being "
+                    "billed by the payment provider after their account is "
+                    "gone — cancel those first."),
+    }
+
+
+@app.post("/api/admin/reset-users")
+def admin_reset_users(body: ResetUsersIn, user: User = Depends(admin_user),
+                      db: Session = Depends(get_db)):
+    """Delete every non-admin account so everybody signs up again.
+
+    Guarded three ways, because it is the most destructive thing this
+    codebase can do and it is one request away from being done by accident:
+    admin only, the exact phrase typed out, and a preview endpoint that
+    exists to be read first.
+
+    Schools, classes and rosters are kept by default. Deleting those too
+    would take the join codes with them, and then nobody can come back in —
+    a "start fresh" that also destroys the way back is not a reset, it is
+    an outage with extra steps.
+    """
+    if body.confirm.strip().upper() != RESET_PHRASE:
+        raise HTTPException(
+            400, f'To confirm, send confirm="{RESET_PHRASE}" exactly. '
+                 f"Read /api/admin/reset-users/preview first.")
+
+    ids = [r[0] for r in db.query(User.id)
+           .filter(User.is_admin == False).all()]                # noqa: E712
+    if not ids:
+        return {"ok": True, "deleted": 0}
+
+    # Rosters first, and by hand: claimed_by is a plain integer, not a
+    # foreign key, so nothing would cascade and every name would stay
+    # claimed by an account that no longer exists — a register where
+    # nobody can sign in and the teacher cannot see why.
+    freed = (db.query(RosterName).filter(RosterName.claimed_by.in_(ids))
+               .update({RosterName.claimed_by: 0, RosterName.claimed_at: None},
+                       synchronize_session=False))
+
+    # Everything else hangs off users.id with ON DELETE CASCADE, so the
+    # rows go with the account. Deleted in chunks: a single IN clause over
+    # tens of thousands of ids is a statement Postgres will refuse to plan.
+    gone = 0
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        gone += (db.query(User).filter(User.id.in_(chunk))
+                   .delete(synchronize_session=False))
+        db.commit()
+
+    print(f"ADMIN RESET: {gone} accounts deleted by {user.email}, "
+          f"{freed} roster names freed")
+    return {"ok": True, "deleted": gone, "roster_names_freed": freed,
+            "kept": "admins, schools, classes and class codes"}
+
+
 @app.get("/api/admin/schools")
 def admin_list_schools(user: User = Depends(admin_user), db: Session = Depends(get_db)):
     out = []
@@ -3154,6 +3495,21 @@ import dalia as _dalia                                              # noqa: E402
 # one readable file instead of being spread across the endpoints that
 # happen to enforce them.
 import craxlearn as _cl                                             # noqa: E402
+
+# The allowlisted arithmetic evaluator. Imported again further down for the
+# lesson checks; imported here too so the classroom calculator's dependency
+# is visible beside the endpoint that uses it rather than 7,000 lines away.
+# The measured-structure sources and the picture search, both used by the
+# board further down and by Craxlearn's own structure and search screens.
+# Imported here so those endpoints' dependencies are visible beside them.
+import scene as _scene                                              # noqa: E402
+import lattice as _lattice                                          # noqa: E402
+import layers as _layers                                            # noqa: E402
+import orbits as _orbits                                            # noqa: E402
+import molecule as _molecule                                        # noqa: E402
+import protein as _protein                                          # noqa: E402
+import images as _images                                            # noqa: E402
+import maths as _maths                                              # noqa: E402
 
 
 def _scope_of(db, user):
@@ -4229,6 +4585,1346 @@ def craxlearn_me(user: User = Depends(current_user),
                      "mine": k.teacher_id == user.id} for k in classes],
         "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
     }
+
+
+# --------------------------------------------------------------------------
+# The school office: notices, attendance, fees
+# --------------------------------------------------------------------------
+# Written by the office. Read by everybody. A teacher cannot touch any of it
+# and neither can a head teacher — see school_admin_user for why.
+
+class NoticeIn(BaseModel):
+    title: str = Field(min_length=2, max_length=240)
+    body: str = Field(default="", max_length=8000)
+    urgent: bool = False
+    starts_on: str = Field(default="", max_length=20)
+    ends_on: str = Field(default="", max_length=20)
+
+
+def _notice_json(n):
+    return {"id": n.id, "title": n.title, "body": n.body or "",
+            "urgent": bool(n.urgent), "starts_on": n.starts_on or "",
+            "ends_on": n.ends_on or "",
+            "at": n.created_at.isoformat() if n.created_at else ""}
+
+
+class StaffIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: str = Field(min_length=5, max_length=255)
+    role: str = Field(default="teacher", max_length=16)
+
+
+@app.post("/api/head/staff")
+def head_create_staff(body: StaffIn, user: User = Depends(head_user),
+                      db: Session = Depends(get_db)):
+    """The head teacher makes a profile for a member of staff.
+
+    Returns a one-time password the head reads out or writes down. Not
+    emailed: a school hiring in August has staff whose school address does
+    not exist yet, and an invitation nobody receives is a member of staff
+    who cannot work on their first morning.
+
+    A head can create a school-office profile — attendance, fees, notices —
+    but that does not give the head those powers. Somebody has to be able to
+    appoint the office, and it is the head who knows who works there; what
+    the head must not have is the ability to appoint themselves to it, so
+    this refuses to grant a role to the account making the request.
+    """
+    role = body.role.strip().lower()
+    if role not in SCHOOL_ROLES:
+        raise HTTPException(400, f"Role must be one of: "
+                                 f"{', '.join(SCHOOL_ROLES)}")
+    t = teacher_row(user, db)
+    school, sid = (t.school if t else ""), (t.school_id if t else 0)
+    if not user.is_admin and not sid:
+        raise HTTPException(403, "Your account is not attached to a school")
+
+    email = body.email.lower().strip()
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        if existing.id == user.id:
+            raise HTTPException(
+                400, "You cannot change your own role. Ask the platform "
+                     "administrator.")
+        _grant_teacher(db, existing, school, sid, role)
+        # _grant_teacher never downgrades a head; a head setting somebody to
+        # the office must actually move them, so it is set here explicitly.
+        ta = (db.query(TeacherAccess)
+                .filter(TeacherAccess.user_id == existing.id).first())
+        if ta and role != "teacher":
+            ta.role = role
+            db.commit()
+        return {"ok": True, "created": False, "user_id": existing.id,
+                "name": existing.name, "role": role,
+                "note": "That email already had an account, so it was given "
+                        "this role at your school. Their existing password "
+                        "still works."}
+
+    temp = secrets.token_urlsafe(9)
+    u = User(name=body.name.strip()[:120], email=email,
+             password_hash=hash_pw(temp), is_active=True, email_verified=False)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    _grant_teacher(db, u, school, sid, role)
+    ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == u.id).first()
+    if ta:
+        ta.role = role
+        db.commit()
+    return {"ok": True, "created": True, "user_id": u.id, "name": u.name,
+            "email": u.email, "role": role, "temporary_password": temp,
+            "note": "Give them this password. They should change it after "
+                    "signing in — it is shown once and not stored readably."}
+
+
+@app.get("/api/head/staff")
+def head_list_staff(user: User = Depends(head_user),
+                    db: Session = Depends(get_db)):
+    """Who works here, and in what capacity."""
+    t = teacher_row(user, db)
+    sid = (t.school_id if t else 0)
+    q = db.query(TeacherAccess, User).join(User, User.id == TeacherAccess.user_id)
+    if not user.is_admin:
+        q = q.filter(TeacherAccess.school_id == sid)
+    return {"staff": [{"user_id": u.id, "name": u.name, "email": u.email,
+                       "role": ta.role or "teacher",
+                       "since": ta.created_at.isoformat() if ta.created_at else ""}
+                      for ta, u in q.order_by(TeacherAccess.role).limit(500).all()],
+            "roles": list(SCHOOL_ROLES)}
+
+
+@app.delete("/api/head/staff/{uid}")
+def head_remove_staff(uid: int, user: User = Depends(head_user),
+                      db: Session = Depends(get_db)):
+    """Take away a member of staff's access. The account itself is kept."""
+    if uid == user.id:
+        raise HTTPException(400, "You cannot remove your own access")
+    ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == uid).first()
+    if not ta:
+        raise HTTPException(404, "Not found")
+    t = teacher_row(user, db)
+    if not user.is_admin and ta.school_id != (t.school_id if t else -1):
+        raise HTTPException(403, "They are not at your school")
+    db.delete(ta)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/office/notice")
+def add_notice(body: NoticeIn, user: User = Depends(school_admin_user),
+               db: Session = Depends(get_db)):
+    n = SchoolNotice(school_id=_school_of(user, db), author_id=user.id,
+                     title=body.title.strip()[:240],
+                     body=body.body.strip()[:8000], urgent=bool(body.urgent),
+                     starts_on=body.starts_on.strip()[:20],
+                     ends_on=body.ends_on.strip()[:20])
+    db.add(n)
+    db.commit()
+    db.refresh(n)
+    return {"ok": True, "notice": _notice_json(n)}
+
+
+@app.delete("/api/office/notice/{nid}")
+def drop_notice(nid: int, user: User = Depends(school_admin_user),
+                db: Session = Depends(get_db)):
+    n = db.get(SchoolNotice, nid)
+    if not n:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and n.school_id != _school_of(user, db):
+        raise HTTPException(403, "That notice belongs to another school")
+    db.delete(n)
+    db.commit()
+    return {"ok": True}
+
+
+class AttendanceIn(BaseModel):
+    class_id: int
+    day: str = Field(min_length=8, max_length=20)     # ISO date
+    # {user_id: present}. The whole class in one request, because a register
+    # is taken in one go and thirty requests is thirty chances to half-finish.
+    present: dict = {}
+    notes: dict = {}
+
+
+@app.post("/api/office/attendance")
+def mark_attendance(body: AttendanceIn,
+                    user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """Take the register for one class on one day.
+
+    Idempotent per (learner, day): running it again corrects the day rather
+    than adding a second opinion of it. That is what makes "marked absent by
+    mistake" a fixable thing, which is the single most common thing a parent
+    rings a school about.
+    """
+    try:
+        day = dt.date.fromisoformat(body.day.strip()).isoformat()
+    except ValueError:
+        raise HTTPException(400, "Give the day as YYYY-MM-DD")
+    k = db.get(Klass, body.class_id)
+    if not k:
+        raise HTTPException(404, "No such class")
+    sid = _school_of(user, db)
+    if not user.is_admin and k.school_id != sid:
+        raise HTTPException(403, "That class belongs to another school")
+
+    members = {m.user_id for m in db.query(ClassMember)
+               .filter(ClassMember.class_id == k.id).all()}
+    done = 0
+    for raw_uid, present in (body.present or {}).items():
+        try:
+            uid = int(raw_uid)
+        except (TypeError, ValueError):
+            continue
+        # Only children who are actually in this class. A register that will
+        # mark anybody whose id you send is a register that can be used to
+        # write rows against a learner in another school.
+        if uid not in members:
+            continue
+        row = (db.query(Attendance)
+                 .filter(Attendance.user_id == uid, Attendance.day == day)
+                 .first())
+        if not row:
+            row = Attendance(user_id=uid, day=day)
+            db.add(row)
+        row.school_id = k.school_id or 0
+        row.class_id = k.id
+        row.present = bool(present)
+        row.note = str((body.notes or {}).get(raw_uid, ""))[:200]
+        row.marked_by = user.id
+        done += 1
+    db.commit()
+    return {"ok": True, "day": day, "marked": done, "in_class": len(members)}
+
+
+@app.get("/api/office/attendance")
+def read_attendance(class_id: int, day: str = "",
+                    user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """The register for one class, on one day, with everybody's running total."""
+    k = db.get(Klass, class_id)
+    if not k:
+        raise HTTPException(404, "No such class")
+    if not user.is_admin and k.school_id != _school_of(user, db):
+        raise HTTPException(403, "That class belongs to another school")
+    day = (day or dt.date.today().isoformat()).strip()[:20]
+    rows = (db.query(ClassMember, User)
+              .join(User, User.id == ClassMember.user_id)
+              .filter(ClassMember.class_id == class_id).all())
+    today = {a.user_id: a for a in db.query(Attendance)
+             .filter(Attendance.class_id == class_id,
+                     Attendance.day == day).all()}
+    out = []
+    for _cm, u in rows:
+        a = today.get(u.id)
+        out.append({"user_id": u.id, "name": u.name,
+                    "present": (None if a is None else bool(a.present)),
+                    "note": (a.note if a else ""),
+                    **_attendance_totals(db, u.id)})
+    out.sort(key=lambda r: r["name"].lower())
+    return {"class_id": class_id, "class_name": k.name, "day": day,
+            "students": out}
+
+
+def _attendance_totals(db, uid):
+    """Days present, days recorded, and the percentage — computed, never stored.
+
+    A stored percentage cannot be corrected, and correcting a wrongly marked
+    day is the whole reason the rows exist.
+    """
+    total = (db.query(func.count(Attendance.id))
+               .filter(Attendance.user_id == uid).scalar() or 0)
+    present = (db.query(func.count(Attendance.id))
+                 .filter(Attendance.user_id == uid,
+                         Attendance.present == True).scalar() or 0)  # noqa: E712
+    return {"days_present": present, "days_recorded": total,
+            # None rather than 100 when nothing has been recorded. A learner
+            # whose school has not started taking the register has not got
+            # perfect attendance, and showing 100% is a number somebody will
+            # quote back.
+            "attendance_pct": (round(present * 100.0 / total, 1)
+                               if total else None)}
+
+
+class FeeIn(BaseModel):
+    user_id: int
+    title: str = Field(min_length=2, max_length=240)
+    amount: int = 0                       # paise
+    paid: int = 0                         # paise
+    currency: str = Field(default="INR", max_length=8)
+    due_on: str = Field(default="", max_length=20)
+    note: str = Field(default="", max_length=2000)
+    kind: str = Field(default="fee", max_length=12)     # fee | buy
+
+
+def _fee_json(f):
+    return {"id": f.id, "title": f.title, "note": f.note or "",
+            "amount": f.amount or 0, "paid": f.paid or 0,
+            "outstanding": max((f.amount or 0) - (f.paid or 0), 0),
+            "currency": f.currency or "INR", "due_on": f.due_on or "",
+            "kind": f.kind or "fee",
+            "settled": (f.paid or 0) >= (f.amount or 0),
+            "at": f.created_at.isoformat() if f.created_at else "",
+            "paid_at": f.paid_at.isoformat() if f.paid_at else ""}
+
+
+@app.post("/api/office/fee")
+def set_fee(body: FeeIn, user: User = Depends(school_admin_user),
+            db: Session = Depends(get_db)):
+    """Record something a learner owes, or that they have paid.
+
+    This takes no money and is not a payment page. It records what the
+    office already knows, so a learner can see their balance without ringing
+    up — and so nobody has to be told a number over the phone that neither
+    of them can check afterwards.
+    """
+    target = db.get(User, body.user_id)
+    if not target:
+        raise HTTPException(404, "No such learner")
+    sid = _school_of(user, db)
+    if not user.is_admin:
+        _same_school_or_403(db, target, sid)
+    if body.amount < 0 or body.paid < 0:
+        raise HTTPException(400, "Amounts cannot be negative")
+    f = FeeItem(school_id=sid, user_id=target.id,
+                title=body.title.strip()[:240], note=body.note.strip()[:2000],
+                amount=int(body.amount), paid=int(body.paid),
+                currency=(body.currency or "INR").upper()[:8],
+                due_on=body.due_on.strip()[:20],
+                kind="buy" if body.kind == "buy" else "fee",
+                marked_by=user.id,
+                paid_at=now() if body.paid >= body.amount > 0 else None)
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    return {"ok": True, "item": _fee_json(f)}
+
+
+class FeePayIn(BaseModel):
+    paid: int = 0                          # paise, the new total received
+
+
+@app.post("/api/office/fee/{fid}/paid")
+def mark_fee_paid(fid: int, body: FeePayIn,
+                  user: User = Depends(school_admin_user),
+                  db: Session = Depends(get_db)):
+    f = db.get(FeeItem, fid)
+    if not f:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and f.school_id != _school_of(user, db):
+        raise HTTPException(403, "That belongs to another school")
+    if body.paid < 0:
+        raise HTTPException(400, "Amounts cannot be negative")
+    f.paid = int(body.paid)
+    f.marked_by = user.id
+    f.paid_at = now() if f.paid >= (f.amount or 0) else None
+    db.commit()
+    return {"ok": True, "item": _fee_json(f)}
+
+
+@app.delete("/api/office/fee/{fid}")
+def drop_fee(fid: int, user: User = Depends(school_admin_user),
+             db: Session = Depends(get_db)):
+    f = db.get(FeeItem, fid)
+    if not f:
+        raise HTTPException(404, "Not found")
+    if not user.is_admin and f.school_id != _school_of(user, db):
+        raise HTTPException(403, "That belongs to another school")
+    db.delete(f)
+    db.commit()
+    return {"ok": True}
+
+
+def _same_school_or_403(db, target: User, school_id: int):
+    """Is this learner one of ours? Membership through a class is the only link."""
+    if not school_id:
+        raise HTTPException(403, "Your account is not attached to a school")
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == target.id,
+                     Klass.school_id == school_id).first())
+    if row is None:
+        raise HTTPException(403, "That learner is not at your school")
+
+
+@app.get("/api/office/learners")
+def office_learners(user: User = Depends(school_admin_user),
+                    db: Session = Depends(get_db)):
+    """Everybody at this school, with their attendance and what they owe."""
+    sid = _school_of(user, db)
+    q = (db.query(User, Klass)
+           .join(ClassMember, ClassMember.user_id == User.id)
+           .join(Klass, Klass.id == ClassMember.class_id))
+    if not user.is_admin:
+        q = q.filter(Klass.school_id == sid)
+    out = []
+    for u, k in q.limit(2000).all():
+        fees = db.query(FeeItem).filter(FeeItem.user_id == u.id).all()
+        out.append({"user_id": u.id, "name": u.name,
+                    "class_id": k.id, "class_name": k.name,
+                    "owed": sum(max((f.amount or 0) - (f.paid or 0), 0)
+                                for f in fees),
+                    **_attendance_totals(db, u.id)})
+    out.sort(key=lambda r: (r["class_name"].lower(), r["name"].lower()))
+    return {"learners": out, "school_id": sid}
+
+
+@app.get("/api/craxlearn/standing")
+def my_standing(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """What a learner needs to know about themselves that is not schoolwork.
+
+    Attendance, what is owed, what still has to be bought, and whatever the
+    office has put up. One call, because it is one glance — a student
+    checking four screens to find out whether they are in trouble checks
+    none of them.
+
+    Read-only for everybody. Nothing here can be changed from a learner's
+    session, and the teacher's session cannot change it either.
+    """
+    sid = 0
+    row = (db.query(Klass.school_id)
+             .join(ClassMember, ClassMember.class_id == Klass.id)
+             .filter(ClassMember.user_id == user.id).first())
+    if row is not None:
+        sid = row[0] or 0
+    if not sid:
+        t = teacher_row(user, db)
+        sid = (t.school_id if t else 0) or 0
+
+    fees = (db.query(FeeItem).filter(FeeItem.user_id == user.id)
+              .order_by(FeeItem.created_at.desc()).limit(100).all())
+    today = dt.date.today().isoformat()
+    notices = []
+    if sid:
+        for n in (db.query(SchoolNotice)
+                    .filter(SchoolNotice.school_id == sid)
+                    .order_by(SchoolNotice.urgent.desc(),
+                              SchoolNotice.created_at.desc()).limit(40).all()):
+            # A notice with dates on it is only a notice between them. An
+            # exam timetable from last term on a child's home screen is how
+            # the whole panel stops being read.
+            if n.starts_on and n.starts_on > today:
+                continue
+            if n.ends_on and n.ends_on < today:
+                continue
+            notices.append(_notice_json(n))
+
+    return {
+        **_attendance_totals(db, user.id),
+        "fees": [_fee_json(f) for f in fees if (f.kind or "fee") == "fee"],
+        "to_buy": [_fee_json(f) for f in fees if (f.kind or "fee") == "buy"],
+        "owed": sum(max((f.amount or 0) - (f.paid or 0), 0) for f in fees),
+        "currency": (fees[0].currency if fees else "INR"),
+        "notices": notices,
+        "school_id": sid,
+    }
+
+
+# --------------------------------------------------------------------------
+# The register, and signing in with nothing but a class code
+# --------------------------------------------------------------------------
+class RosterIn(BaseModel):
+    # One name per line, as a teacher would paste them off a register.
+    names: str = Field(default="", max_length=8000)
+
+
+@app.post("/api/teacher/class/{cid}/roster")
+def set_roster(cid: int, body: RosterIn, user: User = Depends(teacher_user),
+               db: Session = Depends(get_db)):
+    """Type the register once, so nobody has to invent a password.
+
+    Adds names; never removes one that a learner has already claimed. A
+    teacher retyping the list with a typo fixed must not delete the account
+    a child has work in — so a claimed name is left exactly as it is and
+    only genuinely new names are added.
+    """
+    _own_class(db, cid, user)
+    have = {r.name.strip().lower(): r for r in db.query(RosterName)
+            .filter(RosterName.class_id == cid).all()}
+    added = 0
+    for line in (body.names or "").splitlines():
+        # "Asha Rao, 8A-014" — the name, then the school's own id for them.
+        # Comma-separated because that is how a register pastes out of a
+        # spreadsheet, which is where every one of these lists comes from.
+        parts = [p.strip() for p in line.split(",", 1)]
+        name = " ".join(parts[0].split())[:80]
+        code = (parts[1] if len(parts) > 1 else "")[:40]
+        if len(name) < 2 or name.lower() in have:
+            continue
+        db.add(RosterName(class_id=cid, name=name, student_code=code))
+        have[name.lower()] = True
+        added += 1
+    db.commit()
+    return {"ok": True, "added": added, **_roster_json(db, cid)}
+
+
+def _roster_json(db, cid):
+    rows = (db.query(RosterName).filter(RosterName.class_id == cid)
+              .order_by(RosterName.name.asc()).all())
+    return {"roster": [{"id": r.id, "name": r.name,
+                        "student_code": r.student_code or "",
+                        "user_id": r.claimed_by or 0,
+                        "claimed": bool(r.claimed_by)} for r in rows],
+            "free": sum(1 for r in rows if not r.claimed_by),
+            "total": len(rows)}
+
+
+@app.get("/api/teacher/class/{cid}/roster")
+def get_roster(cid: int, user: User = Depends(teacher_user),
+               db: Session = Depends(get_db)):
+    _own_class(db, cid, user)
+    return _roster_json(db, cid)
+
+
+@app.delete("/api/teacher/roster/{rid}")
+def drop_roster_name(rid: int, user: User = Depends(teacher_user),
+                     db: Session = Depends(get_db)):
+    """Remove a name nobody has claimed. A claimed one is an account."""
+    r = db.get(RosterName, rid)
+    if not r:
+        raise HTTPException(404, "Not found")
+    _own_class(db, r.class_id, user)
+    if r.claimed_by:
+        raise HTTPException(
+            400, "That name has been claimed and now has work behind it. "
+                 "Remove the student from the class instead.")
+    db.delete(r)
+    db.commit()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Which learners a member of staff may look at
+# --------------------------------------------------------------------------
+# One function answers it, and everything that shows a learner's detail goes
+# through it. Written once on purpose: this is the rule that keeps a teacher
+# out of another teacher's pupils' records, and two copies of it would drift
+# until one of them let somebody through.
+#
+# The rule is the classroom, not the school. A teacher may teach in several
+# classrooms and sees the learners in those; a head sees their whole school
+# because they are responsible for it; the office sees their whole school
+# because attendance and fees are theirs to keep. Nobody sees outside it.
+
+def _my_class_ids(db, user) -> set:
+    """Every classroom this member of staff may look into."""
+    if user.is_admin:
+        return None                     # None means "no restriction"
+    t = teacher_row(user, db)
+    if not t:
+        return set()
+    if t.role in ("head", "schooladmin"):
+        return {k.id for k in db.query(Klass)
+                .filter(Klass.school_id == t.school_id).all()} or {
+                    k.id for k in db.query(Klass)
+                    .filter(Klass.teacher_id == user.id).all()}
+    # A subject teacher: the classrooms where they hold a subject, plus any
+    # they were made the owning teacher of.
+    ids = {s.class_id for s in db.query(SubjectSlot)
+           .filter(SubjectSlot.teacher_id == user.id).all()}
+    ids |= {k.id for k in db.query(Klass)
+            .filter(Klass.teacher_id == user.id).all()}
+    return ids
+
+
+def _may_see_learner(db, user, learner_id) -> bool:
+    """Is this learner in one of my classrooms?"""
+    mine = _my_class_ids(db, user)
+    if mine is None:
+        return True
+    if not mine:
+        return False
+    return db.query(ClassMember).filter(
+        ClassMember.user_id == learner_id,
+        ClassMember.class_id.in_(list(mine))).first() is not None
+
+
+@app.get("/api/teacher/roll")
+def teacher_roll(user: User = Depends(teacher_user),
+                 db: Session = Depends(get_db)):
+    """My classrooms and who is in them. Nothing outside them.
+
+    A teacher's own first screen: the classes the head put them in, and the
+    learners the head enrolled. Not a search over the school — a list of
+    exactly what is theirs, which is both the useful thing and the safe one.
+    """
+    mine = _my_class_ids(db, user)
+    q = db.query(Klass)
+    if mine is not None:
+        if not mine:
+            return {"classes": [], "note": "You have not been given a class yet."}
+        q = q.filter(Klass.id.in_(list(mine)))
+    out = []
+    for k in q.order_by(Klass.name.asc()).limit(100).all():
+        codes = {r.claimed_by: r.student_code for r in db.query(RosterName)
+                 .filter(RosterName.class_id == k.id).all() if r.claimed_by}
+        learners = (db.query(User)
+                      .join(ClassMember, ClassMember.user_id == User.id)
+                      .filter(ClassMember.class_id == k.id)
+                      .order_by(User.name.asc()).all())
+        subs = sorted({s.subject for s in db.query(SubjectSlot)
+                       .filter(SubjectSlot.class_id == k.id,
+                               SubjectSlot.teacher_id == user.id).all()})
+        out.append({
+            "id": k.id, "name": k.name, "school": k.school or "",
+            "join_code": k.join_code, "my_subjects": subs,
+            "students": [{"user_id": u.id, "name": u.name,
+                          "student_code": codes.get(u.id, ""),
+                          **_attendance_totals(db, u.id)} for u in learners],
+        })
+    return {"classes": out}
+
+
+@app.get("/api/teacher/student/{uid}")
+def teacher_student(uid: int, user: User = Depends(teacher_user),
+                    db: Session = Depends(get_db)):
+    """One learner's progress — but only one of mine.
+
+    What they have finished, what they searched for, what they scored, what
+    they have handed in. A teacher asking after a child they teach is the
+    ordinary case; the same request for a child in another teacher's class,
+    or another school, is refused rather than filtered, so there is no
+    version of this that returns a partial record and looks like an answer.
+    """
+    if not _may_see_learner(db, user, uid):
+        raise HTTPException(
+            403, "That learner is not in any of your classes.")
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "Not found")
+
+    mine = _my_class_ids(db, user)
+    classes = (db.query(Klass)
+                 .join(ClassMember, ClassMember.class_id == Klass.id)
+                 .filter(ClassMember.user_id == uid).all())
+    if mine is not None:
+        classes = [k for k in classes if k.id in mine]
+
+    code = (db.query(RosterName.student_code)
+              .filter(RosterName.claimed_by == uid).first())
+
+    # What they searched and asked. Only their own records, and only from
+    # inside this school's scope — the same rows the aggregate view counts,
+    # named here because a teacher asking about one child they teach is a
+    # different question from browsing the school.
+    asked = (db.query(LearnRecord)
+               .filter(LearnRecord.user_id == uid)
+               .order_by(LearnRecord.created_at.desc()).limit(60).all())
+
+    quizzes = (db.query(QuizResult).filter(QuizResult.user_id == uid)
+                 .order_by(QuizResult.created_at.desc()).limit(60).all())
+
+    done = (db.query(func.count(Progress.id))
+              .filter(Progress.user_id == uid,
+                      Progress.completed == True).scalar() or 0)  # noqa: E712
+
+    subs = (db.query(Submission, Assignment)
+              .join(Assignment, Assignment.id == Submission.assignment_id)
+              .filter(Submission.user_id == uid)
+              .order_by(Submission.updated_at.desc()).limit(60).all())
+    if mine is not None:
+        subs = [(s, a) for s, a in subs if a.class_id in mine]
+
+    skills = (db.query(SkillUnlock).filter(SkillUnlock.user_id == uid)
+                .order_by(SkillUnlock.last_at.desc()).limit(60).all())
+
+    return {
+        "student": {"user_id": u.id, "name": u.name,
+                    "student_code": (code[0] if code else "") or "",
+                    "class_login": (u.kind or "") == "classcode"},
+        "classes": [{"id": k.id, "name": k.name} for k in classes],
+        **_attendance_totals(db, uid),
+        "lessons_completed": done,
+        "learnt": [{"skill": s.label, "times": s.times or 1} for s in skills],
+        "searched": [{"text": r.text, "kind": r.kind,
+                      "subject": r.subject or "",
+                      "at": r.created_at.isoformat() if r.created_at else ""}
+                     for r in asked],
+        "exams": [{"track": q.track_slug, "score": q.score, "total": q.total,
+                   "passed": bool(q.passed),
+                   "at": q.created_at.isoformat() if q.created_at else ""}
+                  for q in quizzes],
+        "handed_in": [{"assignment_id": a.id, "title": a.title,
+                       "subject": a.subject or "",
+                       "reviewed": bool(s.reviewed_at),
+                       "feedback": s.feedback or "",
+                       "at": s.updated_at.isoformat() if s.updated_at else ""}
+                      for s, a in subs],
+    }
+
+
+@app.get("/api/teacher/student-by-code")
+def teacher_student_by_code(code: str, user: User = Depends(teacher_user),
+                            db: Session = Depends(get_db)):
+    """Look a learner up by the school's own id for them.
+
+    Searched only inside the classrooms this member of staff teaches. A code
+    that exists elsewhere in the school comes back as "not found" and not as
+    "not allowed" — telling a teacher that a code is real but off limits is
+    still telling them something about a child they have no business with.
+    """
+    code = (code or "").strip()
+    if len(code) < 1:
+        raise HTTPException(400, "Type a student id")
+    mine = _my_class_ids(db, user)
+    q = db.query(RosterName).filter(
+        func.upper(RosterName.student_code) == code.upper(),
+        RosterName.claimed_by != 0)
+    if mine is not None:
+        if not mine:
+            raise HTTPException(404, "No learner of yours has that id")
+        q = q.filter(RosterName.class_id.in_(list(mine)))
+    r = q.first()
+    if not r:
+        raise HTTPException(404, "No learner of yours has that id")
+    return teacher_student(r.claimed_by, user, db)
+
+
+class CodeIn(BaseModel):
+    code: str = Field(min_length=3, max_length=16)
+
+
+@app.post("/api/craxlearn/code")
+def craxlearn_code(body: CodeIn, db: Session = Depends(get_db)):
+    """Step one of signing in with nothing: which class is this, and who is free?
+
+    Unauthenticated, because the whole point is that there is no account yet.
+    It returns names and no other detail — no email, no school address, no
+    count of anybody's work — so a guessed code leaks a class's first names
+    and nothing else. That is the cost of a login a nine-year-old can do,
+    and it is why the code is per-class and rotatable.
+    """
+    code = body.code.strip().upper()
+    k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
+    if not k:
+        raise HTTPException(404, "No class has that code")
+    free = (db.query(RosterName)
+              .filter(RosterName.class_id == k.id, RosterName.claimed_by == 0)
+              .order_by(RosterName.name.asc()).all())
+    return {"class_id": k.id, "class_name": k.name, "school": k.school or "",
+            "names": [{"id": r.id, "name": r.name} for r in free],
+            "roster_ready": bool(db.query(RosterName)
+                                   .filter(RosterName.class_id == k.id)
+                                   .first())}
+
+
+class ClaimIn(BaseModel):
+    code: str = Field(min_length=3, max_length=16)
+    roster_id: int
+
+
+@app.post("/api/craxlearn/claim")
+def craxlearn_claim(claim: ClaimIn, response: Response,
+                    db: Session = Depends(get_db)):
+    """Step two: take that name, and be signed in.
+
+    Creates a real User row so that everything downstream — submissions,
+    the review queue, the activity record — works exactly as it does for
+    anybody else. What it does not create is a way in from anywhere except
+    this class code: the email is synthetic and unroutable, and the password
+    hash is random and known to nobody, so there is no credential to phish,
+    reuse or leak.
+
+    kind="classcode" is what closes the job half permanently for this
+    account. There is no adult behind it who agreed to anything, and no
+    date of birth that could ever open it.
+    """
+    code = claim.code.strip().upper()
+    k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
+    if not k:
+        raise HTTPException(404, "No class has that code")
+    r = db.get(RosterName, claim.roster_id)
+    if not r or r.class_id != k.id:
+        raise HTTPException(404, "That name is not on this class register")
+    if r.claimed_by:
+        raise HTTPException(409, "Somebody has already taken that name. "
+                                 "Ask your teacher.")
+
+    u = User(name=r.name[:120],
+             # Synthetic and unroutable by design: nothing is ever sent
+             # here, and it cannot collide with a real address.
+             email=f"roster{r.id}.{secrets.token_hex(4)}@classcode.invalid",
+             password_hash=hash_pw(secrets.token_urlsafe(24)),
+             kind="classcode", is_active=True, email_verified=False)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+
+    r.claimed_by = u.id
+    r.claimed_at = now()
+    db.add(ClassMember(class_id=k.id, user_id=u.id))
+    db.commit()
+
+    set_session(response, u, db)
+    return {"ok": True, "name": u.name, "class_name": k.name,
+            "school": k.school or ""}
+
+
+# --------------------------------------------------------------------------
+# Reference material a class can read
+# --------------------------------------------------------------------------
+MATERIAL_MAX = 12_000_000          # 12 MB, which is a slide deck, not a film
+MATERIAL_MIMES = {
+    "application/pdf": "pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/msword": "doc",
+    "text/plain": "txt",
+    "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
+}
+
+
+def _material_json(m, with_url=True):
+    d = {"id": m.id, "title": m.title, "note": m.note or "",
+         "subject": m.subject or "", "kind": "link" if m.url else "file",
+         "file_name": m.file_name or "", "size": m.size or 0,
+         "mime": m.mime or "",
+         "at": m.created_at.isoformat() if m.created_at else ""}
+    if with_url and m.url:
+        d["url"] = m.url
+    return d
+
+
+class LinkIn(BaseModel):
+    title: str = Field(min_length=2, max_length=240)
+    url: str = Field(min_length=4, max_length=2000)
+    note: str = Field(default="", max_length=2000)
+    subject: str = Field(default="", max_length=80)
+
+
+@app.post("/api/teacher/class/{cid}/material/link")
+def add_material_link(cid: int, body: LinkIn,
+                      user: User = Depends(teacher_user),
+                      db: Session = Depends(get_db)):
+    """Put a reference link in front of a class."""
+    _own_class(db, cid, user)
+    url = body.url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        # A link that is not a link opens nothing and is reported by the
+        # student as "it does not work", which costs a lesson to diagnose.
+        raise HTTPException(400, "The link must start with http:// or https://")
+    m = Material(class_id=cid, teacher_id=user.id,
+                 subject=body.subject.strip()[:80],
+                 title=body.title.strip()[:240], url=url[:2000],
+                 note=body.note.strip()[:2000])
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return {"ok": True, "material": _material_json(m)}
+
+
+@app.post("/api/teacher/class/{cid}/material/file")
+async def add_material_file(cid: int, file: UploadFile = File(...),
+                            title: str = Form(default=""),
+                            note: str = Form(default=""),
+                            subject: str = Form(default=""),
+                            user: User = Depends(teacher_user),
+                            db: Session = Depends(get_db)):
+    """Upload a PDF, a slide deck or a document for one class.
+
+    Stored in the row rather than on disk: the container's filesystem does
+    not survive a deploy, and a study pack that vanishes every time the site
+    ships is worse than no study pack.
+    """
+    _own_class(db, cid, user)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "That file is empty")
+    if len(raw) > MATERIAL_MAX:
+        raise HTTPException(
+            400, f"That file is {len(raw) // 1_000_000} MB. The limit is "
+                 f"{MATERIAL_MAX // 1_000_000} MB — split it, or link to it "
+                 f"instead.")
+    mime = (file.content_type or "").lower().split(";")[0].strip()
+    if mime not in MATERIAL_MIMES:
+        raise HTTPException(
+            400, "Upload a PDF, a PowerPoint, a Word document, a text file "
+                 "or an image.")
+    m = Material(class_id=cid, teacher_id=user.id,
+                 subject=(subject or "").strip()[:80],
+                 title=((title or "").strip()
+                        or (file.filename or "Material"))[:240],
+                 note=(note or "").strip()[:2000],
+                 file_data=base64.b64encode(raw).decode(),
+                 file_name=(file.filename or "material")[:160],
+                 mime=mime, size=len(raw))
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return {"ok": True, "material": _material_json(m)}
+
+
+@app.get("/api/class/{cid}/materials")
+def class_materials(cid: int, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Everything the class has been given to read.
+
+    Open to the class and to its teachers, and to nobody else — the same
+    membership test the assignments use, because material is exactly as
+    private as the work that references it.
+    """
+    _in_class_or_teaching(db, cid, user)
+    rows = (db.query(Material).filter(Material.class_id == cid)
+              .order_by(Material.created_at.desc()).limit(200).all())
+    return {"materials": [_material_json(m) for m in rows]}
+
+
+@app.get("/api/material/{mid}/file")
+def material_file(mid: int, user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """Download one file, if you are in the class it belongs to."""
+    m = db.get(Material, mid)
+    if not m or not m.file_data:
+        raise HTTPException(404, "Not found")
+    _in_class_or_teaching(db, m.class_id, user)
+    try:
+        raw = base64.b64decode(m.file_data)
+    except Exception:
+        raise HTTPException(500, "That file is stored damaged")
+    return Response(
+        content=raw, media_type=m.mime or "application/octet-stream",
+        headers={"Content-Disposition":
+                 f'inline; filename="{(m.file_name or "material")[:80]}"'})
+
+
+@app.delete("/api/teacher/material/{mid}")
+def drop_material(mid: int, user: User = Depends(teacher_user),
+                  db: Session = Depends(get_db)):
+    m = db.get(Material, mid)
+    if not m:
+        raise HTTPException(404, "Not found")
+    _own_class(db, m.class_id, user)
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
+
+
+def _in_class_or_teaching(db, cid, user):
+    """The one membership test both materials endpoints use.
+
+    Written once because two copies of an access check drift, and the half
+    that drifts is the one that lets the wrong person in.
+    """
+    if user.is_admin:
+        return
+    member = (db.query(ClassMember)
+                .filter(ClassMember.class_id == cid,
+                        ClassMember.user_id == user.id).first())
+    if member:
+        return
+    k = db.get(Klass, cid)
+    if k and k.teacher_id == user.id:
+        return
+    if db.query(SubjectSlot).filter(SubjectSlot.class_id == cid,
+                                    SubjectSlot.teacher_id == user.id).first():
+        return
+    t = teacher_row(user, db)
+    if t and t.role == "head" and k and t.school_id == k.school_id:
+        return
+    raise HTTPException(403, "Not in this class")
+
+
+class BoardAssignIn(BaseModel):
+    class_id: int
+    topic: str = Field(min_length=2, max_length=200)
+    title: str = Field(default="", max_length=240)
+    subject: str = Field(default="", max_length=80)
+    due_date: str = Field(default="", max_length=20)
+    # The lesson as the board built it, so the assignment carries the
+    # teaching and not only the instruction. Sent back rather than rebuilt
+    # here: the teacher is looking at a specific lesson on the screen and
+    # that is the one the class must get, not whatever the board would
+    # produce if asked the same question again tomorrow.
+    lesson: dict = {}
+    task: str = Field(default="", max_length=4000)
+
+
+def _lesson_to_body(lesson, task):
+    """A board lesson as the text of an assignment.
+
+    Flattened to text rather than stored as JSON because that is what
+    `Assignment.body` is, what the existing student view renders, and what a
+    teacher can edit afterwards. A structured copy would need a renderer on
+    both sides and would stop the teacher fixing a line before setting it.
+    """
+    out = []
+    if task:
+        out.append(task.strip())
+        out.append("")
+    for i, st in enumerate(lesson.get("steps") or [], 1):
+        text = st.get("t", "") if isinstance(st, dict) else str(st)
+        if not text:
+            continue
+        out.append(f"{i}. {text.strip()}")
+        if isinstance(st, dict) and st.get("code"):
+            where = st.get("where") or ""
+            out.append(f"   [{where}]" if where else "")
+            out.append("   " + "\n   ".join(
+                str(st["code"]).splitlines()[:20]))
+        out.append("")
+    if lesson.get("takeaway"):
+        out.append(f"Remember: {lesson['takeaway']}")
+    return "\n".join(out).strip()[:20000]
+
+
+@app.post("/api/craxlearn/board/assign")
+def craxlearn_board_assign(body: BoardAssignIn,
+                           user: User = Depends(teacher_user),
+                           db: Session = Depends(get_db)):
+    """Set what is on the board as an assignment for one class.
+
+    This is the whole point of teaching on a board that is part of the
+    platform: the lesson the class just watched becomes the work they take
+    away, without anybody retyping it. It appears in the students' own view
+    and in the teacher's the moment it is created — there is nothing to
+    publish, because an assignment nobody can see is not a draft, it is a
+    mistake waiting to be noticed on the due date.
+
+    Deliberately the same Assignment row that a typed assignment creates.
+    A second kind of assignment would mean a second submission flow, a
+    second review screen and two ways for a student to be marked, which is
+    how a classroom product becomes unusable.
+    """
+    _own_class(db, body.class_id, user)
+
+    subject = body.subject.strip()[:80]
+    # A subject teacher is locked to the subject they hold in this class,
+    # the same as when they type one by hand. The board does not become a
+    # way round that.
+    allowed = _my_subjects(db, body.class_id, user)
+    if allowed is not None:
+        if not allowed:
+            raise HTTPException(403, "You have no subject in this class yet")
+        if subject not in allowed:
+            if not subject and len(allowed) == 1:
+                subject = next(iter(allowed))
+            else:
+                raise HTTPException(
+                    403, "You can only set assignments for: "
+                         + ", ".join(sorted(allowed)))
+
+    topic = _cl.redact(body.topic)[:200]
+    text = _lesson_to_body(body.lesson if isinstance(body.lesson, dict) else {},
+                           body.task)
+    if not text:
+        raise HTTPException(400, "There is no lesson on the board to set")
+
+    a = Assignment(class_id=body.class_id, teacher_id=user.id, kind="task",
+                   subject=subject,
+                   title=(body.title.strip() or topic)[:240],
+                   body=text, board_topic=topic,
+                   due_date=body.due_date.strip()[:20])
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+
+    n = (db.query(func.count(ClassMember.id))
+           .filter(ClassMember.class_id == body.class_id).scalar() or 0)
+    return {"ok": True, "assignment": _asg_json(a), "students": n}
+
+
+class ReviewIn(BaseModel):
+    feedback: str = Field(default="", max_length=4000)
+
+
+@app.post("/api/teacher/submission/{aid}/{uid}/review")
+def review_submission(aid: int, uid: int, body: ReviewIn,
+                      user: User = Depends(teacher_user),
+                      db: Session = Depends(get_db)):
+    """Mark one student's work as reviewed, with or without a comment.
+
+    Marking it with nothing to say is allowed and is not a gap: "seen, fine"
+    is a real outcome and the alternative is a teacher typing "good" forty
+    times to clear a list.
+    """
+    a = db.get(Assignment, aid)
+    if not a:
+        raise HTTPException(404, "Not found")
+    _own_class(db, a.class_id, user)
+    sub = (db.query(Submission)
+             .filter(Submission.assignment_id == aid,
+                     Submission.user_id == uid).first())
+    if not sub:
+        raise HTTPException(404, "That student has not submitted yet")
+    # `updated_at` carries `onupdate=now`, so ANY write to this row moves it
+    # — including this one. Two things break if it is left to:
+    #
+    # 1. The student's "handed in at" jumps to the moment the teacher marked
+    #    it, which is not when they handed it in and is visible to them.
+    # 2. "Waiting again" is computed from updated_at > reviewed_at, and the
+    #    review's own bump lands after reviewed_at — so every piece of work
+    #    reappeared in the queue the instant it was marked.
+    #
+    # Assigning the old value explicitly wins over onupdate, which keeps
+    # both meanings intact: updated_at is when the STUDENT last wrote.
+    # Assigning the SAME value back is not a change, so SQLAlchemy leaves
+    # the column out of the UPDATE and `onupdate` fills it in anyway — which
+    # is exactly the bug this is here to stop, wearing the fix's clothes.
+    # flag_modified forces it into the SET clause, and a column present
+    # there is not touched by onupdate.
+    keep = sub.updated_at
+    sub.feedback = body.feedback.strip()[:4000]
+    sub.reviewed_at = now()
+    sub.reviewed_by = user.id
+    if keep is not None:
+        sub.updated_at = keep
+        flag_modified(sub, "updated_at")
+    db.commit()
+    return {"ok": True, "reviewed_at": sub.reviewed_at.isoformat()}
+
+
+@app.get("/api/teacher/inbox")
+def teacher_inbox(user: User = Depends(teacher_user),
+                  db: Session = Depends(get_db)):
+    """Every piece of work waiting for this teacher, across every class.
+
+    The thing that makes "review it anywhere" true. Without it a teacher
+    walks class, then assignment, then submissions, three taps deep, once
+    per class, to find out whether anything arrived — which on a phone
+    between lessons means they do not look.
+
+    Scoped by the same rule as everywhere else: a head teacher sees their
+    school's classes, a subject teacher sees the classes where they hold a
+    subject. Nothing here can reach another school.
+    """
+    head = is_head(user, db)
+    t = teacher_row(user, db)
+    if head:
+        sid = t.school_id if t else 0
+        q = db.query(Klass)
+        classes = (q.filter(Klass.school_id == sid) if sid
+                   else q.filter(Klass.teacher_id == user.id)).all()
+    else:
+        ids = {sl.class_id for sl in db.query(SubjectSlot)
+               .filter(SubjectSlot.teacher_id == user.id).all()}
+        classes = (db.query(Klass).filter(Klass.id.in_(ids)).all()
+                   if ids else [])
+    by_class = {k.id: k for k in classes}
+    if not by_class:
+        return {"waiting": [], "classes": 0, "total": 0}
+
+    rows = (db.query(Submission, Assignment, User)
+              .join(Assignment, Assignment.id == Submission.assignment_id)
+              .join(User, User.id == Submission.user_id)
+              .filter(Assignment.class_id.in_(list(by_class)))
+              .order_by(Submission.updated_at.desc()).limit(300).all())
+
+    waiting, reviewed = [], 0
+    for sub, a, student in rows:
+        # Reviewed, then edited again by the student, is waiting once more.
+        # A teacher who has read version one has not read version two, and
+        # treating it as done is how a resubmission disappears.
+        fresh = (sub.reviewed_at is not None and sub.updated_at is not None
+                 and sub.updated_at > sub.reviewed_at)
+        if sub.reviewed_at is not None and not fresh:
+            reviewed += 1
+            continue
+        waiting.append({
+            "assignment_id": a.id, "title": a.title,
+            "subject": a.subject or "",
+            "class_id": a.class_id,
+            "class_name": by_class[a.class_id].name,
+            "student_id": student.id, "student": student.name,
+            "resubmitted": fresh,
+            "at": sub.updated_at.isoformat() if sub.updated_at else "",
+        })
+    return {"waiting": waiting, "classes": len(by_class),
+            "total": len(waiting), "reviewed": reviewed}
+
+
+async def _resolve_structure(client, name):
+    """A real, measured 3D structure for a name — or nothing.
+
+    The same sources, in the same order, as a board lesson uses, and for the
+    same reason: most specific first, and nothing invented at any step. A
+    name with nothing measured behind it returns nothing, which is the
+    honest answer and the one that stops a classroom being shown a plausible
+    arrangement of spheres captioned with a real compound's name.
+
+    Factored out of _offer_scene so the board and this share one path. Two
+    copies would drift, and the copy that drifted would be the one drawing
+    the picture nobody checked.
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+
+    got = _lattice.clean(name)
+    if got:
+        return _scene.clean(dict(got, kind="lattice", caption=name.title(),
+                                 a=2.0, a_angstrom=got["a"], repeat=2))
+    got = _layers.clean(name)
+    if got:
+        return _scene.clean(dict(got, kind="layers", caption=name.title()))
+    got = _orbits.clean(name)
+    if got:
+        return _scene.clean(dict(got, kind="orbit", caption=name.title()))
+
+    try:
+        got = await _molecule.find(client, name)
+    except Exception:
+        got = {}
+    if got and 2 <= len(got.get("atoms") or []) <= _scene.MAX_ATOMS:
+        formula = got.get("formula") or ""
+        return _scene.clean({
+            "kind": "molecule",
+            "caption": name.title() + (" - " + formula if formula else ""),
+            "atoms": [{"el": a["el"], "x": a["x"], "y": a["y"], "z": a["z"]}
+                      for a in got["atoms"]],
+            "bonds": [list(b) for b in got["bonds"]],
+        })
+
+    if _protein.canonical(name):
+        try:
+            got = await _protein.find(client, name)
+        except Exception:
+            got = {}
+        if got:
+            return _scene.clean(dict(got, kind="protein",
+                                     caption=(got.get("title")
+                                              or name.title())[:110]))
+    return None
+
+
+@app.get("/api/craxlearn/structure")
+async def craxlearn_structure(name: str, user: User = Depends(current_user)):
+    """Put a real structure on the board, for anything we actually have one of.
+
+    Free — every source behind it is either a table in this repository or a
+    public database, and none of it is a model call. So a class can turn
+    twenty things around in a lesson and it costs what one does.
+    """
+    name = _cl.redact(name)[:120]
+    if len(name) < 2:
+        raise HTTPException(400, "Name the thing you want to see")
+    async with httpx.AsyncClient(follow_redirects=True, timeout=12) as c:
+        scene = await _resolve_structure(c, name)
+    if not scene:
+        # Named, and honestly answered. The alternative is a made-up
+        # arrangement of spheres with a real compound's name under it.
+        raise HTTPException(
+            404, f"There is no measured structure here for {name!r}. We only "
+                 f"show ones taken from PubChem, the Protein Data Bank or a "
+                 f"published table — never a drawing of what it might be.")
+    return {"name": name, "scene": scene}
+
+
+@app.get("/api/craxlearn/search")
+async def craxlearn_search(q: str, user: User = Depends(current_user)):
+    """Search the open sources for something to show the room.
+
+    A photograph where one exists, a measured structure where one exists,
+    and the licence beside each. Nothing here is generated: it is a search
+    over the same public catalogues listed at /api/craxlearn/sources, which
+    is why the result can carry a credit line that means something.
+    """
+    q = _cl.redact(q)[:120]
+    if len(q) < 2:
+        raise HTTPException(400, "Type something to look for")
+    async with httpx.AsyncClient(follow_redirects=True, timeout=12) as c:
+        try:
+            photo = await _images.find(c, q)
+        except Exception as e:
+            print(f"Source search picture failed: {type(e).__name__}: {e}")
+            photo = {}
+        try:
+            scene = await _resolve_structure(c, q)
+        except Exception as e:
+            print(f"Source search structure failed: {type(e).__name__}: {e}")
+            scene = None
+    return {"query": q, "photo": photo or None, "scene": scene,
+            "found": bool(photo or scene),
+            "sources": [s["name"] for s in _cl.sourcing()]}
+
+
+# Checked once per process. PhET's catalogue does not change during a
+# lesson, and asking them twenty times on every page load would be rude to
+# a free service a school depends on.
+_PHET_CHECKED = {}
+
+
+@app.get("/api/craxlearn/phet")
+async def craxlearn_phet(subject: str = "", user: User = Depends(current_user)):
+    """PhET simulations a class can drive, and only ones that really answer.
+
+    Every candidate is fetched from PhET before it is offered. An id this
+    codebase has wrong simply never appears — which is the only honest way
+    to ship a list of external URLs into a classroom, where the cost of a
+    wrong one is a 404 on the board with thirty people watching.
+
+    Verified once per process and remembered. If PhET cannot be reached at
+    all, the list comes back empty with a reason rather than a wall of
+    frames that will not load.
+    """
+    want = _cl.phet_candidates(subject)
+    todo = [s for s in want if s["id"] not in _PHET_CHECKED]
+
+    if todo:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as c:
+            async def look(sim):
+                try:
+                    # HEAD first: it is the cheap question, and PhET answers
+                    # it. Some CDNs do not, so a 405 falls back to a ranged
+                    # GET rather than being read as "missing".
+                    r = await c.head(sim["url"])
+                    if r.status_code == 405:
+                        r = await c.get(sim["url"],
+                                        headers={"Range": "bytes=0-256"})
+                    return sim["id"], r.status_code < 400
+                except Exception:
+                    return sim["id"], None      # unreachable, not absent
+            for sim_id, ok in await asyncio.gather(*[look(s) for s in todo]):
+                if ok is not None:
+                    _PHET_CHECKED[sim_id] = ok
+
+    live = [s for s in want if _PHET_CHECKED.get(s["id"])]
+    unknown = [s["id"] for s in want if s["id"] not in _PHET_CHECKED]
+    return {
+        "sims": live,
+        "subjects": sorted({s["subject"] for s in _cl.phet_candidates()}),
+        "licence": "CC BY 4.0 — University of Colorado Boulder",
+        "note": ("" if live else
+                 "PhET could not be reached from this server, so nothing is "
+                 "offered rather than a list of frames that will not load."
+                 if unknown else
+                 "None of the simulations in this list answered."),
+        "unverified": len(unknown),
+    }
+
+
+class CalcIn(BaseModel):
+    expression: str = Field(min_length=1, max_length=300)
+
+
+@app.post("/api/craxlearn/calc")
+def craxlearn_calc(body: CalcIn, user: User = Depends(current_user)):
+    """A calculator, worked by the same evaluator that checks the lessons.
+
+    Not eval, and not a model. `maths.evaluate` parses to a syntax tree and
+    walks it against an allowlist — numbers, arithmetic and a short list of
+    functions — so an expression typed on a classroom board by whoever is
+    standing at it can contain only arithmetic. That matters more here than
+    anywhere else in the product: this is the one input box in a room full
+    of teenagers who have just been taught what a sandbox is.
+
+    Signed in, because it is a classroom tool and not a free API to point a
+    load generator at.
+    """
+    expr = body.expression.strip()
+    got = _maths.evaluate(expr, {})
+    if got is None:
+        raise HTTPException(
+            400, "That is not arithmetic this can work out. Numbers, "
+                 "+ - * / ^, brackets, and sqrt, log, sin, cos, tan.")
+    # Trailing zeros off a float that is really an integer: a calculator
+    # that answers 12.0 to "6*2" reads as broken to the room.
+    if isinstance(got, float) and got.is_integer() and abs(got) < 1e15:
+        shown = str(int(got))
+    else:
+        shown = f"{got:.10g}"
+    return {"expression": expr, "result": shown, "value": got}
 
 
 @app.get("/api/craxlearn/sources")
@@ -13984,6 +15680,10 @@ STATIC_TYPES = {
     ".png":  "image/png",
     ".jpg":  "image/jpeg",
     ".ico":  "image/x-icon",
+    # A browser will not treat a page as installable if its manifest comes
+    # back as anything else, and the failure is silent — the install button
+    # simply never appears, which on a smart board is the whole feature.
+    ".webmanifest": "application/manifest+json",
 }
 
 
@@ -14053,7 +15753,14 @@ def craxlearn_page():
 @app.exception_handler(404)
 def not_found(request: Request, exc):
     if request.url.path.startswith("/api/"):
-        return JSONResponse({"detail": "Not found"}, status_code=404)
+        # An endpoint that raised HTTPException(404, "...") wrote that
+        # sentence on purpose, and this handler used to throw all of them
+        # away and answer "Not found" — so "no learner of yours has that id"
+        # and "there is no measured structure for that" both arrived as two
+        # useless words. The generic text is for a path that matched no
+        # route at all, which is the only case that has nothing to say.
+        detail = getattr(exc, "detail", None)
+        return JSONResponse({"detail": detail or "Not found"}, status_code=404)
     # On a Craxlearn-only server the main app is not what anybody typing a
     # wrong URL wanted, and serving it would put a job board in front of a
     # classroom by way of a typo.

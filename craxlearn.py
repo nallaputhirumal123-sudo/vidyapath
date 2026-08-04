@@ -349,6 +349,14 @@ SOURCES = (
      "used_for": "The rows every SQL sandbox query really runs against. The "
                  "same tables for everybody, so an exercise has one right "
                  "answer."},
+    {"id": "phet", "name": "PhET Interactive Simulations",
+     "org": "University of Colorado Boulder",
+     "role": "sourcing", "open": True, "licence": "CC BY 4.0",
+     "url": "https://phet.colorado.edu/",
+     "used_for": "Interactive science and maths simulations a class can "
+                 "drive on the board — build an atom, balance an equation, "
+                 "wire a circuit. Embedded from PhET's own servers, never "
+                 "copied, so what runs is the current published version."},
     # Recorded and honestly marked. Wolfram is not open, and it is not a
     # source: it is handed an expression and returns the result, which is
     # then explained. Nothing it returns is stored as institution material
@@ -364,6 +372,68 @@ SOURCES = (
                  "against a language model's memory of one. Optional: "
                  "without a key the lesson is unchanged."},
 )
+
+
+# --------------------------------------------------------------------------
+# PhET simulations
+# --------------------------------------------------------------------------
+# Candidates, not a catalogue. Every entry here is a simulation this file
+# BELIEVES exists, and belief is not good enough to put in front of a class:
+# a wrong id is a 404 in an iframe at the front of a room, mid-lesson, with
+# thirty people watching.
+#
+# So nothing here is served until the server has actually fetched it and
+# PhET has answered. An id that is wrong simply never appears, which means
+# this list can be added to freely — the worst a mistake can do is nothing.
+#
+# PhET's URLs are stable and predictable:
+#   https://phet.colorado.edu/sims/html/<id>/latest/<id>_en.html
+# Embedded from their servers rather than copied, so a class always runs the
+# current published version and the CC BY licence is satisfied by pointing
+# at the original.
+PHET_URL = "https://phet.colorado.edu/sims/html/{id}/latest/{id}_en.html"
+PHET_PAGE = "https://phet.colorado.edu/en/simulations/{id}"
+
+PHET_SIMS = (
+    ("build-an-atom", "Build an Atom", "Chemistry"),
+    ("states-of-matter-basics", "States of Matter", "Chemistry"),
+    ("balancing-chemical-equations", "Balancing Chemical Equations", "Chemistry"),
+    ("ph-scale-basics", "pH Scale", "Chemistry"),
+    ("concentration", "Concentration", "Chemistry"),
+    ("molecule-shapes", "Molecule Shapes", "Chemistry"),
+    ("circuit-construction-kit-dc", "Circuit Construction Kit (DC)", "Physics"),
+    ("forces-and-motion-basics", "Forces and Motion", "Physics"),
+    ("energy-skate-park-basics", "Energy Skate Park", "Physics"),
+    ("gravity-and-orbits", "Gravity and Orbits", "Physics"),
+    ("projectile-motion", "Projectile Motion", "Physics"),
+    ("wave-interference", "Wave Interference", "Physics"),
+    ("density", "Density", "Physics"),
+    ("ohms-law", "Ohm's Law", "Physics"),
+    ("natural-selection", "Natural Selection", "Biology"),
+    ("gene-expression-essentials", "Gene Expression", "Biology"),
+    ("fractions-intro", "Fractions", "Mathematics"),
+    ("graphing-lines", "Graphing Lines", "Mathematics"),
+    ("area-model-multiplication", "Area Model Multiplication", "Mathematics"),
+    ("trig-tour", "Trig Tour", "Mathematics"),
+)
+
+
+def phet_url(sim_id):
+    return PHET_URL.format(id=sim_id)
+
+
+def phet_page(sim_id):
+    return PHET_PAGE.format(id=sim_id)
+
+
+def phet_candidates(subject=""):
+    """The list to check. Filtered by subject when one is asked for."""
+    want = (subject or "").strip().lower()
+    return tuple(
+        {"id": i, "title": t, "subject": s,
+         "url": phet_url(i), "page": phet_page(i)}
+        for i, t, s in PHET_SIMS
+        if not want or s.lower() == want)
 
 
 def sourcing():

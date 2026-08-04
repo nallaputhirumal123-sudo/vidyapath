@@ -6,6 +6,11 @@
 <title>Craxlearn — the teaching board</title>
 <meta name="description" content="Craxlearn: the teaching half of Craxle, for schools, colleges and coaching centres. No job board.">
 <link rel="icon" href="/favicon.ico">
+<link rel="manifest" href="/craxlearn.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0b0f16">
 <style>
 /* Sized for the display at the front of a room, not for a laptop.
@@ -130,10 +135,49 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 }
 .tabs button[aria-selected="true"]{border-color:var(--accent);color:var(--accent)}
 
+/* ---- spaces ----
+   Two tools side by side, with a divider you drag. A classroom board is
+   wide and a lesson is usually two things at once — the lesson and the
+   working, the diagram and the question — and a teacher who has to keep
+   swapping between them stops using the second one.
+
+   Stacked rather than side by side under 900px, because two half-width
+   columns on a phone are two unreadable columns. */
+#panes{display:flex;flex-wrap:wrap;align-items:stretch;
+  min-height:calc(100vh - 4rem)}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1 1 0}
+/* Four spaces on a wide board is two rows of two, not four thin columns —
+   a column narrower than about 22rem holds nothing a class can read. */
+#panes.grid{align-content:stretch}
+#panes.grid .pane{flex:1 1 calc(50% - 5px);max-width:calc(50% - 5px);
+  height:calc((100vh - 4rem) / 2)}
+#panes.grid .grip{display:none}
+.paneHead{
+  display:flex;align-items:center;gap:.4rem;padding:.4rem var(--pad);
+  border-bottom:1px solid var(--line);background:var(--panel2);
+}
+.pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
+.paneHead select{font-size:.66rem;min-height:1.9rem;padding:.2rem .45rem}
+.paneBody{flex:1 1 auto;overflow-y:auto;padding:var(--pad);
+  -webkit-overflow-scrolling:touch}
+#panes.one .paneHead{display:none}
+#panes.one .paneBody{max-width:1500px;margin:0 auto;width:100%}
+.grip{
+  flex:0 0 10px;cursor:col-resize;background:var(--line);
+  background-clip:content-box;border-left:4px solid var(--bg);
+  border-right:4px solid var(--bg);touch-action:none;
+}
+.grip:active{background:var(--accent)}
+@media(max-width:900px){
+  #panes{flex-direction:column}
+  .grip{flex:0 0 10px;cursor:row-resize;border:none;border-top:4px solid var(--bg);
+    border-bottom:4px solid var(--bg)}
+}
+
 /* The boards render into #main and bring their own CSS. They were written
    for a 16px page, so they are scaled down relative to the room-sized base
    rather than left to fill a wall with one input box. */
-#main .nwwrap,#main .labwrap,#main .sqlwrap{font-size:.62rem}
+.paneBody .nwwrap,.paneBody .labwrap,.paneBody .sqlwrap{font-size:.62rem}
 
 @media print{ #top,.tile{display:none!important} }
 </style>
@@ -145,6 +189,9 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
     <span>Craxlearn<small>Schools · Colleges · Coaching</small></span></div>
   <span class="grow"></span>
   <div class="who" id="who"></div>
+  <button class="iconbtn" id="splitBtn" title="Open another space beside this one">▥</button>
+  <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
+  <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
   <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
@@ -157,7 +204,8 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
       schools, colleges and coaching centres. No job board, no adverts,
       nothing to buy in the classroom.</p>
     <div class="tabs" role="tablist">
-      <button role="tab" id="tabIn" aria-selected="true">Sign in</button>
+      <button role="tab" id="tabCode" aria-selected="true">Class code</button>
+      <button role="tab" id="tabIn" aria-selected="false">Sign in</button>
       <button role="tab" id="tabUp" aria-selected="false">New account</button>
     </div>
     <div id="gateForm"></div>
@@ -169,11 +217,12 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   </p>
 </div>
 
-<div id="main" hidden></div>
+<div id="app" hidden><div id="panes"></div></div>
 
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="net.js?v=02a45f7443"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
+<script src="three3d.js?v=252535ecb2"></script>
 <script>
 /* Craxlearn — the institution app.
  *
@@ -203,7 +252,14 @@ function esc(s){
   });
 }
 window.esc = esc;
-window.$ = function(sel){ return document.querySelector(sel); };
+/* The board modules were written for a page with one #main and they ask for
+   it by name. Rather than editing three of them, "#main" is answered with
+   whichever space is being drawn into right now — so net.js, lab.js and
+   sqlboard.js each land in their own pane without knowing panes exist. */
+window.$ = function(sel){
+  if(sel === "#main") return paneBody();
+  return document.querySelector(sel);
+};
 
 async function req(method, path, body){
   var opt = { method:method, credentials:"same-origin",
@@ -240,7 +296,191 @@ window.S = VIEW.page ? { view:VIEW } : { view:VIEW };
 window.S.view = VIEW;
 
 var el = function(id){ return document.getElementById(id); };
-var main = function(){ return el("main"); };
+
+/* ---------- spaces ----------
+ *
+ * One or two, side by side, with a divider you drag. Each holds any tool.
+ * `main()` is the body of whichever one is being drawn into, which is what
+ * lets every page function in this file — all of which were written against
+ * a single screen — work unchanged in either.
+ */
+var PANES = [{ page:"home", arg:null }];
+var LIVE = 0;          // the space a new page opens into
+var DRAW = 0;          // the space currently being drawn
+
+function paneBody(){
+  var p = document.querySelector('.paneBody[data-i="' + DRAW + '"]');
+  return p || document.querySelector(".paneBody") || el("app");
+}
+var main = paneBody;
+
+var TOOL_NAMES = {
+  home:"Home", board:"Ask the board", write:"Writing space",
+  calc:"Calculator", structure:"3D structures", find:"Search the sources",
+  phet:"Simulations",
+  net:"Packet walkthrough", lab:"The lab", sqlboard:"SQL board",
+  materials:"Study material", roster:"Class register", roll:"Your classes",
+  inbox:"To review", activity:"What the class is asking",
+  sources:"Where answers come from", assignment:"Assignment",
+  student:"A student", review:"Reviewing"
+};
+
+var MAX_PANES = 4;
+
+function paintPanes(){
+  var wrap = el("panes");
+  wrap.className = PANES.length === 1 ? "one"
+                 : PANES.length >= 3 ? "grid" : "";
+  var html = "";
+  PANES.forEach(function(p, i){
+    if(i && PANES.length === 2){
+      html += '<div class="grip" data-grip="' + i + '"></div>';
+    }
+    html += '<div class="pane" data-i="' + i + '" data-live="' +
+      (i === LIVE ? 1 : 0) + '"' +
+      /* Only a row layout gets an inline width. In the 2x2 the stylesheet
+         owns it, and an inline flex here beat that rule and laid four
+         spaces out as four unreadable columns. */
+      (PANES.length === 2 ? ' style="flex:' + (p.flex || 1) + ' 1 0"' : "") +
+      ">" +
+      '<div class="paneHead">' +
+        '<select data-pick="' + i + '">' +
+          Object.keys(TOOL_NAMES).filter(function(k){
+            if(["assignment","student","review"].indexOf(k) >= 0) return false;
+            /* Each tool names its own fields by id, so two copies of one
+               tool would both write into the same boxes. Home is exempt:
+               it has nothing to type into. */
+            if(k === "home" || k === p.page) return true;
+            return !PANES.some(function(q, j){ return j !== i && q.page === k; });
+          }).map(function(k){
+            return '<option value="' + k + '"' +
+              (k === p.page ? " selected" : "") + ">" +
+              esc(TOOL_NAMES[k]) + "</option>";
+          }).join("") +
+        "</select>" +
+        '<span class="grow"></span>' +
+        '<button class="iconbtn" data-shot="' + i + '" title="Screenshot this space">⛶</button>' +
+        (PANES.length > 1
+          ? '<button class="iconbtn" data-close="' + i + '" title="Close this space">✕</button>'
+          : "") +
+      "</div>" +
+      '<div class="paneBody" data-i="' + i + '"></div>' +
+      "</div>";
+  });
+  wrap.innerHTML = html;
+  wirePanes();
+  (async function(){
+    for(var i = 0; i < PANES.length; i++) await drawPane(i);
+  })();
+}
+
+async function drawPane(i){
+  var was = DRAW;
+  DRAW = i;
+  try{ await paint(PANES[i].page, PANES[i].arg); }
+  catch(e){ /* one space failing must not stop the others drawing */ }
+  finally{ DRAW = was; }
+}
+
+function wirePanes(){
+  el("panes").querySelectorAll("[data-pick]").forEach(function(sel){
+    sel.onchange = function(){
+      var i = +sel.dataset.pick;
+      PANES[i] = { page: sel.value, arg: null, flex: PANES[i].flex };
+      LIVE = i;
+      paintPanes();
+    };
+  });
+  el("panes").querySelectorAll("[data-close]").forEach(function(b){
+    b.onclick = function(){
+      PANES.splice(+b.dataset.close, 1);
+      LIVE = 0;
+      paintPanes();
+    };
+  });
+  el("panes").querySelectorAll("[data-shot]").forEach(function(b){
+    b.onclick = function(){ shoot(); };
+  });
+  el("panes").querySelectorAll(".pane").forEach(function(p){
+    p.addEventListener("pointerdown", function(){
+      var i = +p.dataset.i;
+      if(i === LIVE) return;
+      LIVE = i;
+      el("panes").querySelectorAll(".pane").forEach(function(q){
+        q.dataset.live = (+q.dataset.i === LIVE) ? 1 : 0;
+      });
+    }, true);
+  });
+
+  /* Dragging the divider. Widths are kept as flex ratios rather than pixels
+     so rotating a board or plugging in a different screen keeps the split
+     the teacher chose instead of leaving one pane 200px wide. */
+  el("panes").querySelectorAll("[data-grip]").forEach(function(g){
+    g.addEventListener("pointerdown", function(e){
+      e.preventDefault();
+      g.setPointerCapture(e.pointerId);
+      var wrap = el("panes");
+      var vertical = window.matchMedia("(max-width:900px)").matches;
+      function move(ev){
+        var r = wrap.getBoundingClientRect();
+        var f = vertical ? (ev.clientY - r.top) / r.height
+                         : (ev.clientX - r.left) / r.width;
+        f = Math.min(0.85, Math.max(0.15, f));
+        PANES[0].flex = f;
+        PANES[1].flex = 1 - f;
+        wrap.querySelectorAll(".pane").forEach(function(p, i){
+          p.style.flex = (PANES[i].flex || 1) + " 1 0";
+        });
+      }
+      function up(){
+        g.removeEventListener("pointermove", move);
+        g.removeEventListener("pointerup", up);
+      }
+      g.addEventListener("pointermove", move);
+      g.addEventListener("pointerup", up);
+    });
+  });
+}
+
+/* A picture of whatever is on the screen, using the browser's own capture
+   rather than a DOM-to-canvas library. It is the only way to get a true
+   screenshot without shipping a dependency, it captures the 3D view and the
+   writing space correctly where a DOM copy would not, and on a board it is
+   one tap and a confirm. */
+async function shoot(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    alert("This board's browser cannot take a screenshot. The writing " +
+          "space has its own Save as picture button.");
+    return;
+  }
+  var stream = null;
+  try{
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser" }, audio: false });
+    var track = stream.getVideoTracks()[0];
+    var v = document.createElement("video");
+    v.srcObject = stream;
+    v.muted = true;
+    await v.play();
+    /* One frame is enough, but the first one is often blank while the
+       capture warms up. */
+    await new Promise(function(r){ setTimeout(r, 320); });
+    var st = track.getSettings ? track.getSettings() : {};
+    var cv = document.createElement("canvas");
+    cv.width = st.width || v.videoWidth || 1920;
+    cv.height = st.height || v.videoHeight || 1080;
+    cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
+    var a = document.createElement("a");
+    a.href = cv.toDataURL("image/png");
+    a.download = "craxlearn-" + new Date().toISOString().slice(0,16)
+                   .replace(/[:T]/g,"-") + ".png";
+    a.click();
+  }catch(e){
+    /* Cancelling the picker is not an error worth a dialog. */
+  }finally{
+    if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  }
+}
 
 /* ---------- room size ---------- */
 /* Two sizes and a button, remembered per device. A teacher sets it once on
@@ -255,6 +495,74 @@ function scale(next){
   var b = el("scaleBtn");
   if(b) b.title = v === "board" ? "Board size — press for desk size"
                                 : "Desk size — press for board size";
+}
+
+/* ---------- signing in with nothing but a class code ----------
+ *
+ * Two taps and no credential. A child types the code the teacher wrote on
+ * the board, picks their own name off the register, and is in. There is
+ * nothing to remember, nothing to reset, and nothing to leak — the account
+ * behind it has a synthetic address and a password nobody has ever seen.
+ *
+ * The name list is the whole reason a teacher types a register first. Code
+ * alone would give a teacher a queue of work from "Learner 4".
+ */
+function codeForm(){
+  el("gateForm").innerHTML =
+    '<input id="gCode" placeholder="Class code" autocapitalize="characters" ' +
+      'autocomplete="off" style="text-transform:uppercase;letter-spacing:.1em">' +
+    '<button class="btn" id="gCodeGo">Find my class</button>';
+  el("gCodeGo").onclick = findClass;
+  el("gCode").onkeydown = function(e){ if(e.key === "Enter") findClass(); };
+}
+
+async function findClass(){
+  var msg = el("gateMsg");
+  var code = ((el("gCode") || {}).value || "").trim();
+  if(code.length < 3){ msg.textContent = "Type the code your teacher gave you."; return; }
+  msg.textContent = "Looking…";
+  var d;
+  try{ d = await api.post("/api/craxlearn/code", { code: code }); }
+  catch(e){ msg.textContent = e.message; return; }
+
+  if(!d.roster_ready){
+    msg.textContent = "Your teacher has not put the class register in yet. " +
+      "Ask them to add the names, then try again.";
+    return;
+  }
+  if(!(d.names || []).length){
+    msg.textContent = "Everybody on this register has already signed in. " +
+      "If none of them is you, ask your teacher to add your name.";
+    return;
+  }
+  msg.textContent = "";
+  el("gateForm").innerHTML =
+    '<p class="muted" style="margin-top:0">' + esc(d.class_name) +
+      (d.school ? " · " + esc(d.school) : "") + " — tap your name.</p>" +
+    '<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,9rem),1fr))">' +
+      d.names.map(function(n){
+        return '<button class="tile" style="min-height:auto;padding:.8rem" ' +
+          'data-claim="' + n.id + '"><b>' + esc(n.name) + "</b></button>";
+      }).join("") +
+    "</div>" +
+    '<button class="btn ghost" id="gBack" style="margin-top:.8rem">← Different code</button>';
+
+  el("gBack").onclick = function(){ el("gateMsg").textContent = ""; codeForm(); };
+  el("gateForm").querySelectorAll("[data-claim]").forEach(function(b){
+    b.onclick = async function(){
+      el("gateMsg").textContent = "Signing you in…";
+      try{
+        await api.post("/api/craxlearn/claim",
+                       { code: code, roster_id: +b.dataset.claim });
+        await boot();
+      }catch(e){
+        el("gateMsg").textContent = e.message;
+        /* Somebody took that name while this list was on screen. Show the
+           list again rather than leaving a dead button. */
+        if(e.status === 409) findClass();
+      }
+    };
+  });
 }
 
 /* ---------- sign in ---------- */
@@ -300,6 +608,16 @@ async function submit(up){
 var TILES = [
   { page:"board",  ic:"⚡", name:"Ask the board",
     sub:"Any subject, taught step by step, with a diagram where one helps." },
+  { page:"write",  ic:"✍️", name:"Writing space",
+    sub:"A blank surface to work on by hand. Save it as a picture." },
+  { page:"calc",   ic:"🧮", name:"Calculator",
+    sub:"Arithmetic, powers and roots, worked on screen where the room can see it." },
+  { page:"structure", ic:"🧬", name:"3D structures",
+    sub:"Turn a molecule, a crystal, a protein or an orbit around. Measured, never drawn." },
+  { page:"find",   ic:"🔎", name:"Search the sources",
+    sub:"A photograph or a structure from the open catalogues, with its licence." },
+  { page:"phet",   ic:"🔬", name:"Simulations",
+    sub:"PhET: build an atom, wire a circuit, balance an equation. Free and open." },
   { page:"net",    ic:"🌐", name:"Packet walkthrough",
     sub:"Send a packet through real routes and firewall rules and watch the decision." },
   { page:"lab",    ic:"🧪", name:"The lab",
@@ -309,6 +627,14 @@ var TILES = [
 ];
 
 var TEACHER_TILES = [
+  { page:"roll",     ic:"👥", name:"Your classes",
+    sub:"The classrooms you teach, who is in them, and how each one is doing." },
+  { page:"materials", ic:"📎", name:"Study material",
+    sub:"Links, PDFs and slides your class can open." },
+  { page:"roster",   ic:"📋", name:"Class register",
+    sub:"Type the names once, and they sign in with the class code alone." },
+  { page:"inbox",    ic:"📥", name:"To review",
+    sub:"Work your students have handed in, across every class." },
   { page:"activity", ic:"📊", name:"What the class is asking",
     sub:"The topics your learners have been stuck on, as counts." },
   { page:"sources",  ic:"📚", name:"Where answers come from",
@@ -321,9 +647,119 @@ function tile(t){
     "<b>" + esc(t.name) + "</b><span>" + esc(t.sub) + "</span></button>";
 }
 
-function home(){
-  var teacher = ME.role === "head" || ME.role === "teacher" || ME.role === "admin";
+/* Work, on whichever login is looking.
+ *
+ * The same assignment, two views, both filled from the server on the way in
+ * rather than by anybody pressing publish. A teacher sets it from the board
+ * and it is on the students' home screen; a student hands it in and it is in
+ * the teacher's inbox. Nothing in between is a state somebody has to
+ * remember to move it out of, because the state somebody forgets is the one
+ * that loses a term's homework.
+ */
+function workBlock(){
+  if(isTeacher()){
+    var n = (ME.inbox || {}).total || 0;
+    return '<div class="eyebrow">To review</div>' +
+      '<button class="card" data-go="inbox" style="width:100%;text-align:left;' +
+      'cursor:pointer;border-color:' + (n ? "var(--accent)" : "var(--line)") + '">' +
+        '<span class="big">' + n + "</span> " +
+        '<span class="muted">' +
+          (n ? "piece" + (n === 1 ? "" : "s") + " of work waiting for you"
+             : "nothing waiting — you are up to date") +
+        "</span></button>";
+  }
+  var due = (ME.assignments || []);
+  if(!due.length) return "";
+  return '<div class="eyebrow">Your work</div>' +
+    due.map(function(a){
+      var state = a.reviewed ? "✓ marked"
+                : a.done     ? "handed in"
+                             : "to do";
+      return '<button class="card" data-asg="' + a.id + '" ' +
+        'style="width:100%;text-align:left;cursor:pointer;border-color:' +
+        (a.done ? "var(--line)" : "var(--accent)") + '">' +
+        "<b>" + esc(a.title) + "</b><br>" +
+        '<span class="muted">' + esc(a.class_name) +
+          (a.subject ? " · " + esc(a.subject) : "") +
+          (a.due_date ? " · due " + esc(a.due_date) : "") +
+          " · " + state + "</span></button>";
+    }).join("");
+}
+
+function isTeacher(){
+  return ME.role === "head" || ME.role === "teacher" || ME.role === "admin";
+}
+
+function money(paise, cur){
+  var n = (paise || 0) / 100;
+  return (cur === "INR" ? "\u20b9" : (cur || "") + " ") +
+    n.toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
+}
+
+/* What a learner needs to know about themselves that is not schoolwork.
+   Attendance, what is owed, what to buy, and whatever the office has put
+   up — one glance, because a student checking four screens to find out
+   whether they are in trouble checks none of them. Nothing here is
+   editable from this app by anybody: it is the school office's to change. */
+function standingBlock(){
+  var st = ME.standing;
+  if(!st) return "";
   var h = "";
+
+  var urgent = (st.notices || []).filter(function(n){ return n.urgent; });
+  var rest   = (st.notices || []).filter(function(n){ return !n.urgent; });
+  if(urgent.length){
+    h += urgent.map(function(n){
+      return '<div class="note bad"><b>' + esc(n.title) + "</b>" +
+        (n.body ? "<br>" + esc(n.body) : "") + "</div>";
+    }).join("");
+  }
+
+  var bits = [];
+  if(st.attendance_pct !== null && st.attendance_pct !== undefined){
+    bits.push('<div class="card" style="flex:1 1 11rem"><div class="muted">Attendance</div>' +
+      '<span class="big">' + st.attendance_pct + "%</span>" +
+      '<div class="muted">' + st.days_present + " of " + st.days_recorded +
+      " days</div></div>");
+  }
+  if(st.owed > 0){
+    bits.push('<div class="card" style="flex:1 1 11rem;border-color:var(--accent)">' +
+      '<div class="muted">Still to pay</div>' +
+      '<span class="big">' + money(st.owed, st.currency) + "</span>" +
+      '<div class="muted">' + ((st.fees || []).filter(function(f){ return !f.settled; }).length) +
+      " item(s)</div></div>");
+  }
+  if(bits.length){
+    h += '<div class="eyebrow">You</div>' +
+      '<div style="display:flex;gap:1rem;flex-wrap:wrap">' + bits.join("") + "</div>";
+  }
+
+  var owing = (st.fees || []).concat(st.to_buy || [])
+    .filter(function(f){ return !f.settled; });
+  if(owing.length){
+    h += '<div class="card">' + owing.map(function(f){
+      return "<div style=\"display:flex;gap:.6rem;justify-content:space-between;" +
+        "padding:.3rem 0;flex-wrap:wrap\"><span>" + esc(f.title) +
+        (f.kind === "buy" ? ' <span class="muted">· to buy</span>' : "") +
+        (f.due_on ? ' <span class="muted">· by ' + esc(f.due_on) + "</span>" : "") +
+        "</span><b>" + money(f.outstanding, f.currency) + "</b></div>";
+    }).join("") + "</div>";
+  }
+
+  if(rest.length){
+    h += '<div class="eyebrow">From the school office</div>' +
+      rest.map(function(n){
+        return '<div class="card"><b>' + esc(n.title) + "</b>" +
+          (n.body ? '<div class="muted" style="margin-top:.35rem">' +
+            esc(n.body) + "</div>" : "") + "</div>";
+      }).join("");
+  }
+  return h;
+}
+
+function home(){
+  var teacher = isTeacher();
+  var h = standingBlock() + workBlock();
   if(ME.institution){
     h += '<div class="card"><div class="muted">Institution</div>' +
          '<div class="big">' + esc(ME.institution.name) + "</div>" +
@@ -337,6 +773,12 @@ function home(){
   }
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
        TILES.map(tile).join("") + "</div>";
+  if(!teacher && (ME.classes || []).length){
+    h += '<div class="eyebrow">From your teacher</div><div class="tiles">' +
+      tile({ page:"materials", ic:"📎", name:"Study material",
+             sub:"Links, PDFs and slides your teacher has put here." }) +
+      "</div>";
+  }
   if(teacher){
     h += '<div class="eyebrow">Your class</div><div class="tiles">' +
          TEACHER_TILES.map(tile).join("") + "</div>";
@@ -351,6 +793,807 @@ function home(){
        "open, and listed with its licence." +
        "</div>";
   main().innerHTML = h;
+}
+
+/* ---------- a surface to write on ----------
+ *
+ * The thing a smart board is for. Everything else here is the platform
+ * teaching; this is the teacher teaching, and a classroom display without
+ * somewhere to write by hand is a television.
+ *
+ * Pointer events rather than mouse or touch, because a board is used with a
+ * finger, a stylus and sometimes a mouse in the same lesson, and three
+ * separate handlers is three chances for one of them to be the broken one.
+ * Coalesced events are read where the browser offers them: a stylus reports
+ * far faster than the screen repaints, and dropping those samples is what
+ * makes handwriting look like a polygon.
+ */
+var PENS = [
+  { name:"White", colour:"#e8eef6" }, { name:"Amber", colour:"#ff9933" },
+  { name:"Green", colour:"#3fae6a" }, { name:"Red", colour:"#e05a5a" },
+  { name:"Blue",  colour:"#5aa9e0" }
+];
+
+function write(){
+  main().innerHTML =
+    '<div class="eyebrow">Writing space</div>' +
+    '<div class="card" style="padding:.7rem">' +
+      '<div id="wTools" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem">' +
+        PENS.map(function(p, i){
+          return '<button class="iconbtn" data-pen="' + i + '" title="' + p.name + '" ' +
+            'style="background:' + p.colour + ';border-color:' + p.colour +
+            ';width:2rem"></button>';
+        }).join("") +
+        '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
+        '<input type="range" id="wSize" min="2" max="28" value="5" ' +
+          'title="Thickness" style="width:7rem">' +
+        '<span class="grow"></span>' +
+        '<button class="btn ghost" id="wClear">Clear</button>' +
+        '<button class="btn ghost" id="wShot">Save as picture</button>' +
+      "</div>" +
+      '<canvas id="wCanvas" style="width:100%;height:62vh;touch-action:none;' +
+        'background:var(--panel2);border-radius:12px;display:block"></canvas>' +
+      '<div class="muted" id="wMsg" style="margin-top:.4rem">' +
+        "Write with a finger, a stylus or a mouse.</div>" +
+    "</div>";
+
+  var cv = el("wCanvas");
+  var ctx = cv.getContext("2d");
+  var pen = PENS[0].colour, size = 5, erasing = false, drawing = false;
+
+  /* Sized to the device's real pixels, or a 4K board draws a blurry line
+     over a stretched bitmap. Redrawn from a saved copy so resizing (or
+     rotating the board) does not wipe what is on it. */
+  function fit(){
+    var keep = null;
+    try{ keep = cv.width ? ctx.getImageData(0, 0, cv.width, cv.height) : null; }
+    catch(e){ keep = null; }
+    var r = cv.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = Math.max(1, Math.round(r.width * dpr));
+    cv.height = Math.max(1, Math.round(r.height * dpr));
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if(keep) try{ ctx.putImageData(keep, 0, 0); }catch(e){}
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  function at(e){
+    var r = cv.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    return { x:(e.clientX - r.left) * dpr, y:(e.clientY - r.top) * dpr };
+  }
+  function stroke(from, to, e){
+    ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
+    ctx.strokeStyle = pen;
+    /* A stylus that reports pressure is used with it; everything else draws
+       at the chosen thickness. */
+    var p = (e && e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
+    ctx.lineWidth = (erasing ? size * 3 : size) * (window.devicePixelRatio || 1)
+                    * (0.6 + p * 0.8);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+
+  var last = null;
+  cv.addEventListener("pointerdown", function(e){
+    drawing = true;
+    last = at(e);
+    cv.setPointerCapture(e.pointerId);
+    stroke(last, { x:last.x + 0.01, y:last.y }, e);   // a dot is a mark too
+  });
+  cv.addEventListener("pointermove", function(e){
+    if(!drawing) return;
+    var pts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null) || [e];
+    for(var i = 0; i < pts.length; i++){
+      var now_ = at(pts[i]);
+      stroke(last, now_, pts[i]);
+      last = now_;
+    }
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
+    cv.addEventListener(ev, function(){ drawing = false; last = null; });
+  });
+
+  el("wTools").querySelectorAll("[data-pen]").forEach(function(b){
+    b.onclick = function(){
+      if(b.dataset.pen === "erase"){ erasing = true; return; }
+      erasing = false;
+      pen = PENS[+b.dataset.pen].colour;
+    };
+  });
+  el("wSize").oninput = function(){ size = +el("wSize").value; };
+  el("wClear").onclick = function(){
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, cv.width, cv.height);
+  };
+  /* A picture of what is on the board, which is what "screenshot" means in
+     a classroom — the working, not the browser chrome around it. Drawn onto
+     a solid background first, or a transparent PNG opens as black on black
+     in half the apps a teacher will send it to. */
+  el("wShot").onclick = function(){
+    var out = document.createElement("canvas");
+    out.width = cv.width;
+    out.height = cv.height;
+    var o = out.getContext("2d");
+    o.fillStyle = "#0e1621";
+    o.fillRect(0, 0, out.width, out.height);
+    o.drawImage(cv, 0, 0);
+    var a = document.createElement("a");
+    a.href = out.toDataURL("image/png");
+    a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
+                   .replace(/[:T]/g, "-") + ".png";
+    a.click();
+    el("wMsg").textContent = "Saved as a picture.";
+  };
+}
+
+/* Mount a 3D scene, and SAY SO when it cannot be mounted.
+ *
+ * three.js comes from a CDN. On a school network that blocks it — or a
+ * board with no internet at that moment — the viewer silently never
+ * appears, and an empty box reads as "this app is broken" rather than
+ * "this board cannot reach the library". One is a support call about us;
+ * the other is a five-minute conversation with the IT technician.
+ */
+async function show3D(host, scene){
+  host.innerHTML = '<div class="muted" style="padding:1rem">Drawing…</div>';
+  if(!window.Three3D || !Three3D.mount){
+    host.innerHTML = '<div class="note bad">The 3D viewer could not load. ' +
+      "It comes from a public CDN — this board may be offline or the " +
+      "network may be blocking it. Everything else here still works.</div>";
+    return false;
+  }
+  try{
+    host.innerHTML = "";
+    await Three3D.mount(host, scene);
+    /* mount() can resolve without having drawn anything if the library
+       itself failed to arrive. A canvas is the proof it worked. */
+    if(!host.querySelector("canvas")) throw new Error("nothing was drawn");
+    return true;
+  }catch(e){
+    host.innerHTML = '<div class="note bad">The 3D viewer could not draw ' +
+      "this. It comes from a public CDN — this board may be offline or the " +
+      "network may be blocking it.</div>";
+    return false;
+  }
+}
+
+/* ---------- any structure worth turning around ----------
+ *
+ * Only ones somebody measured. A name with nothing behind it says so rather
+ * than showing a plausible arrangement of spheres with a real compound's
+ * name under it — which is the failure this whole codebase is built to
+ * avoid, and the one a class cannot possibly catch.
+ */
+async function structure(name){
+  var n = (name || "").trim();
+  main().innerHTML =
+    '<div class="eyebrow">3D structures</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="stName" style="flex:1 1 14rem" value="' + esc(n) + '" ' +
+        'placeholder="caffeine · silicon · graphene · haemoglobin · the solar system">' +
+      '<button class="btn" id="stGo">Show it</button>' +
+    '</div><div class="muted" id="stMsg" style="margin-top:.4rem">' +
+      "Measured — from PubChem, the Protein Data Bank, or a published table. " +
+      "Free to look at as many as you like.</div></div>" +
+    '<div id="stHost" class="card" style="min-height:24rem;padding:.4rem"></div>';
+
+  var run = async function(){
+    var want = (el("stName").value || "").trim();
+    if(want.length < 2) return;
+    el("stMsg").textContent = "Looking…";
+    el("stHost").innerHTML = "";
+    try{
+      var d = await api.get("/api/craxlearn/structure?name=" +
+                            encodeURIComponent(want));
+      el("stMsg").textContent = d.scene.caption || want;
+      await show3D(el("stHost"), d.scene);
+    }catch(e){
+      el("stMsg").textContent = e.message;
+    }
+  };
+  el("stGo").onclick = run;
+  el("stName").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  if(n) run();
+}
+
+/* ---------- searching the open sources ---------- */
+async function find(term){
+  var t = (term || "").trim();
+  main().innerHTML =
+    '<div class="eyebrow">Search the sources</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="fq" style="flex:1 1 14rem" value="' + esc(t) + '" ' +
+        'placeholder="a mitochondrion · Saturn · a titration">' +
+      '<button class="btn" id="fGo">Search</button>' +
+    '</div><div class="muted" id="fMsg" style="margin-top:.4rem">' +
+      "Public catalogues only, with the licence beside each result.</div></div>" +
+    '<div id="fOut"></div>';
+
+  var run = async function(){
+    var q = (el("fq").value || "").trim();
+    if(q.length < 2) return;
+    el("fMsg").textContent = "Searching…";
+    el("fOut").innerHTML = "";
+    var d;
+    try{ d = await api.get("/api/craxlearn/search?q=" + encodeURIComponent(q)); }
+    catch(e){ el("fMsg").textContent = e.message; return; }
+
+    el("fMsg").textContent = d.found
+      ? "From: " + (d.sources || []).join(", ")
+      : "Nothing in the open catalogues for that. Try the plain name of the " +
+        "thing rather than a question about it.";
+    var h = "";
+    if(d.photo){
+      h += '<div class="card"><img src="' + esc(d.photo.url || "") +
+        '" alt="" style="max-width:100%;border-radius:12px;display:block">' +
+        '<div class="muted" style="margin-top:.5rem">' +
+        esc(d.photo.title || "") +
+        (d.photo.credit ? " · " + esc(d.photo.credit) : "") +
+        (d.photo.licence ? " · " + esc(d.photo.licence) : "") + "</div></div>";
+    }
+    if(d.scene){
+      h += '<div class="card" style="padding:.4rem"><div id="fScene" ' +
+        'style="min-height:22rem"></div><div class="muted" style="padding:.4rem">' +
+        esc(d.scene.caption || "") + "</div></div>";
+    }
+    el("fOut").innerHTML = h;
+    if(d.scene) await show3D(el("fScene"), d.scene);
+  };
+  el("fGo").onclick = run;
+  el("fq").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  if(t) run();
+}
+
+/* ---------- PhET simulations ----------
+ *
+ * Embedded from PhET's own servers, so what a class runs is the current
+ * published version and the CC BY licence is satisfied by pointing at the
+ * original rather than copying it. The server has already checked that each
+ * one answers, so nothing here can be a 404 on the board mid-lesson.
+ */
+async function phet(pick){
+  main().innerHTML = '<div class="eyebrow">Simulations</div>' +
+    '<div class="muted">Loading what PhET has…</div>';
+  var d;
+  try{ d = await api.get("/api/craxlearn/phet"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  if(!(d.sims || []).length){
+    main().innerHTML = '<div class="eyebrow">Simulations</div>' +
+      '<div class="note bad">' + esc(d.note || "Nothing available.") + "</div>";
+    return;
+  }
+  var subs = {};
+  d.sims.forEach(function(s){ (subs[s.subject] = subs[s.subject] || []).push(s); });
+
+  var chosen = pick || d.sims[0].id;
+  var sim = d.sims.filter(function(s){ return s.id === chosen; })[0] || d.sims[0];
+
+  main().innerHTML = '<div class="eyebrow">Simulations</div>' +
+    '<div class="card" style="padding:.7rem">' +
+      Object.keys(subs).sort().map(function(k){
+        return '<div style="margin-bottom:.4rem"><span class="muted">' + esc(k) +
+          "</span><br>" + subs[k].map(function(x){
+            return '<button class="btn ' + (x.id === sim.id ? "" : "ghost") +
+              '" data-sim="' + esc(x.id) + '" style="margin:.2rem .3rem 0 0">' +
+              esc(x.title) + "</button>";
+          }).join("") + "</div>";
+      }).join("") +
+    "</div>" +
+    '<div class="card" style="padding:.3rem">' +
+      '<iframe src="' + esc(sim.url) + '" title="' + esc(sim.title) + '" ' +
+        'style="width:100%;height:62vh;border:0;border-radius:12px;' +
+        'background:#000" allowfullscreen></iframe>' +
+      '<div class="muted" style="padding:.4rem">' + esc(sim.title) + " · " +
+        esc(d.licence) + ' · <a href="' + esc(sim.page) +
+        '" target="_blank" rel="noopener">on PhET</a></div>' +
+    "</div>";
+
+  main().querySelectorAll("[data-sim]").forEach(function(b2){
+    b2.onclick = function(){ phet(b2.dataset.sim); };
+  });
+}
+
+/* ---------- a calculator the back row can read ---------- */
+function calc(){
+  main().innerHTML =
+    '<div class="eyebrow">Calculator</div>' +
+    '<div class="card" style="max-width:26rem">' +
+      '<input id="cIn" placeholder="12 * (3 + 4) - 2^5" ' +
+        'style="width:100%;font-size:1rem;text-align:right" autocomplete="off">' +
+      '<div id="cOut" class="big" style="text-align:right;margin:.6rem 0;' +
+        'min-height:1.6rem;color:var(--accent)"></div>' +
+      '<div class="muted" id="cErr"></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin-top:.7rem">' +
+        ["7","8","9","/","4","5","6","*","1","2","3","-","0",".","(",")",
+         "^","sqrt(","%","+"].map(function(k){
+          return '<button class="btn ghost" data-k="' + k + '">' + k + "</button>";
+        }).join("") +
+        '<button class="btn ghost" data-k="back">←</button>' +
+        '<button class="btn ghost" data-k="clear">C</button>' +
+        '<button class="btn" data-k="eq" style="grid-column:span 2">=</button>' +
+      "</div></div>" +
+    '<div class="muted" style="max-width:26rem">Worked on the server with the ' +
+      "same checker the lessons use, so it cannot run anything but arithmetic.</div>";
+
+  var inp = el("cIn");
+  function press(k){
+    if(k === "clear"){ inp.value = ""; el("cOut").textContent = ""; el("cErr").textContent = ""; return; }
+    if(k === "back"){ inp.value = inp.value.slice(0, -1); return; }
+    if(k === "eq"){ run(); return; }
+    inp.value += k;
+    inp.focus();
+  }
+  async function run(){
+    var expr = (inp.value || "").trim();
+    if(!expr) return;
+    el("cErr").textContent = "";
+    try{
+      var d = await api.post("/api/craxlearn/calc", { expression: expr });
+      el("cOut").textContent = d.result;
+    }catch(e){
+      el("cOut").textContent = "";
+      el("cErr").textContent = e.message;
+    }
+  }
+  main().querySelectorAll("[data-k]").forEach(function(b){
+    b.onclick = function(){ press(b.dataset.k); };
+  });
+  inp.onkeydown = function(e){ if(e.key === "Enter") run(); };
+  inp.focus();
+}
+
+/* ---------- study material ----------
+ *
+ * One screen, two audiences. A student gets a list they can open; a teacher
+ * gets the same list with a way to add to it and take things off it. Not two
+ * pages, because material a teacher cannot see the way a student sees it is
+ * material that turns out to be broken during a lesson.
+ */
+function pickClass(){
+  /* Which class this screen is about. A learner is normally in one; a head
+     teacher has several, so they choose. */
+  var cls = ME.classes || [];
+  if(!cls.length) return null;
+  if(!ME.pickedClass || !cls.some(function(c){ return c.id === ME.pickedClass; })){
+    ME.pickedClass = cls[0].id;
+  }
+  return ME.pickedClass;
+}
+
+function classPicker(onPick){
+  var cls = ME.classes || [];
+  if(cls.length < 2) return "";
+  return '<select id="clsPick" style="margin-bottom:.8rem">' +
+    cls.map(function(c){
+      return '<option value="' + c.id + '"' +
+        (c.id === ME.pickedClass ? " selected" : "") + ">" +
+        esc(c.name) + "</option>";
+    }).join("") + "</select>";
+}
+
+async function materials(){
+  var cid = pickClass();
+  if(!cid){
+    main().innerHTML = '<div class="card muted">You are not in a class yet. ' +
+      "Join one with a class code, or ask your teacher for one.</div>";
+    return;
+  }
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/class/" + cid + "/materials"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<div class="eyebrow">Study material</div>' + classPicker();
+  if(!(d.materials || []).length){
+    h += '<div class="card muted">Nothing here yet.</div>';
+  }else{
+    h += (d.materials).map(function(m){
+      var open = m.kind === "link"
+        ? '<a class="btn ghost" href="' + esc(m.url) + '" target="_blank" rel="noopener">Open the link</a>'
+        : '<a class="btn ghost" href="/api/material/' + m.id + '/file" target="_blank">Open ' +
+          esc(m.file_name || "the file") + "</a>";
+      return '<div class="card"><b>' + esc(m.title) + "</b>" +
+        (m.subject ? ' <span class="muted">· ' + esc(m.subject) + "</span>" : "") +
+        (m.note ? '<div class="muted" style="margin:.35rem 0">' + esc(m.note) + "</div>" : "") +
+        '<div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+          open +
+          (m.size ? '<span class="muted">' + Math.max(1, Math.round(m.size/1000)) + " KB</span>" : "") +
+          (isTeacher() ? '<button class="btn ghost" data-delmat="' + m.id + '">Remove</button>' : "") +
+        "</div></div>";
+    }).join("");
+  }
+
+  if(isTeacher()){
+    h += '<div class="eyebrow">Add something</div>' +
+      '<div class="card"><b>A link</b>' +
+        '<input id="mTitle" placeholder="What is it called" style="width:100%;margin:.5rem 0">' +
+        '<input id="mUrl" placeholder="https://…" style="width:100%;margin-bottom:.5rem">' +
+        '<input id="mNote" placeholder="Why they should read it (optional)" style="width:100%;margin-bottom:.5rem">' +
+        '<button class="btn" id="mAdd">Add the link</button>' +
+        ' <span class="muted" id="mMsg"></span>' +
+      "</div>" +
+      '<div class="card"><b>A file</b>' +
+        '<div class="muted" style="margin:.35rem 0">PDF, PowerPoint, Word, ' +
+          "text or an image. Up to 12 MB — link to anything bigger.</div>" +
+        '<input type="file" id="mFile" style="width:100%;margin-bottom:.5rem" ' +
+          'accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp">' +
+        '<input id="mFTitle" placeholder="What is it called (optional)" style="width:100%;margin-bottom:.5rem">' +
+        '<button class="btn" id="mUp">Upload it</button>' +
+        ' <span class="muted" id="mFMsg"></span>' +
+      "</div>";
+  }
+  main().innerHTML = h;
+
+  var pick = el("clsPick");
+  if(pick) pick.onchange = function(){ ME.pickedClass = +pick.value; materials(); };
+
+  main().querySelectorAll("[data-delmat]").forEach(function(b){
+    b.onclick = async function(){
+      try{ await api.del("/api/teacher/material/" + b.dataset.delmat); materials(); }
+      catch(e){ alert(e.message); }
+    };
+  });
+
+  var add = el("mAdd");
+  if(add) add.onclick = async function(){
+    el("mMsg").textContent = "Adding…";
+    try{
+      await api.post("/api/teacher/class/" + cid + "/material/link", {
+        title: el("mTitle").value || "", url: el("mUrl").value || "",
+        note: el("mNote").value || "" });
+      materials();
+    }catch(e){ el("mMsg").textContent = e.message; }
+  };
+
+  var up = el("mUp");
+  if(up) up.onclick = async function(){
+    var f = (el("mFile").files || [])[0];
+    if(!f){ el("mFMsg").textContent = "Choose a file first."; return; }
+    el("mFMsg").textContent = "Uploading…";
+    var fd = new FormData();
+    fd.append("file", f);
+    fd.append("title", el("mFTitle").value || "");
+    /* Sent with fetch directly rather than through api.post: this is
+       multipart, and setting Content-Type by hand strips the boundary the
+       browser generates, which the server then cannot parse. */
+    try{
+      var r = await fetch("/api/teacher/class/" + cid + "/material/file",
+                          { method:"POST", credentials:"same-origin", body:fd });
+      var data = null;
+      try{ data = await r.json(); }catch(err){}
+      if(!r.ok) throw new Error((data && data.detail) || "Upload failed");
+      materials();
+    }catch(e){ el("mFMsg").textContent = e.message; }
+  };
+}
+
+/* ---------- my classrooms, and only mine ----------
+ *
+ * A teacher's own first screen: the classes the head put them in and the
+ * learners the head enrolled. Not a search across the school — a list of
+ * exactly what is theirs, which is both the useful thing and the safe one.
+ * The server enforces it; this only draws what came back.
+ */
+async function roll(){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/roll"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<div class="eyebrow">Your classrooms</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="sCode" placeholder="Look up a student id" style="flex:1 1 12rem">' +
+      '<button class="btn" id="sGo">Find</button>' +
+    '</div><div class="muted" id="sMsg" style="margin-top:.4rem">' +
+      "Only students in your own classes." +
+    "</div></div>";
+
+  if(!(d.classes || []).length){
+    h += '<div class="card muted">' + esc(d.note ||
+      "You have not been given a class yet. Your head teacher assigns them.") +
+      "</div>";
+  }
+  (d.classes || []).forEach(function(c){
+    h += '<div class="card"><b>' + esc(c.name) + "</b>" +
+      (c.my_subjects && c.my_subjects.length
+        ? ' <span class="muted">· ' + esc(c.my_subjects.join(", ")) + "</span>" : "") +
+      ' <span class="muted">· code ' + esc(c.join_code) + "</span>" +
+      (c.students.length
+        ? '<div class="wrap" style="margin-top:.6rem"><table>' +
+          "<tr><th>Student</th><th>Id</th><th>Attendance</th><th></th></tr>" +
+          c.students.map(function(s){
+            return "<tr><td>" + esc(s.name) + "</td><td>" +
+              esc(s.student_code || "—") + "</td><td>" +
+              (s.attendance_pct === null || s.attendance_pct === undefined
+                ? "—" : s.attendance_pct + "%") + "</td><td>" +
+              '<button class="btn ghost" data-stu="' + s.user_id +
+              '">Progress</button></td></tr>';
+          }).join("") + "</table></div>"
+        : '<div class="muted" style="margin-top:.5rem">Nobody has joined yet. ' +
+          "Add the register, then give out the class code.</div>") +
+      "</div>";
+  });
+  main().innerHTML = h;
+
+  main().querySelectorAll("[data-stu]").forEach(function(b){
+    b.onclick = function(){ go("student", b.dataset.stu); };
+  });
+  el("sGo").onclick = async function(){
+    var code = (el("sCode").value || "").trim();
+    if(!code) return;
+    el("sMsg").textContent = "Looking…";
+    try{
+      var got = await api.get("/api/teacher/student-by-code?code=" +
+                              encodeURIComponent(code));
+      go("student", got.student.user_id);
+    }catch(e){ el("sMsg").textContent = e.message; }
+  };
+}
+
+async function student(uid){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/student/" + uid); }
+  catch(e){ main().innerHTML = '<button class="btn ghost" data-go="roll">← Back</button>' +
+    '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var s = d.student;
+  var h = '<button class="btn ghost" data-go="roll">← Back to your classes</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(s.name) + "</h1>" +
+    '<p class="muted">' +
+      (s.student_code ? esc(s.student_code) + " · " : "") +
+      (d.classes || []).map(function(c){ return esc(c.name); }).join(", ") +
+      (s.class_login ? " · signs in with the class code" : "") + "</p>";
+
+  h += '<div style="display:flex;gap:1rem;flex-wrap:wrap">' +
+    '<div class="card" style="flex:1 1 9rem"><div class="muted">Attendance</div>' +
+      '<span class="big">' +
+      (d.attendance_pct === null || d.attendance_pct === undefined
+        ? "—" : d.attendance_pct + "%") + "</span></div>" +
+    '<div class="card" style="flex:1 1 9rem"><div class="muted">Lessons finished</div>' +
+      '<span class="big">' + (d.lessons_completed || 0) + "</span></div>" +
+    '<div class="card" style="flex:1 1 9rem"><div class="muted">Handed in</div>' +
+      '<span class="big">' + (d.handed_in || []).length + "</span></div>" +
+    "</div>";
+
+  function list(title, rows, render, empty){
+    return '<div class="eyebrow">' + title + "</div>" +
+      (rows.length ? '<div class="card">' + rows.map(render).join("") + "</div>"
+                   : '<div class="card muted">' + empty + "</div>");
+  }
+
+  h += list("What they have learnt", d.learnt || [], function(x){
+    return "<div>" + esc(x.skill) +
+      (x.times > 1 ? ' <span class="muted">· ' + x.times + " times</span>" : "") +
+      "</div>";
+  }, "Nothing recorded yet.");
+
+  h += list("Exams and quizzes", d.exams || [], function(x){
+    return "<div>" + esc(x.track) + " — <b>" + x.score + "/" + x.total + "</b> " +
+      (x.passed ? '<span style="color:var(--ok)">passed</span>'
+                : '<span class="muted">not passed</span>') +
+      ' <span class="muted">· ' + esc((x.at || "").slice(0,10)) + "</span></div>";
+  }, "No exam has been taken.");
+
+  h += list("Work handed in", d.handed_in || [], function(x){
+    return "<div>" + esc(x.title) + " " +
+      (x.reviewed ? '<span style="color:var(--ok)">✓ marked</span>'
+                  : '<span class="muted">waiting</span>') +
+      (x.feedback ? '<div class="muted">' + esc(x.feedback) + "</div>" : "") +
+      "</div>";
+  }, "Nothing handed in yet.");
+
+  h += list("What they searched for", d.searched || [], function(x){
+    return "<div>" + esc(x.text) +
+      ' <span class="muted">· ' + esc(x.kind) + " · " +
+      esc((x.at || "").slice(0,10)) + "</span></div>";
+  }, "Nothing yet.");
+
+  main().innerHTML = h;
+}
+
+/* ---------- the class register ---------- */
+async function roster(){
+  var cid = pickClass();
+  if(!cid){
+    main().innerHTML = '<div class="card muted">No class yet.</div>';
+    return;
+  }
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/class/" + cid + "/roster"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var cls = (ME.classes || []).filter(function(c){ return c.id === cid; })[0] || {};
+  var h = '<div class="eyebrow">Class register</div>' + classPicker() +
+    '<div class="note">Type the names once. After that a learner signs in ' +
+    "with the class code and their own name — no email, no password, " +
+    "nothing to reset. A name disappears from the list once it is taken.</div>";
+
+  h += '<div class="card">' +
+    "<b>" + (d.free || 0) + " of " + (d.total || 0) + " still to sign in</b>" +
+    (d.total ? '<div class="wrap" style="margin-top:.6rem"><table>' +
+      "<tr><th>Name</th><th>Status</th><th></th></tr>" +
+      d.roster.map(function(r){
+        return "<tr><td>" + esc(r.name) + "</td><td>" +
+          (r.claimed ? "signed in" : "waiting") + "</td><td>" +
+          (r.claimed ? "" : '<button class="btn ghost" data-delros="' + r.id +
+            '">Remove</button>') + "</td></tr>";
+      }).join("") + "</table></div>" : "") +
+    "</div>";
+
+  h += '<div class="eyebrow">Add names</div><div class="card">' +
+    '<textarea id="rNames" rows="6" placeholder="One name per line" ' +
+      'style="width:100%;font:inherit;font-size:.72rem;padding:.6rem;' +
+      'border-radius:12px;border:1px solid var(--line);background:var(--panel2);' +
+      'color:var(--text)"></textarea>' +
+    '<div style="margin-top:.6rem"><button class="btn" id="rAdd">Add them</button> ' +
+    '<span class="muted" id="rMsg"></span></div></div>';
+  main().innerHTML = h;
+
+  var pick = el("clsPick");
+  if(pick) pick.onchange = function(){ ME.pickedClass = +pick.value; roster(); };
+
+  main().querySelectorAll("[data-delros]").forEach(function(b){
+    b.onclick = async function(){
+      try{ await api.del("/api/teacher/roster/" + b.dataset.delros); roster(); }
+      catch(e){ alert(e.message); }
+    };
+  });
+  el("rAdd").onclick = async function(){
+    el("rMsg").textContent = "Adding…";
+    try{
+      var r = await api.post("/api/teacher/class/" + cid + "/roster",
+                             { names: el("rNames").value || "" });
+      el("rMsg").textContent = "Added " + r.added + ".";
+      roster();
+    }catch(e){ el("rMsg").textContent = e.message; }
+  };
+}
+
+/* ---------- a student's own work ---------- */
+async function assignment(aid){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/assignment/" + aid); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<button class="btn ghost" data-go="home">← Back</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(d.title) + "</h1>" +
+    '<p class="muted">' + esc(d.class_name) +
+      (d.subject ? " · " + esc(d.subject) : "") +
+      (d.teacher_name ? " · set by " + esc(d.teacher_name) : "") +
+      (d.due_date ? " · due " + esc(d.due_date) : "") + "</p>";
+
+  if(d.feedback || d.reviewed_at){
+    h += '<div class="note"><b>Your teacher says:</b> ' +
+      (d.feedback ? esc(d.feedback)
+                  : "marked — nothing further to add.") + "</div>";
+  }
+  h += '<div class="card" style="white-space:pre-wrap">' + esc(d.body || "") + "</div>";
+  /* Set from the board, so the same lesson can be taught again to whoever
+     is stuck. This is the reason board_topic is stored at all: "do this"
+     without "and here is how" is where a class quietly stops. */
+  if(d.board_topic){
+    h += '<button class="btn ghost" data-teach="' + esc(d.board_topic) +
+         '">Teach me this again</button>';
+  }
+  h += '<div class="eyebrow">Your answer</div><div class="card">' +
+    '<textarea id="ans" rows="8" style="width:100%;font:inherit;font-size:.72rem;' +
+    'padding:.6rem;border-radius:12px;border:1px solid var(--line);' +
+    'background:var(--panel2);color:var(--text)">' + esc(d.my_response || "") +
+    "</textarea>" +
+    '<div style="margin-top:.6rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+      '<button class="btn" id="handIn">' +
+        (d.done ? "Update my answer" : "Hand it in") + "</button>" +
+      '<span class="muted" id="handMsg">' +
+        (d.submitted_at ? "Handed in " + esc(d.submitted_at.slice(0,16).replace("T"," "))
+                        : "Not handed in yet") + "</span>" +
+    "</div></div>";
+  main().innerHTML = h;
+
+  el("handIn").onclick = async function(){
+    el("handMsg").textContent = "Sending…";
+    try{
+      await api.post("/api/assignment/" + aid + "/submit",
+                     { response: el("ans").value || "" });
+      el("handMsg").textContent = "Handed in. Your teacher can see it now.";
+      await refreshMe();
+    }catch(e){ el("handMsg").textContent = e.message; }
+  };
+}
+
+/* ---------- a teacher's queue ---------- */
+async function inbox(){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/inbox"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<div class="eyebrow">Work waiting for you</div>';
+  if(!(d.waiting || []).length){
+    h += '<div class="card muted">Nothing waiting. ' +
+      (d.reviewed ? d.reviewed + " reviewed so far across " : "Across ") +
+      (d.classes || 0) + " class" + ((d.classes === 1) ? "" : "es") + ".</div>";
+  }else{
+    h += (d.waiting).map(function(w){
+      return '<button class="card" data-review="' + w.assignment_id + '" ' +
+        'data-student="' + w.student_id + '" ' +
+        'style="width:100%;text-align:left;cursor:pointer">' +
+        "<b>" + esc(w.student) + "</b>" +
+        (w.resubmitted ? ' <span class="muted">· handed in again</span>' : "") +
+        '<br><span class="muted">' + esc(w.title) + " · " +
+        esc(w.class_name) + (w.subject ? " · " + esc(w.subject) : "") +
+        " · " + esc((w.at || "").slice(0,16).replace("T"," ")) +
+        "</span></button>";
+    }).join("");
+  }
+  main().innerHTML = h;
+}
+
+async function review(aid, sid){
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/assignment/" + aid + "/submissions"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var who = (d.students || []).filter(function(s){ return s.submitted; });
+  var h = '<button class="btn ghost" data-go="inbox">← Back to the queue</button>' +
+    "<h1 style=\"margin-top:.8rem\">" + esc(d.title) + "</h1>" +
+    '<p class="muted">' + esc(d.subject || "") + " · " + who.length +
+    " of " + (d.students || []).length + " handed in</p>";
+
+  if(!who.length){
+    h += '<div class="card muted">Nobody has handed this in yet.</div>';
+    main().innerHTML = h;
+    return;
+  }
+  h += who.map(function(s){
+    var open = String(s.id) === String(sid);
+    return '<div class="card">' +
+      "<b>" + esc(s.name) + "</b> " +
+      '<span class="muted">' +
+        (s.resubmitted ? "handed in again" : s.reviewed ? "✓ reviewed" : "waiting") +
+        " · " + esc((s.at || "").slice(0,16).replace("T"," ")) + "</span>" +
+      '<div style="white-space:pre-wrap;margin:.6rem 0;padding:.6rem;' +
+        'background:var(--panel2);border-radius:12px;font-size:.72rem">' +
+        esc(s.response || "(blank)") + "</div>" +
+      '<textarea data-fb="' + s.id + '" rows="2" placeholder="What you want to say back (optional)" ' +
+        'style="width:100%;font:inherit;font-size:.72rem;padding:.6rem;' +
+        'border-radius:12px;border:1px solid var(--line);background:var(--panel2);' +
+        'color:var(--text)">' + esc(s.feedback || "") + "</textarea>" +
+      '<div style="margin-top:.5rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+        '<button class="btn" data-mark="' + s.id + '">' +
+          (s.reviewed ? "Update" : "Mark reviewed") + "</button>" +
+        '<span class="muted" data-msg="' + s.id + '"></span>' +
+      "</div>" +
+      "</div>";
+  }).join("");
+  main().innerHTML = h;
+  if(sid){
+    var card = main().querySelector('[data-fb="' + sid + '"]');
+    if(card) card.scrollIntoView({ block:"center" });
+  }
+  main().querySelectorAll("[data-mark]").forEach(function(b){
+    b.onclick = async function(){
+      var uid = b.dataset.mark;
+      var msg = main().querySelector('[data-msg="' + uid + '"]');
+      msg.textContent = "Saving…";
+      try{
+        await api.post("/api/teacher/submission/" + aid + "/" + uid + "/review",
+          { feedback: (main().querySelector('[data-fb="' + uid + '"]').value || "") });
+        msg.textContent = "Reviewed. The student can see this now.";
+        b.textContent = "Update";
+        await refreshMe();
+      }catch(e){ msg.textContent = e.message; }
+    };
+  });
 }
 
 async function activity(){
@@ -459,63 +1702,194 @@ async function teach(){
     h += "</div>";
   });
   if(L.takeaway) h += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
+
+  /* The point of teaching on a board that is part of the platform: what the
+     class just watched becomes the work they take away, without anybody
+     retyping it. Teachers only, and only for classes they hold. */
+  var mine = (ME.classes || []).filter(function(c){ return c.mine; });
+  if(isTeacher() && mine.length){
+    h += '<div class="eyebrow">Set this for a class</div><div class="card">' +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<select id="asgClass">' + mine.map(function(c){
+          return '<option value="' + c.id + '">' + esc(c.name) + "</option>";
+        }).join("") + "</select>" +
+        '<input id="asgDue" type="date" title="Due date (optional)">' +
+        '<input id="asgTask" style="flex:1 1 14rem" ' +
+          'placeholder="What they have to do (optional)">' +
+        '<button class="btn" id="asgGo">Set it</button>' +
+      "</div>" +
+      '<div class="muted" id="asgMsg" style="margin-top:.5rem">' +
+        "It appears on their home screen straight away — there is nothing to publish." +
+      "</div></div>";
+  }
   out.innerHTML = h;
+
+  var go = el("asgGo");
+  if(go) go.onclick = async function(){
+    var msg = el("asgMsg");
+    msg.textContent = "Setting…";
+    try{
+      var r = await api.post("/api/craxlearn/board/assign", {
+        class_id: +el("asgClass").value,
+        topic: topic,
+        title: L.title || topic,
+        due_date: el("asgDue").value || "",
+        task: el("asgTask").value || "",
+        lesson: L
+      });
+      msg.textContent = "Set for " + r.students + " student" +
+        (r.students === 1 ? "" : "s") + ". It is on their home screen now.";
+      await refreshMe();
+    }catch(e){ msg.textContent = e.message; }
+  };
 }
 
 /* ---------- routing ---------- */
+/* go() opens a page in the live space; paint() draws one that is already
+   chosen. Splitting them is what lets a space be redrawn — after a refresh,
+   after a resize — without it stealing focus from the other one. */
 function go(page, arg){
+  PANES[LIVE] = { page:page, arg:arg, flex: PANES[LIVE].flex };
   VIEW.page = page;
   window.S.view = VIEW;
+  DRAW = LIVE;
+  var head = document.querySelector('[data-pick="' + LIVE + '"]');
+  if(head && TOOL_NAMES[page]) head.value = page;
+  paint(page, arg);
+}
+
+function paint(page, arg){
   var m = main();
-  m.scrollTop = 0;
-  window.scrollTo(0,0);
-  if(page === "home")           home();
-  else if(page === "activity")  activity();
-  else if(page === "sources")   sources();
-  else if(page === "board")     board(arg);
+  if(m) m.scrollTop = 0;
+  /* Every branch RETURNS, so an async page's promise reaches drawPane and
+     DRAW keeps pointing at this space until it has finished writing. */
+  if(page === "home")           return home();
+  else if(page === "activity")  return activity();
+  else if(page === "sources")   return sources();
+  else if(page === "inbox")     return inbox();
+  else if(page === "materials") return materials();
+  else if(page === "write")     return write();
+  else if(page === "calc")      return calc();
+  else if(page === "roll")      return roll();
+  else if(page === "student")   return student(arg);
+  else if(page === "roster")    return roster();
+  else if(page === "assignment") return assignment(arg);
+  else if(page === "review")    return review(arg && arg.aid, arg && arg.sid);
+  else if(page === "board")     return board(arg);
   else if(page === "net"       && window.renderNet)      window.renderNet();
   else if(page === "lab"       && window.renderLab)      window.renderLab();
   else if(page === "sqlboard"  && window.renderSqlBoard) window.renderSqlBoard();
-  else home();
+  else if(page === "structure") return structure(arg);
+  else if(page === "find")      return find(arg);
+  else if(page === "phet")      return phet(arg);
+  return home();
 }
-window.render = function(){ go(VIEW.page); };
+window.render = function(){ paint(VIEW.page, null); };
 
 document.addEventListener("click", function(e){
-  var b = e.target.closest && e.target.closest("[data-go]");
-  if(b) go(b.dataset.go);
+  var t = e.target;
+  if(!t.closest) return;
+  var b;
+  if((b = t.closest("[data-asg]")))    return go("assignment", b.dataset.asg);
+  if((b = t.closest("[data-review]"))) return go("review",
+      { aid:b.dataset.review, sid:b.dataset.student });
+  if((b = t.closest("[data-teach]")))  return go("board", b.dataset.teach);
+  if((b = t.closest("[data-go]")))     return go(b.dataset.go);
 });
 
 /* ---------- boot ---------- */
+/* One place that knows what work exists, refreshed after anything that
+   changes it. A page that painted its counts once and never again is a
+   teacher who hands work back and still sees "3 waiting" until they reload,
+   and then stops trusting the number. */
+async function refreshMe(){
+  if(!ME) return;
+  if(isTeacher()){
+    try{ ME.inbox = await api.get("/api/teacher/inbox"); }
+    catch(e){ ME.inbox = { total:0, waiting:[] }; }
+  }
+  /* A teacher can also be enrolled somewhere as a learner, and a head
+     teacher's own classes come back here too — so this runs for everybody
+     rather than in an else. */
+  try{ ME.standing = await api.get("/api/craxlearn/standing"); }
+  catch(e){ ME.standing = null; }
+  try{
+    var mine = await api.get("/api/class/mine");
+    var flat = [];
+    (mine.classes || []).forEach(function(c){
+      (c.assignments || []).forEach(function(a){
+        flat.push(Object.assign({ class_name:c.name }, a));
+      });
+    });
+    /* Not handed in first, then by due date. The list is a to-do list, so
+       the thing that is still to do belongs at the top of it. */
+    flat.sort(function(x, y){
+      if(!!x.done !== !!y.done) return x.done ? 1 : -1;
+      return String(x.due_date || "9999").localeCompare(String(y.due_date || "9999"));
+    });
+    ME.assignments = flat;
+  }catch(e){ ME.assignments = []; }
+}
+
 async function boot(){
   try{
     ME = await api.get("/api/craxlearn/me");
   }catch(err){
     ME = null;
   }
+  if(ME) await refreshMe();
   var signedIn = !!ME;
   el("gate").hidden = signedIn;
-  main().hidden = !signedIn;
+  el("app").hidden = !signedIn;
   if(!signedIn){
     el("who").innerHTML = "";
-    gateForm("in");
+    /* The class code first, because it is the one most people arriving here
+       are holding. An email box in front of a nine-year-old with a code in
+       their hand is a wrong turn they take before they read the tabs. */
+    tab("Code");
     return;
   }
   el("who").innerHTML = "<b>" + esc(ME.user.name) + "</b>" +
     esc(ME.institution ? ME.institution.name : (ME.role || "learner"));
-  go("home");
+  PANES = [{ page:"home", arg:null }];
+  LIVE = 0;
+  paintPanes();
 }
 
-el("tabIn").onclick = function(){
-  el("tabIn").setAttribute("aria-selected","true");
-  el("tabUp").setAttribute("aria-selected","false");
-  gateForm("in");
-};
-el("tabUp").onclick = function(){
-  el("tabUp").setAttribute("aria-selected","true");
-  el("tabIn").setAttribute("aria-selected","false");
-  gateForm("up");
-};
+function tab(which){
+  ["Code","In","Up"].forEach(function(t){
+    el("tab" + t).setAttribute("aria-selected", String(t === which));
+  });
+  el("gateMsg").textContent = "";
+  if(which === "Code") codeForm();
+  else gateForm(which === "Up" ? "up" : "in");
+}
+el("tabCode").onclick = function(){ tab("Code"); };
+el("tabIn").onclick   = function(){ tab("In"); };
+el("tabUp").onclick   = function(){ tab("Up"); };
 el("homeBtn").onclick = function(){ go("home"); };
+el("shotBtn").onclick = function(){ shoot(); };
+/* One press adds a space, up to four; the fifth press goes back to one.
+   A cycle rather than separate add and remove buttons, because a board is
+   operated mid-sentence and one button you press again is easier to
+   explain than two you have to choose between. The space that was live is
+   the one kept when it wraps — it is what the teacher was working in. */
+el("splitBtn").onclick = function(){
+  if(PANES.length >= MAX_PANES){
+    PANES = [{ page: PANES[LIVE].page, arg: PANES[LIVE].arg }];
+    LIVE = 0;
+  }else{
+    PANES = PANES.map(function(p){
+      return { page:p.page, arg:p.arg, flex:1 };
+    });
+    PANES.push({ page: PANES.length === 1 ? "write" : "home",
+                 arg: null, flex: 1 });
+    LIVE = PANES.length - 1;
+  }
+  el("splitBtn").title = PANES.length >= MAX_PANES
+    ? "Back to one space" : "Open another space (" + PANES.length + " of 4)";
+  paintPanes();
+};
 el("scaleBtn").onclick = function(){
   scale(document.documentElement.getAttribute("data-scale") === "board"
         ? "desk" : "board");
@@ -525,6 +1899,40 @@ el("outBtn").onclick = async function(){
   ME = null;
   boot();
 };
+
+/* Installable on the board itself. A browser only offers "install" for a
+   page with a manifest AND a service worker, and an icon on the smart
+   board's home screen is the difference between a teacher opening this and
+   opening whatever was already on the screen.
+
+   Registered last and failure is ignored: an install prompt is a nicety and
+   nothing here should stop the app working without one. */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("/craxlearn-sw.js").catch(function(){});
+  });
+}
+
+/* Chromium hides its own install button on a smart board often enough that
+   a teacher never finds it, so the prompt is offered on ours. */
+var deferredInstall = null;
+window.addEventListener("beforeinstallprompt", function(e){
+  e.preventDefault();
+  deferredInstall = e;
+  var b = el("installBtn");
+  if(b) b.hidden = false;
+});
+(function(){
+  var b = el("installBtn");
+  if(!b) return;
+  b.onclick = async function(){
+    if(!deferredInstall) return;
+    deferredInstall.prompt();
+    try{ await deferredInstall.userChoice; }catch(e){}
+    deferredInstall = null;
+    b.hidden = true;
+  };
+})();
 
 scale();
 boot();

@@ -35,12 +35,18 @@ check("duplicate email rejected",
 check("wrong password rejected",
       A.post("/api/auth/login", json={"email": E, "password": "nope12345"}).status_code == 401)
 
-# two devices allowed, third evicts
-B, C = TestClient(m.app), TestClient(m.app)
+# One login at a time: signing in anywhere else ends the session before it.
+# Was two — a phone and a laptop — until class accounts arrived, where two
+# devices makes passing one code round a room twice as easy.
+B = TestClient(m.app)
 B.post("/api/auth/login", json={"email": E, "password": P})
-check("two devices allowed", A.get("/api/auth/me").status_code == 200 and B.get("/api/auth/me").status_code == 200)
-C.post("/api/auth/login", json={"email": E, "password": P})
-check("third device evicts oldest", A.get("/api/auth/me").status_code == 401)
+check("the new device works", B.get("/api/auth/me").status_code == 200)
+check("and the previous one is signed out",
+      A.get("/api/auth/me").status_code == 401,
+      str(A.get("/api/auth/me").status_code))
+check("with a reason, not a bare refusal",
+      "somewhere else" in A.get("/api/auth/me").json().get("detail", ""),
+      A.get("/api/auth/me").text[:120])
 A.post("/api/auth/login", json={"email": E, "password": P})
 
 # ---------- password reset ----------
