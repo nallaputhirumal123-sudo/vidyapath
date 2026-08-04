@@ -2233,6 +2233,57 @@ function dailyChallengeHTML(){
  * from what is actually enforced. A Craxlearn school and anybody under 18 have
  * it closed, which is the whole point of the age gate: not hidden, closed.
  */
+/* The one door a closed account can open for itself.
+ *
+ * The gate refuses the job board and explains why, and until now there was
+ * nowhere to act on the explanation — the server said "add your date of
+ * birth" and the profile had no field to add it in. A refusal somebody cannot
+ * answer is not a gate, it is a dead end, and shipping one was the part of
+ * this change that needed finishing.
+ *
+ * Shown only for dob_missing. A learner who has SAID they are fifteen is not
+ * asked again — the answer was given and nagging them about it would be
+ * asking a child to change their age to see a job board.
+ */
+function needsBirthday(){
+  return !!(USER && USER.craxlearn_why === "dob_missing");
+}
+
+function birthdayPromptHTML(){
+  if(!needsBirthday()) return "";
+  return `<div class="card" style="border-color:var(--accent);padding:14px;
+      margin-bottom:18px">
+    <b style="font-size:15px">How old are you?</b>
+    <div style="font-size:12.5px;color:var(--muted);margin:4px 0 10px">
+      ${esc(USER.craxlearn_message
+        || "The job board, the resume builder and being seen by employers are "
+           + "for learners aged 18 and over.")}
+      It stays on your account and is not shown to anybody.</div>
+    <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div class="field" style="margin:0"><label>Date of birth</label>
+        <input id="dobInput" class="ask-input" type="date"
+          max="${new Date().toISOString().slice(0,10)}"/></div>
+      <button class="btn sm" data-cls="dobsave">Save</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:8px">
+      Learning, the board, your class and your billing are open either way.</div>
+  </div>`;
+}
+
+async function dobSave(){
+  const el=document.getElementById("dobInput");
+  const v=(el&&el.value||"").trim();
+  if(!v){ toast("Choose your date of birth."); return; }
+  try{ await api.post("/api/craxlearn/dob",{dob:v}); }
+  catch(e){ toast(e.message); return; }
+  /* Re-read who we are rather than guessing what changed. The server decides
+     what this opens, and it has just decided again. */
+  try{ USER = await api.get("/api/auth/me"); }catch(e){}
+  renderNav();
+  render();
+  toast(needsBirthday() ? "Saved." : "Thanks — that is everything open now.");
+}
+
 function homeJobsHidden(){
   if(typeof USER === "undefined" || !USER) return true;
   if(USER.craxlearn_only) return true;
@@ -2302,6 +2353,12 @@ function renderHome(){
        server's own list of what this account may not reach. The sidebar had
        always hidden this and the page never asked, so a class-code
        schoolchild was shown four doors the server refuses to open. -->
+  <!-- Above the gate, not inside it. Placed within the hidden block this
+       disappeared for precisely the people it exists for: the prompt asking
+       for a birthday only renders when the birthday is missing, and the block
+       around it only renders when the job half is open. It would have shown
+       to nobody, ever. -->
+  ${birthdayPromptHTML()}
   ${homeJobsHidden() ? "" : `
   <div class="eyebrow" style="margin-top:0">Get hired</div>
   <div class="grid g4" style="margin-bottom:26px">
@@ -6598,6 +6655,7 @@ document.addEventListener("click",e=>{
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
+  else if(k==="dobsave") dobSave();
   else if(k==="opensubj") renderSubject(id);
   else if(k==="mysubjects") renderClassSubjects(+id, cid);
   else if(k==="backsubjects") renderClassSubjects(SUBJ.cid, SUBJ.name);

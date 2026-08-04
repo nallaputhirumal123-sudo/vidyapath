@@ -3599,19 +3599,47 @@ boot();
   var MONTHS = ["January","February","March","April","May","June","July",
                 "August","September","October","November","December"];
   function pad(n){ return n < 10 ? "0" + n : String(n); }
+  /* India, whatever the board thinks it is.
+     
+     This read the device clock. A smart board is a mini PC that was set up by
+     whoever unboxed it, and a school does not notice a wrong timezone until
+     the clock at the front of the room disagrees with the bell — at which
+     point it is the product that looks broken. The date is the school's date,
+     so it is fixed to Asia/Kolkata rather than to the machine.
+
+     Falls back to the device clock if the browser has no timezone data,
+     because a clock an hour out is still better than no clock at the front of
+     a classroom. */
+  function istParts(n){
+    try{
+      var f = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Kolkata", hour12: false,
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", weekday: "long" });
+      var got = {};
+      f.formatToParts(n).forEach(function(p){ got[p.type] = p.value; });
+      return { h: +got.hour % 24, min: +got.minute, day: +got.day,
+               month: +got.month - 1, year: +got.year,
+               dow: DAYS.indexOf(got.weekday) };
+    }catch(e){
+      return { h: n.getHours(), min: n.getMinutes(), day: n.getDate(),
+               month: n.getMonth(), year: n.getFullYear(), dow: n.getDay() };
+    }
+  }
   function tick(){
     var n = new Date();
-    var h = n.getHours(), ampm = h < 12 ? "am" : "pm";
+    var p = istParts(n);
+    var h = p.h, ampm = h < 12 ? "am" : "pm";
     var h12 = h % 12; if(!h12) h12 = 12;
-    t.textContent = h12 + ":" + pad(n.getMinutes()) + " " + ampm;
-    d.textContent = DAYS[n.getDay()] + ", " + n.getDate() + " " +
-                    MONTHS[n.getMonth()] + " " + n.getFullYear();
+    t.textContent = h12 + ":" + pad(p.min) + " " + ampm;
+    d.textContent = (DAYS[p.dow] || DAYS[n.getDay()]) + ", " + p.day + " " +
+                    MONTHS[p.month] + " " + p.year;
     // The bar carries the same clock, shorter: it is always on
     // screen, including mid-lesson, so it has to stay small.
     var bar = document.getElementById("barClock");
-    if(bar) bar.textContent = h12 + ":" + pad(n.getMinutes()) +
-      " " + ampm + "  ·  " + n.getDate() + " " +
-      MONTHS[n.getMonth()].slice(0,3);
+    if(bar) bar.textContent = h12 + ":" + pad(p.min) +
+      " " + ampm + "  ·  " + p.day + " " +
+      MONTHS[p.month].slice(0,3);
     // Land on the next second rather than 1000ms from now, which drifts.
     setTimeout(tick, 1000 - n.getMilliseconds() + 5);
   }
