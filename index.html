@@ -278,6 +278,18 @@ input,select{font-family:inherit}
   background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:9px;padding:11px 14px;
   font-size:14px;font-weight:600;cursor:pointer;margin-bottom:14px;transition:box-shadow .15s}
 .gbtn:hover{box-shadow:0 1px 6px rgba(0,0,0,.18)}
+/* Text too long for its control scrolls instead of being clipped.
+   A select is the worst of these: "🕒 Posted in the last 24 hours" was
+   rendered as "🕒 Posted in the last 2" with no way to see the rest and no
+   sign anything was missing — the same half-eaten box on a filter row that
+   the lesson boxes had. text-overflow gives it an ellipsis so the cut is at
+   least visible, and the title attribute carries the whole string. */
+.ask-input,select.ask-input,.filt{max-width:100%;text-overflow:ellipsis}
+select.ask-input,.filt{overflow-x:auto}
+/* A long single-line value the user typed scrolls horizontally inside the
+   box as they move through it, which inputs do natively — what they do not
+   do is show it is happening, so the box keeps a visible edge. */
+input.ask-input{overflow-x:auto;white-space:nowrap}
 .rolerow{display:flex;gap:8px}
 .rolebtn{flex:1;font-size:15px;padding:11px 10px;border-radius:10px;cursor:pointer;border:1px solid var(--line,#2a2a2a);background:transparent;color:inherit;font-weight:650}
 .rolebtn:hover{border-color:var(--accent,#ffb020)}
@@ -1237,6 +1249,7 @@ const api = {
   get:  p       => api.call(p),
   post: (p,b)   => api.call(p,{method:"POST",body:b}),
   del:  p       => api.call(p,{method:"DELETE"}),
+  patch:(p,b)   => api.call(p,{method:"PATCH",body:b}),
   /* Multipart. Every upload on the site used to be a raw fetch with its own
      copy of the error handling, and each copy forgot something different —
      the resume one had to special-case 402 by hand or the paywall reached the
@@ -1606,6 +1619,39 @@ function gateTab(which){
   });
   authMsg("");
 }
+/* The updates screen. One listener rather than onclick per control, because
+   the compose panel is redrawn on every audience change and re-binding each
+   time is how a button quietly stops working. */
+document.addEventListener("click", e=>{
+  const a=e.target.closest && e.target.closest("[data-nta]");
+  if(a){ NOTICE.audience=a.dataset.nta;
+         if(NOTICE.audience!=="people") NOTICE.ids=[];
+         noticeCompose(); return; }
+  const p=e.target.closest && e.target.closest("[data-ntpick]");
+  if(p){ const id=+p.dataset.ntpick;
+         if(!NOTICE.ids.some(x=>x.id===id))
+           NOTICE.ids.push({id:id, name:p.dataset.ntname||("id "+id)});
+         const keep=$("#ntTitle")?$("#ntTitle").value:"";
+         const keepB=$("#ntBody")?$("#ntBody").value:"";
+         noticeCompose();
+         if($("#ntTitle")) $("#ntTitle").value=keep;
+         if($("#ntBody")) $("#ntBody").value=keepB;
+         return; }
+  const d=e.target.closest && e.target.closest("[data-ntdrop]");
+  if(d){ NOTICE.ids=NOTICE.ids.filter(x=>x.id!==+d.dataset.ntdrop);
+         noticeCompose(); return; }
+  const n=e.target.closest && e.target.closest("[data-nt]");
+  if(n){ if(n.dataset.nt==="send") noticeSend();
+         else { noticeReset(); renderNotices(); } return; }
+  const ed=e.target.closest && e.target.closest("[data-ntedit]");
+  if(ed) return noticeEdit(ed.dataset.ntedit);
+  const dl=e.target.closest && e.target.closest("[data-ntdel]");
+  if(dl) return noticeDelete(dl.dataset.ntdel);
+});
+document.addEventListener("input", e=>{
+  if(e.target && e.target.id==="ntFind") noticeFindLater();
+});
+
 $("#tabLogin").onclick=()=>gateTab("login");
 $("#tabSignup").onclick=()=>gateTab("signup");
 $("#tabJoin").onclick=()=>gateTab("join");
@@ -4899,6 +4945,224 @@ async function tcJoin(){
 }
 
 /* ---------- HEAD TEACHER: runs the whole school ---------- */
+/* Saying something to the school.
+ *
+ * Who it reaches is chosen first, above the words, because choosing it
+ * afterwards is how a staff meeting notice reaches four hundred children.
+ */
+let NOTICE = {audience:"all", ids:[], classId:0, editing:0, found:[], busy:false};
+/* Filled when the screen opens. The class list is needed only by the
+   "one class" option, so it is fetched with the screen rather than kept
+   in step with a store nothing else reads. */
+let HEAD_CLASSES = [];
+
+function noticeReset(){
+  NOTICE = {audience:"all", ids:[], classId:0, editing:0, found:[], busy:false};
+}
+
+async function renderNotices(){
+  $("#main").innerHTML = `<div class="h1">Updates</div>
+    <p class="sub">What this school is being told, and who is being told it.</p>
+    <div id="ntCompose"></div>
+    <div class="eyebrow" style="margin-top:18px">Already sent</div>
+    <div id="ntList" class="card" style="padding:12px">Loading…</div>`;
+  try{
+    const d = await api.get("/api/teacher/classes");
+    HEAD_CLASSES = (d && (d.classes || d.rows)) || [];
+  }catch(e){ HEAD_CLASSES = []; }
+  noticeCompose();
+  noticeList();
+}
+
+function noticeCompose(){
+  const box = document.getElementById("ntCompose");
+  if(!box) return;
+  const a = NOTICE.audience;
+  const pill = (id,label) =>
+    `<button type="button" class="rolebtn ${a===id?"on":""}" `+
+    `data-nta="${id}" style="flex:0 0 auto;padding:9px 13px;font-size:13.5px">`+
+    `${label}</button>`;
+  box.innerHTML = `<div class="card" style="padding:14px">
+    <div class="eyebrow" style="margin:0 0 6px">Who should see this</div>
+    <p style="font-size:11.5px;color:var(--dim);margin:0 0 8px">
+      Chosen first, on purpose — an update sent to everyone cannot be
+      narrowed after it has arrived.</p>
+    <div class="rolerow" style="flex-wrap:wrap;gap:6px">
+      ${pill("all","Everyone")}${pill("teachers","Teachers")}
+      ${pill("students","Students")}${pill("class","One class")}
+      ${pill("people","Chosen people")}
+    </div>
+
+    ${a==="class"?`<div class="field" style="margin-top:12px">
+      <label>Which class</label>
+      <select id="ntClass" class="ask-input">
+        <option value="0">Choose a class…</option>
+        ${(HEAD_CLASSES||[]).map(c=>`<option value="${c.id}" ${
+          NOTICE.classId===c.id?"selected":""}>${esc(c.name)}</option>`).join("")}
+      </select></div>`:""}
+
+    ${a==="people"?`<div class="field" style="margin-top:12px">
+      <label>Find people</label>
+      <p style="font-size:11.5px;color:var(--dim);margin:0 0 6px">
+        Type part of a name, or the id if two people share one.</p>
+      <input id="ntFind" class="ask-input" placeholder="e.g. Kavya, or 214"/>
+      <div id="ntFound" style="margin-top:7px"></div>
+      ${NOTICE.ids.length?`<div style="margin-top:8px;font-size:12px">
+        <b>${NOTICE.ids.length} chosen:</b> ${NOTICE.ids.map(p=>
+        `<span class="pill" style="margin:2px 4px 2px 0">${esc(p.name)}
+          <button type="button" data-ntdrop="${p.id}"
+            style="background:none;border:0;color:inherit;cursor:pointer">×</button>
+        </span>`).join("")}</div>`:""}
+    </div>`:""}
+
+    <div class="eyebrow" style="margin:14px 0 6px">What it says</div>
+    <div class="field"><label>Heading</label>
+      <input id="ntTitle" class="ask-input"
+        placeholder="e.g. Exam moved to Wednesday"/></div>
+    <div class="field"><label>The message</label>
+      <p style="font-size:11.5px;color:var(--dim);margin:0 0 6px">
+        Plain words, one idea a line. This is read on a phone, often in a
+        hurry, and often by somebody's parent.</p>
+      <textarea id="ntBody" class="pj-note" style="width:100%;min-height:92px"
+        placeholder="Now on Wednesday the 12th.&#10;Bring your admit card."></textarea></div>
+
+    <div class="eyebrow" style="margin:14px 0 6px">Anything to attach</div>
+    <p style="font-size:11.5px;color:var(--dim);margin:0 0 7px">
+      A picture or a PDF — a timetable, a consent form, a photo of the notice
+      board. Up to 8MB. Everyone who gets the update can open it, and nobody
+      else can.</p>
+    <input type="file" id="ntFile" accept="image/*,application/pdf"
+      class="ask-input" style="padding:8px"/>
+
+    <div class="row" style="gap:8px;margin-top:14px;align-items:center">
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="ntUrgent"/> Mark as urgent</label>
+      <button class="btn sm" data-nt="send" style="margin-left:auto">
+        ${NOTICE.editing?"Save changes":"Send update"}</button>
+      ${NOTICE.editing?`<button class="btn ghost sm" data-nt="cancel">Cancel</button>`:""}
+    </div>
+  </div>`;
+}
+
+/* Searched, not remembered. Debounced because this runs over every child in
+   the school and a keystroke is not a question. */
+let NT_FIND_T = null;
+function noticeFindLater(){
+  clearTimeout(NT_FIND_T);
+  NT_FIND_T = setTimeout(noticeFind, 260);
+}
+async function noticeFind(){
+  const el = document.getElementById("ntFind");
+  const out = document.getElementById("ntFound");
+  if(!el || !out) return;
+  const q = (el.value||"").trim();
+  if(q.length < 2){ out.innerHTML=""; return; }
+  let d;
+  try{ d = await api.get("/api/head/people?q="+encodeURIComponent(q)); }
+  catch(e){ out.innerHTML = `<div style="font-size:12px;color:var(--dim)">`+
+    `${esc(e.message)}</div>`; return; }
+  const rows = d.people||[];
+  if(!rows.length){ out.innerHTML =
+    `<div style="font-size:12px;color:var(--dim)">Nobody by that name.</div>`;
+    return; }
+  out.innerHTML = rows.slice(0,25).map(p=>
+    `<button type="button" class="namebtn" data-ntpick="${p.id}"
+      data-ntname="${esc(p.name)}">${esc(p.name)}
+      <span style="font-size:11px;color:var(--dim)">· ${esc(p.kind)}${
+        p.where?" · "+esc(p.where):""} · id ${p.id}</span></button>`).join("");
+}
+
+async function noticeList(){
+  const box = document.getElementById("ntList");
+  if(!box) return;
+  let d;
+  try{ d = await api.get("/api/office/notices"); }
+  catch(e){ box.innerHTML = `<div style="color:var(--dim);font-size:13px">`+
+    `${esc(e.message)}</div>`; return; }
+  const rows = d.notices||[];
+  if(!rows.length){
+    box.innerHTML = `<div style="color:var(--dim);font-size:13px">`+
+      `Nothing sent yet.</div>`; return; }
+  const who = n => ({all:"Everyone", teachers:"Teachers", students:"Students",
+                     class:"One class", people:"Chosen people"}[n.audience]
+                    || "Everyone");
+  box.innerHTML = rows.map(n=>`<div style="padding:9px 0;border-bottom:1px solid
+      var(--line,#2a2a2a)">
+    <div class="row" style="justify-content:space-between;gap:8px;align-items:flex-start">
+      <div style="min-width:0">
+        <div style="font-weight:650">${n.urgent?"❗ ":""}${esc(n.title)}</div>
+        <div style="font-size:11.5px;color:var(--dim)">${who(n)}${
+          n.has_file?" · 📎 "+esc(n.file_name):""}${
+          n.at?" · "+new Date(n.at).toLocaleDateString():""}</div>
+      </div>
+      <div class="row" style="gap:5px;flex:0 0 auto">
+        <button class="btn ghost sm" data-ntedit="${n.id}">Edit</button>
+        <button class="btn ghost sm" data-ntdel="${n.id}">Delete</button>
+      </div>
+    </div></div>`).join("");
+}
+
+async function noticeSend(){
+  if(NOTICE.busy) return;
+  const title = ($("#ntTitle").value||"").trim();
+  if(title.length < 2){ toast("Give it a heading."); return; }
+  const payload = {
+    title: title,
+    body: ($("#ntBody").value||"").trim(),
+    urgent: !!$("#ntUrgent").checked,
+    starts_on: "", ends_on: "",
+    audience: NOTICE.audience,
+    audience_ids: NOTICE.ids.map(p=>p.id).join(","),
+    class_id: NOTICE.audience==="class"
+      ? +((document.getElementById("ntClass")||{}).value||0) : 0,
+  };
+  NOTICE.busy = true;
+  let r;
+  try{
+    r = NOTICE.editing
+      ? await api.patch("/api/office/notice/"+NOTICE.editing, payload)
+      : await api.post("/api/office/notice", payload);
+  }catch(e){ NOTICE.busy=false; toast(e.message); return; }
+
+  /* The file goes second because the notice has to exist to hang it on.
+     A failed upload must not lose the words, so it is reported and the
+     notice stays. */
+  const f = document.getElementById("ntFile");
+  if(f && f.files && f.files[0]){
+    const fd = new FormData(); fd.append("file", f.files[0]);
+    try{ await api.upload("/api/office/notice/"+r.notice.id+"/file", fd); }
+    catch(e){ toast("Sent, but the attachment did not: "+e.message); }
+  }
+  NOTICE.busy = false;
+  noticeReset();
+  renderNotices();
+  toast("Sent.");
+}
+
+async function noticeEdit(id){
+  let d;
+  try{ d = await api.get("/api/office/notices"); }catch(e){ return; }
+  const n = (d.notices||[]).find(x=>x.id===+id);
+  if(!n) return;
+  NOTICE.editing = n.id;
+  NOTICE.audience = n.audience || "all";
+  NOTICE.classId = n.class_id || 0;
+  NOTICE.ids = [];
+  noticeCompose();
+  $("#ntTitle").value = n.title || "";
+  $("#ntBody").value = n.body || "";
+  $("#ntUrgent").checked = !!n.urgent;
+  $("#ntCompose").scrollIntoView({block:"start", behavior:"smooth"});
+}
+
+async function noticeDelete(id){
+  if(!confirm("Delete this update? Everybody it reached loses it.")) return;
+  try{ await api.del("/api/office/notice/"+id); }
+  catch(e){ toast(e.message); return; }
+  noticeList();
+  toast("Deleted.");
+}
+
 async function renderHead(){
   $("#main").innerHTML=`<div class="h1">🏫 Head teacher</div><p class="sub">Loading…</p>`;
   let d; try{ d=await api.get("/api/head/overview"); }
@@ -5160,6 +5424,7 @@ document.addEventListener("click",e=>{
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
+  else if(k==="notices") renderNotices();
   else if(k==="rosdel") rosDel(id, cid);
   else if(k==="hrotslot"){ api.post("/api/head/slot/"+id+"/rotate",{}).then(()=>renderHead()).catch(e=>alert(e.message)); }
   else if(k==="hdelslot"){ if(confirm("Remove this subject? Its teacher loses access.")) api.del("/api/head/slot/"+id).then(()=>renderHead()).catch(()=>{}); }
@@ -6548,10 +6813,11 @@ function jbSectionHTML(){
            next. Search reads the title, the company, the skills and the
            body, so typing the words finds the job whatever we filed it
            under, and everything we hold stays reachable. -->
-      <!-- No country picker: the board carries US postings only, so the
-           control could only ever filter US down to nothing. -->
+      <!-- No country picker: the board carries India only, so the control
+           could filter India down to nothing and do nothing else. -->
       <input id="jbLoc" class="ask-input" style="flex:1;min-width:150px"
-        placeholder="City or state — e.g. Dallas, TX" value="${esc(JB.location)}"/>
+        placeholder="City or state — e.g. Bengaluru, Karnataka"
+        value="${esc(JB.location)}"/>
       <label style="font-size:13px;color:var(--body);display:flex;align-items:center;gap:5px;white-space:nowrap">
         <input type="checkbox" id="jbRemote" ${JB.remote?"checked":""}/> Remote only</label>
     </div>
@@ -8201,6 +8467,12 @@ document.addEventListener("click",e=>{
   else if(n==="sqlboard")  S.view={page:"sqlboard"};
   else if(n==="scan")      S.view={page:"scan"};
   else if(n==="lab")       S.view={page:"lab"};
+  /* Missing from this chain, which is why the button did nothing. The nav
+     item existed, the router had a branch for it, and "net" was in
+     HASH_PAGES — so a pasted link worked and the button beside it did not.
+     Nothing errored: an unmatched name falls off the end of the chain and
+     leaves the view untouched, so the click was simply swallowed. */
+  else if(n==="net")       S.view={page:"net"};
   else if(n==="class")     S.view={page:"class"};
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="resume")    S.view={page:"resume"};
