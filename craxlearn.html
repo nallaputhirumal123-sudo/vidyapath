@@ -612,6 +612,10 @@ function paintPanes(){
         "</select>" +
         '<span class="grow"></span>' +
         '<button class="iconbtn" data-shot="' + i + '" title="Screenshot this space">⛶</button>' +
+        // Being wrong costs most here. A lesson on a classroom
+        // display is read by thirty people at once, none of whom can
+        // check it, with a teacher beside it lending it authority.
+        '<button class="iconbtn" data-wrong="' + i + '" title="Report an error in this">⚠</button>' +
         (PANES.length > 1
           ? '<button class="iconbtn" data-close="' + i + '" title="Close this space">✕</button>'
           : "") +
@@ -661,6 +665,9 @@ function wirePanes(){
   });
   wrap.querySelectorAll("[data-shot]").forEach(function(b){
     b.onclick = function(){ shoot(); };
+  });
+  wrap.querySelectorAll("[data-wrong]").forEach(function(b){
+    b.onclick = function(){ reportWrong(+b.dataset.wrong); };
   });
   wrap.querySelectorAll(".pane").forEach(function(p){
     p.addEventListener("pointerdown", function(){
@@ -832,6 +839,44 @@ async function findClass(){
       }
     };
   });
+}
+
+/* ---------- reporting an error ---------- */
+/* The one check a machine cannot do.
+ *
+ * Everything else here is the machine checking itself — constants,
+ * arithmetic, units, and a second read of the argument. A lesson that is
+ * confidently wrong in a way nobody anticipated is caught by a person, and
+ * on a board that person is standing in front of thirty others.
+ *
+ * Asks what was wrong rather than taking a bare thumbs-down: "this is wrong"
+ * cannot be acted on, "step 3 has the wrong units" can. Sends the cached
+ * lesson's key so the server drops that exact answer rather than a topic
+ * that may have been rebuilt since.
+ */
+async function reportWrong(i){
+  var pane = PANES[i] || {};
+  var said = window.prompt(
+    "What is wrong with this?\n\n" +
+    "One sentence is plenty. Naming the step helps most.");
+  if(said === null) return;
+  said = (said || "").trim();
+  if(!said){ return; }
+  try{
+    // A pane is {page, arg, flex} — there is no lesson object on it, so the
+    // page and its argument are what identify what was on screen.
+    var r = await api.post("/api/report", {
+      qkey: "",
+      topic: (String(pane.page || "") + " " +
+              String(pane.arg || "")).trim().slice(0, 300),
+      what: said.slice(0, 1200),
+      where: "craxlearn"
+    });
+    window.alert("Thank you. That has been recorded" +
+                 (r && r.dropped ? " and the answer removed." : "."));
+  }catch(e){
+    window.alert((e && e.message) || "Could not send that just now.");
+  }
 }
 
 /* ---------- sign in ---------- */
