@@ -3499,6 +3499,16 @@ import craxlearn as _cl                                             # noqa: E402
 # The allowlisted arithmetic evaluator. Imported again further down for the
 # lesson checks; imported here too so the classroom calculator's dependency
 # is visible beside the endpoint that uses it rather than 7,000 lines away.
+# The measured-structure sources and the picture search, both used by the
+# board further down and by Craxlearn's own structure and search screens.
+# Imported here so those endpoints' dependencies are visible beside them.
+import scene as _scene                                              # noqa: E402
+import lattice as _lattice                                          # noqa: E402
+import layers as _layers                                            # noqa: E402
+import orbits as _orbits                                            # noqa: E402
+import molecule as _molecule                                        # noqa: E402
+import protein as _protein                                          # noqa: E402
+import images as _images                                            # noqa: E402
 import maths as _maths                                              # noqa: E402
 
 
@@ -5722,6 +5732,166 @@ def teacher_inbox(user: User = Depends(teacher_user),
         })
     return {"waiting": waiting, "classes": len(by_class),
             "total": len(waiting), "reviewed": reviewed}
+
+
+async def _resolve_structure(client, name):
+    """A real, measured 3D structure for a name — or nothing.
+
+    The same sources, in the same order, as a board lesson uses, and for the
+    same reason: most specific first, and nothing invented at any step. A
+    name with nothing measured behind it returns nothing, which is the
+    honest answer and the one that stops a classroom being shown a plausible
+    arrangement of spheres captioned with a real compound's name.
+
+    Factored out of _offer_scene so the board and this share one path. Two
+    copies would drift, and the copy that drifted would be the one drawing
+    the picture nobody checked.
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+
+    got = _lattice.clean(name)
+    if got:
+        return _scene.clean(dict(got, kind="lattice", caption=name.title(),
+                                 a=2.0, a_angstrom=got["a"], repeat=2))
+    got = _layers.clean(name)
+    if got:
+        return _scene.clean(dict(got, kind="layers", caption=name.title()))
+    got = _orbits.clean(name)
+    if got:
+        return _scene.clean(dict(got, kind="orbit", caption=name.title()))
+
+    try:
+        got = await _molecule.find(client, name)
+    except Exception:
+        got = {}
+    if got and 2 <= len(got.get("atoms") or []) <= _scene.MAX_ATOMS:
+        formula = got.get("formula") or ""
+        return _scene.clean({
+            "kind": "molecule",
+            "caption": name.title() + (" - " + formula if formula else ""),
+            "atoms": [{"el": a["el"], "x": a["x"], "y": a["y"], "z": a["z"]}
+                      for a in got["atoms"]],
+            "bonds": [list(b) for b in got["bonds"]],
+        })
+
+    if _protein.canonical(name):
+        try:
+            got = await _protein.find(client, name)
+        except Exception:
+            got = {}
+        if got:
+            return _scene.clean(dict(got, kind="protein",
+                                     caption=(got.get("title")
+                                              or name.title())[:110]))
+    return None
+
+
+@app.get("/api/craxlearn/structure")
+async def craxlearn_structure(name: str, user: User = Depends(current_user)):
+    """Put a real structure on the board, for anything we actually have one of.
+
+    Free — every source behind it is either a table in this repository or a
+    public database, and none of it is a model call. So a class can turn
+    twenty things around in a lesson and it costs what one does.
+    """
+    name = _cl.redact(name)[:120]
+    if len(name) < 2:
+        raise HTTPException(400, "Name the thing you want to see")
+    async with httpx.AsyncClient(follow_redirects=True, timeout=12) as c:
+        scene = await _resolve_structure(c, name)
+    if not scene:
+        # Named, and honestly answered. The alternative is a made-up
+        # arrangement of spheres with a real compound's name under it.
+        raise HTTPException(
+            404, f"There is no measured structure here for {name!r}. We only "
+                 f"show ones taken from PubChem, the Protein Data Bank or a "
+                 f"published table — never a drawing of what it might be.")
+    return {"name": name, "scene": scene}
+
+
+@app.get("/api/craxlearn/search")
+async def craxlearn_search(q: str, user: User = Depends(current_user)):
+    """Search the open sources for something to show the room.
+
+    A photograph where one exists, a measured structure where one exists,
+    and the licence beside each. Nothing here is generated: it is a search
+    over the same public catalogues listed at /api/craxlearn/sources, which
+    is why the result can carry a credit line that means something.
+    """
+    q = _cl.redact(q)[:120]
+    if len(q) < 2:
+        raise HTTPException(400, "Type something to look for")
+    async with httpx.AsyncClient(follow_redirects=True, timeout=12) as c:
+        try:
+            photo = await _images.find(c, q)
+        except Exception as e:
+            print(f"Source search picture failed: {type(e).__name__}: {e}")
+            photo = {}
+        try:
+            scene = await _resolve_structure(c, q)
+        except Exception as e:
+            print(f"Source search structure failed: {type(e).__name__}: {e}")
+            scene = None
+    return {"query": q, "photo": photo or None, "scene": scene,
+            "found": bool(photo or scene),
+            "sources": [s["name"] for s in _cl.sourcing()]}
+
+
+# Checked once per process. PhET's catalogue does not change during a
+# lesson, and asking them twenty times on every page load would be rude to
+# a free service a school depends on.
+_PHET_CHECKED = {}
+
+
+@app.get("/api/craxlearn/phet")
+async def craxlearn_phet(subject: str = "", user: User = Depends(current_user)):
+    """PhET simulations a class can drive, and only ones that really answer.
+
+    Every candidate is fetched from PhET before it is offered. An id this
+    codebase has wrong simply never appears — which is the only honest way
+    to ship a list of external URLs into a classroom, where the cost of a
+    wrong one is a 404 on the board with thirty people watching.
+
+    Verified once per process and remembered. If PhET cannot be reached at
+    all, the list comes back empty with a reason rather than a wall of
+    frames that will not load.
+    """
+    want = _cl.phet_candidates(subject)
+    todo = [s for s in want if s["id"] not in _PHET_CHECKED]
+
+    if todo:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as c:
+            async def look(sim):
+                try:
+                    # HEAD first: it is the cheap question, and PhET answers
+                    # it. Some CDNs do not, so a 405 falls back to a ranged
+                    # GET rather than being read as "missing".
+                    r = await c.head(sim["url"])
+                    if r.status_code == 405:
+                        r = await c.get(sim["url"],
+                                        headers={"Range": "bytes=0-256"})
+                    return sim["id"], r.status_code < 400
+                except Exception:
+                    return sim["id"], None      # unreachable, not absent
+            for sim_id, ok in await asyncio.gather(*[look(s) for s in todo]):
+                if ok is not None:
+                    _PHET_CHECKED[sim_id] = ok
+
+    live = [s for s in want if _PHET_CHECKED.get(s["id"])]
+    unknown = [s["id"] for s in want if s["id"] not in _PHET_CHECKED]
+    return {
+        "sims": live,
+        "subjects": sorted({s["subject"] for s in _cl.phet_candidates()}),
+        "licence": "CC BY 4.0 — University of Colorado Boulder",
+        "note": ("" if live else
+                 "PhET could not be reached from this server, so nothing is "
+                 "offered rather than a list of frames that will not load."
+                 if unknown else
+                 "None of the simulations in this list answered."),
+        "unverified": len(unknown),
+    }
 
 
 class CalcIn(BaseModel):
@@ -15583,7 +15753,14 @@ def craxlearn_page():
 @app.exception_handler(404)
 def not_found(request: Request, exc):
     if request.url.path.startswith("/api/"):
-        return JSONResponse({"detail": "Not found"}, status_code=404)
+        # An endpoint that raised HTTPException(404, "...") wrote that
+        # sentence on purpose, and this handler used to throw all of them
+        # away and answer "Not found" — so "no learner of yours has that id"
+        # and "there is no measured structure for that" both arrived as two
+        # useless words. The generic text is for a path that matched no
+        # route at all, which is the only case that has nothing to say.
+        detail = getattr(exc, "detail", None)
+        return JSONResponse({"detail": detail or "Not found"}, status_code=404)
     # On a Craxlearn-only server the main app is not what anybody typing a
     # wrong URL wanted, and serving it would put a job board in front of a
     # classroom by way of a typo.

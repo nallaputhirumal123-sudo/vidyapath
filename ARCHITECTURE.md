@@ -122,6 +122,22 @@ tried and it takes the job board, the resume builder and their own billing
 page away from every existing account on the day it ships. `REQUIRE_DOB=1`
 turns it on for a deployment that has planned the email.
 
+**Craxlearn's spaces: `main()` is not `#main`.** Up to four tools open at
+once, and the board modules ask for `#main` by name — so `window.$` answers
+that with whichever space is being drawn into. Two traps came out of it and
+both are fixed: an inline `flex` in `paintPanes` beat the 2x2 grid rule and
+laid four spaces out as four unreadable columns, and an async page function
+resolved after `DRAW` had moved on and wrote its result into the wrong space.
+Renders are now awaited one at a time so `DRAW` stays put, and a tool already
+open elsewhere is not offered — every tool names its fields by id, so two
+copies would write into the same boxes.
+
+**External URLs are verified before a class sees them.** PhET sim ids are
+candidates in `craxlearn.PHET_SIMS`, and `/api/craxlearn/phet` fetches each
+one before offering it. An id we have wrong simply never appears. Never
+hardcode an external URL into a lesson surface without a check — the cost of
+a wrong one is a 404 on the board mid-lesson with thirty people watching.
+
 **Who may see a learner is one function.** `_may_see_learner` — the rule is
 the CLASSROOM, not the school. Everything showing a learner's detail goes
 through it, written once, because two copies would drift until one let

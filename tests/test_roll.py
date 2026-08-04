@@ -237,6 +237,72 @@ check("and it needs a signed-in account",
       TestClient(main.app).post("/api/craxlearn/calc",
                                 json={"expression": "1+1"}).status_code == 401)
 
+# ---- PhET, structures and the source search ----------------------------
+# These reach public catalogues, which a build machine may not be able to.
+# So what is asserted is the SHAPE and the honest failure: a list that could
+# not be verified comes back empty with a reason, never as a wall of frames
+# that will not load in front of a class.
+print("\nOutside sources")
+import craxlearn as cl                             # noqa: E402
+
+check("there are simulations to offer", len(cl.phet_candidates()) >= 12,
+      str(len(cl.phet_candidates())))
+check("each has an id, a title and a subject",
+      all(x["id"] and x["title"] and x["subject"]
+          for x in cl.phet_candidates()))
+check("and a URL built to PhET's own shape",
+      all(x["url"].startswith("https://phet.colorado.edu/sims/html/")
+          and x["url"].endswith("_en.html") for x in cl.phet_candidates()))
+check("filtering by subject works",
+      all(x["subject"] == "Physics"
+          for x in cl.phet_candidates("physics"))
+      and len(cl.phet_candidates("physics")) >= 4,
+      str(len(cl.phet_candidates("physics"))))
+check("PhET is in the source registry as open",
+      any(x["id"] == "phet" and x["open"] and x["role"] == "sourcing"
+          for x in cl.SOURCES))
+
+r = mine_t.get("/api/craxlearn/phet")
+check("the endpoint answers", r.status_code == 200, str(r.status_code))
+d = r.json()
+check("with only sims that were actually reached",
+      all(x["url"].startswith("https://phet.colorado.edu/")
+          for x in d["sims"]), str(d)[:200])
+check("and says so plainly when none could be",
+      bool(d["sims"]) or "could not be reached" in d.get("note", "")
+      or "answered" in d.get("note", ""), str(d)[:200])
+check("it names the licence", "CC BY" in d.get("licence", ""),
+      d.get("licence", ""))
+check("and it needs an account",
+      TestClient(main.app).get("/api/craxlearn/phet").status_code == 401)
+
+# A structure that resolves from a table in this repository, with no network.
+r = mine_t.get("/api/craxlearn/structure?name=silicon")
+check("a measured structure comes back", r.status_code == 200, r.text[:150])
+check("as a scene the renderer understands",
+      r.json()["scene"]["kind"] in ("lattice", "molecule", "protein",
+                                    "layers", "orbit"),
+      str(r.json()["scene"].get("kind")))
+r = mine_t.get("/api/craxlearn/structure?name=graphene")
+check("and so does a layer stack",
+      r.status_code == 200 and r.json()["scene"]["kind"] == "layers",
+      r.text[:120])
+
+# The refusal that matters: nothing measured means nothing shown, not a
+# plausible arrangement of spheres with a real name under it.
+r = mine_t.get("/api/craxlearn/structure?name=zzqqxx-not-a-thing")
+check("a name with nothing behind it shows nothing", r.status_code == 404,
+      str(r.status_code))
+check("and says why rather than drawing a guess",
+      "never a drawing of what it might be" in r.text, r.text[:200])
+check("a one-letter name is refused",
+      mine_t.get("/api/craxlearn/structure?name=x").status_code == 400)
+
+r = mine_t.get("/api/craxlearn/search?q=silicon")
+check("the source search answers", r.status_code == 200, str(r.status_code))
+check("naming which catalogues it used",
+      len(r.json().get("sources") or []) >= 5, str(r.json().get("sources")))
+
 db.close()
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

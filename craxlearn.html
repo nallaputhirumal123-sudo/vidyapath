@@ -135,10 +135,49 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 }
 .tabs button[aria-selected="true"]{border-color:var(--accent);color:var(--accent)}
 
+/* ---- spaces ----
+   Two tools side by side, with a divider you drag. A classroom board is
+   wide and a lesson is usually two things at once — the lesson and the
+   working, the diagram and the question — and a teacher who has to keep
+   swapping between them stops using the second one.
+
+   Stacked rather than side by side under 900px, because two half-width
+   columns on a phone are two unreadable columns. */
+#panes{display:flex;flex-wrap:wrap;align-items:stretch;
+  min-height:calc(100vh - 4rem)}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1 1 0}
+/* Four spaces on a wide board is two rows of two, not four thin columns —
+   a column narrower than about 22rem holds nothing a class can read. */
+#panes.grid{align-content:stretch}
+#panes.grid .pane{flex:1 1 calc(50% - 5px);max-width:calc(50% - 5px);
+  height:calc((100vh - 4rem) / 2)}
+#panes.grid .grip{display:none}
+.paneHead{
+  display:flex;align-items:center;gap:.4rem;padding:.4rem var(--pad);
+  border-bottom:1px solid var(--line);background:var(--panel2);
+}
+.pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
+.paneHead select{font-size:.66rem;min-height:1.9rem;padding:.2rem .45rem}
+.paneBody{flex:1 1 auto;overflow-y:auto;padding:var(--pad);
+  -webkit-overflow-scrolling:touch}
+#panes.one .paneHead{display:none}
+#panes.one .paneBody{max-width:1500px;margin:0 auto;width:100%}
+.grip{
+  flex:0 0 10px;cursor:col-resize;background:var(--line);
+  background-clip:content-box;border-left:4px solid var(--bg);
+  border-right:4px solid var(--bg);touch-action:none;
+}
+.grip:active{background:var(--accent)}
+@media(max-width:900px){
+  #panes{flex-direction:column}
+  .grip{flex:0 0 10px;cursor:row-resize;border:none;border-top:4px solid var(--bg);
+    border-bottom:4px solid var(--bg)}
+}
+
 /* The boards render into #main and bring their own CSS. They were written
    for a 16px page, so they are scaled down relative to the room-sized base
    rather than left to fill a wall with one input box. */
-#main .nwwrap,#main .labwrap,#main .sqlwrap{font-size:.62rem}
+.paneBody .nwwrap,.paneBody .labwrap,.paneBody .sqlwrap{font-size:.62rem}
 
 @media print{ #top,.tile{display:none!important} }
 </style>
@@ -150,6 +189,8 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
     <span>Craxlearn<small>Schools · Colleges · Coaching</small></span></div>
   <span class="grow"></span>
   <div class="who" id="who"></div>
+  <button class="iconbtn" id="splitBtn" title="Open another space beside this one">▥</button>
+  <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
@@ -176,11 +217,12 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   </p>
 </div>
 
-<div id="main" hidden></div>
+<div id="app" hidden><div id="panes"></div></div>
 
 <script src="sqlboard.js?v=df48c07ae5"></script>
 <script src="net.js?v=02a45f7443"></script>
 <script src="lab.js?v=a3e731b9ba"></script>
+<script src="three3d.js?v=252535ecb2"></script>
 <script>
 /* Craxlearn — the institution app.
  *
@@ -210,7 +252,14 @@ function esc(s){
   });
 }
 window.esc = esc;
-window.$ = function(sel){ return document.querySelector(sel); };
+/* The board modules were written for a page with one #main and they ask for
+   it by name. Rather than editing three of them, "#main" is answered with
+   whichever space is being drawn into right now — so net.js, lab.js and
+   sqlboard.js each land in their own pane without knowing panes exist. */
+window.$ = function(sel){
+  if(sel === "#main") return paneBody();
+  return document.querySelector(sel);
+};
 
 async function req(method, path, body){
   var opt = { method:method, credentials:"same-origin",
@@ -247,7 +296,191 @@ window.S = VIEW.page ? { view:VIEW } : { view:VIEW };
 window.S.view = VIEW;
 
 var el = function(id){ return document.getElementById(id); };
-var main = function(){ return el("main"); };
+
+/* ---------- spaces ----------
+ *
+ * One or two, side by side, with a divider you drag. Each holds any tool.
+ * `main()` is the body of whichever one is being drawn into, which is what
+ * lets every page function in this file — all of which were written against
+ * a single screen — work unchanged in either.
+ */
+var PANES = [{ page:"home", arg:null }];
+var LIVE = 0;          // the space a new page opens into
+var DRAW = 0;          // the space currently being drawn
+
+function paneBody(){
+  var p = document.querySelector('.paneBody[data-i="' + DRAW + '"]');
+  return p || document.querySelector(".paneBody") || el("app");
+}
+var main = paneBody;
+
+var TOOL_NAMES = {
+  home:"Home", board:"Ask the board", write:"Writing space",
+  calc:"Calculator", structure:"3D structures", find:"Search the sources",
+  phet:"Simulations",
+  net:"Packet walkthrough", lab:"The lab", sqlboard:"SQL board",
+  materials:"Study material", roster:"Class register", roll:"Your classes",
+  inbox:"To review", activity:"What the class is asking",
+  sources:"Where answers come from", assignment:"Assignment",
+  student:"A student", review:"Reviewing"
+};
+
+var MAX_PANES = 4;
+
+function paintPanes(){
+  var wrap = el("panes");
+  wrap.className = PANES.length === 1 ? "one"
+                 : PANES.length >= 3 ? "grid" : "";
+  var html = "";
+  PANES.forEach(function(p, i){
+    if(i && PANES.length === 2){
+      html += '<div class="grip" data-grip="' + i + '"></div>';
+    }
+    html += '<div class="pane" data-i="' + i + '" data-live="' +
+      (i === LIVE ? 1 : 0) + '"' +
+      /* Only a row layout gets an inline width. In the 2x2 the stylesheet
+         owns it, and an inline flex here beat that rule and laid four
+         spaces out as four unreadable columns. */
+      (PANES.length === 2 ? ' style="flex:' + (p.flex || 1) + ' 1 0"' : "") +
+      ">" +
+      '<div class="paneHead">' +
+        '<select data-pick="' + i + '">' +
+          Object.keys(TOOL_NAMES).filter(function(k){
+            if(["assignment","student","review"].indexOf(k) >= 0) return false;
+            /* Each tool names its own fields by id, so two copies of one
+               tool would both write into the same boxes. Home is exempt:
+               it has nothing to type into. */
+            if(k === "home" || k === p.page) return true;
+            return !PANES.some(function(q, j){ return j !== i && q.page === k; });
+          }).map(function(k){
+            return '<option value="' + k + '"' +
+              (k === p.page ? " selected" : "") + ">" +
+              esc(TOOL_NAMES[k]) + "</option>";
+          }).join("") +
+        "</select>" +
+        '<span class="grow"></span>' +
+        '<button class="iconbtn" data-shot="' + i + '" title="Screenshot this space">⛶</button>' +
+        (PANES.length > 1
+          ? '<button class="iconbtn" data-close="' + i + '" title="Close this space">✕</button>'
+          : "") +
+      "</div>" +
+      '<div class="paneBody" data-i="' + i + '"></div>' +
+      "</div>";
+  });
+  wrap.innerHTML = html;
+  wirePanes();
+  (async function(){
+    for(var i = 0; i < PANES.length; i++) await drawPane(i);
+  })();
+}
+
+async function drawPane(i){
+  var was = DRAW;
+  DRAW = i;
+  try{ await paint(PANES[i].page, PANES[i].arg); }
+  catch(e){ /* one space failing must not stop the others drawing */ }
+  finally{ DRAW = was; }
+}
+
+function wirePanes(){
+  el("panes").querySelectorAll("[data-pick]").forEach(function(sel){
+    sel.onchange = function(){
+      var i = +sel.dataset.pick;
+      PANES[i] = { page: sel.value, arg: null, flex: PANES[i].flex };
+      LIVE = i;
+      paintPanes();
+    };
+  });
+  el("panes").querySelectorAll("[data-close]").forEach(function(b){
+    b.onclick = function(){
+      PANES.splice(+b.dataset.close, 1);
+      LIVE = 0;
+      paintPanes();
+    };
+  });
+  el("panes").querySelectorAll("[data-shot]").forEach(function(b){
+    b.onclick = function(){ shoot(); };
+  });
+  el("panes").querySelectorAll(".pane").forEach(function(p){
+    p.addEventListener("pointerdown", function(){
+      var i = +p.dataset.i;
+      if(i === LIVE) return;
+      LIVE = i;
+      el("panes").querySelectorAll(".pane").forEach(function(q){
+        q.dataset.live = (+q.dataset.i === LIVE) ? 1 : 0;
+      });
+    }, true);
+  });
+
+  /* Dragging the divider. Widths are kept as flex ratios rather than pixels
+     so rotating a board or plugging in a different screen keeps the split
+     the teacher chose instead of leaving one pane 200px wide. */
+  el("panes").querySelectorAll("[data-grip]").forEach(function(g){
+    g.addEventListener("pointerdown", function(e){
+      e.preventDefault();
+      g.setPointerCapture(e.pointerId);
+      var wrap = el("panes");
+      var vertical = window.matchMedia("(max-width:900px)").matches;
+      function move(ev){
+        var r = wrap.getBoundingClientRect();
+        var f = vertical ? (ev.clientY - r.top) / r.height
+                         : (ev.clientX - r.left) / r.width;
+        f = Math.min(0.85, Math.max(0.15, f));
+        PANES[0].flex = f;
+        PANES[1].flex = 1 - f;
+        wrap.querySelectorAll(".pane").forEach(function(p, i){
+          p.style.flex = (PANES[i].flex || 1) + " 1 0";
+        });
+      }
+      function up(){
+        g.removeEventListener("pointermove", move);
+        g.removeEventListener("pointerup", up);
+      }
+      g.addEventListener("pointermove", move);
+      g.addEventListener("pointerup", up);
+    });
+  });
+}
+
+/* A picture of whatever is on the screen, using the browser's own capture
+   rather than a DOM-to-canvas library. It is the only way to get a true
+   screenshot without shipping a dependency, it captures the 3D view and the
+   writing space correctly where a DOM copy would not, and on a board it is
+   one tap and a confirm. */
+async function shoot(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    alert("This board's browser cannot take a screenshot. The writing " +
+          "space has its own Save as picture button.");
+    return;
+  }
+  var stream = null;
+  try{
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser" }, audio: false });
+    var track = stream.getVideoTracks()[0];
+    var v = document.createElement("video");
+    v.srcObject = stream;
+    v.muted = true;
+    await v.play();
+    /* One frame is enough, but the first one is often blank while the
+       capture warms up. */
+    await new Promise(function(r){ setTimeout(r, 320); });
+    var st = track.getSettings ? track.getSettings() : {};
+    var cv = document.createElement("canvas");
+    cv.width = st.width || v.videoWidth || 1920;
+    cv.height = st.height || v.videoHeight || 1080;
+    cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
+    var a = document.createElement("a");
+    a.href = cv.toDataURL("image/png");
+    a.download = "craxlearn-" + new Date().toISOString().slice(0,16)
+                   .replace(/[:T]/g,"-") + ".png";
+    a.click();
+  }catch(e){
+    /* Cancelling the picker is not an error worth a dialog. */
+  }finally{
+    if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  }
+}
 
 /* ---------- room size ---------- */
 /* Two sizes and a button, remembered per device. A teacher sets it once on
@@ -379,6 +612,12 @@ var TILES = [
     sub:"A blank surface to work on by hand. Save it as a picture." },
   { page:"calc",   ic:"🧮", name:"Calculator",
     sub:"Arithmetic, powers and roots, worked on screen where the room can see it." },
+  { page:"structure", ic:"🧬", name:"3D structures",
+    sub:"Turn a molecule, a crystal, a protein or an orbit around. Measured, never drawn." },
+  { page:"find",   ic:"🔎", name:"Search the sources",
+    sub:"A photograph or a structure from the open catalogues, with its licence." },
+  { page:"phet",   ic:"🔬", name:"Simulations",
+    sub:"PhET: build an atom, wire a circuit, balance an equation. Free and open." },
   { page:"net",    ic:"🌐", name:"Packet walkthrough",
     sub:"Send a packet through real routes and firewall rules and watch the decision." },
   { page:"lab",    ic:"🧪", name:"The lab",
@@ -690,6 +929,174 @@ function write(){
     a.click();
     el("wMsg").textContent = "Saved as a picture.";
   };
+}
+
+/* Mount a 3D scene, and SAY SO when it cannot be mounted.
+ *
+ * three.js comes from a CDN. On a school network that blocks it — or a
+ * board with no internet at that moment — the viewer silently never
+ * appears, and an empty box reads as "this app is broken" rather than
+ * "this board cannot reach the library". One is a support call about us;
+ * the other is a five-minute conversation with the IT technician.
+ */
+async function show3D(host, scene){
+  host.innerHTML = '<div class="muted" style="padding:1rem">Drawing…</div>';
+  if(!window.Three3D || !Three3D.mount){
+    host.innerHTML = '<div class="note bad">The 3D viewer could not load. ' +
+      "It comes from a public CDN — this board may be offline or the " +
+      "network may be blocking it. Everything else here still works.</div>";
+    return false;
+  }
+  try{
+    host.innerHTML = "";
+    await Three3D.mount(host, scene);
+    /* mount() can resolve without having drawn anything if the library
+       itself failed to arrive. A canvas is the proof it worked. */
+    if(!host.querySelector("canvas")) throw new Error("nothing was drawn");
+    return true;
+  }catch(e){
+    host.innerHTML = '<div class="note bad">The 3D viewer could not draw ' +
+      "this. It comes from a public CDN — this board may be offline or the " +
+      "network may be blocking it.</div>";
+    return false;
+  }
+}
+
+/* ---------- any structure worth turning around ----------
+ *
+ * Only ones somebody measured. A name with nothing behind it says so rather
+ * than showing a plausible arrangement of spheres with a real compound's
+ * name under it — which is the failure this whole codebase is built to
+ * avoid, and the one a class cannot possibly catch.
+ */
+async function structure(name){
+  var n = (name || "").trim();
+  main().innerHTML =
+    '<div class="eyebrow">3D structures</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="stName" style="flex:1 1 14rem" value="' + esc(n) + '" ' +
+        'placeholder="caffeine · silicon · graphene · haemoglobin · the solar system">' +
+      '<button class="btn" id="stGo">Show it</button>' +
+    '</div><div class="muted" id="stMsg" style="margin-top:.4rem">' +
+      "Measured — from PubChem, the Protein Data Bank, or a published table. " +
+      "Free to look at as many as you like.</div></div>" +
+    '<div id="stHost" class="card" style="min-height:24rem;padding:.4rem"></div>';
+
+  var run = async function(){
+    var want = (el("stName").value || "").trim();
+    if(want.length < 2) return;
+    el("stMsg").textContent = "Looking…";
+    el("stHost").innerHTML = "";
+    try{
+      var d = await api.get("/api/craxlearn/structure?name=" +
+                            encodeURIComponent(want));
+      el("stMsg").textContent = d.scene.caption || want;
+      await show3D(el("stHost"), d.scene);
+    }catch(e){
+      el("stMsg").textContent = e.message;
+    }
+  };
+  el("stGo").onclick = run;
+  el("stName").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  if(n) run();
+}
+
+/* ---------- searching the open sources ---------- */
+async function find(term){
+  var t = (term || "").trim();
+  main().innerHTML =
+    '<div class="eyebrow">Search the sources</div>' +
+    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+      '<input id="fq" style="flex:1 1 14rem" value="' + esc(t) + '" ' +
+        'placeholder="a mitochondrion · Saturn · a titration">' +
+      '<button class="btn" id="fGo">Search</button>' +
+    '</div><div class="muted" id="fMsg" style="margin-top:.4rem">' +
+      "Public catalogues only, with the licence beside each result.</div></div>" +
+    '<div id="fOut"></div>';
+
+  var run = async function(){
+    var q = (el("fq").value || "").trim();
+    if(q.length < 2) return;
+    el("fMsg").textContent = "Searching…";
+    el("fOut").innerHTML = "";
+    var d;
+    try{ d = await api.get("/api/craxlearn/search?q=" + encodeURIComponent(q)); }
+    catch(e){ el("fMsg").textContent = e.message; return; }
+
+    el("fMsg").textContent = d.found
+      ? "From: " + (d.sources || []).join(", ")
+      : "Nothing in the open catalogues for that. Try the plain name of the " +
+        "thing rather than a question about it.";
+    var h = "";
+    if(d.photo){
+      h += '<div class="card"><img src="' + esc(d.photo.url || "") +
+        '" alt="" style="max-width:100%;border-radius:12px;display:block">' +
+        '<div class="muted" style="margin-top:.5rem">' +
+        esc(d.photo.title || "") +
+        (d.photo.credit ? " · " + esc(d.photo.credit) : "") +
+        (d.photo.licence ? " · " + esc(d.photo.licence) : "") + "</div></div>";
+    }
+    if(d.scene){
+      h += '<div class="card" style="padding:.4rem"><div id="fScene" ' +
+        'style="min-height:22rem"></div><div class="muted" style="padding:.4rem">' +
+        esc(d.scene.caption || "") + "</div></div>";
+    }
+    el("fOut").innerHTML = h;
+    if(d.scene) await show3D(el("fScene"), d.scene);
+  };
+  el("fGo").onclick = run;
+  el("fq").onkeydown = function(e){ if(e.key === "Enter") run(); };
+  if(t) run();
+}
+
+/* ---------- PhET simulations ----------
+ *
+ * Embedded from PhET's own servers, so what a class runs is the current
+ * published version and the CC BY licence is satisfied by pointing at the
+ * original rather than copying it. The server has already checked that each
+ * one answers, so nothing here can be a 404 on the board mid-lesson.
+ */
+async function phet(pick){
+  main().innerHTML = '<div class="eyebrow">Simulations</div>' +
+    '<div class="muted">Loading what PhET has…</div>';
+  var d;
+  try{ d = await api.get("/api/craxlearn/phet"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  if(!(d.sims || []).length){
+    main().innerHTML = '<div class="eyebrow">Simulations</div>' +
+      '<div class="note bad">' + esc(d.note || "Nothing available.") + "</div>";
+    return;
+  }
+  var subs = {};
+  d.sims.forEach(function(s){ (subs[s.subject] = subs[s.subject] || []).push(s); });
+
+  var chosen = pick || d.sims[0].id;
+  var sim = d.sims.filter(function(s){ return s.id === chosen; })[0] || d.sims[0];
+
+  main().innerHTML = '<div class="eyebrow">Simulations</div>' +
+    '<div class="card" style="padding:.7rem">' +
+      Object.keys(subs).sort().map(function(k){
+        return '<div style="margin-bottom:.4rem"><span class="muted">' + esc(k) +
+          "</span><br>" + subs[k].map(function(x){
+            return '<button class="btn ' + (x.id === sim.id ? "" : "ghost") +
+              '" data-sim="' + esc(x.id) + '" style="margin:.2rem .3rem 0 0">' +
+              esc(x.title) + "</button>";
+          }).join("") + "</div>";
+      }).join("") +
+    "</div>" +
+    '<div class="card" style="padding:.3rem">' +
+      '<iframe src="' + esc(sim.url) + '" title="' + esc(sim.title) + '" ' +
+        'style="width:100%;height:62vh;border:0;border-radius:12px;' +
+        'background:#000" allowfullscreen></iframe>' +
+      '<div class="muted" style="padding:.4rem">' + esc(sim.title) + " · " +
+        esc(d.licence) + ' · <a href="' + esc(sim.page) +
+        '" target="_blank" rel="noopener">on PhET</a></div>' +
+    "</div>";
+
+  main().querySelectorAll("[data-sim]").forEach(function(b2){
+    b2.onclick = function(){ phet(b2.dataset.sim); };
+  });
 }
 
 /* ---------- a calculator the back row can read ---------- */
@@ -1338,31 +1745,46 @@ async function teach(){
 }
 
 /* ---------- routing ---------- */
+/* go() opens a page in the live space; paint() draws one that is already
+   chosen. Splitting them is what lets a space be redrawn — after a refresh,
+   after a resize — without it stealing focus from the other one. */
 function go(page, arg){
+  PANES[LIVE] = { page:page, arg:arg, flex: PANES[LIVE].flex };
   VIEW.page = page;
   window.S.view = VIEW;
+  DRAW = LIVE;
+  var head = document.querySelector('[data-pick="' + LIVE + '"]');
+  if(head && TOOL_NAMES[page]) head.value = page;
+  paint(page, arg);
+}
+
+function paint(page, arg){
   var m = main();
-  m.scrollTop = 0;
-  window.scrollTo(0,0);
-  if(page === "home")           home();
-  else if(page === "activity")  activity();
-  else if(page === "sources")   sources();
-  else if(page === "inbox")     inbox();
-  else if(page === "materials") materials();
-  else if(page === "write")     write();
-  else if(page === "calc")      calc();
-  else if(page === "roll")      roll();
-  else if(page === "student")   student(arg);
-  else if(page === "roster")    roster();
-  else if(page === "assignment") assignment(arg);
-  else if(page === "review")    review(arg && arg.aid, arg && arg.sid);
-  else if(page === "board")     board(arg);
+  if(m) m.scrollTop = 0;
+  /* Every branch RETURNS, so an async page's promise reaches drawPane and
+     DRAW keeps pointing at this space until it has finished writing. */
+  if(page === "home")           return home();
+  else if(page === "activity")  return activity();
+  else if(page === "sources")   return sources();
+  else if(page === "inbox")     return inbox();
+  else if(page === "materials") return materials();
+  else if(page === "write")     return write();
+  else if(page === "calc")      return calc();
+  else if(page === "roll")      return roll();
+  else if(page === "student")   return student(arg);
+  else if(page === "roster")    return roster();
+  else if(page === "assignment") return assignment(arg);
+  else if(page === "review")    return review(arg && arg.aid, arg && arg.sid);
+  else if(page === "board")     return board(arg);
   else if(page === "net"       && window.renderNet)      window.renderNet();
   else if(page === "lab"       && window.renderLab)      window.renderLab();
   else if(page === "sqlboard"  && window.renderSqlBoard) window.renderSqlBoard();
-  else home();
+  else if(page === "structure") return structure(arg);
+  else if(page === "find")      return find(arg);
+  else if(page === "phet")      return phet(arg);
+  return home();
 }
-window.render = function(){ go(VIEW.page); };
+window.render = function(){ paint(VIEW.page, null); };
 
 document.addEventListener("click", function(e){
   var t = e.target;
@@ -1418,7 +1840,7 @@ async function boot(){
   if(ME) await refreshMe();
   var signedIn = !!ME;
   el("gate").hidden = signedIn;
-  main().hidden = !signedIn;
+  el("app").hidden = !signedIn;
   if(!signedIn){
     el("who").innerHTML = "";
     /* The class code first, because it is the one most people arriving here
@@ -1429,7 +1851,9 @@ async function boot(){
   }
   el("who").innerHTML = "<b>" + esc(ME.user.name) + "</b>" +
     esc(ME.institution ? ME.institution.name : (ME.role || "learner"));
-  go("home");
+  PANES = [{ page:"home", arg:null }];
+  LIVE = 0;
+  paintPanes();
 }
 
 function tab(which){
@@ -1444,6 +1868,28 @@ el("tabCode").onclick = function(){ tab("Code"); };
 el("tabIn").onclick   = function(){ tab("In"); };
 el("tabUp").onclick   = function(){ tab("Up"); };
 el("homeBtn").onclick = function(){ go("home"); };
+el("shotBtn").onclick = function(){ shoot(); };
+/* One press adds a space, up to four; the fifth press goes back to one.
+   A cycle rather than separate add and remove buttons, because a board is
+   operated mid-sentence and one button you press again is easier to
+   explain than two you have to choose between. The space that was live is
+   the one kept when it wraps — it is what the teacher was working in. */
+el("splitBtn").onclick = function(){
+  if(PANES.length >= MAX_PANES){
+    PANES = [{ page: PANES[LIVE].page, arg: PANES[LIVE].arg }];
+    LIVE = 0;
+  }else{
+    PANES = PANES.map(function(p){
+      return { page:p.page, arg:p.arg, flex:1 };
+    });
+    PANES.push({ page: PANES.length === 1 ? "write" : "home",
+                 arg: null, flex: 1 });
+    LIVE = PANES.length - 1;
+  }
+  el("splitBtn").title = PANES.length >= MAX_PANES
+    ? "Back to one space" : "Open another space (" + PANES.length + " of 4)";
+  paintPanes();
+};
 el("scaleBtn").onclick = function(){
   scale(document.documentElement.getAttribute("data-scale") === "board"
         ? "desk" : "board");
