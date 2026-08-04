@@ -2452,6 +2452,79 @@ def admin_reports(user: User = Depends(admin_user),
     return {"reports": out, "total": len(out)}
 
 
+class MakeQuizIn(BaseModel):
+    topic: str = Field(default="", max_length=300)
+    lesson: str = Field(default="", max_length=12000)
+    level: str = Field(default="Intermediate", max_length=60)
+
+
+@app.post("/api/quiz/make")
+async def make_quiz(body: MakeQuizIn, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Build a short test from what a lesson just taught.
+
+    Cached on the lesson rather than the request: a class of thirty tapping
+    "test me" on the same explanation is one model call, not thirty. That is
+    the same rule as every other generated thing here and it matters more for
+    this one, because a teacher presses it at the end of a lesson with the
+    whole room waiting.
+
+    Three kinds together, because they fail differently — recognition, recall
+    and whether the relationships were understood. A test made only of
+    multiple choice is one somebody can pass by elimination.
+    """
+    topic = (body.topic or "").strip()[:300]
+    text = (body.lesson or "").strip()[:12000]
+    if not text and not topic:
+        raise HTTPException(400, "Nothing to make a test from.")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+
+    qkey = ("quiz|" + _norm_q(body.level) + "|"
+            + hashlib.sha256((topic + "|" + text).encode("utf-8", "ignore")
+                             ).hexdigest()[:24])[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    cached = _cached_json(db, row, need="questions")
+    if cached:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"questions": cached["questions"], "cached": True}
+
+    _ai_enforce_limit(db, user)
+    prompt = (f"THE LESSON, on {topic or 'this topic'}:\n{text}\n\n"
+              + _quiz.PROMPT)
+    try:
+        got = _quiz.clean(_ai_json(await _ai_text(prompt, 2600,
+                                                  json_mode=True)))
+    except Exception as e:
+        print(f"Quiz build failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not got:
+        raise HTTPException(502, "No usable questions came back — try again.")
+
+    _ai_bump(db, user)
+    db.add(AskCache(qkey=qkey, subject="quiz", level=body.level,
+                    question=(topic or text[:80])[:2000],
+                    lesson=json.dumps({"questions": got}), hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"questions": got, "cached": False}
+
+
+class MarkQuizIn(BaseModel):
+    questions: list = []
+    answers: dict = {}
+
+
+@app.post("/api/quiz/mark")
+def mark_quiz(body: MarkQuizIn, user: User = Depends(current_user)):
+    """Score a set of answers. Arithmetic, so it is free and instant."""
+    qs = [q for q in (body.questions or []) if isinstance(q, dict)][:8]
+    return _quiz.mark(qs, body.answers or {})
+
+
 # ---------------------------- classroom -----------------------------------
 class ClassIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
@@ -12659,6 +12732,7 @@ import sketch as _sketch                                            # noqa: E402
 import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
+import quiz as _quiz                                                # noqa: E402
 import dimensions as _dimensions                                    # noqa: E402
 import wolfram as _wolfram                                          # noqa: E402
 import depth as _depth                                              # noqa: E402
