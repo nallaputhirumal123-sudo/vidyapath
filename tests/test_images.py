@@ -94,8 +94,21 @@ try:
 
     pic, nothing = asyncio.run(go())
 except Exception as e:
+    pic = nothing = None
     SKIP += 1
     print(f"  ..    live lookup skipped (no network?): {type(e).__name__}")
+
+# images.find is documented never to raise — a lesson without a photograph
+# is still a lesson — so it answers {} when NASA cannot be reached and the
+# guard above never fires. Saturn is in NASA's catalogue; an empty answer
+# for it is the network being unreachable, not the search being wrong.
+if pic is not None and not pic.get("url"):
+    SKIP += 1
+    pic = None
+    print("  ..    live lookup skipped: NASA returned nothing (no network?)")
+
+if pic is None:
+    pass
 else:
     check("an astronomy topic returns a picture", bool(pic.get("url")),
           pic.get("caption", ""))
@@ -143,7 +156,22 @@ try:
 
     got = asyncio.run(routed())
 except Exception as _e:
+    got = None
     print("  ..    live routing skipped: " + type(_e).__name__)
+
+# The whole block skips together, and that matters more here than above.
+# Four of these checks assert that a topic returns NOTHING — which is
+# trivially true when nothing can be reached at all. Offline they passed
+# for the wrong reason and reported four green ticks about routing that had
+# not been exercised. The eclipse is the one positive assertion in the set,
+# so it is what says whether the network was there to test with.
+if got is not None and not got.get("eclipse", {}).get("url"):
+    SKIP += 1
+    got = None
+    print("  ..    live routing skipped: NASA returned nothing (no network?)")
+
+if got is None:
+    pass
 else:
     # The reports that closed the picture sources down, kept as tests.
     check("'git' gets no picture", got["git"] == {},

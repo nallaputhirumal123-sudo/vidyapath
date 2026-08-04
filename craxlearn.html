@@ -123,6 +123,20 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 }
 .bad{border-color:rgba(224,90,90,.4);background:rgba(224,90,90,.1)}
 
+/* A lesson body is authored HTML. Give its tags somewhere to live rather
+   than inheriting the card's bare defaults. */
+.lessonBody h3{font-size:.92rem;margin:1rem 0 .3rem}
+.lessonBody p{margin:0 0 .6rem;font-size:.76rem;line-height:1.7}
+.lessonBody ul,.lessonBody ol{margin:0 0 .6rem 1.1rem;font-size:.76rem}
+.lessonBody li{margin-bottom:.25rem}
+.lessonBody code{font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:.68rem;background:var(--panel2);padding:.05rem .3rem;
+  border-radius:6px}
+.lessonBody pre{background:var(--panel2);padding:.7rem;border-radius:12px;
+  overflow-x:auto;font-size:.66rem;line-height:1.55}
+.lessonBody pre code{background:none;padding:0}
+.lessonBody b,.lessonBody strong{color:var(--text)}
+
 /* ---- sign in ---- */
 #gate{max-width:26rem;margin:8vh auto;padding:0 var(--pad)}
 #gate .card{padding:1.5rem}
@@ -276,7 +290,23 @@ function esc(s){
    modules could capture them. This hands that shim the real resolver — the
    modules keep the function they captured and it starts answering "#main"
    with whichever space is being drawn into. */
-window.__paneBody = function(){ return paneBody(); };
+/* A module resolves "#main" EVERY time it repaints, not once at mount, and
+   sqlboard.js/net.js/lab.js/scanner.js all repaint on their own after a
+   fetch or a button press — long after drawPane has moved on. Resolving to
+   "the space being drawn right now" was therefore right only for the first
+   paint: the SQL board's second paint landed in whichever space was drawn
+   last, so it appeared in two panes at once.
+
+   So a module-hosting space is pinned. MODULE_HOST is set when a module
+   tool is opened and every later repaint goes there, whoever is drawing. */
+var MODULE_HOST = null;
+window.__paneBody = function(){
+  if(MODULE_HOST && MODULE_HOST.isConnected) return MODULE_HOST;
+  return paneBody();
+};
+
+/* The tools that are separate files and own their own repainting. */
+var MODULE_TOOLS = ["net", "lab", "sqlboard", "scan"];
 
 async function req(method, path, body){
   var opt = { method:method, credentials:"same-origin",
@@ -370,6 +400,14 @@ function paintPanes(){
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
             if(k === "home" || k === p.page) return true;
+            /* One module tool at a time, anywhere. They are separate files
+               that each ask for "#main" and repaint themselves; two of them
+               open at once would both be pinned to one space. */
+            if(MODULE_TOOLS.indexOf(k) >= 0
+               && PANES.some(function(q, j){
+                    return j !== i && MODULE_TOOLS.indexOf(q.page) >= 0; })){
+              return false;
+            }
             return !PANES.some(function(q, j){ return j !== i && q.page === k; });
           }).map(function(k){
             return '<option value="' + k + '"' +
@@ -387,6 +425,9 @@ function paintPanes(){
       "</div>";
   });
   wrap.innerHTML = html;
+  // Every body element was just replaced, so the old pin points at a node
+  // that is no longer in the document.
+  MODULE_HOST = null;
   wirePanes();
   (async function(){
     for(var i = 0; i < PANES.length; i++) await drawPane(i);
@@ -1233,8 +1274,10 @@ async function lesson(arg){
   var h = '<button class="btn ghost" data-back="' + esc(t.id) + '">← ' +
       esc(t.name) + "</button>" +
     "<h1 style=\"margin-top:.8rem\">" + esc(l.title) + "</h1>" +
-    '<div class="card" style="white-space:pre-wrap">' + esc(l.content || "") +
-    "</div>";
+    /* Lesson bodies are HTML in the curriculum — <h3>, <p>, <pre><code> —
+       written by us and seeded from the repository's own files, not typed
+       by a user. Escaping them printed the tags on the screen. */
+    '<div class="card lessonBody">' + (l.content || "") + "</div>";
 
   if(l.lab && l.lab.prompt){
     h += '<div class="eyebrow">Try it</div><div class="card">' +
@@ -2069,6 +2112,13 @@ function go(page, arg){
   paint(page, arg);
 }
 
+/* Draw a module tool and pin the space it drew into, so its own later
+   repaints go back to the same one. */
+function mod(render){
+  MODULE_HOST = paneBody();
+  return render();
+}
+
 function paint(page, arg){
   var m = main();
   if(m) m.scrollTop = 0;
@@ -2087,9 +2137,9 @@ function paint(page, arg){
   else if(page === "assignment") return assignment(arg);
   else if(page === "review")    return review(arg && arg.aid, arg && arg.sid);
   else if(page === "board")     return board(arg);
-  else if(page === "net"       && window.renderNet)      return window.renderNet();
-  else if(page === "lab"       && window.renderLab)      return window.renderLab();
-  else if(page === "sqlboard"  && window.renderSqlBoard) return window.renderSqlBoard();
+  else if(page === "net"       && window.renderNet)      return mod(window.renderNet);
+  else if(page === "lab"       && window.renderLab)      return mod(window.renderLab);
+  else if(page === "sqlboard"  && window.renderSqlBoard) return mod(window.renderSqlBoard);
   else if(page === "structure") return structure(arg);
   else if(page === "find")      return find(arg);
   else if(page === "phet")      return phet(arg);
@@ -2097,7 +2147,7 @@ function paint(page, arg){
   else if(page === "track")     return track(arg);
   else if(page === "lesson")    return lesson(arg);
   else if(page === "exam")      return exam(arg);
-  else if(page === "scan" && window.renderScanner) return window.renderScanner();
+  else if(page === "scan" && window.renderScanner) return mod(window.renderScanner);
   return home();
 }
 window.render = function(){ paint(VIEW.page, null); };

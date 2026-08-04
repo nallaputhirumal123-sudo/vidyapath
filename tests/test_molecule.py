@@ -117,7 +117,22 @@ try:
 
     real = asyncio.run(go())
 except Exception as e:
+    real = None
     print(f"  ..    live lookup skipped: {type(e).__name__}")
+
+# molecule.find is documented never to raise — it answers {} when PubChem
+# cannot be reached. So the guard above never fires, and what actually
+# happened offline was every check failing and then a KeyError on
+# real["benzene"]["atoms"], which reads as a broken parser rather than a
+# missing network. An empty answer for a compound PubChem certainly has is
+# the network, not the code.
+if real is not None and not real.get("caffeine"):
+    print("  ..    live lookup skipped: PubChem returned nothing "
+          "(no network?)")
+    real = None
+
+if real is None:
+    pass
 else:
     check("caffeine is C8H10N4O2",
           real["caffeine"].get("formula") == "C8H10N4O2",
