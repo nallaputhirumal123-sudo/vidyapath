@@ -22,6 +22,17 @@ r = A.post("/api/auth/signup", json={"name": "Trial Test", "email": E,
                                      "password": "TrialPass123!"})
 assert r.status_code < 400, r.text
 
+# An adult, stated. REQUIRE_DOB is on, so an account that has never said how
+# old it is no longer reaches the job board — and this suite is about what a
+# free account sees ON that board, not about the age gate. Without a date the
+# first request came back 403 and every assertion after it was reading an
+# error body for a field that was never there.
+_db = m.SessionLocal()
+_u = _db.query(m.User).filter(m.User.email == E).first()
+_u.dob = m.dt.date(1992, 3, 14)
+_db.commit()
+_db.close()
+
 db = m.SessionLocal()
 user = db.query(m.User).filter(m.User.email == E).first()
 ck("new signup is on the free plan", m.plan_of(user) == "free", m.plan_of(user))

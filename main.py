@@ -1427,7 +1427,21 @@ def _is_school_host(request) -> bool:
 # learners. Off by default: switching it on locks out every existing account
 # until each one comes back and fills in a date, which is a decision with a
 # support queue attached rather than a default.
-REQUIRE_DOB = env("REQUIRE_DOB", "0").strip().lower() in (
+# Ask everybody for a date of birth, not only people inside a school.
+#
+# On by default now, deliberately. The job board, being shown to employers and
+# buying a subscription are for adults, and an account that has never said how
+# old it is has not told us it is one. The code that wrote this flag warned
+# what turning it on costs — every existing account without a date loses the
+# job half until it comes back and fills one in — and that is the trade being
+# accepted, not overlooked.
+#
+# What it must NOT cost is somebody's own billing page. See _learning_only:
+# an unknown age closes the job board and hides them from employers, and
+# leaves Plans reachable, because locking a paying subscriber out of the page
+# where they manage or cancel what they already bought is not a safety
+# measure.
+REQUIRE_DOB = env("REQUIRE_DOB", "1").strip().lower() in (
     "1", "true", "yes", "on")
 if CRAXLEARN_ONLY:
     print(f"  {_cl_boot.NAME} only — the job board is not served here")
@@ -1512,13 +1526,42 @@ def _learning_only(db, user):
     # Outside one, a stated age is believed in both directions and silence
     # keeps what it had — see craxlearn.age_ok for why that is not a hole
     # left open out of laziness.
+    # Who is asked for a date of birth.
+    #
+    # Inside a school, always — a school hands us a room of teenagers and an
+    # empty field is a teenager until it says otherwise.
+    #
+    # Outside one, only ordinary logins. A school admin, a teacher and a
+    # class-code student have already been dealt with above: their job half is
+    # closed for reasons that have nothing to do with their age, and asking
+    # them for a birthday would be a prompt they can never make go away, about
+    # a door that is shut anyway. Everybody who reaches this line on a normal
+    # account is somebody the job half is genuinely for.
     proof = _cl_boot.is_institution(scope) or REQUIRE_DOB
-    if not _cl_boot.age_ok(getattr(user, "dob", None), dt.date.today(), proof):
+    dob = getattr(user, "dob", None)
+    if not _cl_boot.age_ok(dob, dt.date.today(), proof):
+        # Two different closures, and telling them apart is the whole point.
+        #
+        # A stated age under 18 is an answer: the job half is closed and
+        # stays closed, billing included, because they cannot buy anyway.
+        #
+        # No date at all is not an answer, it is a question we have not asked.
+        # It closes the same doors — an account that has never said how old it
+        # is has not told us it is an adult — but it leaves Plans reachable,
+        # because among those accounts are people already paying, and locking
+        # somebody out of the page where they cancel what they bought is not
+        # a safety measure. They are asked for the date instead.
+        if dob is None:
+            return {"only": True, "why": "dob_missing",
+                    "keep": ["plans"],
+                    "message": "Add your date of birth to open the job board, "
+                               "the resume builder and being seen by "
+                               "employers. They are for learners aged "
+                               f"{_cl_boot.MIN_JOB_AGE} and over."}
         return {"only": True, "why": "age",
                 "message": f"The job board, subscriptions and being seen by "
                            f"employers are for learners aged "
-                           f"{_cl_boot.MIN_JOB_AGE} and over. Add your date "
-                           f"of birth in your profile to open them."}
+                           f"{_cl_boot.MIN_JOB_AGE} and over."}
     return {"only": False, "why": "", "message": ""}
 
 
@@ -1554,7 +1597,24 @@ async def _craxlearn_gate(request, call_next):
             user = db.get(User, int(payload["sub"]))
         if user is not None:
             verdict = _learning_only(db, user)
-            if verdict["only"]:
+            # Some closures keep a door open. An account with no date of
+            # birth loses the job board and loses being shown to employers,
+            # and keeps Plans — because a subscriber who cannot reach the page
+            # where they cancel has been trapped rather than protected.
+            # A page's name and its API prefix are not the same word. The
+            # page is called Plans; the routes behind it are /api/billing.
+            # Matching on the page name alone kept nothing open, which is a
+            # door that reports itself unlocked and is not.
+            KEEP_PATHS = {"plans": ("/api/billing",),
+                          "resume": ("/api/resume",),
+                          "careers": ("/api/jobs", "/api/career"),
+                          "hiring": ("/api/employer",),
+                          "interview": ("/api/interview",)}
+            kept = []
+            for p in (verdict.get("keep") or []):
+                kept.extend(KEEP_PATHS.get(p, (f"/api/{p}",)))
+            if verdict["only"] and not any(
+                    request.url.path.startswith(pre) for pre in kept):
                 return JSONResponse(status_code=403, content={
                     "detail": verdict["message"], "craxlearn": verdict["why"]})
     except Exception:
@@ -2516,7 +2576,12 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "craxlearn_only": gate["only"],
         "craxlearn_why": gate["why"],
         "craxlearn_message": gate["message"],
-        "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+        # Minus anything this particular closure keeps open, so the
+        # sidebar and the home page hide exactly what the middleware
+        # refuses and nothing more.
+        "hidden_pages": ([p for p in _cl.JOB_PAGES
+                          if p not in (gate.get("keep") or [])]
+                         if gate["only"] else []),
         "adult": _cl.adult(getattr(user, "dob", None), dt.date.today()),
         "dob": user.dob.isoformat() if getattr(user, "dob", None) else "",
     }
@@ -5407,7 +5472,12 @@ def craxlearn_me(user: User = Depends(current_user),
                 [x["name"] for x in by_class.get(k.id, [])]
                 if k.teacher_id == user.id else []),
         } for k in classes],
-        "hidden_pages": list(_cl.JOB_PAGES) if gate["only"] else [],
+        # Minus anything this particular closure keeps open, so the
+        # sidebar and the home page hide exactly what the middleware
+        # refuses and nothing more.
+        "hidden_pages": ([p for p in _cl.JOB_PAGES
+                          if p not in (gate.get("keep") or [])]
+                         if gate["only"] else []),
     }
 
 

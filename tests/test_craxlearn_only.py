@@ -176,14 +176,24 @@ r = public_adult.get(JOB)
 check("somebody on their own account, over 18, gets through",
       r.status_code == 200, str(r.status_code))
 
-# Outside an institution, silence keeps what it had. This is the deliberate
-# looser half of the rule and it is asserted rather than assumed: making an
-# empty birthday field mean "child" would, on the day it shipped, have taken
-# the job board and their own billing page away from every existing account
-# without one of them doing anything. See craxlearn.age_ok.
+# Silence used to keep what it had, outside an institution. REQUIRE_DOB is on
+# now, and this is the half of the rule that changed: an account that has never
+# said how old it is has not told us it is an adult, and the job board, being
+# shown to employers and buying a subscription are for adults.
+#
+# The cost the old comment warned about is real and is paid deliberately —
+# every existing account without a date loses the job half until it fills one
+# in. What is NOT paid is somebody's own billing page: it stays reachable, so a
+# subscriber can still cancel what they bought. That is asserted just below and
+# in test_dob_gate.
 r = public_none.get(JOB)
-check("somebody on their own account who never gave a birthday keeps access",
-      r.status_code == 200, str(r.status_code))
+check("somebody who never gave a birthday is now asked for one",
+      r.status_code == 403, str(r.status_code))
+check("and told that is why, rather than that they are a child",
+      r.json().get("craxlearn") == "dob_missing", str(r.json())[:90])
+check("while their own billing stays open",
+      public_none.get("/api/billing/me").status_code == 200,
+      "a subscriber locked out of cancelling has been trapped, not protected")
 
 # But a stated age is believed in both directions, even outside one.
 _, pu_child = learner("pc", None, CHILD)
@@ -209,16 +219,22 @@ check("and over 18 is allowed either way",
       cl.age_ok(ADULT, TODAY, proof_required=False)
       and cl.age_ok(ADULT, TODAY, proof_required=True))
 
-# The deployment switch for anybody who wants proof from everybody.
+# The deployment switch, now on by default. It used to be off, so this checked
+# that turning it on closed the silence; the interesting direction now is the
+# other one — that turning it OFF gives an account with no birthday its access
+# back, because that is the escape hatch a deployment with a support queue and
+# no appetite for this would reach for.
 was_dob = main.REQUIRE_DOB
-main.REQUIRE_DOB = True
+check("REQUIRE_DOB closes the silence", was_dob
+      and public_none.get(JOB).status_code == 403,
+      str(public_none.get(JOB).status_code))
+main.REQUIRE_DOB = False
 try:
-    check("REQUIRE_DOB closes the silence everywhere",
-          public_none.get(JOB).status_code == 403,
+    check("and switching it off restores them",
+          public_none.get(JOB).status_code == 200,
           str(public_none.get(JOB).status_code))
 finally:
     main.REQUIRE_DOB = was_dob
-check("and lifting it restores them", public_none.get(JOB).status_code == 200)
 
 # ---- staff never see the job board, whatever the school bought ----------
 # A teacher account is a work account the school issued. A school that buys
