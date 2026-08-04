@@ -907,6 +907,10 @@ class Material(Base):
     file_name = Column(String(160), default="")
     mime = Column(String(80), default="")
     size = Column(Integer, default=0)
+    # A lesson taught on the board and kept. Not a link and not a file: the
+    # words themselves, so they open on the subject page rather than
+    # downloading something a phone may not be able to read.
+    body = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), default=now, index=True)
 
 
@@ -978,6 +982,57 @@ class PasswordReset(Base):
     purpose = Column(String(20), default="reset", index=True)   # reset | verify
     created_at = Column(DateTime(timezone=True), default=now)
 
+
+class RemoteLink(Base):
+    """A phone driving a board.
+
+    The board is the signed-in one — it is the machine bolted to the wall of
+    a classroom with a teacher's session on it. The phone is NOT signed in,
+    and deliberately so: this product allows one login per account, so a
+    teacher who signed in on her phone would sign the board out from under
+    the class she is standing in front of.
+
+    So the phone holds a pairing code instead, and a code buys exactly one
+    thing: permission to send presentation commands to that one board. It
+    cannot read a learner's record, cannot see a class list, cannot change a
+    mark. The worst a stolen code can do is change what is on a screen in a
+    room somebody is standing in — which they will notice.
+    """
+    __tablename__ = "remote_links"
+    id = Column(Integer, primary_key=True)
+    # Short, and from an alphabet with no O/0 or I/1 in it, because it is
+    # read off a wall from the back of a room and typed on a phone.
+    code = Column(String(12), unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    school_id = Column(Integer, default=0, index=True)
+    # What the phone shows so a teacher knows which board she has: the room
+    # is not in the database, so the board's own name for itself will do.
+    label = Column(String(80), default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+    expires_at = Column(DateTime(timezone=True), index=True)
+    # Last time the BOARD asked for commands. A board that stopped asking is
+    # a board that was switched off, and the phone should say so rather than
+    # silently sending into nothing.
+    board_seen = Column(DateTime(timezone=True))
+    phone_seen = Column(DateTime(timezone=True))
+    closed_at = Column(DateTime(timezone=True))
+
+
+class RemoteCmd(Base):
+    """One instruction from the phone to the board.
+
+    A queue rather than a live connection: a school's network is the one
+    thing here nobody controls, and a websocket that dies in a corridor is a
+    remote that stops working halfway through a lesson with no way to tell.
+    Polling is duller and it survives every proxy in the building.
+    """
+    __tablename__ = "remote_cmds"
+    id = Column(Integer, primary_key=True)
+    link_id = Column(Integer, ForeignKey("remote_links.id"), index=True)
+    kind = Column(String(24), default="")
+    payload = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+    taken_at = Column(DateTime(timezone=True))
 
 RESET_TTL = dt.timedelta(hours=1)
 VERIFY_TTL = dt.timedelta(days=3)
@@ -5452,8 +5507,10 @@ def _material_json(m, with_url=True, by=""):
     would otherwise be two hundred queries for a name, and the caller
     already has to touch the user table once to get them all.
     """
+    kind = "lesson" if (m.body or "") else ("link" if m.url else "file")
     d = {"id": m.id, "title": m.title, "note": m.note or "",
-         "subject": m.subject or "", "kind": "link" if m.url else "file",
+         "subject": m.subject or "", "kind": kind,
+         "body": (m.body or "") if kind == "lesson" else "",
          "file_name": m.file_name or "", "size": m.size or 0,
          "mime": m.mime or "",
          # Who put it there. A class given a reading list by nobody in
@@ -5650,6 +5707,279 @@ def _lesson_to_body(lesson, task):
     if lesson.get("takeaway"):
         out.append(f"Remember: {lesson['takeaway']}")
     return "\n".join(out).strip()[:20000]
+
+
+class BoardSaveIn(BaseModel):
+    class_id: int
+    topic: str = Field(min_length=2, max_length=200)
+    title: str = Field(default="", max_length=240)
+    subject: str = Field(default="", max_length=80)
+    note: str = Field(default="", max_length=2000)
+    lesson: dict = {}
+
+
+@app.post("/api/craxlearn/board/save")
+def craxlearn_board_save(body: BoardSaveIn,
+                         user: User = Depends(teacher_user),
+                         db: Session = Depends(get_db)):
+    """Keep what was just taught, on the class's subject page.
+
+    Different from setting it as an assignment, and both are wanted. An
+    assignment is work with a deadline that a particular class has to do; this
+    is the explanation itself, filed under its subject, for the teacher to
+    open again next year and for the class to read again the night before an
+    exam. A lesson that only exists as an assignment disappears the moment it
+    is marked.
+
+    Saved as text rather than a file, so it opens on the subject page instead
+    of downloading something a phone may not be able to read.
+    """
+    _own_class(db, body.class_id, user)
+    text = _lesson_to_body(body.lesson or {}, "")
+    if not text:
+        raise HTTPException(400, "There is nothing in that lesson to save.")
+    title = (body.title or body.topic).strip()[:240]
+    m = Material(class_id=body.class_id, teacher_id=user.id,
+                 subject=(body.subject or "").strip()[:80],
+                 title=title, note=(body.note or "").strip()[:2000],
+                 body=text)
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return {"ok": True, "material": _material_json(m, by=user.name)}
+
+
+# ---- the phone as a remote control ---------------------------------------
+#
+# A board on a classroom wall is a screen a teacher cannot reach without
+# turning her back on the room. The phone in her pocket can reach it. So the
+# board shows a code, the phone takes the code, and from then on the phone
+# says what the board does — including saying a topic out loud into the
+# phone's microphone, which is a far better microphone than a board's and is
+# already six inches from her mouth.
+#
+# What the phone may do is a fixed list, checked here rather than trusted
+# from the message. It is a remote control: it changes what is on a screen.
+# It reads nothing and marks nothing.
+
+REMOTE_TTL = dt.timedelta(hours=10)          # a school day, and then some
+REMOTE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no O/0, no I/1
+REMOTE_CODE_LEN = 6
+REMOTE_QUEUE_MAX = 40           # a board that is off must not bank commands
+
+# What a phone is allowed to say. Anything else is dropped with a 400 rather
+# than passed through for the page to puzzle over.
+REMOTE_KINDS = {
+    "go",        # open a tool in the live space   {page, arg}
+    "teach",     # teach a topic                   {topic, level}
+    "slide",     # move through a lesson           {to: "next"|"back"|number}
+    "split",     # another space, or back to one
+    "close",     # close the live space
+    "home",      # back to the tools
+    "pen",       # writing space: pick a colour    {i}
+    "clear",     # writing space: rub it all out
+    "undo",      # writing space: take one back
+    "redo",
+}
+
+# Two different things, and conflating them breaks the remote.
+#
+# GUESSING a code is the only way in from outside, so it is held to a dozen
+# tries a minute per address — at that rate a six-character code out of an
+# alphabet of 32 takes longer to find than the ten hours it lives.
+#
+# USING a code you already hold is a teacher turning pages, changing pens
+# and opening tools, and that is easily a tap a second in a busy minute. It
+# is limited per code rather than per address, generously, and only to stop
+# a stuck loop filling the table.
+_REMOTE_TRIES: dict = {}
+_REMOTE_JOIN_PER_MIN = 12
+_REMOTE_CMD_PER_MIN = 150
+
+
+def _remote_throttle(who: str, per_min: int, whatfor: str):
+    import time as _t
+    now_s = _t.monotonic()
+    seen = [t for t in _REMOTE_TRIES.get(who, []) if now_s - t < 60]
+    if len(seen) >= per_min:
+        raise HTTPException(429, whatfor)
+    seen.append(now_s)
+    _REMOTE_TRIES[who] = seen
+    if len(_REMOTE_TRIES) > 4000:
+        for k in list(_REMOTE_TRIES)[:2000]:
+            _REMOTE_TRIES.pop(k, None)
+
+
+def _remote_code(db) -> str:
+    for _ in range(24):
+        code = "".join(secrets.choice(REMOTE_ALPHABET)
+                       for _ in range(REMOTE_CODE_LEN))
+        if not db.query(RemoteLink).filter(RemoteLink.code == code).first():
+            return code
+    raise HTTPException(503, "Could not make a pairing code. Try again.")
+
+
+def _remote_live(db, code: str):
+    """The open link for a code, or None. Never raises for a bad code —
+    the caller decides what to say, so that a wrong code and an expired one
+    can be told apart."""
+    if not code:
+        return None
+    link = db.query(RemoteLink).filter(
+        RemoteLink.code == code.strip().upper()[:12]).first()
+    if link is None or link.closed_at is not None:
+        return None
+    # SQLite hands back naive datetimes where Postgres hands back aware ones,
+    # and comparing the two raises. Everything time-related here goes through
+    # _aware for that reason.
+    if link.expires_at and _aware(link.expires_at) < now():
+        return None
+    return link
+
+
+class RemoteCmdIn(BaseModel):
+    code: str = ""
+    kind: str = ""
+    payload: dict = Field(default_factory=dict)
+
+
+class RemoteJoinIn(BaseModel):
+    code: str = ""
+
+
+@app.post("/api/craxlearn/remote/open")
+def remote_open(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Turn this screen into a board a phone can drive.
+
+    One open link per account: a second board would take the same commands
+    and there is no way for a teacher to tell which one she is talking to.
+    Asking again while one is open returns the same code rather than a
+    second one, so a page reload does not orphan the phone in her hand.
+    """
+    live = db.query(RemoteLink).filter(
+        RemoteLink.user_id == user.id,
+        RemoteLink.closed_at.is_(None),
+        RemoteLink.expires_at > now()).order_by(RemoteLink.id.desc()).first()
+    if live is None:
+        live = RemoteLink(code=_remote_code(db), user_id=user.id,
+                          school_id=_school_of(user, db),
+                          label=(user.name or "")[:80],
+                          expires_at=now() + REMOTE_TTL)
+        db.add(live)
+    else:
+        live.expires_at = now() + REMOTE_TTL
+    live.board_seen = now()
+    db.commit()
+    return {"code": live.code, "expires": live.expires_at.isoformat()}
+
+
+@app.post("/api/craxlearn/remote/close")
+def remote_close(user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    """Stop taking commands. The phone is told next time it sends one."""
+    n = 0
+    for link in db.query(RemoteLink).filter(
+            RemoteLink.user_id == user.id,
+            RemoteLink.closed_at.is_(None)).all():
+        link.closed_at = now()
+        n += 1
+    db.commit()
+    return {"closed": n}
+
+
+@app.get("/api/craxlearn/remote/poll")
+def remote_poll(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """The board asking what it has been told to do.
+
+    Commands are handed over once and marked taken in the same transaction,
+    so a board that reloads mid-lesson does not replay the last ten minutes
+    of a teacher's remote at the class.
+    """
+    link = db.query(RemoteLink).filter(
+        RemoteLink.user_id == user.id,
+        RemoteLink.closed_at.is_(None),
+        RemoteLink.expires_at > now()).order_by(RemoteLink.id.desc()).first()
+    if link is None:
+        return {"linked": False, "cmds": []}
+    link.board_seen = now()
+    rows = db.query(RemoteCmd).filter(
+        RemoteCmd.link_id == link.id,
+        RemoteCmd.taken_at.is_(None)).order_by(RemoteCmd.id.asc()).limit(20).all()
+    out = []
+    for r in rows:
+        r.taken_at = now()
+        try:
+            data = json.loads(r.payload or "{}")
+        except Exception:
+            data = {}
+        out.append({"kind": r.kind, "payload": data})
+    db.commit()
+    return {"linked": True, "code": link.code, "cmds": out,
+            "phone": bool(link.phone_seen)}
+
+
+@app.post("/api/craxlearn/remote/join")
+def remote_join(body: RemoteJoinIn, request: Request,
+                db: Session = Depends(get_db)):
+    """A phone taking a code. No sign-in, on purpose — see RemoteLink."""
+    _remote_throttle("join:" + (request.client.host if request.client else "?"),
+                     _REMOTE_JOIN_PER_MIN,
+                     "Too many tries. Wait a minute, then read the code off "
+                     "the board again.")
+    link = _remote_live(db, body.code)
+    if link is None:
+        raise HTTPException(404, "No board is using that code. Read it off "
+                                 "the board again — it changes each day.")
+    link.phone_seen = now()
+    db.commit()
+    return {"ok": True, "board": link.label or "the board",
+            "code": link.code}
+
+
+@app.post("/api/craxlearn/remote/cmd")
+def remote_cmd(body: RemoteCmdIn, request: Request,
+               db: Session = Depends(get_db)):
+    """One instruction from the phone."""
+    _remote_throttle("cmd:" + (body.code or "")[:12].upper(),
+                     _REMOTE_CMD_PER_MIN,
+                     "That is a lot of taps in one minute. Give it a moment.")
+    link = _remote_live(db, body.code)
+    if link is None:
+        raise HTTPException(404, "That board is no longer listening.")
+    kind = (body.kind or "").strip().lower()
+    if kind not in REMOTE_KINDS:
+        raise HTTPException(400, "That is not something the remote can do.")
+
+    # A board that is switched off must not bank a lesson's worth of
+    # commands and then run all of them at once when it comes back.
+    waiting = db.query(RemoteCmd).filter(
+        RemoteCmd.link_id == link.id, RemoteCmd.taken_at.is_(None)).count()
+    if waiting >= REMOTE_QUEUE_MAX:
+        raise HTTPException(409, "The board is not responding. Check it is "
+                                 "awake and on this lesson.")
+
+    # Trimmed here rather than trusted: this text is put on a screen in front
+    # of a class, and it arrives from something holding only a six-character
+    # code.
+    data = body.payload if isinstance(body.payload, dict) else {}
+    clean = {
+        "page": str(data.get("page") or "")[:40],
+        "arg": str(data.get("arg") or "")[:200],
+        "topic": str(data.get("topic") or "")[:200],
+        "level": str(data.get("level") or "")[:60],
+        "to": str(data.get("to") or "")[:20],
+        "i": int(data.get("i") or 0) if str(data.get("i") or "0").lstrip("-").isdigit() else 0,
+    }
+    db.add(RemoteCmd(link_id=link.id, kind=kind, payload=json.dumps(clean)))
+    link.phone_seen = now()
+    db.commit()
+    # Say whether anybody is listening, so the phone can show "the board is
+    # not awake" instead of appearing to work while nothing happens.
+    fresh = (link.board_seen is not None
+             and (now() - _aware(link.board_seen)) < dt.timedelta(seconds=25))
+    return {"sent": True, "board_awake": bool(fresh)}
 
 
 @app.post("/api/craxlearn/board/assign")
