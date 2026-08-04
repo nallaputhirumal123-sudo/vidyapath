@@ -37,5 +37,25 @@ ck('the client routes on the returned role', 'asStudent ? "class" : "teacher"' i
    'it used to send everybody to the teacher dashboard')
 ck('it does not hard-code teacher any more',
    'await boot();\n    S.view={page:"teacher"};' not in idx)
+
+print("\na claimed subject code")
+# The admin assigned this slot to a teacher and then entered its code
+# themselves. Being refused there is a door locked from the inside: they can
+# already open that class, its register and its marks.
+slot2 = main.SubjectSlot(class_id=CID, subject='Physics',
+                         code=main._gen_slot_code(db), teacher_id=0,
+                         status='open')
+db.add(slot2); db.commit(); db.refresh(slot2)
+other, ou = acct('oth')
+r = other.post('/api/class/join', json={'code': slot2.code})
+ck('a free subject can be claimed', r.status_code == 200, r.text[:60])
+r = adm.post('/api/class/join', json={'code': slot2.code})
+ck('the school admin is not locked out of it', r.status_code == 200,
+   f'got {r.status_code} {r.text[:60]}')
+third, _ = acct('thr')
+r = third.post('/api/class/join', json={'code': slot2.code})
+ck('but a stranger still is', r.status_code == 400, f'got {r.status_code}')
+ck('and is told who holds it', 'Physics is already taught by' in r.text,
+   r.json().get('detail', '')[:70])
 print(f"\nPASSED {P}   FAILED {F}")
 sys.exit(1 if F else 0)

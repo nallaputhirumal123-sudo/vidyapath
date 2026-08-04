@@ -2047,7 +2047,20 @@ def apply_school_code(db, user, code):
     if slot:
         k = db.get(Klass, slot.class_id)
         if slot.teacher_id and slot.teacher_id != user.id:
-            raise HTTPException(400, "That subject already has a teacher")
+            # The school admin is not locked out of their own subject. They
+            # can already open that class, its register and its marks; being
+            # refused at the code was a door locked from the inside — and it
+            # is exactly the person who assigned the teacher in the first
+            # place, so the refusal reads as a fault in the product.
+            if is_school_admin(user, db) and k and (
+                    user.is_admin or k.school_id == _school_of(user, db)):
+                return "teacher"
+            held = db.get(User, slot.teacher_id)
+            who = (held.name or held.email) if held else "somebody else"
+            raise HTTPException(
+                400, f"{slot.subject or 'That subject'} is already taught by "
+                     f"{who}. Ask your school admin to move it, or use the "
+                     f"code for a subject that is free.")
         slot.teacher_id = user.id
         slot.status = "claimed"
         _grant_teacher(db, user, (k.school if k else ""), (k.school_id if k else 0), "teacher")

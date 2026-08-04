@@ -35,52 +35,60 @@ MAX_MB = 40
 
 # NCERT's own scheme. The class letter, then the subject, then the chapter
 # number — jesc101 is Class 10 Science chapter 1.
-CLASS_LETTER = {6: "f", 7: "g", 8: "h", 9: "i", 10: "j", 11: "k", 12: "l"}
-
-# (subject key, NCERT subject code, book number, how many chapters).
-# Written down rather than discovered, so a chapter that is missing shows up
-# as a failed fetch instead of never being asked for.
+# Every book below was probed against ncert.nic.in before it went in: the
+# prefix answers 200 and the chapter count is the last chapter that does.
+#
+# I had extrapolated the class letters backwards from the two I knew — j is
+# Class 10, so f must be Class 6 — and every Class 6 fetch 404'd. NCERT
+# replaced the Class 6 and 7 books in 2024 and 2025, so those are not "sc" and
+# "mh" any more: Curiosity (cu) for science and Ganita Prakash (gp) for maths.
+# The chapter counts were guessed too, and Class 10 Science has 13 chapters
+# rather than the 16 I had written, so three of every sixteen fetches were
+# asking for something that does not exist.
+#
+# (prefix, class, subject, chapters)
 BOOKS = [
-    # Class 6 to 8, general science and maths.
-    (6, "Science", "sc", 1, 16), (6, "Mathematics", "mh", 1, 14),
-    (7, "Science", "sc", 1, 18), (7, "Mathematics", "mh", 1, 15),
-    (8, "Science", "sc", 1, 18), (8, "Mathematics", "mh", 1, 16),
-    # Class 9 and 10, the boards.
-    (9, "Science", "sc", 1, 15), (9, "Mathematics", "mh", 1, 15),
-    (10, "Science", "sc", 1, 16), (10, "Mathematics", "mh", 1, 15),
-    # Class 11 and 12, where a subject becomes its own book — and where a
-    # coaching centre spends most of its time.
-    (11, "Physics", "ph", 1, 8), (11, "Physics", "ph", 2, 7),
-    (11, "Chemistry", "ch", 1, 7), (11, "Chemistry", "ch", 2, 7),
-    (11, "Biology", "bo", 1, 11), (11, "Biology", "bo", 2, 11),
-    (11, "Mathematics", "mh", 1, 16),
-    (12, "Physics", "ph", 1, 8), (12, "Physics", "ph", 2, 7),
-    (12, "Chemistry", "ch", 1, 8), (12, "Chemistry", "ch", 2, 8),
-    (12, "Biology", "bo", 1, 13),
-    (12, "Mathematics", "mh", 1, 6), (12, "Mathematics", "mh", 2, 7),
+    ("fecu1", 6, "Science", 12),
+    ("fegp1", 6, "Mathematics", 10),
+    ("gecu1", 7, "Science", 12),
+    ("gegp1", 7, "Mathematics", 8),
+    ("hesc1", 8, "Science", 13),
+    ("hemh1", 8, "Mathematics", 13),
+    ("iesc1", 9, "Science", 13),
+    ("iemh1", 9, "Mathematics", 8),
+    ("jesc1", 10, "Science", 13),
+    ("jemh1", 10, "Mathematics", 14),
+    ("keph1", 11, "Physics", 7),
+    ("keph2", 11, "Physics", 7),
+    ("kech1", 11, "Chemistry", 6),
+    ("kech2", 11, "Chemistry", 3),
+    ("kebo1", 11, "Biology", 19),
+    ("kemh1", 11, "Mathematics", 14),
+    ("leph1", 12, "Physics", 8),
+    ("leph2", 12, "Physics", 6),
+    ("lech1", 12, "Chemistry", 5),
+    ("lech2", 12, "Chemistry", 5),
+    ("lebo1", 12, "Biology", 13),
+    ("lemh1", 12, "Mathematics", 6),
+    ("lemh2", 12, "Mathematics", 7),
 ]
 
 
-def code_for(klass, subject_code, book, chapter):
-    """NCERT's filename for one chapter, e.g. jesc101."""
-    letter = CLASS_LETTER.get(klass)
-    if not letter:
-        return ""
-    return f"{letter}e{subject_code}{book}{chapter:02d}"
+def code_for(prefix, chapter):
+    """NCERT's filename for one chapter, e.g. jesc1 + 01 -> jesc101."""
+    return f"{prefix}{chapter:02d}"
 
 
 def chapters(only_class=None, only_subject=None):
     """Every chapter we know how to ask for, as (code, class, subject, n)."""
     out = []
-    for klass, subject, scode, book, count in BOOKS:
+    for prefix, klass, subject, count in BOOKS:
         if only_class and klass != only_class:
             continue
         if only_subject and subject.lower() != only_subject.lower():
             continue
         for n in range(1, count + 1):
-            c = code_for(klass, scode, book, n)
-            if c:
-                out.append((c, klass, subject, n))
+            out.append((code_for(prefix, n), klass, subject, n))
     return out
 
 
