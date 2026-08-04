@@ -2064,7 +2064,13 @@ function renderNav(){
     return;
   }
 
+  /* A learner's own class comes first. It was under "More", below every
+     track in the curriculum, which for a schoolchild whose class is the only
+     reason they signed in meant scrolling past twenty things they did not
+     ask for. Staff have their own dashboard and reach classes through it. */
+  const staff = !!(USER.is_teacher || USER.is_admin);
   h+=nav("home","🏠","Home")
+   + (staff ? "" : nav("class","🎓","My class"))
    + nav("paths","🧭","Choose a path")
    + nav("projects","🛠️","Projects")
    + nav("ask","💬","Ask Axle anything")
@@ -2087,8 +2093,12 @@ function renderNav(){
      + (hidden.has("hiring") ?"":nav("hiring","🏢","Hiring"));
   }
 
-  const list=activeTracks();
-  h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
+  /* The curriculum is for learners. A teacher's sidebar carried every track,
+     its progress bar and the whole lesson count — none of which is theirs to
+     work through, and all of which pushed the class they actually teach off
+     the screen. They can still open any of it from the board. */
+  const list = staff ? [] : activeTracks();
+  if(!staff) h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
   list.forEach(t=>{
     const d=trackDone(t),n=t.lessons.length;
     h+=`<button class="navitem ${d===n&&n?"done":""} ${S.view.page==="track"&&S.view.track===t.id?"active":""}" data-nav="track" data-id="${t.id}">
@@ -2097,12 +2107,11 @@ function renderNav(){
   if(S.path) h+=`<button class="navitem" data-nav="clearpath"><span class="ic">↺</span><span class="nm">Show all tracks</span></button>`;
 
   const pct=Math.round(totalDone()/totalLessons()*100);
-  h+=`<div class="navsec">Your progress</div>
+  if(!staff) h+=`<div class="navsec">Your progress</div>
     <div style="padding:0 20px 18px"><div class="bar"><i style="width:${pct}%"></i></div>
     <div style="font-size:11.5px;color:var(--dim);margin-top:7px">${totalDone()} of ${totalLessons()} lessons · ${pct}%</div></div>`;
 
   h+=`<div class="navsec">More</div>`
-   + nav("class","🎓","My class")
    + nav("studio","🎮","Game Studio")
    + nav("resources","🔗","All resources");
 
@@ -2217,6 +2226,20 @@ function dailyChallengeHTML(){
 }
 
 /* ===================== HOME ===================== */
+/* Whether the job half is closed to this account.
+ *
+ * hidden_pages is the server's own list of what it will refuse, so reading it
+ * here means the page and the sidebar cannot disagree — and neither can drift
+ * from what is actually enforced. A Craxlearn school and anybody under 18 have
+ * it closed, which is the whole point of the age gate: not hidden, closed.
+ */
+function homeJobsHidden(){
+  if(typeof USER === "undefined" || !USER) return true;
+  if(USER.craxlearn_only) return true;
+  const hidden = new Set(USER.hidden_pages||[]);
+  return hidden.has("careers");
+}
+
 function renderHome(){
   const pct=Math.round(totalDone()/totalLessons()*100);
   const next=allLessons().find(l=>!S.done[l.id]);
@@ -2249,30 +2272,42 @@ function renderHome(){
         <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
           Any skill a job asks for, taught from zero to hired — with a role
           and skill chooser.</div></button>
+      ${homeJobsHidden() ? "" : `
       <button class="tile" data-nav="careers">
         <div style="font-size:15px;font-weight:750">🎓 Career board</div>
         <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
-          Every live US role, scored against your resume, with the apply kit
-          and the prep for each one.</div></button>
+          Every live role across India, scored against your resume, with the
+          apply kit and the prep for each one.</div></button>`}
     ` : `
       <button class="tile" data-nav="ask" style="border-color:var(--accent)">
         <div style="font-size:15px;font-weight:750">💬 Ask Axle anything</div>
         <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
           Any question, any subject, explained on the board and read aloud.
           Free, always.</div></button>
+      ${homeJobsHidden() ? `
+      <button class="tile" data-nav="class">
+        <div style="font-size:15px;font-weight:750">🎓 My class</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+          Your subjects, who teaches each one, the work set and what your
+          class has been asking.</div></button>` : `
       <button class="tile" data-nav="careers">
         <div style="font-size:15px;font-weight:750">🎯 Match my resume</div>
         <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
           Score yourself against every live posting and see the exact skills
-          you are missing. Free.</div></button>
+          you are missing. Free.</div></button>`}
     `}
   </div>
 
+  <!-- Gated on the same hidden_pages the sidebar reads, which is the
+       server's own list of what this account may not reach. The sidebar had
+       always hidden this and the page never asked, so a class-code
+       schoolchild was shown four doors the server refuses to open. -->
+  ${homeJobsHidden() ? "" : `
   <div class="eyebrow" style="margin-top:0">Get hired</div>
   <div class="grid g4" style="margin-bottom:26px">
     <button class="tile" data-nav="careers">
       <div style="font-size:14px;font-weight:700">💼 Jobs</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:2px">live US roles, matched</div></button>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">live roles across India, matched</div></button>
     <button class="tile" data-nav="resume">
       <div style="font-size:14px;font-weight:700">📄 Resume</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">build it, score it</div></button>
@@ -2283,7 +2318,7 @@ function renderHome(){
     <button class="tile" data-nav="hiring">
       <div style="font-size:14px;font-weight:700">🏢 Hiring</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">post a role, free</div></button>
-  </div>
+  </div>`}
 
   <!-- The SQL board sits above the stats because it is the one thing on this
        page you can start doing in ten seconds without choosing a path first,
