@@ -180,19 +180,28 @@ priv = A.get("/privacy").text
 check("terms: no placeholders left", "[YOUR" not in terms and "[GSTIN]" not in terms)
 # The operator identity must be stated and must agree across both documents,
 # or a payment processor reviewing them sees two different businesses.
-check("terms: operator named", "Thirumal Reddy Nallapu" in terms)
-check("terms: operator address stated", "Blue Spring Drive" in terms and "Dallas" in terms)
-check("terms: governing law stated", "State of Texas" in terms)
+check("terms: operator named", "Nallapu Ravinder Reddy" in terms)
+check("terms: trading name stated", "Velisse Labs" in terms)
+check("terms: operator address stated",
+      "Sairatna Enclaves" in terms and "Telangana" in terms)
+check("terms: GSTIN stated", "36ANDPN8437E4ZT" in terms)
+check("terms: governing law stated",
+      "laws of <b>India</b>" in terms and "Hyderabad" in terms)
 # The two documents must describe the same operator in the same country. A
 # processor reads both during verification, and a mismatch reads as fraud.
 check("terms and privacy name the same operator",
-      ("Thirumal Reddy Nallapu" in terms) == ("Thirumal Reddy Nallapu" in priv))
-# One operator, one country, across both documents. A processor reads both
-# during verification and a mismatch reads as fraud.
+      ("Nallapu Ravinder Reddy" in terms) == ("Nallapu Ravinder Reddy" in priv))
+check("terms and privacy state the same GSTIN",
+      ("36ANDPN8437E4ZT" in terms) == ("36ANDPN8437E4ZT" in priv))
+# One operator, one country, across both documents. The entity moved from a
+# Texas sole proprietorship to a Telangana one, and a half-finished move is
+# the dangerous state: a payment processor reading both during verification
+# sees two businesses in two countries and treats it as fraud. So the old
+# jurisdiction has to be gone, not merely outnumbered.
 for _n, _d in (("terms", terms), ("privacy", priv)):
     check(f"{_n}: no entity left over from a previous jurisdiction",
-          not any(w in _d for w in ("Velisse", "Ravinder", "36ANDPN8437E4ZT",
-                                    "Hyderabad", "Estonia", "Türi")))
+          not any(w in _d for w in ("Thirumal", "Blue Spring", "Dallas",
+                                    "Texas", "California", "Estonia", "Türi")))
 check("terms: 3-day refund", "3 days" in terms)
 check("terms: EU 14-day right kept", "14 days" in terms)
 check("terms: no bank details", "30704210518" not in terms)
