@@ -11875,7 +11875,15 @@ def _jobs_query(db, q="", country="", location="", remote=False, status="open",
             cond = (func.lower(Job.title).like(like)
                     | func.lower(Job.company).like(like)
                     | func.lower(Job.skills).like(like)
-                    | func.lower(Job.location).like(like))
+                    | func.lower(Job.location).like(like)
+                    # The family we filed it under. Somebody typing "devops"
+                    # or "security" is naming the kind of work, and every
+                    # posting we hold has already been sorted into exactly
+                    # that — but the word only appears in the category
+                    # column, so the search could not see it. The dropdown
+                    # offered the category and the search box denied it
+                    # existed, which reads as a broken search.
+                    | func.lower(Job.category).like(like))
             # Widened only when the precise search found nothing. Someone
             # searching Citrix or ServiceNow is looking for a real thing we
             # simply do not have in the skills vocabulary, and an empty page
