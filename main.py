@@ -3353,11 +3353,17 @@ def get_messages(aid: int, student_id: int = 0, user: User = Depends(current_use
     a, k, is_teacher = _asg_and_access(db, aid, user)
     sid = student_id if is_teacher else user.id
     if not sid:
-        return {"messages": [], "student_id": 0}
+        return {"messages": [], "student_id": 0,
+                "subject": a.subject or "", "title": a.title or ""}
     msgs = db.query(AssignmentMessage).filter(
         AssignmentMessage.assignment_id == aid,
         AssignmentMessage.student_id == sid).order_by(AssignmentMessage.created_at).all()
-    return {"student_id": sid, "messages": [{
+    # The subject travels with the thread. A teacher who takes Physics in two
+    # classes, and Maths in a third, was reading messages with no indication
+    # of which subject they were about — and a student's question only means
+    # something next to the subject it is about.
+    return {"student_id": sid, "subject": a.subject or "",
+            "title": a.title or "", "messages": [{
         "from_teacher": m.from_teacher, "body": m.body,
         "at": m.created_at.isoformat() if m.created_at else None} for m in msgs]}
 
@@ -3412,6 +3418,16 @@ def assignment_threads(aid: int, user: User = Depends(teacher_user),
     if not a:
         raise HTTPException(404, "Not found")
     _own_class(db, a.class_id, user)
+    # And only about a subject this teacher actually takes. _own_class admits
+    # every teacher of the classroom, which is right for reading the register
+    # and wrong for reading what a child wrote privately to the person who
+    # teaches them Physics. The school admin keeps the whole view, because
+    # answering a parent about a message is their job.
+    mine = _my_subjects(db, a.class_id, user)
+    if mine is not None and (a.subject or "") not in mine:
+        raise HTTPException(
+            403, f"{a.subject or 'That subject'} is taught by somebody else. "
+                 f"These messages are between them and their students.")
     sids = [r[0] for r in db.query(AssignmentMessage.student_id)
             .filter(AssignmentMessage.assignment_id == aid).distinct().all()]
     out = []
@@ -3424,7 +3440,8 @@ def assignment_threads(aid: int, user: User = Depends(teacher_user),
         out.append({"student_id": sid, "name": u.name if u else "student",
                     "last": last.body if last else "",
                     "from_teacher": last.from_teacher if last else False})
-    return {"threads": out}
+    return {"threads": out, "subject": a.subject or "",
+            "title": a.title or ""}
 
 
 @app.post("/api/assignment/{aid}/help")
