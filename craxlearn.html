@@ -305,13 +305,23 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .paneBody .nwwrap,.paneBody .labwrap,.paneBody .sqlwrap{font-size:.62rem}
 
 @media print{ #top,.tile{display:none!important} }
+
+/* The board's clock. Sized to be read from the back of a room, and quiet
+   enough not to compete with the sign-in tabs under it. */
+#clock{margin:.2rem 0 1.1rem}
+#clockTime{font-size:clamp(2.6rem,7vw,4.6rem);line-height:1;font-weight:800;
+  letter-spacing:.01em;font-variant-numeric:tabular-nums}
+#clockDate{font-size:clamp(.95rem,1.8vw,1.25rem);margin-top:.35rem}
 </style>
 </head>
 <body>
 
 <div id="top">
   <div id="brand"><span class="dot"></span>
-    <span>Craxlearn<small>Schools · Colleges · Coaching</small></span></div>
+    <!-- The clock lives here, under the name, where the market segments
+         used to be. That line named who the product is sold to, on a
+         screen only people who already have it ever look at. -->
+    <span>Craxlearn<small id="barClock">—</small></span></div>
   <span class="grow"></span>
   <div class="who" id="who"></div>
   <button class="iconbtn" id="splitBtn" title="Open another space beside this one">▥</button>
@@ -325,9 +335,16 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 <div id="gate" hidden>
   <div class="card">
     <h1>Craxlearn</h1>
-    <p class="muted" style="margin-top:0">The teaching half of Craxle, for
-      schools, colleges and coaching centres. No job board, no adverts,
-      nothing to buy in the classroom.</p>
+    <!-- A clock, where the sales line used to be.
+         "For schools, colleges and coaching centres" is written for somebody
+         deciding whether to buy this. It sat on the screen at the front of a
+         classroom all day, in front of people who already have it. The one
+         thing a wall-mounted display is useful for while nobody is teaching
+         is telling the room the time. -->
+    <div id="clock" aria-live="off">
+      <div id="clockTime">--:--</div>
+      <div id="clockDate" class="muted"></div>
+    </div>
     <div class="tabs" role="tablist">
       <button role="tab" id="tabCode" aria-selected="true">Class code</button>
       <button role="tab" id="tabIn" aria-selected="false">Sign in</button>
@@ -366,13 +383,13 @@ window.esc = function (s) {
   });
 };
 </script>
-<script src="sqlboard.js?v=7c5033791d"></script>
-<script src="net.js?v=0338e61617"></script>
-<script src="lab.js?v=63294b493d"></script>
+<script src="sqlboard.js?v=eece7ffc7b"></script>
+<script src="net.js?v=4381cbbb1f"></script>
+<script src="lab.js?v=c536df7feb"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
-<script src="three3d.js?v=d4abae1b11"></script>
-<script src="scanner.js?v=2f02744728"></script>
+<script src="three3d.js?v=83d0910f0b"></script>
+<script src="scanner.js?v=227051446b"></script>
 <script>
 /* Craxlearn — the institution app.
  *
@@ -3508,6 +3525,42 @@ window.addEventListener("beforeinstallprompt", function(e){
 
 scale();
 boot();
+})();
+</script>
+<script>
+/* Ticks from the board's own clock, so it keeps working on a school network
+   that cannot reach anything. Aligned to the second boundary rather than
+   every 1000ms from load, or it drifts visibly within a lesson.
+
+   Only while the sign-in card is up: once somebody is teaching, the board
+   belongs to the lesson. */
+(function(){
+  var t = document.getElementById("clockTime"),
+      d = document.getElementById("clockDate");
+  if(!t && !d && !document.getElementById("barClock")) return;
+  t = t || {}; d = d || {};
+  var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday",
+              "Saturday"];
+  var MONTHS = ["January","February","March","April","May","June","July",
+                "August","September","October","November","December"];
+  function pad(n){ return n < 10 ? "0" + n : String(n); }
+  function tick(){
+    var n = new Date();
+    var h = n.getHours(), ampm = h < 12 ? "am" : "pm";
+    var h12 = h % 12; if(!h12) h12 = 12;
+    t.textContent = h12 + ":" + pad(n.getMinutes()) + " " + ampm;
+    d.textContent = DAYS[n.getDay()] + ", " + n.getDate() + " " +
+                    MONTHS[n.getMonth()] + " " + n.getFullYear();
+    // The bar carries the same clock, shorter: it is always on
+    // screen, including mid-lesson, so it has to stay small.
+    var bar = document.getElementById("barClock");
+    if(bar) bar.textContent = h12 + ":" + pad(n.getMinutes()) +
+      " " + ampm + "  ·  " + n.getDate() + " " +
+      MONTHS[n.getMonth()].slice(0,3);
+    // Land on the next second rather than 1000ms from now, which drifts.
+    setTimeout(tick, 1000 - n.getMilliseconds() + 5);
+  }
+  tick();
 })();
 </script>
 </body>
