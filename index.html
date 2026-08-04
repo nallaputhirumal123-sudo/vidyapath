@@ -5345,6 +5345,22 @@ async function renderHead(){
       <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
         <input id="hName" class="ask-input" style="max-width:220px" placeholder="e.g. 6-A"/>
         <button class="btn sm" data-cls="hmk">Create →</button></div>
+
+      <div class="eyebrow" style="margin-top:18px">Teachers at this school</div>
+      <p class="sub" style="margin:-2px 0 8px">Added once here, then put on
+        subjects in any class. The same teacher can hold several classes.</p>
+      <div class="card" style="padding:12px;margin-bottom:6px">
+        <div id="hStaffList" style="margin-bottom:10px">Loading…</div>
+        <div id="hStMade"></div>
+        <div class="two">
+          <div class="field"><label>Their name</label>
+            <input id="hStName" class="ask-input" placeholder="e.g. Latha R"/></div>
+          <div class="field"><label>Their email</label>
+            <input id="hStEmail" class="ask-input" type="email"
+              placeholder="latha@school.in"/></div>
+        </div>
+        <button class="btn sm" data-cls="hstaffadd">Add teacher</button>
+      </div>
       <div id="hMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
 
     ${reqs.length?`<div class="card" style="margin-bottom:18px;border-color:var(--accent)"><b>Requests from teachers (${reqs.length})</b>
@@ -5420,38 +5436,85 @@ async function staffPaint(cid){
     </div>`).join("");
 }
 
-async function staffAdd(cid){
-  const name=($("#stName").value||"").trim();
-  const email=($("#stEmail").value||"").trim();
+/* Everybody who works at this school, for the picker. Loaded once and reused,
+   because the class screen and the admin screen both want it. */
+let SCHOOL_STAFF = [];
+
+async function staffLoad(){
+  try{
+    const d=await api.get("/api/head/staff");
+    SCHOOL_STAFF=(d && (d.staff||d.people||d.rows))||[];
+  }catch(e){ SCHOOL_STAFF=[]; }
+  return SCHOOL_STAFF;
+}
+
+async function staffPickFill(){
+  const sel=document.getElementById("stPick");
+  if(!sel) return;
+  await staffLoad();
+  const teach=SCHOOL_STAFF.filter(p=>(p.role||"teacher")!=="student");
+  sel.innerHTML = teach.length
+    ? `<option value="0">Choose a teacher…</option>`
+      + teach.map(p=>`<option value="${p.id||p.user_id}">${
+          esc(p.name||p.email)}</option>`).join("")
+    : `<option value="0">No staff yet — add them on the School admin screen</option>`;
+}
+
+/* Put an existing member of staff on a subject here. No account is made and
+   no password is handed out: they already have both, and issuing a second
+   would lock them out of the one they use. */
+async function staffPut(cid){
+  const sel=document.getElementById("stPick");
+  const uid=+((sel&&sel.value)||0);
   const subject=($("#stSubject").value||"").trim();
+  if(!uid){ toast("Choose which teacher."); return; }
+  if(subject.length<1){ toast("Which subject do they teach here?"); return; }
+  try{
+    await api.post("/api/head/assign",
+      {class_id:+cid, subject:subject, user_id:uid});
+  }catch(e){ toast(e.message); return; }
+  $("#stSubject").value="";
+  await staffPaint(cid);
+  toast("Added to this class.");
+}
+
+/* ---- the school's own staff list, where people are actually created ---- */
+
+async function schoolStaffPaint(){
+  const box=document.getElementById("hStaffList");
+  if(!box) return;
+  await staffLoad();
+  const rows=SCHOOL_STAFF.filter(p=>(p.role||"teacher")!=="student");
+  box.innerHTML = rows.length
+    ? rows.map(p=>`<div class="row" style="justify-content:space-between;
+        align-items:center;gap:8px;padding:7px 0;
+        border-bottom:1px solid var(--line,#2a2a2a)">
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
+          ${esc(p.name||p.email)}
+          <span style="font-size:11.5px;color:var(--dim)">· ${
+            esc(p.role||"teacher")}${p.email?" · "+esc(p.email):""}</span></span>
+      </div>`).join("")
+    : `<div style="color:var(--dim);font-size:13px">No staff yet.</div>`;
+}
+
+async function schoolStaffAdd(){
+  const name=($("#hStName").value||"").trim();
+  const email=($("#hStEmail").value||"").trim();
   if(name.length<2){ toast("Give their name."); return; }
   if(email.indexOf("@")<1){ toast("Give their email."); return; }
-  if(subject.length<1){ toast("Which subject do they teach here?"); return; }
-
   let made;
   try{ made=await api.post("/api/head/staff",
                            {name:name, email:email, role:"teacher"}); }
   catch(e){ toast(e.message); return; }
+  $("#hStName").value=""; $("#hStEmail").value="";
+  await schoolStaffPaint();
 
-  try{
-    await api.post("/api/head/assign",
-      {class_id:+cid, subject:subject, user_id:made.user_id});
-  }catch(e){
-    /* The account exists either way, so say what did happen rather than
-       leaving them thinking nothing did. */
-    toast("Account made, but the subject did not attach: "+e.message);
-  }
-
-  $("#stName").value=""; $("#stEmail").value=""; $("#stSubject").value="";
-  await staffPaint(cid);
-
-  /* Shown once and never again — it is not stored readably — so it stays put
-     until dismissed rather than vanishing on the next repaint with the only
-     copy of it. */
-  const out=document.getElementById("staffMade");
+  /* Shown once and stored only as a hash, so it stays until dismissed rather
+     than vanishing on the next repaint with the only copy of it. */
+  const out=document.getElementById("hStMade");
   if(out){
     out.innerHTML = made.temporary_password
-      ? `<div class="card" style="padding:11px;margin-bottom:10px;
+      ? `<div class="card" style="padding:11px;margin:10px 0;
            border-color:var(--accent)">
            <b>${esc(made.name)} can sign in now.</b>
            <div style="font-size:12.5px;margin-top:5px">Email
@@ -5459,11 +5522,10 @@ async function staffAdd(cid){
              <b style="letter-spacing:1px">${esc(made.temporary_password)}</b></div>
            <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
              Write this down or read it to them now. It is shown once and is
-             not kept anywhere we can look it up. They should change it after
-             signing in.</div>
+             not kept anywhere we can look it up.</div>
            <button class="btn ghost sm" data-cls="staffclear"
              style="margin-top:8px">Done</button></div>`
-      : `<div class="card" style="padding:11px;margin-bottom:10px">
+      : `<div class="card" style="padding:11px;margin:10px 0">
            <b>${esc(made.name)} was added.</b>
            <div style="font-size:12.5px;color:var(--dim);margin-top:4px">${
              esc(made.note||"They already had an account, so their existing "+
@@ -5471,12 +5533,14 @@ async function staffAdd(cid){
            <button class="btn ghost sm" data-cls="staffclear"
              style="margin-top:8px">Done</button></div>`;
   }
-  toast("Teacher added.");
+  toast("Staff added.");
 }
 
 function staffClear(){
-  const out=document.getElementById("staffMade");
-  if(out) out.innerHTML="";
+  ["staffMade","hStMade"].forEach(id=>{
+    const out=document.getElementById(id);
+    if(out) out.innerHTML="";
+  });
 }
 
 let ROSTER = {rows: [], q: "", editing: 0, cid: 0};
@@ -5641,22 +5705,22 @@ async function renderTeacherClass(cid){
       <tbody>${rrows}</tbody></table></div>
 
     <div class="eyebrow">Teachers</div>
-    <p class="sub" style="margin:-2px 0 8px">Add a teacher and put them on a
-      subject in one go. They sign in with the password you are shown — no
-      code to pass on.</p>
+    <p class="sub" style="margin:-2px 0 8px">Put somebody who already works
+      here on a subject in this class. New staff are added once, on the
+      School admin screen — a teacher belongs to the school, not to one
+      class.</p>
     <div class="card" style="padding:12px;margin-bottom:6px">
       <div id="staffList" style="margin-bottom:10px">Loading…</div>
-      <div id="staffMade"></div>
       <div class="two">
-        <div class="field"><label>Their name</label>
-          <input id="stName" class="ask-input" placeholder="e.g. Latha R"/></div>
-        <div class="field"><label>Their email</label>
-          <input id="stEmail" class="ask-input" type="email"
-            placeholder="latha@school.in"/></div>
+        <div class="field"><label>Teacher</label>
+          <select id="stPick" class="ask-input">
+            <option value="0">Loading…</option></select></div>
+        <div class="field"><label>Subject they teach here</label>
+          <input id="stSubject" class="ask-input"
+            placeholder="e.g. Physics"/></div>
       </div>
-      <div class="field"><label>Subject they teach here</label>
-        <input id="stSubject" class="ask-input" placeholder="e.g. Physics"/></div>
-      <button class="btn sm" data-cls="staffadd" data-id="${cid}">Add teacher</button>
+      <button class="btn sm" data-cls="staffput" data-id="${cid}">Put on this
+        subject</button>
     </div>
 
     <div class="eyebrow">Class register</div>
@@ -5719,6 +5783,7 @@ async function renderTeacherClass(cid){
      call for the roster ids, and a slow one must not hold up the class. */
   rosterPaint(cid);
   staffPaint(cid);
+  staffPickFill();
 }
 async function tcAddAsg(cid){
   const subject=$("#asSub").value, title=($("#asTitle").value||"").trim(), body=$("#asBody").value, due=$("#asDue").value;
@@ -5793,7 +5858,8 @@ document.addEventListener("click",e=>{
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
-  else if(k==="staffadd") staffAdd(id);
+  else if(k==="staffput") staffPut(id);
+  else if(k==="hstaffadd") schoolStaffAdd();
   else if(k==="staffclear") staffClear();
   else if(k==="notices") renderNotices();
   else if(k==="feeplan") feePlan();
