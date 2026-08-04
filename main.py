@@ -3339,7 +3339,22 @@ def _asg_and_access(db, aid, user):
     if not a:
         raise HTTPException(404, "Not found")
     k = db.get(Klass, a.class_id)
-    is_teacher = k and (k.teacher_id == user.id or user.is_admin)
+    # Who counts as the teacher here.
+    #
+    # This asked whether the user CREATED the class, which is always the
+    # school admin — so a subject teacher was not a teacher of their own
+    # assignment. They were not a ClassMember either, so they fell through to
+    # 403 and could neither read nor answer a message a child had sent them.
+    # The whole messaging feature worked for the admin and for nobody else.
+    #
+    # _my_subjects is the existing answer to "does this person teach here":
+    # None for a head or admin, and the subjects they hold otherwise.
+    teaches = _my_subjects(db, a.class_id, user)
+    is_teacher = bool(
+        user.is_admin
+        or (k and k.teacher_id == user.id)
+        or teaches is None
+        or teaches)
     is_member = db.query(ClassMember).filter(
         ClassMember.class_id == a.class_id, ClassMember.user_id == user.id).first()
     if not (is_teacher or is_member):
@@ -3408,6 +3423,91 @@ def assignment_submissions(aid: int, user: User = Depends(teacher_user),
                                  r["name"].lower()))
     return {"id": a.id, "subject": a.subject, "title": a.title, "body": a.body,
             "students": students}
+
+
+@app.get("/api/teacher/messages")
+def teacher_message_inbox(user: User = Depends(teacher_user),
+                          db: Session = Depends(get_db)):
+    """Every message waiting for this teacher, across every class they take.
+
+    Messages hang off an assignment, so finding them meant opening assignments
+    one at a time and hoping. A question asked on Tuesday sat unanswered
+    because nobody thought to look at that particular worksheet — which is not
+    a teacher ignoring a child, it is a product hiding one.
+
+    Grouped by class and subject, and ordered so the ones waiting for a reply
+    come first. A teacher's actual question is never "what messages exist", it
+    is "who is waiting for me".
+    """
+    # The classes this person teaches in, and which subjects in each. An
+    # admin gets everything at their school, because that is their job.
+    classes = {}
+    if is_school_admin(user, db):
+        sid = _school_of_anyone(user, db)
+        q = db.query(Klass)
+        if not user.is_admin:
+            q = q.filter(Klass.school_id == sid)
+        for k in q.all():
+            classes[k.id] = None            # None = every subject
+    else:
+        for sl in db.query(SubjectSlot).filter(
+                SubjectSlot.teacher_id == user.id).all():
+            classes.setdefault(sl.class_id, set())
+            if classes[sl.class_id] is not None:
+                classes[sl.class_id].add(sl.subject or "")
+    if not classes:
+        return {"threads": [], "waiting": 0}
+
+    asgs = (db.query(Assignment)
+              .filter(Assignment.class_id.in_(list(classes)))
+              .all())
+    mine = {}
+    for a in asgs:
+        allowed = classes.get(a.class_id)
+        if allowed is None or (a.subject or "") in allowed:
+            mine[a.id] = a
+    if not mine:
+        return {"threads": [], "waiting": 0}
+
+    msgs = (db.query(AssignmentMessage)
+              .filter(AssignmentMessage.assignment_id.in_(list(mine)))
+              .order_by(AssignmentMessage.created_at.asc()).all())
+    if not msgs:
+        return {"threads": [], "waiting": 0}
+
+    names = {u.id: (u.name or "A student") for u in db.query(User).filter(
+        User.id.in_([m.student_id for m in msgs] or [0])).all()}
+    klass = {k.id: k.name for k in db.query(Klass).filter(
+        Klass.id.in_(list(classes)) if classes else False).all()}
+
+    # One thread per (assignment, student). The last message decides whether
+    # it is waiting: if the student spoke last, nobody has answered them.
+    threads = {}
+    for m in msgs:
+        a = mine[m.assignment_id]
+        key = (m.assignment_id, m.student_id)
+        t = threads.setdefault(key, {
+            "assignment_id": m.assignment_id, "student_id": m.student_id,
+            "student": names.get(m.student_id, "A student"),
+            "class_id": a.class_id, "class_name": klass.get(a.class_id, ""),
+            "subject": a.subject or "", "title": a.title or "",
+            "messages": 0, "last": "", "at": "", "waiting": False})
+        t["messages"] += 1
+        t["last"] = (m.body or "")[:200]
+        t["at"] = m.created_at.isoformat() if m.created_at else ""
+        t["waiting"] = not m.from_teacher
+
+    out = sorted(threads.values(),
+                 key=lambda t: (not t["waiting"], t["at"]), reverse=False)
+    out.sort(key=lambda t: (not t["waiting"], "" ))
+    # Waiting first, then newest — a teacher works down a list of people who
+    # need an answer, not a chronology.
+    out = (sorted([t for t in out if t["waiting"]],
+                  key=lambda t: t["at"], reverse=True)
+           + sorted([t for t in out if not t["waiting"]],
+                    key=lambda t: t["at"], reverse=True))
+    return {"threads": out[:200],
+            "waiting": sum(1 for t in out if t["waiting"])}
 
 
 @app.get("/api/teacher/assignment/{aid}/threads")
