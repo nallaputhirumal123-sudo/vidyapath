@@ -2852,7 +2852,7 @@ def my_classes(user: User = Depends(teacher_user), db: Session = Depends(get_db)
             SubjectSlot.class_id == k.id, SubjectSlot.teacher_id == user.id).all()}
         out.append({"id": k.id, "name": k.name, "join_code": k.join_code,
                     "students": n, "assignments": a,
-                    "role": "head" if head else "subject teacher",
+                    "role": "school admin" if head else "subject teacher",
                     "my_subjects": sorted(subs)})
     return {"classes": out, "is_head": head}
 
@@ -2884,7 +2884,7 @@ def class_detail(cid: int, user: User = Depends(teacher_user),
         .order_by(ScheduleItem.position, ScheduleItem.id).all()
     # list of teachers in this classroom (head + co-teachers)
     head = db.get(User, k.teacher_id)
-    teachers = [{"id": k.teacher_id, "name": head.name if head else "", "role": "head teacher"}]
+    teachers = [{"id": k.teacher_id, "name": head.name if head else "", "role": "school admin"}]
     for s in db.query(SubjectSlot).filter(SubjectSlot.class_id == cid, SubjectSlot.teacher_id != 0).all():
         tu = db.get(User, s.teacher_id)
         teachers.append({"id": s.teacher_id, "name": tu.name if tu else "",
@@ -3129,14 +3129,14 @@ def join_class(body: JoinIn, user: User = Depends(current_user),
         k = db.get(Klass, slot.class_id) if slot else None
         return {"ok": True, "class": (k.name if k else ""),
                 "subject": (slot.subject if slot else ""),
-                "role": "head teacher" if role == "head" else "teacher"}
+                "role": "school admin" if role == "head" else "teacher"}
 
     # 2) A classroom student code.
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
     if not k:
         raise HTTPException(404, "No class or subject found with that code")
     if k.teacher_id == user.id:
-        return {"ok": True, "class": k.name, "role": "head teacher"}
+        return {"ok": True, "class": k.name, "role": "school admin"}
     # Head/admin viewing does not need enrolment; everyone else enrols as student.
     exists = db.query(ClassMember).filter(
         ClassMember.class_id == k.id, ClassMember.user_id == user.id).first()

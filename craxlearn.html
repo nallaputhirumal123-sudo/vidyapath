@@ -1117,7 +1117,7 @@ function home(){
             }).join("") + "</div>"
           : '<div class="muted" style="margin-top:.4rem">' +
             (teacher
-              ? "No subjects in this class yet. A head teacher creates them."
+              ? "No subjects in this class yet. The school admin creates them."
               : "Your school has not listed this class's subjects yet.") +
             "</div>") +
         "</div>";
@@ -2649,7 +2649,7 @@ async function roll(){
 
   if(!(d.classes || []).length){
     h += '<div class="card muted">' + esc(d.note ||
-      "You have not been given a class yet. Your head teacher assigns them.") +
+      "You have not been given a class yet. Your school admin assigns them.") +
       "</div>";
   }
   (d.classes || []).forEach(function(c){
