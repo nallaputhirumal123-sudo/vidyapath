@@ -5116,7 +5116,12 @@ async function renderClass(){
       return `<div class="card" style="margin-bottom:18px">
         <div class="row" style="justify-content:space-between;align-items:flex-start">
           <div><div style="font-size:17px;font-weight:650">${esc(c.name)}</div>
-          <div style="font-size:12px;color:var(--dim)">${esc(c.school||"")}${c.teacher?" · class teacher: "+esc(c.teacher):""}</div></div>
+          <!-- No "class teacher" line. That name came from who CREATED the
+               class, which is the school admin, so a student was told their
+               class teacher was Administrator. The teacher a student needs is
+               the one who takes each subject, and Subjects and teachers gives
+               them that — per subject, which is how it actually works. -->
+          <div style="font-size:12px;color:var(--dim)">${esc(c.school||"")}</div></div>
           <span class="pill ${pend?"hot":""}">${pend} to do</span></div>
         <!-- The way into the subject-by-subject view. The table below is one
              stream across every subject, which answers "what is due" and not
