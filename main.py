@@ -2525,6 +2525,98 @@ def mark_quiz(body: MarkQuizIn, user: User = Depends(current_user)):
     return _quiz.mark(qs, body.answers or {})
 
 
+@app.post("/api/teach/pdf")
+async def teach_from_pdf(file: UploadFile = File(...),
+                         user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """Turn a teacher's own document into a lesson for the board.
+
+    Teachers only: this is the tool their school gave them, and it costs a
+    model call per document.
+
+    Cached on the file's bytes, so the same chapter uploaded from a phone in
+    the corridor and again from the desk in the classroom is one call — and a
+    department sharing a worksheet pays once between all of them.
+
+    Built with external sources off. A teacher uploading their syllabus
+    chapter is telling us what to teach; reaching for Wolfram or the model's
+    own knowledge would quietly cover material the exam does not.
+    """
+    if not (user.is_teacher if hasattr(user, "is_teacher") else False) \
+            and not user.is_admin and teacher_row(user, db) is None:
+        raise HTTPException(403, "Uploading teaching material is for "
+                                 "teacher accounts.")
+    # The file is checked before the service is. Telling somebody who sent an
+    # empty file that the AI is switched off sends them to the wrong problem.
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "That file was empty.")
+    if len(raw) > _teachpdf.MAX_MB * 1024 * 1024:
+        raise HTTPException(400,
+                            f"PDFs need to be under {_teachpdf.MAX_MB}MB.")
+    if not raw[:5].startswith(b"%PDF"):
+        raise HTTPException(400, "Send a PDF.")
+
+    text = _teachpdf.extract(raw)
+    if not text:
+        raise HTTPException(422, "Nothing readable came out of that PDF. If "
+                                 "it is a scan, it is a picture of a page "
+                                 "rather than text — photograph a page with "
+                                 "Scan a problem instead.")
+    if _teachpdf.looks_scanned(text):
+        raise HTTPException(422, "That PDF has almost no text in it, so it "
+                                 "is probably a scan. Try Scan a problem, "
+                                 "which reads pictures.")
+
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+
+    digest = hashlib.sha256(raw).hexdigest()[:32]
+    qkey = f"teachpdf|{digest}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    cached = _cached_json(db, row)
+    if cached:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"lesson": cached, "cached": True, "key": digest[:16]}
+
+    _ai_enforce_limit(db, user)
+    prompt = f"THE DOCUMENT:\n{text}\n\n" + _teachpdf.PROMPT
+    try:
+        lesson = _clean_board(_ai_json(await _ai_text(prompt, 5000,
+                                                      json_mode=True)),
+                              _teachpdf.title_of(text))
+    except Exception as e:
+        print(f"Teach-from-PDF failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not lesson.get("steps"):
+        raise HTTPException(502, "That came back empty — try again.")
+
+    # A real diagram, since the document's own pictures are compressed,
+    # often scanned, and look worse projected than they did on paper.
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as c:
+            await _offer_scene(c, lesson, lesson.get("title") or "")
+    except Exception as e:
+        print(f"PDF scene offer skipped: {type(e).__name__}: {e}")
+
+    found, verdict = _check_lesson(lesson)
+    if found:
+        lesson["findings"] = _note_findings(found)
+        lesson["confidence"] = verdict["confidence"]
+
+    _ai_bump(db, user)
+    if verdict["cache"]:
+        db.add(AskCache(qkey=qkey, subject="teachpdf", level="teacher",
+                        question=(file.filename or "document")[:2000],
+                        lesson=json.dumps(lesson), hits=0))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+    return {"lesson": lesson, "cached": False, "key": digest[:16]}
+
+
 # ---------------------------- classroom -----------------------------------
 class ClassIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
@@ -12733,6 +12825,7 @@ import draw as _draw                                                # noqa: E402
 import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import quiz as _quiz                                                # noqa: E402
+import teachpdf as _teachpdf                                        # noqa: E402
 import dimensions as _dimensions                                    # noqa: E402
 import wolfram as _wolfram                                          # noqa: E402
 import depth as _depth                                              # noqa: E402
