@@ -10,13 +10,20 @@ So this asserts refusals, and it asserts them at the door rather than in the
 sidebar. Hiding a menu item stops nobody who can type a URL, and every check
 below goes straight to the API the way somebody typing a URL would.
 
-Three walls, and they fail in different directions on purpose:
+Five walls, and they fail in different directions on purpose:
 
   deployment   CRAXLEARN_ONLY on the server. The job half does not exist,
                for anybody, including an admin.
+  classcode    a login with no adult behind it. Nothing reopens it.
+  staff        a work account the school issued. Not the school's to open
+               either: a school buying the job board buys it for its
+               learners, not for its teachers.
   institution  the school did not buy it. Nobody enrolled there sees it,
                at any age.
   age          under 18. Not the institution's to waive, ever.
+
+Only an ordinary personal account — its own email, no school attached, over
+18 — reaches the job half at all.
 
 The last test is the one that catches tomorrow's mistake: it walks the live
 route table and fails if a route has appeared that belongs to neither half.
@@ -212,6 +219,59 @@ try:
 finally:
     main.REQUIRE_DOB = was_dob
 check("and lifting it restores them", public_none.get(JOB).status_code == 200)
+
+# ---- staff never see the job board, whatever the school bought ----------
+# A teacher account is a work account the school issued. A school that buys
+# the job board buys it for its learners; its staff are not part of that,
+# and the job board arriving inside the tool an employer handed somebody to
+# teach with — on the same screen as the register — is the thing this stops.
+print("\nStaff accounts")
+
+
+def staff(tag, role, school_row, dob=ADULT):
+    c = TestClient(main.app)
+    email = f"st{tag}{stamp}@example.com"
+    r = c.post("/api/auth/signup", json={"name": f"Staff {tag}",
+                                         "email": email,
+                                         "password": "CraxlearnPass123!"})
+    assert r.status_code == 200, r.text
+    u = db.query(main.User).filter(main.User.email == email).first()
+    u.dob = dob
+    u.plan = "pro"
+    u.plan_expires = main.now() + dt.timedelta(days=30)
+    db.add(main.TeacherAccess(user_id=u.id, school=school_row.name,
+                              school_id=school_row.id, role=role))
+    db.commit()
+    return c, u
+
+
+# At the coaching centre that DID buy the job board — the case that used to
+# get through, and the reason this section exists.
+for role in ("teacher", "head", "schooladmin"):
+    c, _ = staff(role, role, centre)
+    r = c.get(JOB)
+    check(f"a {role} at a centre that bought both is still refused",
+          r.status_code == 403, str(r.status_code))
+    check(f"and told it is the account, not the school",
+          r.json().get("craxlearn") == "staff", r.text[:120])
+
+# And at a Craxlearn-only school, for completeness.
+c, _ = staff("t2", "teacher", school)
+check("a teacher at a Craxlearn-only school likewise",
+      c.get(JOB).status_code == 403, str(c.get(JOB).status_code))
+
+# The teaching half is untouched — this closes one half, not the account.
+check("but their teaching tools all work",
+      all(c.get(p_).status_code == 200
+          for p_ in ("/api/curriculum", "/api/craxlearn/me",
+                     "/api/teacher/roll", "/api/net")),
+      "")
+
+# An ordinary personal account, over 18, not attached to a school: the only
+# kind that reaches the job half at all.
+check("only a personal account gets through",
+      public_adult.get(JOB).status_code == 200,
+      str(public_adult.get(JOB).status_code))
 
 # Every job-side surface, not just the one endpoint.
 print("\nEvery job-side surface")

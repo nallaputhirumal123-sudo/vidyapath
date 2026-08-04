@@ -1269,13 +1269,23 @@ if CRAXLEARN_ONLY:
 def _learning_only(db, user):
     """Whether the job half is closed to this person, and why.
 
-    Three reasons, checked hardest first, because the message matters as
-    much as the verdict — "your school did not buy this" and "you are not
-    old enough" want completely different things from whoever reads them.
+    Checked hardest first, because the message matters as much as the
+    verdict — "this is a staff account", "your school did not buy this" and
+    "you are not old enough" want completely different things from whoever
+    reads them.
 
-    An institution can open the job side for its learners. It cannot open
-    it for a learner who is under age: the two conditions are ANDed and the
-    age one is never the institution's to waive.
+    In order:
+
+      deployment   CRAXLEARN_ONLY. Nobody, including admins.
+      classcode    a login with no adult behind it. Nothing reopens it.
+      staff        a work account the school issued. Not the school's to
+                   open either — a school buying the job board buys it for
+                   its learners, not for its teachers.
+      institution  the school did not buy it, for anybody enrolled there.
+      age          under 18, and never the institution's to waive.
+
+    Only an ordinary personal account — signed up with its own email, not
+    attached to a school, over 18 — reaches the job half at all.
     """
     if CRAXLEARN_ONLY:
         return {"only": True, "why": "deployment",
@@ -1294,6 +1304,26 @@ def _learning_only(db, user):
                 "message": f"This is a class login. {_cl_boot.NAME} is the "
                            f"whole of it — there is no job board, and "
                            f"nothing here to buy."}
+
+    # A staff account is a work account the school issued, and the job board
+    # is a thing for individuals looking for work. A teacher is welcome to
+    # use it — on their own account, with their own email, the way anybody
+    # else does. What they should not have is a job board arriving inside
+    # the tool their employer gave them to teach with, in front of a class,
+    # on the same screen as the register.
+    #
+    # Checked before the institution's own setting, because this is not the
+    # institution's to open either: a school that buys the job board is
+    # buying it for its learners, not for its staff.
+    #
+    # Platform admins pass, as they do everywhere: running the site means
+    # needing every surface to debug it.
+    if not user.is_admin and teacher_row(user, db) is not None:
+        return {"only": True, "why": "staff",
+                "message": f"This is a staff account. {_cl_boot.NAME} is "
+                           f"what it is for — the job board, subscriptions "
+                           f"and employer features belong to a personal "
+                           f"account, not to the one your school gave you."}
 
     scope = _scope_of(db, user)
     if _cl_boot.is_institution(scope):

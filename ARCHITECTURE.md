@@ -165,6 +165,15 @@ head and the office see their school. Lookup by student id searches only
 inside that set and answers 404 for a code that exists elsewhere: "exists but
 not yours" is still a fact about somebody's child.
 
+**Only a personal account reaches the job half.** `_learning_only` refuses,
+in order: the deployment switch, a class-code login, **any staff account**, an
+institution that did not buy it, and anyone under 18. The staff wall is
+checked before the institution's own setting because it is not the
+institution's to open — a school buying the job board buys it for its
+learners, not for its teachers, and a job board arriving inside the tool an
+employer gave somebody to teach with is the thing being prevented. Platform
+admins pass, as they do everywhere.
+
 **Three school roles, and the split is deliberate.** `teacher` is the class
 and nothing else; `head` runs the teaching and creates staff profiles;
 `schooladmin` is the office and owns attendance, fees and notices. A head
