@@ -62,6 +62,14 @@ the two that go wrong in classroom software: work edited after review is
 waiting again (a teacher who read version one has not read version two), and
 the cross-class review queue never shows another school's children.
 
+**test_classcode.py** — signing in with nothing but a class code, study
+material, and the account reset. Runs against its OWN database
+(`vidyapath-classcode-test.db`) because its last section deletes every
+non-admin account, and doing that to the shared one breaks the other suites
+for reasons nobody would connect to it. Most of its length is proving the
+reset does NOT fire: a destructive endpoint's tests are mostly about the
+times it must do nothing.
+
 **test_regressions.py** — every bug that has already reached production once.
 Matching scoring unrelated roles highly, degrees being read as seniority, dead
 listings from a retired source, JSON parsing breaking on a model preamble,

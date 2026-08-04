@@ -157,7 +157,8 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
       schools, colleges and coaching centres. No job board, no adverts,
       nothing to buy in the classroom.</p>
     <div class="tabs" role="tablist">
-      <button role="tab" id="tabIn" aria-selected="true">Sign in</button>
+      <button role="tab" id="tabCode" aria-selected="true">Class code</button>
+      <button role="tab" id="tabIn" aria-selected="false">Sign in</button>
       <button role="tab" id="tabUp" aria-selected="false">New account</button>
     </div>
     <div id="gateForm"></div>
@@ -257,6 +258,74 @@ function scale(next){
                                 : "Desk size — press for board size";
 }
 
+/* ---------- signing in with nothing but a class code ----------
+ *
+ * Two taps and no credential. A child types the code the teacher wrote on
+ * the board, picks their own name off the register, and is in. There is
+ * nothing to remember, nothing to reset, and nothing to leak — the account
+ * behind it has a synthetic address and a password nobody has ever seen.
+ *
+ * The name list is the whole reason a teacher types a register first. Code
+ * alone would give a teacher a queue of work from "Learner 4".
+ */
+function codeForm(){
+  el("gateForm").innerHTML =
+    '<input id="gCode" placeholder="Class code" autocapitalize="characters" ' +
+      'autocomplete="off" style="text-transform:uppercase;letter-spacing:.1em">' +
+    '<button class="btn" id="gCodeGo">Find my class</button>';
+  el("gCodeGo").onclick = findClass;
+  el("gCode").onkeydown = function(e){ if(e.key === "Enter") findClass(); };
+}
+
+async function findClass(){
+  var msg = el("gateMsg");
+  var code = ((el("gCode") || {}).value || "").trim();
+  if(code.length < 3){ msg.textContent = "Type the code your teacher gave you."; return; }
+  msg.textContent = "Looking…";
+  var d;
+  try{ d = await api.post("/api/craxlearn/code", { code: code }); }
+  catch(e){ msg.textContent = e.message; return; }
+
+  if(!d.roster_ready){
+    msg.textContent = "Your teacher has not put the class register in yet. " +
+      "Ask them to add the names, then try again.";
+    return;
+  }
+  if(!(d.names || []).length){
+    msg.textContent = "Everybody on this register has already signed in. " +
+      "If none of them is you, ask your teacher to add your name.";
+    return;
+  }
+  msg.textContent = "";
+  el("gateForm").innerHTML =
+    '<p class="muted" style="margin-top:0">' + esc(d.class_name) +
+      (d.school ? " · " + esc(d.school) : "") + " — tap your name.</p>" +
+    '<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,9rem),1fr))">' +
+      d.names.map(function(n){
+        return '<button class="tile" style="min-height:auto;padding:.8rem" ' +
+          'data-claim="' + n.id + '"><b>' + esc(n.name) + "</b></button>";
+      }).join("") +
+    "</div>" +
+    '<button class="btn ghost" id="gBack" style="margin-top:.8rem">← Different code</button>';
+
+  el("gBack").onclick = function(){ el("gateMsg").textContent = ""; codeForm(); };
+  el("gateForm").querySelectorAll("[data-claim]").forEach(function(b){
+    b.onclick = async function(){
+      el("gateMsg").textContent = "Signing you in…";
+      try{
+        await api.post("/api/craxlearn/claim",
+                       { code: code, roster_id: +b.dataset.claim });
+        await boot();
+      }catch(e){
+        el("gateMsg").textContent = e.message;
+        /* Somebody took that name while this list was on screen. Show the
+           list again rather than leaving a dead button. */
+        if(e.status === 409) findClass();
+      }
+    };
+  });
+}
+
 /* ---------- sign in ---------- */
 function gateForm(mode){
   var up = mode === "up";
@@ -309,6 +378,10 @@ var TILES = [
 ];
 
 var TEACHER_TILES = [
+  { page:"materials", ic:"📎", name:"Study material",
+    sub:"Links, PDFs and slides your class can open." },
+  { page:"roster",   ic:"📋", name:"Class register",
+    sub:"Type the names once, and they sign in with the class code alone." },
   { page:"inbox",    ic:"📥", name:"To review",
     sub:"Work your students have handed in, across every class." },
   { page:"activity", ic:"📊", name:"What the class is asking",
@@ -382,6 +455,12 @@ function home(){
   }
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
        TILES.map(tile).join("") + "</div>";
+  if(!teacher && (ME.classes || []).length){
+    h += '<div class="eyebrow">From your teacher</div><div class="tiles">' +
+      tile({ page:"materials", ic:"📎", name:"Study material",
+             sub:"Links, PDFs and slides your teacher has put here." }) +
+      "</div>";
+  }
   if(teacher){
     h += '<div class="eyebrow">Your class</div><div class="tiles">' +
          TEACHER_TILES.map(tile).join("") + "</div>";
@@ -396,6 +475,190 @@ function home(){
        "open, and listed with its licence." +
        "</div>";
   main().innerHTML = h;
+}
+
+/* ---------- study material ----------
+ *
+ * One screen, two audiences. A student gets a list they can open; a teacher
+ * gets the same list with a way to add to it and take things off it. Not two
+ * pages, because material a teacher cannot see the way a student sees it is
+ * material that turns out to be broken during a lesson.
+ */
+function pickClass(){
+  /* Which class this screen is about. A learner is normally in one; a head
+     teacher has several, so they choose. */
+  var cls = ME.classes || [];
+  if(!cls.length) return null;
+  if(!ME.pickedClass || !cls.some(function(c){ return c.id === ME.pickedClass; })){
+    ME.pickedClass = cls[0].id;
+  }
+  return ME.pickedClass;
+}
+
+function classPicker(onPick){
+  var cls = ME.classes || [];
+  if(cls.length < 2) return "";
+  return '<select id="clsPick" style="margin-bottom:.8rem">' +
+    cls.map(function(c){
+      return '<option value="' + c.id + '"' +
+        (c.id === ME.pickedClass ? " selected" : "") + ">" +
+        esc(c.name) + "</option>";
+    }).join("") + "</select>";
+}
+
+async function materials(){
+  var cid = pickClass();
+  if(!cid){
+    main().innerHTML = '<div class="card muted">You are not in a class yet. ' +
+      "Join one with a class code, or ask your teacher for one.</div>";
+    return;
+  }
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/class/" + cid + "/materials"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var h = '<div class="eyebrow">Study material</div>' + classPicker();
+  if(!(d.materials || []).length){
+    h += '<div class="card muted">Nothing here yet.</div>';
+  }else{
+    h += (d.materials).map(function(m){
+      var open = m.kind === "link"
+        ? '<a class="btn ghost" href="' + esc(m.url) + '" target="_blank" rel="noopener">Open the link</a>'
+        : '<a class="btn ghost" href="/api/material/' + m.id + '/file" target="_blank">Open ' +
+          esc(m.file_name || "the file") + "</a>";
+      return '<div class="card"><b>' + esc(m.title) + "</b>" +
+        (m.subject ? ' <span class="muted">· ' + esc(m.subject) + "</span>" : "") +
+        (m.note ? '<div class="muted" style="margin:.35rem 0">' + esc(m.note) + "</div>" : "") +
+        '<div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+          open +
+          (m.size ? '<span class="muted">' + Math.max(1, Math.round(m.size/1000)) + " KB</span>" : "") +
+          (isTeacher() ? '<button class="btn ghost" data-delmat="' + m.id + '">Remove</button>' : "") +
+        "</div></div>";
+    }).join("");
+  }
+
+  if(isTeacher()){
+    h += '<div class="eyebrow">Add something</div>' +
+      '<div class="card"><b>A link</b>' +
+        '<input id="mTitle" placeholder="What is it called" style="width:100%;margin:.5rem 0">' +
+        '<input id="mUrl" placeholder="https://…" style="width:100%;margin-bottom:.5rem">' +
+        '<input id="mNote" placeholder="Why they should read it (optional)" style="width:100%;margin-bottom:.5rem">' +
+        '<button class="btn" id="mAdd">Add the link</button>' +
+        ' <span class="muted" id="mMsg"></span>' +
+      "</div>" +
+      '<div class="card"><b>A file</b>' +
+        '<div class="muted" style="margin:.35rem 0">PDF, PowerPoint, Word, ' +
+          "text or an image. Up to 12 MB — link to anything bigger.</div>" +
+        '<input type="file" id="mFile" style="width:100%;margin-bottom:.5rem" ' +
+          'accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp">' +
+        '<input id="mFTitle" placeholder="What is it called (optional)" style="width:100%;margin-bottom:.5rem">' +
+        '<button class="btn" id="mUp">Upload it</button>' +
+        ' <span class="muted" id="mFMsg"></span>' +
+      "</div>";
+  }
+  main().innerHTML = h;
+
+  var pick = el("clsPick");
+  if(pick) pick.onchange = function(){ ME.pickedClass = +pick.value; materials(); };
+
+  main().querySelectorAll("[data-delmat]").forEach(function(b){
+    b.onclick = async function(){
+      try{ await api.del("/api/teacher/material/" + b.dataset.delmat); materials(); }
+      catch(e){ alert(e.message); }
+    };
+  });
+
+  var add = el("mAdd");
+  if(add) add.onclick = async function(){
+    el("mMsg").textContent = "Adding…";
+    try{
+      await api.post("/api/teacher/class/" + cid + "/material/link", {
+        title: el("mTitle").value || "", url: el("mUrl").value || "",
+        note: el("mNote").value || "" });
+      materials();
+    }catch(e){ el("mMsg").textContent = e.message; }
+  };
+
+  var up = el("mUp");
+  if(up) up.onclick = async function(){
+    var f = (el("mFile").files || [])[0];
+    if(!f){ el("mFMsg").textContent = "Choose a file first."; return; }
+    el("mFMsg").textContent = "Uploading…";
+    var fd = new FormData();
+    fd.append("file", f);
+    fd.append("title", el("mFTitle").value || "");
+    /* Sent with fetch directly rather than through api.post: this is
+       multipart, and setting Content-Type by hand strips the boundary the
+       browser generates, which the server then cannot parse. */
+    try{
+      var r = await fetch("/api/teacher/class/" + cid + "/material/file",
+                          { method:"POST", credentials:"same-origin", body:fd });
+      var data = null;
+      try{ data = await r.json(); }catch(err){}
+      if(!r.ok) throw new Error((data && data.detail) || "Upload failed");
+      materials();
+    }catch(e){ el("mFMsg").textContent = e.message; }
+  };
+}
+
+/* ---------- the class register ---------- */
+async function roster(){
+  var cid = pickClass();
+  if(!cid){
+    main().innerHTML = '<div class="card muted">No class yet.</div>';
+    return;
+  }
+  main().innerHTML = '<div class="muted">Loading…</div>';
+  var d;
+  try{ d = await api.get("/api/teacher/class/" + cid + "/roster"); }
+  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
+
+  var cls = (ME.classes || []).filter(function(c){ return c.id === cid; })[0] || {};
+  var h = '<div class="eyebrow">Class register</div>' + classPicker() +
+    '<div class="note">Type the names once. After that a learner signs in ' +
+    "with the class code and their own name — no email, no password, " +
+    "nothing to reset. A name disappears from the list once it is taken.</div>";
+
+  h += '<div class="card">' +
+    "<b>" + (d.free || 0) + " of " + (d.total || 0) + " still to sign in</b>" +
+    (d.total ? '<div class="wrap" style="margin-top:.6rem"><table>' +
+      "<tr><th>Name</th><th>Status</th><th></th></tr>" +
+      d.roster.map(function(r){
+        return "<tr><td>" + esc(r.name) + "</td><td>" +
+          (r.claimed ? "signed in" : "waiting") + "</td><td>" +
+          (r.claimed ? "" : '<button class="btn ghost" data-delros="' + r.id +
+            '">Remove</button>') + "</td></tr>";
+      }).join("") + "</table></div>" : "") +
+    "</div>";
+
+  h += '<div class="eyebrow">Add names</div><div class="card">' +
+    '<textarea id="rNames" rows="6" placeholder="One name per line" ' +
+      'style="width:100%;font:inherit;font-size:.72rem;padding:.6rem;' +
+      'border-radius:12px;border:1px solid var(--line);background:var(--panel2);' +
+      'color:var(--text)"></textarea>' +
+    '<div style="margin-top:.6rem"><button class="btn" id="rAdd">Add them</button> ' +
+    '<span class="muted" id="rMsg"></span></div></div>';
+  main().innerHTML = h;
+
+  var pick = el("clsPick");
+  if(pick) pick.onchange = function(){ ME.pickedClass = +pick.value; roster(); };
+
+  main().querySelectorAll("[data-delros]").forEach(function(b){
+    b.onclick = async function(){
+      try{ await api.del("/api/teacher/roster/" + b.dataset.delros); roster(); }
+      catch(e){ alert(e.message); }
+    };
+  });
+  el("rAdd").onclick = async function(){
+    el("rMsg").textContent = "Adding…";
+    try{
+      var r = await api.post("/api/teacher/class/" + cid + "/roster",
+                             { names: el("rNames").value || "" });
+      el("rMsg").textContent = "Added " + r.added + ".";
+      roster();
+    }catch(e){ el("rMsg").textContent = e.message; }
+  };
 }
 
 /* ---------- a student's own work ---------- */
@@ -696,6 +959,8 @@ function go(page, arg){
   else if(page === "activity")  activity();
   else if(page === "sources")   sources();
   else if(page === "inbox")     inbox();
+  else if(page === "materials") materials();
+  else if(page === "roster")    roster();
   else if(page === "assignment") assignment(arg);
   else if(page === "review")    review(arg && arg.aid, arg && arg.sid);
   else if(page === "board")     board(arg);
@@ -761,7 +1026,10 @@ async function boot(){
   main().hidden = !signedIn;
   if(!signedIn){
     el("who").innerHTML = "";
-    gateForm("in");
+    /* The class code first, because it is the one most people arriving here
+       are holding. An email box in front of a nine-year-old with a code in
+       their hand is a wrong turn they take before they read the tabs. */
+    tab("Code");
     return;
   }
   el("who").innerHTML = "<b>" + esc(ME.user.name) + "</b>" +
@@ -769,16 +1037,17 @@ async function boot(){
   go("home");
 }
 
-el("tabIn").onclick = function(){
-  el("tabIn").setAttribute("aria-selected","true");
-  el("tabUp").setAttribute("aria-selected","false");
-  gateForm("in");
-};
-el("tabUp").onclick = function(){
-  el("tabUp").setAttribute("aria-selected","true");
-  el("tabIn").setAttribute("aria-selected","false");
-  gateForm("up");
-};
+function tab(which){
+  ["Code","In","Up"].forEach(function(t){
+    el("tab" + t).setAttribute("aria-selected", String(t === which));
+  });
+  el("gateMsg").textContent = "";
+  if(which === "Code") codeForm();
+  else gateForm(which === "Up" ? "up" : "in");
+}
+el("tabCode").onclick = function(){ tab("Code"); };
+el("tabIn").onclick   = function(){ tab("In"); };
+el("tabUp").onclick   = function(){ tab("Up"); };
 el("homeBtn").onclick = function(){ go("home"); };
 el("scaleBtn").onclick = function(){
   scale(document.documentElement.getAttribute("data-scale") === "board"
