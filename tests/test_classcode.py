@@ -183,7 +183,7 @@ for path in ("/api/curriculum", "/api/net", "/api/lab", "/api/sql/board",
 print("\nStudy material")
 r = teach.post(f"/api/teacher/class/{klass.id}/material/link",
                json={"title": "Osmosis notes", "url": "https://example.org/o",
-                     "note": "Read before Friday"})
+                     "subject": "Biology", "note": "Read before Friday"})
 check("a link goes up", r.status_code == 200, r.text[:150])
 link_id = r.json()["material"]["id"]
 
@@ -217,6 +217,14 @@ check("and so is something over the limit", r.status_code == 400,
 
 d = anon.get(f"/api/class/{klass.id}/materials").json()
 check("the student sees both", len(d["materials"]) == 2, str(d)[:200])
+# Subject and author were in the schema from the start and reached neither
+# the payload nor the screen, so a class got a reading list from nobody in
+# particular, for no lesson in particular.
+link = [m for m in d["materials"] if m["kind"] == "link"][0]
+check("with the subject it was filed under", link["subject"] == "Biology",
+      str(link))
+check("and the name of whoever put it there", link["by"] == "Teacher T",
+      str(link))
 check("the link carries its address",
       any(m.get("url") == "https://example.org/o" for m in d["materials"]))
 

@@ -1500,8 +1500,13 @@ async function materials(){
         ? '<a class="btn ghost" href="' + esc(m.url) + '" target="_blank" rel="noopener">Open the link</a>'
         : '<a class="btn ghost" href="/api/material/' + m.id + '/file" target="_blank">Open ' +
           esc(m.file_name || "the file") + "</a>";
+      /* Subject and teacher on every card. A reading list from nobody in
+         particular leaves a class not knowing whose lesson it is for or
+         which teacher to ask about it. */
+      var meta = [m.subject, m.by ? "put up by " + m.by : "",
+                  (m.at || "").slice(0, 10)].filter(Boolean).join(" · ");
       return '<div class="card"><b>' + esc(m.title) + "</b>" +
-        (m.subject ? ' <span class="muted">· ' + esc(m.subject) + "</span>" : "") +
+        (meta ? '<div class="muted" style="margin-top:.2rem">' + esc(meta) + "</div>" : "") +
         (m.note ? '<div class="muted" style="margin:.35rem 0">' + esc(m.note) + "</div>" : "") +
         '<div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
           open +
@@ -1515,6 +1520,7 @@ async function materials(){
     h += '<div class="eyebrow">Add something</div>' +
       '<div class="card"><b>A link</b>' +
         '<input id="mTitle" placeholder="What is it called" style="width:100%;margin:.5rem 0">' +
+        '<input id="mSubject" placeholder="Subject — Science, Maths…" style="width:100%;margin-bottom:.5rem">' +
         '<input id="mUrl" placeholder="https://…" style="width:100%;margin-bottom:.5rem">' +
         '<input id="mNote" placeholder="Why they should read it (optional)" style="width:100%;margin-bottom:.5rem">' +
         '<button class="btn" id="mAdd">Add the link</button>' +
@@ -1526,6 +1532,7 @@ async function materials(){
         '<input type="file" id="mFile" style="width:100%;margin-bottom:.5rem" ' +
           'accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp">' +
         '<input id="mFTitle" placeholder="What is it called (optional)" style="width:100%;margin-bottom:.5rem">' +
+        '<input id="mFSubject" placeholder="Subject — Science, Maths…" style="width:100%;margin-bottom:.5rem">' +
         '<button class="btn" id="mUp">Upload it</button>' +
         ' <span class="muted" id="mFMsg"></span>' +
       "</div>";
@@ -1548,6 +1555,7 @@ async function materials(){
     try{
       await api.post("/api/teacher/class/" + cid + "/material/link", {
         title: el("mTitle").value || "", url: el("mUrl").value || "",
+        subject: el("mSubject").value || "",
         note: el("mNote").value || "" });
       materials();
     }catch(e){ el("mMsg").textContent = e.message; }
@@ -1561,6 +1569,7 @@ async function materials(){
     var fd = new FormData();
     fd.append("file", f);
     fd.append("title", el("mFTitle").value || "");
+    fd.append("subject", el("mFSubject").value || "");
     /* Sent with fetch directly rather than through api.post: this is
        multipart, and setting Content-Type by hand strips the boundary the
        browser generates, which the server then cannot parse. */
