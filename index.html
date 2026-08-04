@@ -1140,6 +1140,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="net.js?v=4381cbbb1f"></script>
 <script src="quizui.js?v=db22a5df88"></script>
 <script src="marker.js?v=7660307525"></script>
+<script src="ink.js?v=98527cfc34"></script>
 <script src="scanner.js?v=227051446b"></script>
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
@@ -1807,6 +1808,9 @@ async function boot(){
 
   TUTOR.init();
   sbMarkerInit();
+  /* A sheet of glass over the whole page. Inert until somebody picks up
+     the pen, so the site behaves exactly as if it were not there. */
+  if(window.Ink) Ink.init({toast:(m)=>toast(m)});
   refreshNotif();
   if(!window._notifPoll) window._notifPoll=setInterval(refreshNotif, 60000);
   const first=(USER.name||"").trim().split(" ")[0];
@@ -3830,6 +3834,7 @@ function sbToolsHTML(){
             <button class="btn ghost sm" data-sbkeep="1">★ Keep this explanation</button>
             <button class="btn ghost sm" data-sblib="1">📚 My notes</button>
             <button class="btn ghost sm" data-sbpdf-up="1">📄 Teach from a PDF</button>
+            <button class="btn ghost sm" data-sbink="1">✏️ Draw on the screen</button>
             <input type="file" id="sbPdfFile" accept="application/pdf" style="display:none"/>
       <!-- Explicit, because the alternative was ambiguous: typing into the
            follow-up box continues the same lesson, and there was nothing that
@@ -6915,6 +6920,10 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-sbpdf]")) return sbPrint();
   if(e.target.closest("[data-sbkeep]")) return sbKeep();
   if(e.target.closest("[data-sbpdf-up]")) return sbPdfPick();
+  if(e.target.closest("[data-sbink]")){
+    if(window.Ink) Ink.toggle(); else toast("The pen did not load.");
+    return;
+  }
   { const p=e.target.closest("[data-pdfdo]");
     if(p){ const d=p.dataset.pdfdo;
       if(d==="show") return sbPdfShow(PDF_PICKED);
