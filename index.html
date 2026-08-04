@@ -4891,6 +4891,140 @@ async function uploadFiles(url, files){
 const fmtDue=d=>d?("due "+d):"";
 
 /* ---------- student: weekly table across all subjects ---------- */
+/* One class, broken into its subjects — and one subject, with everything the
+ * teacher put there.
+ *
+ * The class screen used to be one stream of assignments across every subject.
+ * A student thinks "what did we do in Physics", and the name of who takes it
+ * matters because that is who they ask on Monday.
+ */
+let SUBJ = {cid:0, name:"", list:[], open:null};
+
+async function renderClassSubjects(cid, className){
+  SUBJ.cid=cid; SUBJ.name=className||""; SUBJ.open=null;
+  $("#main").innerHTML=`<div class="crumb">
+      <button data-cls="backmyclass">← My class</button></div>
+    <div class="h1">${esc(SUBJ.name||"Your class")}</div>
+    <p class="sub">Your subjects, and who takes each one.</p>
+    <div id="subjBody">Loading…</div>`;
+  let d;
+  try{ d=await api.get("/api/class/"+cid+"/subjects"); }
+  catch(e){ document.getElementById("subjBody").innerHTML=
+    `<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; return; }
+  SUBJ.list=(d&&d.subjects)||[];
+  SUBJ.name=d.class_name||SUBJ.name;
+  const box=document.getElementById("subjBody");
+  if(!SUBJ.list.length){
+    box.innerHTML=`<div class="card" style="color:var(--dim);font-size:13px">
+      No subjects yet. Your school adds them.</div>`;
+    return;
+  }
+  box.innerHTML=SUBJ.list.map(x=>`
+    <button class="card" data-cls="opensubj" data-id="${esc(x.subject)}"
+      style="display:block;width:100%;text-align:left;cursor:pointer;
+      margin-bottom:10px;padding:14px">
+      <div style="font-weight:650;font-size:15px">${esc(x.subject)}</div>
+      <div style="font-size:12.5px;color:${x.teacher?"var(--dim)":"var(--accent)"};
+        margin-top:2px">${x.teacher
+          ? esc(x.teacher)
+          : "no teacher on this subject yet"}</div>
+      <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
+        ${x.assignments} to do · ${x.materials} to read · ${x.questions}
+        question${x.questions===1?"":"s"}</div>
+    </button>`).join("");
+}
+
+/* One subject. Everything is filtered to it, because a student opening
+   Physics should not be shown Monday's Maths worksheet. */
+async function renderSubject(subject){
+  SUBJ.open=subject;
+  const cid=SUBJ.cid;
+  const mine=SUBJ.list.find(x=>x.subject===subject)||{};
+  $("#main").innerHTML=`<div class="crumb">
+      <button data-cls="backsubjects">← ${esc(SUBJ.name||"Subjects")}</button></div>
+    <div class="h1">${esc(subject)}</div>
+    <p class="sub">${mine.teacher
+      ? "Taken by "+esc(mine.teacher)
+      : "No teacher on this subject yet."}</p>
+    <div id="sbjBody">Loading…</div>`;
+
+  let mats=[], asgs=[], disc={threads:[]};
+  try{ mats=(await api.get("/api/class/"+cid+"/materials")).materials||[]; }
+  catch(e){}
+  try{
+    const c=await api.get("/api/class/mine");
+    const row=(c.classes||[]).find(x=>x.id===cid)||{};
+    asgs=row.assignments||[];
+  }catch(e){}
+  try{ disc=await api.get("/api/class/"+cid+"/discussion"); }catch(e){}
+
+  const same=v=>String(v||"").trim().toLowerCase()===subject.trim().toLowerCase();
+  mats=mats.filter(m=>same(m.subject));
+  asgs=asgs.filter(a=>same(a.subject));
+  const threads=(disc.threads||[]).filter(t=>!t.subject||same(t.subject));
+
+  const box=document.getElementById("sbjBody");
+  box.innerHTML=`
+    <div class="eyebrow">Work to hand in</div>
+    <div class="card" style="padding:12px;margin-bottom:16px">
+      ${asgs.length?asgs.map(a=>`<div class="row"
+        style="justify-content:space-between;gap:8px;padding:7px 0;
+        border-bottom:1px solid var(--line,#2a2a2a)">
+        <span style="min-width:0">${esc(a.title)}
+          ${a.due_date?`<span style="font-size:11.5px;color:var(--dim)">· due ${
+            esc(a.due_date)}</span>`:""}</span>
+        <span style="font-size:11.5px;color:${a.done?"var(--dim)":"var(--accent)"}">
+          ${a.done?"handed in":"to do"}</span></div>`).join("")
+        :`<div style="color:var(--dim);font-size:13px">Nothing set.</div>`}
+    </div>
+
+    <div class="eyebrow">Study material</div>
+    <div class="card" style="padding:12px;margin-bottom:16px">
+      ${mats.length?mats.map(m=>`<div style="padding:7px 0;
+        border-bottom:1px solid var(--line,#2a2a2a)">
+        <a href="${m.url?esc(m.url):"/api/material/"+m.id+"/file"}"
+          target="_blank" rel="noopener">${esc(m.title)}</a>
+        ${m.note?`<div style="font-size:11.5px;color:var(--dim)">${
+          esc(m.note)}</div>`:""}</div>`).join("")
+        :`<div style="color:var(--dim);font-size:13px">Nothing shared yet.</div>`}
+    </div>
+
+    <div class="eyebrow">Questions the class asked</div>
+    <div class="card" style="padding:12px">
+      <div class="field" style="margin-bottom:8px">
+        <textarea id="sbjAsk" class="pj-note" style="width:100%;min-height:56px"
+          placeholder="Ask about ${esc(subject)}…"></textarea></div>
+      <button class="btn sm" data-cls="sbjask">Ask</button>
+      <div style="margin-top:10px">
+        ${threads.length?threads.map(t=>`<div style="padding:8px 0;
+          border-top:1px solid var(--line,#2a2a2a)">
+          <div style="white-space:pre-wrap">${esc(t.body)}</div>
+          <div style="font-size:11.5px;color:var(--dim)">${esc(t.who)}</div>
+          ${t.replies.map(r=>`<div style="margin:6px 0 0 14px;padding-left:9px;
+            border-left:2px solid var(--line,#2a2a2a)">
+            <div style="white-space:pre-wrap">${esc(r.body)}</div>
+            <div style="font-size:11.5px;color:${
+              r.from_staff?"var(--accent)":"var(--dim)"}">${esc(r.who)}${
+              r.from_staff?" · teacher":""}</div></div>`).join("")}
+        </div>`).join("")
+          :`<div style="color:var(--dim);font-size:13px">No questions yet.</div>`}
+      </div>
+    </div>`;
+}
+
+async function subjAsk(){
+  const el=document.getElementById("sbjAsk");
+  const body=(el&&el.value||"").trim();
+  if(!body){ toast("Type your question first."); return; }
+  try{
+    await api.post("/api/class/"+SUBJ.cid+"/discussion",
+      {body:body, subject:SUBJ.open||""});
+  }catch(e){ toast(e.message); return; }
+  if(el) el.value="";
+  await renderSubject(SUBJ.open);
+  toast("Asked. Your teacher will see it.");
+}
+
 async function renderClass(){
   $("#main").innerHTML=`<div class="h1">🎓 My class</div><p class="sub">Loading…</p>`;
   let data; try{ data=await api.get("/api/class/mine"); }
@@ -4921,6 +5055,13 @@ async function renderClass(){
           <div><div style="font-size:17px;font-weight:650">${esc(c.name)}</div>
           <div style="font-size:12px;color:var(--dim)">${esc(c.school||"")}${c.teacher?" · class teacher: "+esc(c.teacher):""}</div></div>
           <span class="pill ${pend?"hot":""}">${pend} to do</span></div>
+        <!-- The way into the subject-by-subject view. The table below is one
+             stream across every subject, which answers "what is due" and not
+             "what did we do in Physics" — and the second is the question a
+             student actually starts from. -->
+        <button class="btn ghost sm" data-cls="mysubjects" data-id="${c.id}"
+          data-cid="${esc(c.name)}" style="margin-top:10px">📚 Subjects and
+          teachers</button>
         ${c.schedule&&c.schedule.length?`<div style="margin-top:12px"><div class="eyebrow" style="margin:0 0 6px">📅 This week</div>
           ${c.schedule.map(s=>`<div style="font-size:13.5px;color:var(--body)"><b>${esc(s.day||"")}</b> ${esc(s.text||"")}</div>`).join("")}</div>`:""}
         <div class="eyebrow" style="margin:16px 0 6px">Assignments</div>
@@ -6350,6 +6491,11 @@ document.addEventListener("click",e=>{
   else if(k==="hmk") hMk();
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
+  else if(k==="opensubj") renderSubject(id);
+  else if(k==="mysubjects") renderClassSubjects(+id, cid);
+  else if(k==="backsubjects") renderClassSubjects(SUBJ.cid, SUBJ.name);
+  else if(k==="backmyclass"){ S.view={page:"class"}; render(); }
+  else if(k==="sbjask") subjAsk();
   else if(k==="staffput") staffPut(id);
   else if(k==="matadd") matAdd(id);
   else if(k==="matdel") matDel(id, cid);

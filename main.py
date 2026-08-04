@@ -6857,6 +6857,68 @@ def class_discussion_delete(cid: int, pid: int,
     return {"ok": True}
 
 
+@app.get("/api/class/{cid}/subjects")
+def class_subjects(cid: int, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    """The subjects in this class, each with the teacher who takes it.
+
+    A learner's class screen listed assignments across every subject in one
+    stream, which is not how anybody thinks about school. They think "what did
+    we do in Physics" — and the teacher's name matters, because that is who
+    they will ask on Monday.
+
+    A subject with no teacher yet is still listed. Leaving it out would hide
+    from a class that the subject exists and nobody has been put on it, which
+    is a thing their parents would rather know than not.
+    """
+    _in_class_or_teaching(db, cid, user)
+    k = db.get(Klass, cid)
+    slots = (db.query(SubjectSlot).filter(SubjectSlot.class_id == cid)
+               .order_by(SubjectSlot.subject.asc()).all())
+    who = {u.id: (u.name or "") for u in db.query(User).filter(
+        User.id.in_([s.teacher_id for s in slots if s.teacher_id] or [0])).all()}
+
+    mats = db.query(Material).filter(Material.class_id == cid).all()
+    asgs = db.query(Assignment).filter(Assignment.class_id == cid).all()
+    posts = db.query(ClassPost).filter(ClassPost.class_id == cid,
+                                       ClassPost.parent_id == 0).all()
+
+    def count_for(rows, subject):
+        low = (subject or "").strip().lower()
+        return sum(1 for r in rows
+                   if (getattr(r, "subject", "") or "").strip().lower() == low)
+
+    out = []
+    for sl in slots:
+        out.append({
+            "subject": sl.subject or "",
+            "teacher": who.get(sl.teacher_id, ""),
+            "teacher_id": sl.teacher_id or 0,
+            "materials": count_for(mats, sl.subject),
+            "assignments": count_for(asgs, sl.subject),
+            "questions": count_for(posts, sl.subject),
+        })
+
+    # Anything filed under a subject with no slot — usually because the class
+    # was taught something before the timetable caught up. Showing it under a
+    # heading nobody owns is better than not showing it at all.
+    named = {(sl.subject or "").strip().lower() for sl in slots}
+    extra = {}
+    for row in list(mats) + list(asgs):
+        sub = (getattr(row, "subject", "") or "").strip()
+        if sub and sub.lower() not in named:
+            extra.setdefault(sub, 0)
+            extra[sub] += 1
+    for sub in sorted(extra):
+        out.append({"subject": sub, "teacher": "", "teacher_id": 0,
+                    "materials": count_for(mats, sub),
+                    "assignments": count_for(asgs, sub),
+                    "questions": count_for(posts, sub)})
+
+    return {"class_id": cid, "class_name": (k.name if k else ""),
+            "subjects": out}
+
+
 @app.get("/api/class/{cid}/materials")
 def class_materials(cid: int, user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
