@@ -1761,17 +1761,22 @@ $("#joinForm").onsubmit=async e=>{
     return;
   }
   if(!(d.names||[]).length){
-    authMsg("Everybody on this register has already signed in. If none of "+
-            "them is you, ask your teacher to add your name.");
+    authMsg("There are no names on this class register yet. Ask your "+
+            "teacher to add yours.");
     return;
   }
 
+  /* Every name, including the ones already signed in once. Tapping your own
+     name a second time signs you back into the same account — it used to
+     hide taken names, which meant signing out locked you out for good. */
   $("#jn_names").innerHTML =
     `<div style="font-size:12.5px;color:var(--dim);margin:4px 0 8px">`+
     `${esc(d.class_name)}${d.school?" · "+esc(d.school):""} — tap your name.`+
     `</div>`+
     d.names.map(n=>`<button type="button" class="namebtn" `+
-      `data-claim="${n.id}">${esc(n.name)}</button>`).join("");
+      `data-claim="${n.id}"${n.taken?` data-back="1"`:""}>${esc(n.name)}`+
+      `${n.taken?`<span style="font-size:11px;color:var(--dim);`+
+        `margin-left:6px">welcome back</span>`:""}</button>`).join("");
 
   $("#jn_names").querySelectorAll("[data-claim]").forEach(btn=>{
     btn.onclick=async()=>{
@@ -1790,9 +1795,12 @@ $("#joinForm").onsubmit=async e=>{
         await boot();
       }catch(err){
         authMsg(err.message);
-        /* Somebody took that name while this list was on screen. Ask again
-           rather than leaving a dead button under their finger. */
-        if(err.status===409) $("#joinForm").dispatchEvent(new Event("submit"));
+        /* The register moved under their finger — a teacher removed the name
+           while this list was on screen. Ask again rather than leaving a
+           dead button there. (A taken name is no longer an error: tapping
+           your own name signs you back in.) */
+        if(err.status===409||err.status===404)
+          $("#joinForm").dispatchEvent(new Event("submit"));
       }
     };
   });

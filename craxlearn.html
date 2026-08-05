@@ -807,18 +807,22 @@ async function findClass(){
     return;
   }
   if(!(d.names || []).length){
-    msg.textContent = "Everybody on this register has already signed in. " +
-      "If none of them is you, ask your teacher to add your name.";
+    msg.textContent = "There are no names on this class register yet. " +
+      "Ask your teacher to add yours.";
     return;
   }
   msg.textContent = "";
+  /* Every name, taken or not. Hiding the taken ones meant a child who signed
+     out could never get back to their own account. */
   el("gateForm").innerHTML =
     '<p class="muted" style="margin-top:0">' + esc(d.class_name) +
       (d.school ? " · " + esc(d.school) : "") + " — tap your name.</p>" +
     '<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,9rem),1fr))">' +
       d.names.map(function(n){
         return '<button class="tile" style="min-height:auto;padding:.8rem" ' +
-          'data-claim="' + n.id + '"><b>' + esc(n.name) + "</b></button>";
+          'data-claim="' + n.id + '"><b>' + esc(n.name) + "</b>" +
+          (n.taken ? '<div class="muted" style="font-size:.72rem">' +
+            "welcome back</div>" : "") + "</button>";
       }).join("") +
     "</div>" +
     '<button class="btn ghost" id="gBack" style="margin-top:.8rem">← Different code</button>';
@@ -833,9 +837,11 @@ async function findClass(){
         await boot();
       }catch(e){
         el("gateMsg").textContent = e.message;
-        /* Somebody took that name while this list was on screen. Show the
-           list again rather than leaving a dead button. */
-        if(e.status === 409) findClass();
+        /* The register moved under their finger — a teacher removed the name
+           while this list was on screen. Show the list again rather than
+           leaving a dead button. (A taken name is no longer an error:
+           tapping your own name signs you back in.) */
+        if(e.status === 409 || e.status === 404) findClass();
       }
     };
   });

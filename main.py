@@ -6832,6 +6832,17 @@ def craxlearn_code(body: CodeIn, request: Request,
     count of anybody's work — so a guessed code leaks a class's first names
     and nothing else. That is the cost of a login a nine-year-old can do,
     and it is why the code is per-class and rotatable.
+
+    **Every name on the register, not only the unclaimed ones.** This used to
+    return `claimed_by == 0` and nothing else, which meant a child who signed
+    out could never sign back in: their name had gone from the list, the
+    account behind it has a synthetic email nobody can receive and a random
+    password nobody knows, and so signing out DESTROYED the account. The class
+    told them "everybody on this register has already signed in" — which was
+    true, and useless.
+
+    The register is who is in the class. Whether somebody has signed in before
+    is not a reason to hide them from a list of who they are.
     """
     _code_guard(request)
     code = body.code.strip().upper()
@@ -6839,14 +6850,15 @@ def craxlearn_code(body: CodeIn, request: Request,
     if not k:
         _code_missed(request)
         raise HTTPException(404, "No class has that code")
-    free = (db.query(RosterName)
-              .filter(RosterName.class_id == k.id, RosterName.claimed_by == 0)
-              .order_by(RosterName.name.asc()).all())
+    names = (db.query(RosterName)
+               .filter(RosterName.class_id == k.id)
+               .order_by(RosterName.name.asc()).all())
     return {"class_id": k.id, "class_name": k.name, "school": k.school or "",
-            "names": [{"id": r.id, "name": r.name} for r in free],
-            "roster_ready": bool(db.query(RosterName)
-                                   .filter(RosterName.class_id == k.id)
-                                   .first())}
+            "names": [{"id": r.id, "name": r.name,
+                       # "You have been here before", so the page can say
+                       # "welcome back" rather than looking like a fresh claim.
+                       "taken": bool(r.claimed_by)} for r in names],
+            "roster_ready": bool(names)}
 
 
 class ClaimIn(BaseModel):
@@ -6869,6 +6881,20 @@ def craxlearn_claim(claim: ClaimIn, response: Response, request: Request,
     kind="classcode" is what closes the job half permanently for this
     account. There is no adult behind it who agreed to anything, and no
     date of birth that could ever open it.
+
+    **Tapping a name that has been taken signs you back into it.** It used to
+    answer 409 "somebody has already taken that name", and for the person
+    whose name it was that was a locked door with no other way round: the
+    account has an unroutable email and a password hash of random bytes, so
+    there is no reset, no recovery and no second route. Signing out was
+    permanent.
+
+    What this costs, stated plainly: the class code is the class's
+    credential, and anybody holding it can now sign in as anybody on that
+    register — not only as a name nobody has taken yet. That was already
+    three-quarters true (any unclaimed name was open to any code holder); it
+    is now true of the whole list. The lever against it is the code itself,
+    which is per-class and can be rotated the moment it travels.
     """
     _code_guard(request)
     code = claim.code.strip().upper()
@@ -6879,9 +6905,24 @@ def craxlearn_claim(claim: ClaimIn, response: Response, request: Request,
     r = db.get(RosterName, claim.roster_id)
     if not r or r.class_id != k.id:
         raise HTTPException(404, "That name is not on this class register")
+
     if r.claimed_by:
-        raise HTTPException(409, "Somebody has already taken that name. "
-                                 "Ask your teacher.")
+        back = db.get(User, r.claimed_by)
+        # A row pointing at a user who is gone is a name that is free again,
+        # not a dead end. Fall through and make a fresh account for it.
+        if back is not None and back.is_active:
+            # Membership is re-checked rather than assumed: a class rebuilt
+            # around an existing roster row would otherwise sign somebody in
+            # with no class attached to them.
+            if not (db.query(ClassMember)
+                      .filter(ClassMember.class_id == k.id,
+                              ClassMember.user_id == back.id).first()):
+                db.add(ClassMember(class_id=k.id, user_id=back.id))
+                db.commit()
+            set_session(response, back, db)
+            return {"ok": True, "name": back.name, "class_name": k.name,
+                    "school": k.school or "", "returning": True}
+        r.claimed_by = 0
 
     u = User(name=r.name[:120],
              # Synthetic and unroutable by design: nothing is ever sent
@@ -6900,7 +6941,7 @@ def craxlearn_claim(claim: ClaimIn, response: Response, request: Request,
 
     set_session(response, u, db)
     return {"ok": True, "name": u.name, "class_name": k.name,
-            "school": k.school or ""}
+            "school": k.school or "", "returning": False}
 
 
 # --------------------------------------------------------------------------
