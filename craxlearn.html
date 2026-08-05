@@ -1179,10 +1179,27 @@ function home(){
   /* Remote stays on an open board even though it needs an account: it is
      where "use your phone" lives, and a teacher looking for it must find
      the answer rather than find nothing. */
+  /* The practice surfaces are a pupil's, not a teacher's.
+   *
+   * A board at the front of a room is operated mid-sentence, and twelve
+   * tiles on it is a menu somebody has to read while thirty people wait.
+   * Four of them are places to PRACTISE — work through the course, type
+   * queries, send packets, run reactions — and practising is what a student
+   * does at their own desk, at their own pace. A teacher standing at the
+   * board is teaching, and the tiles they reach for are the ones that put
+   * something in front of the room.
+   *
+   * So staff get the teaching surfaces and students get everything. The
+   * pages themselves stay routable: a bookmark from last term still opens,
+   * and a teacher who wants to demonstrate the SQL board can still reach it.
+   * Only the home screen is shortened, which is the difference between
+   * moving a door and bricking up a room. */
+  var PRACTICE_TILES = ["tracks", "net", "lab", "sqlboard"];
   var offer = OPEN
     ? TILES.filter(function(t){
         return OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote"; })
-    : TILES;
+    : TILES.filter(function(t){
+        return !(teacher && PRACTICE_TILES.indexOf(t.page) >= 0); });
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
        offer.map(tile).join("") + "</div>";
   if(OPEN){
