@@ -1342,11 +1342,16 @@ def _learning_only(db, user):
       staff        a work account the school issued. Not the school's to
                    open either — a school buying the job board buys it for
                    its learners, not for its teachers.
-      institution  the school did not buy it, for anybody enrolled there.
+      institution  the school asked for it to be shut, for everybody there.
+                   Opt-OUT, not opt-in: a school is not a reason to hide
+                   work from an eighteen-year-old, and a Class 12 student
+                   applying for their first job is the whole point of
+                   having built the thing.
       age          under 18, and never the institution's to waive.
 
-    Only an ordinary personal account — signed up with its own email, not
-    attached to a school, over 18 — reaches the job half at all.
+    So the job half is closed to a class-code login and to staff always, to
+    anybody under 18 always, and to a whole institution only when that
+    institution has asked for it.
     """
     if CRAXLEARN_ONLY:
         return {"only": True, "why": "deployment",
@@ -1390,11 +1395,16 @@ def _learning_only(db, user):
     if _cl_boot.is_institution(scope):
         sid = _cl_boot.school_id_of(scope)
         sc = db.get(School, sid) if sid else None
-        if (getattr(sc, "product", None) or "craxlearn") != "both":
+        # Opt-out. A school that wants no job board on its premises sets
+        # this and gets exactly that; every other school's eighteen-year-olds
+        # keep the half of the product that is about what happens to them
+        # after they leave.
+        if (getattr(sc, "product", None) or "") == "learning_only":
             return {"only": True, "why": "institution",
-                    "message": f"Your institution uses {_cl_boot.NAME}, "
-                               f"the learning half of Craxle. The job board "
-                               f"is not part of it."}
+                    "message": f"Your institution has asked for "
+                               f"{_cl_boot.NAME} on its own — the job board "
+                               f"is switched off here. It is still yours on "
+                               f"a personal account."}
 
     # Admins run the site and need every surface to debug it. They are still
     # subject to the deployment switch above, which is the one an institution
@@ -3298,20 +3308,23 @@ def admin_set_product(sid: int, body: ProductIn,
     if not sc:
         raise HTTPException(404, "No such school")
     want = (body.product or "").strip().lower()
-    if want not in ("craxlearn", "both"):
+    if want not in ("craxlearn", "both", "learning_only"):
         raise HTTPException(
-            400, 'Product must be "craxlearn" (teaching only) or "both" '
-                 '(teaching and the job board).')
+            400, 'Product must be "both" (teaching and the job board, the '
+                 'default) or "learning_only" (teaching only, job board '
+                 'switched off for everybody here).')
     sc.product = want
     db.commit()
     n = (db.query(func.count(ClassMember.id))
            .join(Klass, Klass.id == ClassMember.class_id)
            .filter(Klass.school_id == sid).scalar() or 0)
     return {"ok": True, "product": want, "learners_affected": n,
-            "note": ("The job board is now open to learners here who are 18 "
-                     "or over. Under-18s and class-code logins still cannot "
-                     "reach it." if want == "both" else
-                     "The job board is closed to everybody at this school.")}
+            "note": ("The job board is closed to everybody at this "
+                     "institution, at any age."
+                     if want == "learning_only" else
+                     "The job board is open to learners here who are 18 or "
+                     "over. Staff, under-18s and class-code logins still "
+                     "cannot reach it.")}
 
 
 class ResetUsersIn(BaseModel):
