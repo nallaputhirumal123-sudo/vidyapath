@@ -2247,7 +2247,14 @@ def _grant_teacher(db, user, school, school_id, role):
         raise HTTPException(
             403, "That code is for a member of staff, and this is a pupil's "
                  "class-code sign-in. Ask the school office for a teacher "
-                 "account with its own password.")
+                 "account of your own.")
+    # Mark them as school staff if they are not already marked as something.
+    # It is what makes the school's Pro board theirs without anybody buying
+    # anything, and it catches accounts made before that mark existed — the
+    # moment they are granted access here, which is the only way to become
+    # staff at all.
+    if not (getattr(user, "kind", "") or ""):
+        user.kind = "schoolstaff"
     ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == user.id).first()
     if ta:
         # never downgrade a head to teacher
@@ -4962,9 +4969,28 @@ def _period_from_span(started, expires):
                key=lambda k: abs(BILLING_PERIODS[k]["days"] - days))
 
 
+#: Accounts a school issued. All three sign in with a code and no password:
+#: a pupil off the register, a teacher with a subject code, an administrator
+#: with the school's ten digits.
+SCHOOL_KINDS = ("classcode", "schoolcode", "schoolstaff")
+
+
 def plan_of(user) -> str:
     """The plan actually in force, expiry included."""
     if getattr(user, "is_admin", False):
+        return "pro"
+    # A school has paid for its people, so its people are not asked again.
+    #
+    # Everyone who arrives through a school code — the pupil, the teacher and
+    # the office — gets the Pro board. The alternative was a lesson on a
+    # classroom wall stopping to advertise a subscription to a room of
+    # children, and a teacher being offered a personal upgrade for a tool the
+    # school already bought. Neither is something to put in front of a class.
+    #
+    # Checked on `kind` rather than by looking up the school, because this is
+    # called on nearly every request and a database query per call to answer
+    # "which plan" would be paid for on every page.
+    if (getattr(user, "kind", "") or "") in SCHOOL_KINDS:
         return "pro"
     p = (user.plan or "free").lower()
     if p not in PAID_PLANS:
