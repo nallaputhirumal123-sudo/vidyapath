@@ -24,3 +24,5 @@ _p*.png
 corpus.db
 corpus.db.old
 corpus.db.building
+deckshots/
+*.pptx.tmp
