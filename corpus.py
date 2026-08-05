@@ -241,15 +241,46 @@ def title_of(text, fallback=""):
     return fallback
 
 
-def ingest(index, want, log=print):
+def already_in(index):
+    """Chapter codes this index already holds.
+
+    Every chapter is stored under its own code as the slug, so the index knows
+    what it has without a second file to keep in step with it.
+    """
+    try:
+        rows = index.db.execute(
+            "SELECT DISTINCT slug FROM passages WHERE slug != ''").fetchall()
+        return {r[0] for r in rows}
+    except Exception:
+        return set()
+
+
+def ingest(index, want, log=print, resume=True):
     """Fetch, read and index chapters into an FtsIndex. Returns a report.
 
     `want` is what chapters() returns. Each chapter is one document, labelled
     with its class and subject so a search for "class 10 refraction" has
     something to match on beyond the prose.
+
+    **Committed after every chapter, and this is the whole point.** It used to
+    commit once at the end, so a run that reached chapter 205 of 222 and was
+    interrupted — a power cut, a closed laptop, anything — rolled back all of
+    it. Two and a half hours of downloading from a government server, gone,
+    with a twelve-megabyte file on disk holding nothing but the curriculum it
+    started with. A batch job measured in hours must not be all-or-nothing.
+
+    **And it resumes.** Chapters already in the index are skipped, so a second
+    run finishes what the first one started instead of fetching two hundred
+    PDFs again. Pass resume=False to rebuild from nothing.
     """
-    done, failed, chars = 0, [], 0
+    have = already_in(index) if resume else set()
+    if have:
+        log(f"resuming: {len(have)} chapters already indexed")
+    done, failed, skipped, chars = 0, [], 0, 0
     for code, klass, subject, n in want:
+        if code in have:
+            skipped += 1
+            continue
         raw = fetch(code)
         if not raw:
             failed.append(code)
@@ -262,7 +293,14 @@ def ingest(index, want, log=print):
         title = title_of(text, f"{subject} chapter {n}")
         index.add(text, f"Class {klass} {subject}: {title}",
                   f"NCERT Class {klass} {subject}", code)
+        # Committed here, not at the end. One chapter is what an interruption
+        # may now cost.
+        try:
+            index.db.commit()
+        except Exception as e:
+            log(f"  {code}: indexed but not committed ({type(e).__name__})")
         done += 1
         chars += len(text)
         log(f"  {code}: {len(text):,} chars — {title[:52]}")
-    return {"indexed": done, "failed": failed, "chars": chars}
+    return {"indexed": done, "failed": failed, "skipped": skipped,
+            "chars": chars}
