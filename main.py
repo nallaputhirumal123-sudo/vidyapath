@@ -671,6 +671,22 @@ class TeacherCode(Base):
     school_id = Column(Integer, default=0)
     is_head = Column(Boolean, default=False)
     active = Column(Boolean, default=True, nullable=False)
+    # Who this code is for, and which account it made.
+    #
+    # A school admin signs in with the code and nothing else — no email, no
+    # password — so the code has to be able to answer two questions it could
+    # not answer before: whose is it, and which account does it belong to.
+    #
+    # `label` is the person's name, given when the code is issued, because an
+    # account has to be called something and a code cannot invent a name.
+    # `claimed_by` is the account it created, so entering the code a second
+    # time returns to the SAME administrator rather than making another one —
+    # the same rule the class register learned the hard way this morning.
+    #
+    # Both nullable: codes issued before this existed keep working, and an
+    # unredeemed code has no account yet.
+    label = Column(String(120), default="")
+    claimed_by = Column(Integer, default=0, index=True)
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -4112,6 +4128,10 @@ class SchoolIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     city: str = ""
     country: str = ""
+    # The first administrator's name. The code created here is how they sign
+    # in — there is no email and no password — so it has to carry the name
+    # the account will be made under.
+    admin_name: str = Field(default="", max_length=120)
 
 
 @app.post("/api/admin/school")
@@ -4124,13 +4144,25 @@ def admin_create_school(body: SchoolIn, user: User = Depends(admin_user),
     db.refresh(sc)
     # auto-create the school admin's code for this school
     code = _gen_head_code(db)
-    db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
+    db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id,
+                       is_head=True, label=body.admin_name.strip()[:120]))
     db.commit()
-    return {"id": sc.id, "name": sc.name, "head_code": code}
+    return {"id": sc.id, "name": sc.name, "head_code": code,
+            "admin_name": body.admin_name.strip()}
+
+
+class HeadCodeIn(BaseModel):
+    # Whose code this is. An administrator signs in with the code alone, so
+    # the code has to carry the name the account will be created under — it
+    # cannot invent one, and "Administrator" for four different people in one
+    # office is a record nobody can read.
+    name: str = Field(default="", max_length=120)
+    replace_all: bool = False
 
 
 @app.post("/api/admin/school/{sid}/head-code")
-def admin_new_head_code(sid: int, replace_all: bool = False,
+def admin_new_head_code(sid: int, body: HeadCodeIn = HeadCodeIn(),
+                        replace_all: bool = False,
                         user: User = Depends(admin_user),
                         db: Session = Depends(get_db)):
     """Issue an admin code for a school. Several may be live at once.
@@ -4155,6 +4187,8 @@ def admin_new_head_code(sid: int, replace_all: bool = False,
     if not sc:
         raise HTTPException(404, "School not found")
     revoked = 0
+    if body.replace_all:
+        replace_all = True
     if replace_all:
         for old in db.query(TeacherCode).filter(
                 TeacherCode.school_id == sid,
@@ -4163,7 +4197,8 @@ def admin_new_head_code(sid: int, replace_all: bool = False,
             old.active = False
             revoked += 1
     code = _gen_head_code(db)
-    db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
+    db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id,
+                       is_head=True, label=body.name.strip()[:120]))
     db.commit()
     live = db.query(func.count(TeacherCode.id)).filter(
         TeacherCode.school_id == sid,
@@ -7429,13 +7464,57 @@ def sign_in_with_code(body: CodeIn, response: Response, request: Request,
     _code_guard(request)
     code = body.code.strip().upper()
 
+    # A school admin's code: ten digits, and it carries its own identity.
+    hc = (db.query(TeacherCode)
+            .filter(func.lower(TeacherCode.code) == code.lower(),
+                    TeacherCode.is_head == True,               # noqa: E712
+                    TeacherCode.active == True).first())       # noqa: E712
+    if hc:
+        u = db.get(User, hc.claimed_by) if hc.claimed_by else None
+        if u is not None and u.is_active:
+            # Back to the same administrator. A code that made a second
+            # account every time it was used would leave a school with a
+            # drawer full of half-used identities and no idea which held
+            # what — the register taught this lesson once already.
+            _grant_teacher(db, u, hc.school, hc.school_id, "head")
+            set_session(response, u, db)
+            return {"ok": True, "kind": "school admin", "name": u.name,
+                    "school": hc.school or "", "returning": True}
+
+        if not (hc.label or "").strip():
+            # No name on the code and no account behind it: there is nothing
+            # to call the administrator this would create. Refused rather
+            # than inventing somebody, and the platform admin can reissue the
+            # code with a name against it.
+            raise HTTPException(
+                409, "That code has no name on it yet. Ask for a code issued "
+                     "in your name — an account has to be called something.")
+
+        u = User(
+            name=hc.label.strip()[:120],
+            # Synthetic and unroutable, exactly as a pupil's class-code
+            # account is: nothing is ever sent here and it cannot collide
+            # with a real address. The code is the credential.
+            email=f"head{hc.id}.{secrets.token_hex(4)}@schoolcode.invalid",
+            password_hash=hash_pw(secrets.token_urlsafe(24)),
+            kind="schoolcode", is_active=True, email_verified=False)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        hc.claimed_by = u.id
+        db.commit()
+        _grant_teacher(db, u, hc.school, hc.school_id, "head")
+        set_session(response, u, db)
+        return {"ok": True, "kind": "school admin", "name": u.name,
+                "school": hc.school or "", "returning": False}
+
     slot = (db.query(SubjectSlot)
               .filter(func.upper(SubjectSlot.code) == code).first())
     if not slot:
         _code_missed(request)
         raise HTTPException(
-            404, "No subject has that code. A pupil's class code goes in the "
-                 "class sign-in, not here.")
+            404, "No subject or school has that code. A pupil's class code "
+                 "goes in the class sign-in, not here.")
 
     k = db.get(Klass, slot.class_id)
     if not k:

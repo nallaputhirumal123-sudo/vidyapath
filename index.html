@@ -2192,16 +2192,32 @@ function renderNav(){
      track in the curriculum, which for a schoolchild whose class is the only
      reason they signed in meant scrolling past twenty things they did not
      ask for. Staff have their own dashboard and reach classes through it. */
+  /* Staff are not learners, and the sidebar kept insisting they were.
+   *
+   * A teacher signing in met Choose a path, Projects, the lab, the packet
+   * tracer, the SQL board, Game Studio and All resources — a curriculum to
+   * work through, a progress bar and an XP level, none of it theirs. A school
+   * admin met the same. Neither of them came here to take a course.
+   *
+   * What a teacher keeps beyond the office: Ask Axle anything, and Scan a
+   * problem. Those two are teaching tools — a question mid-lesson, and a
+   * photograph of something out of a textbook. The office does not teach, so
+   * it does not get them.
+   *
+   * The pages stay routable. This is the menu, not a wall. */
   const staff = !!(USER.is_teacher || USER.is_admin);
+  const head = USER.role === "head" || USER.role === "schooladmin"
+               || USER.is_admin;
+  const teaches = staff && !head;
   h+=nav("home","🏠","Home")
    + (staff ? "" : nav("class","🎓","My class"))
-   + nav("paths","🧭","Choose a path")
-   + nav("projects","🛠️","Projects")
-   + nav("ask","💬","Ask Axle anything")
-   + nav("scan","📷","Scan a problem")
-   + nav("lab","🧪","The lab")
-   + nav("net","🌐","Trace a packet")
-   + nav("sqlboard","🗄️","SQL board");
+   + (staff ? "" : nav("paths","🧭","Choose a path"))
+   + (staff ? "" : nav("projects","🛠️","Projects"))
+   + ((!staff || teaches) ? nav("ask","💬","Ask Axle anything") : "")
+   + ((!staff || teaches) ? nav("scan","📷","Scan a problem") : "")
+   + (staff ? "" : nav("lab","🧪","The lab"))
+   + (staff ? "" : nav("net","🌐","Trace a packet"))
+   + (staff ? "" : nav("sqlboard","🗄️","SQL board"));
 
   /* The job half, when this account has one. A Craxlearn institution and
      anybody under 18 do not: the server refuses those routes either way,
@@ -2235,9 +2251,13 @@ function renderNav(){
     <div style="padding:0 20px 18px"><div class="bar"><i style="width:${pct}%"></i></div>
     <div style="font-size:11.5px;color:var(--dim);margin-top:7px">${totalDone()} of ${totalLessons()} lessons · ${pct}%</div></div>`;
 
-  h+=`<div class="navsec">More</div>`
-   + nav("studio","🎮","Game Studio")
-   + nav("resources","🔗","All resources");
+  /* Game Studio and All resources are learner things too. A school admin
+     opening this menu to check a fee should not be offered a game engine. */
+  if(!staff){
+    h+=`<div class="navsec">More</div>`
+     + nav("studio","🎮","Game Studio")
+     + nav("resources","🔗","All resources");
+  }
 
   if(USER.is_teacher||USER.is_admin){
     h+=`<div class="navsec">Manage</div>`;
@@ -2420,6 +2440,12 @@ function homeJobsHidden(){
 }
 
 function renderHome(){
+  /* Staff are not working through a curriculum, so the home page stops
+     telling them how far through it they are. Progress, lessons done, a
+     streak and an XP level are a learner's page; a teacher opening this to
+     reach their class was shown 0% and "do one exercise to start a streak"
+     about a course that is not theirs to take. */
+  const HOME_STAFF = !!(USER.is_teacher || USER.is_admin);
   const pct=Math.round(totalDone()/totalLessons()*100);
   const next=allLessons().find(l=>!S.done[l.id]);
   const nt=next?TRACKS.find(t=>t.lessons.includes(next)):null;
@@ -2546,7 +2572,7 @@ function renderHome(){
         the board and read aloud.</div></button>
   </div>
 
-  <div class="eyebrow" style="margin-top:0">Your learning</div>
+  ${HOME_STAFF ? "" : `<div class="eyebrow" style="margin-top:0">Your learning</div>
   <div class="grid g4" style="margin-bottom:26px">
     <div class="card"><div class="statlbl">Progress</div><div class="stat">${pct}%</div><div class="bar" style="margin-top:9px"><i style="width:${pct}%"></i></div></div>
     <div class="card"><div class="statlbl">Lessons</div><div class="stat">${totalDone()}<span style="font-size:15px;color:var(--dim)">/${totalLessons()}</span></div></div>
@@ -2555,7 +2581,7 @@ function renderHome(){
     <div class="card"><div class="statlbl">Level ${(S.stats||{}).level||1}</div><div class="stat">⚡ ${(S.stats||{}).xp||0}<span style="font-size:15px;color:var(--dim)"> XP</span></div>
       <div class="bar" style="margin-top:9px"><i style="width:${Math.round(((S.stats||{}).level_progress||0)*100)}%"></i></div>
       <div style="font-size:11.5px;color:var(--dim);margin-top:4px">${(S.stats||{}).next_level_at||250} XP reaches level ${((S.stats||{}).level||1)+1}</div></div>
-  </div>
+  </div>`}
 
   ${next?`<div class="card" style="border-color:var(--accent);background:linear-gradient(180deg,rgba(255,153,51,.07),transparent);margin-bottom:26px">
     <div class="row"><div style="min-width:200px">

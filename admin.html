@@ -1048,8 +1048,21 @@ async function renderSchools(){
     const name=($("#scName").value||"").trim(); const m=$("#scMsg");
     if(!name){ m.textContent="Enter a school name."; return; }
     m.textContent="Enrolling…";
-    try{ const r=await api.post("/api/admin/school",{name,city:$("#scCity").value,country:$("#scCountry").value});
-      alert("School enrolled.\n\nHead-teacher code: "+r.head_code+"\n\nGive this to the head teacher — they sign up with it."); renderSchools(); }
+    /* The administrator's name is asked for here because the code IS their
+       sign-in: there is no email and no password, so the account it creates
+       has to be called something. "Administrator" four times over in one
+       office is a record nobody can read. */
+    const who=prompt("Who runs this school? Their name goes on the account "+
+                     "this code will create.", "");
+    if(who===null){ m.textContent=""; return; }
+    if(!who.trim()){ m.textContent="A name is needed — the code creates their account."; return; }
+    try{ const r=await api.post("/api/admin/school",
+           {name, city:$("#scCity").value, country:$("#scCountry").value,
+            admin_name:who.trim()});
+      alert("School enrolled.\n\nAdmin code for "+(r.admin_name||who.trim())+
+            ": "+r.head_code+
+            "\n\nThey enter this on Join with code. There is no password — "+
+            "the code is the sign-in."); renderSchools(); }
     catch(e){ m.textContent=e.message; }
   };
   /* Issuing another admin code no longer cancels the ones already out.
@@ -1061,7 +1074,12 @@ async function renderSchools(){
                 "Codes already given out keep working. Use Codes to stop "+
                 "one of them.")) return;
     try{
-      const r=await api.post("/api/admin/school/"+b.dataset.newhead+"/head-code",{});
+      const who=prompt("Whose code is this? Their name goes on the account "+
+                       "it will create.", "");
+      if(who===null) return;
+      if(!who.trim()){ alert("A name is needed — the code creates their account."); return; }
+      const r=await api.post("/api/admin/school/"+b.dataset.newhead+"/head-code",
+                             {name:who.trim()});
       alert("New admin code: "+r.head_code+"\n\n"+
             r.live_codes+" code(s) now live for this school.\n\n"+
             "They enter it on the teacher sign-in, with their own email and "+
