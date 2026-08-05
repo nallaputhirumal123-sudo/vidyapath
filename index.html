@@ -1289,6 +1289,38 @@ const api = {
       if(typeof S!=="undefined"){ S.view={page:"plans"}; if(typeof render==="function") render(); }
       throw new Error(msg);
     }
+    /* A 403 can mean "this account may not do that" — or that the page is
+       showing somebody else entirely.
+
+       Sessions here are single. Signing in as a teacher in one tab replaces
+       the cookie for every tab, so an admin tab left open keeps its own USER
+       object in memory — with its own sidebar, Admin panel and all — while
+       its requests now go out as the teacher. The result was a screen headed
+       "School admin", the admin's menu down the side, and one line of body
+       text saying head teacher access was required. Both halves were truthful
+       and they were describing different people.
+
+       So a refusal is a reason to check who we are, once. If the account
+       changed underneath us the screen is rebuilt for whoever is actually
+       signed in, rather than left contradicting itself. */
+    if(r.status === 403 && !opts._recheck
+       && typeof USER === "object" && USER && USER.id){
+      let who = null;
+      try{ who = await api.call("/api/auth/me", {_recheck:true}); }
+      catch(e){ who = null; }   /* me failing must not hide the original 403 */
+      if(who && who.id && who.id !== USER.id){
+        USER = who;
+        if(typeof S !== "undefined") S.view = {page:"home"};
+        if(typeof render === "function") render();
+        const err0 = new Error("You are signed in as "
+          + (who.name || "a different account")
+          + " now. This account was used to sign in somewhere else.");
+        err0.status = 403;
+        err0.data = {};
+        throw err0;
+      }
+    }
+
     if(!r.ok){
       /* A detail can be an object as well as a string: a refusal that has to
          say what it is refusing and what would change the answer carries a

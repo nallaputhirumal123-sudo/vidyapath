@@ -145,6 +145,47 @@ r = head.patch(f"/api/head/staff/{KID_ID}", json={"new_password": True})
 ck("give a pupil's class-code account a password", r.status_code in (400, 403),
    f"got {r.status_code}")
 
+print("\na pupil must never become staff")
+# A staff list showed "thirumal · teacher · roster1.60b0f2a9@classcode.invalid"
+# — a child's class-code account holding teacher access at the school. The
+# route in was Join with code: a pupil signs in by tapping their name, then
+# types a subject code (the six characters chalked on a board and passed
+# around a class) and comes out the other side able to read every register,
+# mark and message in the school.
+slot = main.SubjectSlot(class_id=k.id, subject="Physics",
+                        code=main._gen_slot_code(db), teacher_id=0,
+                        status="open")
+db.add(slot); db.commit(); db.refresh(slot)
+r = kid.post("/api/class/join", json={"code": slot.code})
+ck("a pupil entering a teacher code is refused", r.status_code == 403,
+   f"got {r.status_code}: {r.text[:90]}")
+db.expire_all()
+ck("and gains no staff access at all",
+   db.query(main.TeacherAccess).filter(
+       main.TeacherAccess.user_id == KID_ID).first() is None)
+ck("their own account still works",
+   kid.get("/api/auth/me").status_code == 200)
+ck("and it is still not a teacher",
+   not kid.get("/api/auth/me").json().get("is_teacher"),
+   str(kid.get("/api/auth/me").json().get("is_teacher")))
+
+# The head code is the more serious one: it would have made a child the
+# administrator of the school.
+r = kid.post("/api/class/join", json={"code": HEAD})
+ck("nor can a pupil redeem the head-teacher code", r.status_code == 403,
+   f"got {r.status_code}")
+
+# And the legitimate path still works, so this is a guard and not a wall.
+tch = TestClient(main.app)
+TE = f"et{st}@example.com"
+tch.post("/api/auth/signup", json={"name": "Real Teacher",
+                                   "email": TE, "password": "RealPass1!"})
+_u = db.query(main.User).filter(main.User.email == TE).first()
+_u.dob = dt.date(1990, 5, 5); db.commit()
+r = tch.post("/api/class/join", json={"code": slot.code})
+ck("an ordinary account with the same code still becomes a teacher",
+   r.status_code == 200 and r.json().get("role") == "teacher", r.text[:110])
+
 outsider = TestClient(main.app)
 OE = f"eo{st}@example.com"
 outsider.post("/api/auth/signup", json={"name": "Outsider E", "email": OE,

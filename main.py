@@ -2207,6 +2207,31 @@ def apply_school_code(db, user, code):
 
 
 def _grant_teacher(db, user, school, school_id, role):
+    """Give an account staff access at a school.
+
+    **A class-code account can never become staff.** It had no such check, and
+    every route that grants a role comes through here, so the hole was
+    everywhere at once: a pupil signed in by tapping their name on the
+    register, typed a subject code — the six characters chalked on a board, or
+    passed around a class — into "Join with code", and became a teacher of the
+    school. From there they could read every register, every mark and every
+    child's messages.
+
+    A class-code account is a child. It has no password anybody holds and no
+    address that receives, which is exactly right for signing in to a lesson
+    and exactly wrong for an account with a school's records behind it. There
+    is no legitimate path from one to the other: a member of staff who is also
+    a pupil somewhere gets a staff account of their own, with a password.
+
+    This is refused rather than ignored, because a pupil holding a teacher
+    code has been given one by somebody, and silently doing nothing would
+    leave both of them thinking it had worked.
+    """
+    if (getattr(user, "kind", "") or "") == "classcode":
+        raise HTTPException(
+            403, "That code is for a member of staff, and this is a pupil's "
+                 "class-code sign-in. Ask the school office for a teacher "
+                 "account with its own password.")
     ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == user.id).first()
     if ta:
         # never downgrade a head to teacher
