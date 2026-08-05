@@ -16,7 +16,13 @@ separately and it was the join between them that was missing:
 
     a head teacher types the names
       → a learner signs in with the class code and taps one
-        → that name is taken and nobody else can be it
+        → that name is theirs, and tapping it again returns them to it
+
+That last step used to read "and nobody else can be it", which was achieved by
+taking the name off the list — and taking the name off the list is how a child
+who signed out lost their account for good. The register row is the credential
+for a class-code account: the email receives nothing and the password is
+random bytes nobody holds. So the name stays.
 
 And the rule that protects work already done: adding names never removes one a
 learner has claimed. A teacher retyping the list to fix one spelling must not
@@ -28,6 +34,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"] = "0"
 os.environ["COOKIE_SECURE"] = "0"
 
@@ -108,12 +115,47 @@ rid = [n["id"] for n in d["names"] if n["name"] == "Asha Rao"][0]
 r = anon.post("/api/craxlearn/claim", json={"code": CODE, "roster_id": rid})
 check("the learner is signed in", r.status_code == 200, r.text[:70])
 
+# These two used to assert the opposite, and the opposite was the bug: the
+# name came off the list and a second tap was refused with a 409.
+#
+# For a class-code account the register row IS the credential — the email
+# receives nothing and the password is random bytes nobody holds — so hiding
+# a claimed name meant a child who signed out could never get back in, and
+# their work was gone with them. Signing out was account deletion.
+#
+# The name therefore stays, marked, and tapping your own signs you back into
+# the same account. What that costs is stated rather than hidden: the class
+# code is the class's credential, so anybody holding it can now sign in as
+# anybody on that register, not only as a name nobody has taken yet. It was
+# already three-quarters true — any unclaimed name was open to any code
+# holder. The lever is the code, which is per-class and rotatable.
 other = TestClient(main.app)
 r = other.post("/api/craxlearn/code", json={"code": CODE})
-check("that name is no longer on offer",
-      "Asha Rao" not in [n["name"] for n in r.json()["names"]])
+row = [n for n in r.json()["names"] if n["name"] == "Asha Rao"]
+check("a claimed name stays on the register, so its owner can return",
+      len(row) == 1, str([n["name"] for n in r.json()["names"]]))
+check("and it is marked as one that has been used",
+      bool(row and row[0].get("taken")))
 r = other.post("/api/craxlearn/claim", json={"code": CODE, "roster_id": rid})
-check("and cannot be taken twice", r.status_code == 409, f"got {r.status_code}")
+check("tapping it again returns the SAME account, never a second one",
+      r.status_code == 200 and r.json().get("returning") is True,
+      f"{r.status_code} {r.text[:80]}")
+_row = db.get(main.RosterName, rid)
+db.refresh(_row)
+check("which is the account the register row already pointed at",
+      _o_id := other.get("/api/auth/me").json().get("id"),
+      "no session")
+check("and the row still points at that one account",
+      _row.claimed_by == _o_id, f"{_row.claimed_by} vs {_o_id}")
+
+# And the safeguard that makes the trade-off above liveable: sessions are
+# single. A second device signing into this account ends the first one's
+# session and says why, so somebody else using your name is something you
+# find out about rather than something that happens quietly behind you.
+_a = anon.get("/api/auth/me")
+check("the first device is signed out, and told why",
+      _a.status_code == 401 and "somewhere else" in _a.text,
+      f"{_a.status_code} {_a.text[:80]}")
 
 print("\nretyping the list does not delete a child's account")
 r = head.post(f"/api/teacher/class/{CID}/roster",

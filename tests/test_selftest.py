@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("GEMINI_API_KEY", "test-key-not-real")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-selftest-long-enough")
 os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"] = "0"
 # The session cookie is Secure in production and the test client speaks http,
 # so without this the jar silently drops it and every request reads as signed

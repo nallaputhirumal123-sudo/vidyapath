@@ -28,6 +28,7 @@ os.environ.setdefault("JWT_SECRET", "t" * 40)
 # database the other suites use is a test that breaks them for reasons
 # nobody will connect to it. Gitignored by the *.db rule.
 os.environ["DATABASE_URL"] = "sqlite:///./vidyapath-classcode-test.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"] = "0"
 os.environ["COOKIE_SECURE"] = "0"
 
@@ -103,7 +104,7 @@ check("and lists who is free", len(found["names"]) == 4, str(found))
 check("and says the register is ready", found["roster_ready"] is True)
 check("and leaks nothing else",
       set(found) == {"class_id", "class_name", "school", "names",
-                     "roster_ready"}, str(set(found)))
+                     "roster_ready", "archived"}, str(set(found)))
 
 r = anon.post("/api/craxlearn/code", json={"code": "NOPE99"})
 check("a wrong code finds nothing", r.status_code == 404, str(r.status_code))
@@ -124,15 +125,44 @@ me = anon.get("/api/craxlearn/me").json()
 check("and lands in the class",
       any(c["name"] == "7-B" for c in me.get("classes") or []), str(me.get("classes")))
 
+# These two pinned the old behaviour, and the old behaviour was the bug.
+#
+# The name used to vanish from the register once claimed, and a second claim
+# was refused with 409. For a class-code account the register row IS the
+# credential — synthetic email, random password nobody holds — so a child who
+# signed out found their name gone and had no way back to their work. Signing
+# out deleted the account.
+#
+# The name stays, marked taken, and tapping it returns the SAME account. The
+# cost is stated rather than hidden: whoever holds the class code can sign in
+# as anyone on that register. Two things bound it — the code is rotatable,
+# and sessions are single, so a second device signs the first one out with a
+# message rather than sharing the account silently.
 r = anon.post("/api/craxlearn/code", json={"code": CODE})
-check("the name is gone from the list",
-      all(n["name"] != "Asha Rao" for n in r.json()["names"]),
-      str(r.json()["names"]))
+row = [n for n in r.json()["names"] if n["name"] == "Asha Rao"]
+check("the name stays on the list, so its owner can come back",
+      len(row) == 1, str(r.json()["names"]))
+check("marked as one that has been taken", bool(row and row[0]["taken"]))
 
 second = TestClient(main.app)
 r = second.post("/api/craxlearn/claim",
                 json={"code": CODE, "roster_id": asha["id"]})
-check("nobody else can be Asha", r.status_code == 409, str(r.status_code))
+check("tapping it again returns that same account, not a new one",
+      r.status_code == 200 and r.json().get("returning") is True,
+      f"{r.status_code} {r.text[:80]}")
+check("and the first device is signed out rather than sharing it",
+      anon.get("/api/auth/me").status_code == 401,
+      str(anon.get("/api/auth/me").status_code))
+
+# Proving that just signed `anon` out, and the rest of this file is written
+# from Asha's side. Tap the name again to come back — which is the whole
+# point of the change, so it is worth exercising here anyway.
+main._CODE_TRIES.clear()
+main._CODE_FAILS.clear()
+anon.post("/api/craxlearn/claim", json={"code": CODE, "roster_id": asha["id"]})
+check("and Asha can take her account back",
+      anon.get("/api/auth/me").status_code == 200,
+      str(anon.get("/api/auth/me").status_code))
 
 bilal = [n for n in found["names"] if n["name"] == "Bilal Khan"][0]
 r = second.post("/api/craxlearn/claim",

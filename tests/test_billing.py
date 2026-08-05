@@ -7,6 +7,7 @@ with a correctly signed payload.
 """
 import os, sys, time, json, hmac, hashlib
 os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"] = "0"
 os.environ["COOKIE_SECURE"] = "0"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -1243,7 +1243,22 @@ const api = {
       if(typeof S!=="undefined"){ S.view={page:"plans"}; if(typeof render==="function") render(); }
       throw new Error(msg);
     }
-    if(!r.ok) throw new Error(data.detail || ("Request failed ("+r.status+")"));
+    if(!r.ok){
+      /* A detail can be an object as well as a string: a refusal that has to
+         say what it is refusing and what would change the answer carries a
+         structure, not a sentence. new Error(thatObject) gives the message
+         "[object Object]", which is what a person then sees in an alert.
+         So the sentence is pulled out of it, and the whole body is attached
+         for a caller that wants to act on it rather than print it. */
+      const d = data.detail;
+      const msg = (d && typeof d === "object")
+        ? (d.message || "Request failed ("+r.status+")")
+        : (d || "Request failed ("+r.status+")");
+      const err = new Error(msg);
+      err.status = r.status;
+      err.data = (d && typeof d === "object") ? d : {};
+      throw err;
+    }
     return data;
   },
   get:  p       => api.call(p),
@@ -6046,11 +6061,15 @@ async function renderHead(){
 
     ${cr.length?cr.map(c=>`<div class="card" style="margin-bottom:14px">
       <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
-        <div><div style="font-size:16px;font-weight:650">${esc(c.name)}</div>
+        <div><div style="font-size:16px;font-weight:650">${esc(c.name)}${
+            c.archived?`<span style="font-size:11.5px;color:var(--dim);font-weight:400"> · archived</span>`:""}</div>
           <div style="font-size:12.5px;color:var(--dim)">Student code <b style="color:var(--accent);letter-spacing:1.5px">${esc(c.join_code)}</b> · ${c.students} students</div></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn sm ghost" data-cls="openclass" data-id="${c.id}">Open class →</button>
           <button class="btn sm ghost" data-cls="hrotclass" data-id="${c.id}">Rotate code</button>
+          ${c.archived
+            ?`<button class="btn sm ghost" data-cls="harchclass" data-id="${c.id}" data-on="0">Bring back</button>`
+            :`<button class="btn sm ghost" data-cls="harchclass" data-id="${c.id}" data-on="1">Archive</button>`}
           <button class="btn ghost sm" data-cls="hdelclass" data-id="${c.id}">Delete</button></div>
       </div>
       <div class="eyebrow" style="margin:14px 0 6px">Subjects &amp; teacher codes</div>
@@ -6421,7 +6440,9 @@ function rosterDraw(){
       <input id="rosFind" class="ask-input" style="flex:1;min-width:140px"
         placeholder="Find by name or roll number" value="${esc(ROSTER.q||"")}"/>
       <span style="font-size:11.5px;color:var(--dim);white-space:nowrap">
-        ${all.length} on the register · ${all.length-signed} not signed in</span>
+        ${all.filter(r=>!r.removed).length} on the register · ${
+          all.filter(r=>!r.claimed&&!r.removed).length} not signed in${
+          all.some(r=>r.removed)?` · ${all.filter(r=>r.removed).length} taken off`:""}</span>
     </div>`;
 
   if(!rows.length){
@@ -6448,10 +6469,22 @@ function rosterDraw(){
             <button class="btn ghost sm" data-cls="roscancel">Cancel</button>
           </span></div>`;
       }
+      /* Three different rows, and three different buttons, because the cost
+         of the action is different in each case.
+
+         A name nobody has signed in under is just text and deleting it is
+         nothing. A name somebody HAS signed in under is an account with
+         their work behind it and no password to get back in with, so it
+         comes off the list rather than out of the database — and can go
+         back on. */
+      const off = !!r.removed;
       return `<div style="display:grid;${cols};gap:10px;padding:8px 0;
-        border-top:1px solid var(--line,#2a2a2a);align-items:center">
+        border-top:1px solid var(--line,#2a2a2a);align-items:center;
+        opacity:${off?".55":"1"}">
         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
-          ${esc(r.name)} ${r.claimed
+          ${esc(r.name)} ${off
+            ?`<span style="font-size:11px;color:var(--dim)">· off the register</span>`
+            :r.claimed
             ?`<span style="font-size:11px;color:var(--dim)">· signed in</span>`
             :`<span style="font-size:11px;color:var(--accent)">· free</span>`}</span>
         <span style="font-size:13px;color:${r.student_code?"inherit":"var(--dim)"};
@@ -6459,8 +6492,14 @@ function rosterDraw(){
           r.student_code?esc(r.student_code):"—"}</span>
         <span style="display:flex;gap:5px">
           <button class="btn ghost sm" data-cls="rosedit" data-id="${r.id}">Edit</button>
-          <button class="btn ghost sm" data-cls="rosdel" data-id="${r.id}"
-            data-cid="${ROSTER.cid}">Remove</button>
+          ${off
+            ?`<button class="btn ghost sm" data-cls="rosback" data-id="${r.id}"
+                data-cid="${ROSTER.cid}">Put back</button>`
+            :r.claimed
+            ?`<button class="btn ghost sm" data-cls="rosoff" data-id="${r.id}"
+                data-cid="${ROSTER.cid}">Take off</button>`
+            :`<button class="btn ghost sm" data-cls="rosdel" data-id="${r.id}"
+                data-cid="${ROSTER.cid}">Remove</button>`}
         </span></div>`;
     }).join("");
   rosterWire();
@@ -6510,14 +6549,81 @@ async function rosAdd(cid){
   }catch(e){ toast(e.message); }
 }
 
-/* Removing is deliberate and says what it costs. A name somebody has already
-   signed in under belongs to an account with work in it. */
+/* Deleting a whole classroom.
+
+   Eight tables hang off it — the register, assignments, submissions, the
+   discussion, the study material, the timetable. The server refuses while
+   any of that exists and says what it holds; this turns that refusal into a
+   choice rather than an error message, and offers the thing that is almost
+   always meant instead. */
+async function delClass(cid){
+  try{
+    await api.del("/api/teacher/class/"+cid);
+    renderHead(); toast("Class deleted.");
+    return;
+  }catch(e){
+    const d = e.data || {};
+    if(e.status!==409 || !d.needs_confirm){ alert(e.message); return; }
+    const h = d.holds||{};
+    if(confirm(d.message+"\n\nArchive it instead? (keeps everything)")){
+      await archClass(cid, true);
+      return;
+    }
+    const typed = prompt(
+      "This cannot be undone.\n\n"+
+      h.students+" students would lose the only way into their accounts — "+
+      "they signed in with a class code and there is no password to reset.\n\n"+
+      "Type the class name to delete it: "+d.needs_confirm);
+    if(!typed || typed.trim().toLowerCase()!==String(d.needs_confirm).toLowerCase()){
+      toast("Not deleted."); return;
+    }
+    try{
+      await api.del("/api/teacher/class/"+cid+"?confirm="+encodeURIComponent(typed.trim()));
+      renderHead(); toast("Class deleted.");
+    }catch(e2){ alert(e2.message); }
+  }
+}
+
+async function archClass(cid, on){
+  try{
+    const r = await api.post("/api/teacher/class/"+cid+"/archive"+(on?"":"?on=false"),{});
+    renderHead();
+    toast(r.archived
+      ? "Archived. Nothing was deleted — the students on it can still reach their work."
+      : "Back in use.");
+  }catch(e){ alert(e.message); }
+}
+
+/* Deleting a name nobody has used. Cheap, and reversible by retyping it. */
 async function rosDel(rid, cid){
   if(!confirm("Remove this name from the register?")) return;
   try{
     await api.del("/api/teacher/roster/"+rid);
     await rosterPaint(cid);
     toast("Removed.");
+  }catch(e){ toast(e.message); }
+}
+
+/* Taking a child who HAS signed in off the register, and putting them back.
+   The row and the account are kept either way — for a class-code account the
+   row is the only way in, so deleting it would be deleting the child's work
+   along with their way of reaching it. */
+async function rosOff(rid, cid){
+  if(!confirm("Take this child off the register?\n\n"+
+              "They stop appearing at sign-in. Their account and their work "+
+              "are kept, and you can put them back.")) return;
+  try{
+    await api.post("/api/teacher/roster/"+rid+"/remove",{});
+    await rosterPaint(cid);
+    toast("Taken off the register. Their work is kept.");
+  }catch(e){ toast(e.message); }
+}
+
+async function rosBack(rid, cid){
+  try{
+    await api.post("/api/teacher/roster/"+rid+"/remove?on=false",{});
+    await rosterPaint(cid);
+    toast("Back on the register.");
   }catch(e){ toast(e.message); }
 }
 
@@ -6771,13 +6877,16 @@ document.addEventListener("click",e=>{
   else if(k==="atsave") attSave();
   else if(k==="feepaid") feeMarkPaid(id, b.dataset.amt);
   else if(k==="rosdel") rosDel(id, cid);
+  else if(k==="rosoff") rosOff(id, cid);
+  else if(k==="rosback") rosBack(id, cid);
   else if(k==="rosedit") rosEdit(id);
   else if(k==="rossave") rosSave(id);
   else if(k==="roscancel") rosCancel();
   else if(k==="hrotslot"){ api.post("/api/head/slot/"+id+"/rotate",{}).then(()=>renderHead()).catch(e=>alert(e.message)); }
   else if(k==="hdelslot"){ if(confirm("Remove this subject? Its teacher loses access.")) api.del("/api/head/slot/"+id).then(()=>renderHead()).catch(()=>{}); }
   else if(k==="hrotclass"){ if(confirm("New student code? Students must re-enter the new code.")) api.post("/api/head/class/"+id+"/rotate",{}).then(()=>renderHead()).catch(()=>{}); }
-  else if(k==="hdelclass"){ if(confirm("Delete this whole classroom?")) api.del("/api/teacher/class/"+id).then(()=>renderHead()).catch(e=>alert(e.message)); }
+  else if(k==="hdelclass") delClass(id);
+  else if(k==="harchclass") archClass(id, b.dataset.on!=="0");
   else if(k==="reqdone"){ api.post("/api/head/request/"+id+"/done",{}).then(()=>renderHead()).catch(()=>{}); }
   else if(k==="reqnew"){ const msg=prompt("What do you need from your school admin? (e.g. add me to Maths in 6-B)"); if(msg) api.post("/api/teacher/request",{message:msg}).then(()=>alert("Request sent to your school admin.")).catch(e=>alert(e.message)); }
   else if(k==="openclass"){ S.view={page:"teacher",cid:id}; render(); }

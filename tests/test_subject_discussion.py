@@ -1,6 +1,7 @@
 import os, sys, time, datetime as dt
 sys.path.insert(0, r"C:\Users\nalla\vidyapath")
 os.environ.setdefault("JWT_SECRET","t"*40); os.environ["DATABASE_URL"]="sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"]="0"; os.environ["COOKIE_SECURE"]="0"
 import main
 from fastapi.testclient import TestClient
@@ -27,7 +28,11 @@ code=db.get(main.Klass,CID).join_code
 kids=[]
 for _ in range(2):
     c=TestClient(main.app)
-    free=c.post('/api/craxlearn/code',json={'code':code}).json()['names']
+# Roster names no longer disappear when claimed, so "the first name on
+# the list" is the same child every time and every client after the
+# first lands in one account — which single-session sign-in then signs
+# out. Take the first name nobody has taken instead.
+    free=[n for n in c.post('/api/craxlearn/code',json={'code':code}).json()['names'] if not n.get('taken')]
     if not free: break
     c.post('/api/craxlearn/claim',json={'code':code,'roster_id':free[0]['id']}); kids.append(c)
 

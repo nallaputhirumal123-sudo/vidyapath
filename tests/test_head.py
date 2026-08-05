@@ -2,6 +2,7 @@ import os, sys, time, datetime as dt
 sys.path.insert(0, r"C:\Users\nalla\vidyapath")
 os.environ.setdefault("JWT_SECRET","t"*40)
 os.environ["DATABASE_URL"]="sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"]="0"; os.environ["COOKIE_SECURE"]="0"
 import main
 from fastapi.testclient import TestClient

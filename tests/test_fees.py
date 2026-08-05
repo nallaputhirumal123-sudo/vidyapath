@@ -23,6 +23,7 @@ import datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"] = "0"
 os.environ["COOKIE_SECURE"] = "0"
 
@@ -79,16 +80,34 @@ code = db.get(main.Klass, CID).join_code
 
 main._CODE_TRIES.clear()
 main._CODE_FAILS.clear()
+# Take a DIFFERENT name each time, explicitly.
+#
+# This used to claim names[0] three times over and get three children,
+# because a claimed name disappeared from the register. It does not any
+# more — hiding it was how a child who signed out lost their account — so
+# names[0] is now the same child three times, all three clients land in one
+# account, and a class of three bills as a class of one.
+#
+# The register says which names are free. Read it rather than assuming the
+# top of the list moves.
 kids = []
+seen = set()
 for i in range(3):
     c = TestClient(main.app)
-    free = c.post("/api/craxlearn/code", json={"code": code}).json()["names"]
+    roster = c.post("/api/craxlearn/code", json={"code": code}).json()["names"]
+    free = [n for n in roster if not n.get("taken") and n["id"] not in seen]
     if not free:
         break
-    c.post("/api/craxlearn/claim",
-           json={"code": code, "roster_id": free[0]["id"]})
+    seen.add(free[0]["id"])
+    r = c.post("/api/craxlearn/claim",
+               json={"code": code, "roster_id": free[0]["id"]})
+    if r.status_code != 200:
+        break
     kids.append(c)
 check("three learners signed in", len(kids) == 3, str(len(kids)))
+check("and they are three different accounts",
+      len({c.get("/api/auth/me").json().get("id") for c in kids}) == 3,
+      str([c.get("/api/auth/me").json().get("id") for c in kids]))
 
 print("\none fee, put on the whole class")
 due = (dt.date.today() + dt.timedelta(days=20)).isoformat()

@@ -26,3 +26,14 @@ corpus.db.old
 corpus.db.building
 deckshots/
 *.pptx.tmp
+
+# No database file is ever committed. The schema lives in migrations/,
+# the data lives in Postgres, and a .db in the repository is neither.
+*.db-journal
+*.sqlite
+corpus.db*
+*.bak
+
+# Any .env variant, not just the exact name. A credential in
+# .env.local or .env.backup is the same credential.
+.env*

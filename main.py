@@ -9,6 +9,7 @@ Admin panel:   http://localhost:8000/admin
 
 import os
 import re
+import sys
 import json
 import math
 import calendar
@@ -72,22 +73,31 @@ def env(name, default=""):
     return (os.environ.get(name) or "").strip() or default
 
 
-DATABASE_URL = env("DATABASE_URL", "sqlite:///./vidyapath.db")
-
-# Railway hands out postgres:// ; SQLAlchemy 2 needs postgresql://
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-# An unresolved Railway reference arrives literally as "${{ ... }}"
-if "${{" in DATABASE_URL or not DATABASE_URL.strip():
-    print("WARNING: DATABASE_URL is empty or unresolved — falling back to "
-          "SQLite. Data will NOT survive a redeploy. In Railway, add "
-          "DATABASE_URL via '+ New Variable' > 'Add Reference' > Postgres.")
-    DATABASE_URL = "sqlite:///./vidyapath.db"
+# Resolved in db.py, which refuses rather than falls back. There used to be a
+# fallback here: no DATABASE_URL meant a SQLite file inside the container, a
+# printed warning, and a green healthcheck — while every account and every
+# piece of student work went into a file that the next deploy destroyed.
+import db as _db                                          # noqa: E402
+DATABASE_URL = _db.resolve_database_url()
 
 JWT_SECRET = env("JWT_SECRET")
 if not JWT_SECRET:
-    # Fine for local dev; on Railway you MUST set this or sessions reset on redeploy.
+    # On a deployment this is fatal, not a warning.
+    #
+    # The fallback was a constant written in this file, in a public
+    # repository. Session cookies are signed with it, so a deploy that
+    # happened to be missing the variable was signing session tokens with a
+    # key anybody could read — meaning anybody could mint a session for any
+    # user id, including an administrator. It printed a warning and carried
+    # on serving.
+    if _db.is_deployed():
+        _db._die(
+            "JWT_SECRET is not set.\n\n"
+            "Session cookies are signed with it. Without it the only value "
+            "available is a constant committed to this repository, which "
+            "would let anyone forge a session for any account.\n\n"
+            "Set JWT_SECRET to a long random string in the service "
+            "variables.")
     JWT_SECRET = "dev-only-insecure-secret-change-me"
     print("WARNING: JWT_SECRET not set — using an insecure development value.")
 
@@ -688,6 +698,18 @@ class Klass(Base):
     school = Column(String(160), default="")
     school_id = Column(Integer, default=0)
     schedule = Column(Text, default="")     # legacy; schedule is now a list
+    # Put away at the end of the year, not destroyed.
+    #
+    # Eight tables cascade off this one — the register, assignments,
+    # submissions, the discussion, the study material, the timetable. So
+    # deleting a class deleted a year of a school's work and every
+    # class-code child's only way back to their account, in one click, with
+    # nothing asked. Archiving is what somebody actually wants in April:
+    # the class stops being current, and nothing is lost.
+    #
+    # Nullable because _migrate_columns adds it to a table that already has
+    # classes in it, and because "not archived" is the ordinary state.
+    archived_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -797,9 +819,14 @@ class RosterName(Base):
     is in the room, so asking them once is cheaper than asking thirty
     children to invent credentials.
 
-    `claimed_by` is what stops two people being the same pupil. Once a name
-    is taken it disappears from the list, and the account behind it is the
-    only one that name will ever sign in as.
+    `claimed_by` records which account took this name. The name STAYS on the
+    list afterwards: hiding it meant a child who signed out could never get
+    back in, because there is no email that receives and no password anybody
+    holds, so the row is the credential. Tapping a taken name signs you back
+    into the same account.
+
+    Nothing here is ever deleted to take somebody off the register. That is
+    what `removed_at` is for.
     """
     __tablename__ = "roster_names"
     id = Column(Integer, primary_key=True)
@@ -814,6 +841,16 @@ class RosterName(Base):
     student_code = Column(String(40), default="", index=True)
     claimed_by = Column(Integer, default=0, index=True)   # User.id, 0 = free
     claimed_at = Column(DateTime(timezone=True))
+    # Taken off the register without taking away the account.
+    #
+    # A child who leaves mid-year has to come off the sign-in list, but the
+    # account behind their name holds their work and the school's record of
+    # it. Deleting the row was the only way to do it and deleting the row is
+    # exactly what must not happen — so the row stays, marked, and stops
+    # being offered. Putting them back is clearing this field.
+    #
+    # Nullable: the ordinary state is "still here".
+    removed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), default=now)
 
 
@@ -1681,29 +1718,19 @@ def _seed_file(db, filename, audience, position_offset):
     return added
 
 
-def _count_users():
-    db = SessionLocal()
-    try:
-        return db.query(func.count(User.id)).scalar() or 0
-    finally:
-        db.close()
-
-
-def _schema_matches():
-    """True if the live tables match the current models. A Postgres database
-    left over from an older version can have tables missing newer columns
-    (e.g. tracks.audience); create_all() will NOT add them, so we must detect
-    the drift and rebuild."""
-    db = SessionLocal()
-    try:
-        db.query(Track).limit(1).all()
-        db.query(Lesson).limit(1).all()
-        return True
-    except Exception as e:
-        print(f"Schema drift detected: {type(e).__name__}: {e}")
-        return False
-    finally:
-        db.close()
+# _count_users() and _schema_matches() were here and are deliberately gone.
+#
+# Together they decided whether to call Base.metadata.drop_all(): if two
+# SELECTs raised, the schema was declared "drifted", and if the user count
+# then read zero, every table was dropped and rebuilt. Both halves were
+# wrong. A failing SELECT means the query failed — the column is missing, or
+# the database is unreachable, or the connection died mid-statement — and
+# only one of those is drift. And a COUNT(*) returning zero on a database
+# the code has just admitted it does not understand is not evidence that
+# nobody's work is in there.
+#
+# There is no drift now. The database is at a known revision or the process
+# refuses to start; see db.require_schema_at_head.
 
 
 def _migrate_columns():
@@ -1758,27 +1785,36 @@ if engine.dialect.name == "sqlite":
 
 
 def seed_if_empty():
-    """Create tables, load curriculum on first boot, ensure admin exists."""
-    Base.metadata.create_all(engine)
-    _migrate_columns()   # non-destructive column additions
+    """Check the schema, then load curriculum on first boot and ensure admin.
 
-    # Heal an out-of-date schema from an early, pre-launch database. This ONLY
-    # runs when there are no real user accounts yet — once people have signed
-    # up, we never drop tables automatically (that would destroy their data).
-    if not _schema_matches():
-        real_users = 0
-        try:
-            real_users = _count_users()
-        except Exception:
-            real_users = 0
-        if real_users == 0:
-            print("Schema drift on an empty database — rebuilding tables...")
-            Base.metadata.drop_all(engine)
-            Base.metadata.create_all(engine)
-            print("Tables rebuilt.")
-        else:
-            print(f"WARNING: schema drift detected but {real_users} accounts "
-                  "exist — NOT dropping data. A manual migration is needed.")
+    The schema is no longer built or repaired here. On Postgres this verifies
+    that the database is at the revision this code was written against and
+    raises otherwise, which stops the deploy.
+
+    What this replaced, and why none of it survives:
+
+      * create_all() — built whatever the models said today, with no record
+        of what ran, in what order, or when. Two deploys from two branches
+        produced two different databases and neither could say so.
+      * _migrate_columns() — issued bare ADD COLUMN for anything missing.
+        Additive only: it could never rename, retype, drop or backfill, so
+        every column in the codebase had to be nullable forever, and any
+        change that was not "add a nullable column" silently did not happen.
+      * drop_all() on drift — deleted every table when the schema did not
+        match and the user count read zero. A guard made of one COUNT(*)
+        against a database that was, by the branch's own admission, in a
+        state the code did not understand.
+
+    On SQLite (tests only) the tables are still created directly. Alembic's
+    revisions are Postgres DDL and would not run there, and the suites build
+    a throwaway database per run.
+    """
+    if _db.is_sqlite(DATABASE_URL):
+        Base.metadata.create_all(engine)
+        _migrate_columns()
+    else:
+        rev = _db.require_schema_at_head(engine)
+        print(f"schema: at {rev}")
 
     db = SessionLocal()
     try:
@@ -1913,7 +1949,16 @@ def _backfill_job_skills():
             pass
 
 def _seed_with_retries():
-    """Postgres often is not accepting connections the instant we boot."""
+    """Postgres often is not accepting connections the instant we boot.
+
+    Connection trouble is worth retrying. A wrong schema is not: it will be
+    just as wrong in four seconds, and every retry is four more seconds of a
+    process that must not end up serving. A ConfigError from db.py therefore
+    kills the container immediately instead of being retried into the
+    degraded mode below — which exists so that a database outage still leaves
+    /api/status reachable, and which must never be reached by a deploy that
+    is simply missing its migration.
+    """
     global STARTUP_ERROR
     import time
     for attempt in range(1, 6):
@@ -1925,6 +1970,14 @@ def _seed_with_retries():
 
 
             return
+        except _db.ConfigError as e:
+            # Already printed the full explanation to stderr. Exit hard:
+            # raising here would be caught by uvicorn's startup handling and
+            # the process could survive with no schema.
+            STARTUP_ERROR = f"schema: {e}"
+            sys.stderr.write("Refusing to serve. Exiting.\n")
+            sys.stderr.flush()
+            os._exit(1)
         except Exception as e:
             STARTUP_ERROR = f"{type(e).__name__}: {e}"
             wait = attempt * 2
@@ -3058,13 +3111,112 @@ def update_class(cid: int, body: ClassIn, user: User = Depends(teacher_user),
     return {"ok": True}
 
 
-@app.delete("/api/teacher/class/{cid}")
-def delete_class(cid: int, user: User = Depends(teacher_user),
-                 db: Session = Depends(get_db)):
+def _class_holds(db, cid):
+    """What would be destroyed with this class. Counted, not guessed at."""
+    return {
+        "students": db.query(RosterName).filter(
+            RosterName.class_id == cid, RosterName.claimed_by != 0).count(),
+        "names": db.query(RosterName).filter(
+            RosterName.class_id == cid).count(),
+        "assignments": db.query(Assignment).filter(
+            Assignment.class_id == cid).count(),
+        "materials": db.query(Material).filter(
+            Material.class_id == cid).count(),
+        "discussion": db.query(ClassPost).filter(
+            ClassPost.class_id == cid).count(),
+    }
+
+
+@app.post("/api/teacher/class/{cid}/archive")
+def archive_class(cid: int, on: bool = True,
+                  user: User = Depends(teacher_user),
+                  db: Session = Depends(get_db)):
+    """Put a class away at the end of the year, or bring it back.
+
+    This is what deleting a class was being used for, and deleting was the
+    wrong verb: it took the register, the assignments, the submissions, the
+    discussion and the study material with it. An archived class keeps every
+    one of those. It comes off the current lists, it stops taking new
+    students, and the children already on it can still sign in and reach
+    their own work — which is theirs, and does not stop being theirs in
+    April.
+
+    Reversible, because "archived by mistake in the last week of term" is a
+    thing that happens and must not need us.
+    """
     k = _head_or_admin(db, cid, user)
+    k.archived_at = now() if on else None
+    db.commit()
+    return {"ok": True, "archived": bool(k.archived_at),
+            "class": k.name, **_class_holds(db, cid)}
+
+
+@app.delete("/api/teacher/class/{cid}")
+def delete_class(cid: int, confirm: str = "",
+                 user: User = Depends(teacher_user),
+                 db: Session = Depends(get_db)):
+    """Delete a class. Refused while it still holds anybody's work.
+
+    Eight tables cascade off a class row: the register, class membership,
+    subject slots, assignments, submissions, the discussion, the study
+    material and the timetable. So this route used to be a single
+    unguarded click that destroyed a year of a school's work — and, worse
+    than that, every class-code account in it. Those accounts have a
+    synthetic email that receives nothing and a password hash of random
+    bytes; the register row IS the credential. Delete the class and thirty
+    children have no way back to their work, ever, and nothing anywhere
+    said so.
+
+    An empty class made by mistake still deletes without ceremony, because
+    that is a typo and not an act.
+
+    Anything else has to be meant: the class name typed back, exactly. Not
+    a yes/no box — a yes/no box is answered without reading. Archiving is
+    offered first because it is almost always what was actually wanted.
+    """
+    k = _head_or_admin(db, cid, user)
+    held = _class_holds(db, cid)
+    if any(held.values()) and confirm.strip().lower() != (k.name or "").lower():
+        bits = [f"{held['students']} signed-in students",
+                f"{held['assignments']} assignments",
+                f"{held['materials']} pieces of study material",
+                f"{held['discussion']} discussion messages"]
+        raise HTTPException(409, {
+            "message": (
+                f"{k.name} still holds " + ", ".join(bits) + ". Deleting it "
+                f"removes all of that, and the students signed in with a "
+                f"class code have no other way into their accounts — there "
+                f"is no password to reset. Archive it instead to keep "
+                f"everything, or type the class name to confirm."),
+            "needs_confirm": k.name, "holds": held})
+
+    # Everything belonging to the class, removed here rather than left to the
+    # database's ON DELETE CASCADE.
+    #
+    # SQLite does not enforce foreign keys unless the pragma is on, and it is
+    # not. So on SQLite the class row went and every child row STAYED —
+    # register, assignments, submissions, discussion, material — orphaned and
+    # invisible. SQLite then reuses the freed row id for the next class, and
+    # that class silently inherited the dead one's register: a brand new
+    # classroom opening with somebody else's children on it, already claimed.
+    #
+    # Postgres, which is what runs in production, would have cascaded. Two
+    # databases doing different things to the same call is worse than either
+    # behaviour on its own, so the deletion is written out once, here.
+    aids = [a.id for a in
+            db.query(Assignment).filter(Assignment.class_id == cid).all()]
+    if aids:
+        db.query(Submission).filter(
+            Submission.assignment_id.in_(aids)).delete(synchronize_session=False)
+        db.query(AssignmentMessage).filter(
+            AssignmentMessage.assignment_id.in_(aids)).delete(synchronize_session=False)
+    for model in (Assignment, RosterName, ClassMember, ClassroomTeacher,
+                  SubjectSlot, ClassPost, Material, ScheduleItem):
+        db.query(model).filter(model.class_id == cid).delete(
+            synchronize_session=False)
     db.delete(k)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "deleted": k.name, "held": held}
 
 
 def _is_coteacher(db, cid, user):
@@ -3755,6 +3907,9 @@ def head_overview(user: User = Depends(head_user), db: Session = Depends(get_db)
         nstu = db.query(func.count(ClassMember.id)).filter(ClassMember.class_id == k.id).scalar()
         out.append({"id": k.id, "name": k.name, "join_code": k.join_code,
                     "students": nstu,
+                    # So the screen can say "archived" and offer to bring it
+                    # back, rather than showing a finished class as current.
+                    "archived": bool(k.archived_at),
                     "subjects": [_slot_json(db, s) for s in slots]})
     reqs = db.query(TeacherRequest).filter(
         TeacherRequest.school_id == sid, TeacherRequest.status == "open").all()
@@ -6516,8 +6671,13 @@ def set_roster(cid: int, body: RosterIn, user: User = Depends(teacher_user),
     only genuinely new names are added.
     """
     _own_class(db, cid, user)
+    # Every row, including ones taken off the register: a name that is
+    # already here must never get a SECOND row. Two rows with one name is
+    # two accounts for one child, and the one holding their work is
+    # whichever they happened to tap first.
     have = {r.name.strip().lower(): r for r in db.query(RosterName)
             .filter(RosterName.class_id == cid).all()}
+    back = 0
     added = 0
     for line in (body.names or "").splitlines():
         # "Asha Rao, 8A-014" — the name, then the school's own id for them.
@@ -6526,13 +6686,22 @@ def set_roster(cid: int, body: RosterIn, user: User = Depends(teacher_user),
         parts = [p.strip() for p in line.split(",", 1)]
         name = " ".join(parts[0].split())[:80]
         code = (parts[1] if len(parts) > 1 else "")[:40]
-        if len(name) < 2 or name.lower() in have:
+        if len(name) < 2:
+            continue
+        was = have.get(name.lower())
+        if was is not None:
+            # Retyping the register is how a teacher puts back somebody who
+            # came off it — the row they already have, not a new one.
+            if getattr(was, "removed_at", None):
+                was.removed_at = None
+                back += 1
             continue
         db.add(RosterName(class_id=cid, name=name, student_code=code))
         have[name.lower()] = True
         added += 1
     db.commit()
-    return {"ok": True, "added": added, **_roster_json(db, cid)}
+    return {"ok": True, "added": added, "restored": back,
+            **_roster_json(db, cid)}
 
 
 def _roster_json(db, cid):
@@ -6541,9 +6710,12 @@ def _roster_json(db, cid):
     return {"roster": [{"id": r.id, "name": r.name,
                         "student_code": r.student_code or "",
                         "user_id": r.claimed_by or 0,
-                        "claimed": bool(r.claimed_by)} for r in rows],
-            "free": sum(1 for r in rows if not r.claimed_by),
-            "total": len(rows)}
+                        "claimed": bool(r.claimed_by),
+                        "removed": bool(r.removed_at)} for r in rows],
+            "free": sum(1 for r in rows
+                        if not r.claimed_by and not r.removed_at),
+            "removed": sum(1 for r in rows if r.removed_at),
+            "total": sum(1 for r in rows if not r.removed_at)}
 
 
 @app.get("/api/teacher/class/{cid}/roster")
@@ -6625,10 +6797,37 @@ def drop_roster_name(rid: int, user: User = Depends(teacher_user),
     if r.claimed_by:
         raise HTTPException(
             400, "That name has been claimed and now has work behind it. "
-                 "Remove the student from the class instead.")
+                 "Take them off the register instead — it keeps the account "
+                 "and can be undone.")
     db.delete(r)
     db.commit()
     return {"ok": True}
+
+
+@app.post("/api/teacher/roster/{rid}/remove")
+def remove_from_register(rid: int, on: bool = True,
+                         user: User = Depends(teacher_user),
+                         db: Session = Depends(get_db)):
+    """Take a child off the sign-in list without taking their account away.
+
+    A child who leaves in October has to stop appearing on the register, and
+    the only way to do that used to be deleting the row — which is the one
+    thing that must not happen, because for a class-code account the row is
+    the credential and their work is behind it.
+
+    So the row stays and is marked. It stops being offered at sign-in, the
+    account and everything in it survives, and the school keeps its record.
+    Clearing the mark puts them back, which matters because "left the
+    school" and "was off for a term" are told apart by a human, afterwards.
+    """
+    r = db.get(RosterName, rid)
+    if not r:
+        raise HTTPException(404, "Not found")
+    _own_class(db, r.class_id, user)
+    r.removed_at = now() if on else None
+    db.commit()
+    return {"ok": True, "removed": bool(r.removed_at), "name": r.name,
+            **_roster_json(db, r.class_id)}
 
 
 # --------------------------------------------------------------------------
@@ -6851,9 +7050,16 @@ def craxlearn_code(body: CodeIn, request: Request,
         _code_missed(request)
         raise HTTPException(404, "No class has that code")
     names = (db.query(RosterName)
-               .filter(RosterName.class_id == k.id)
+               .filter(RosterName.class_id == k.id,
+                       RosterName.removed_at.is_(None))
                .order_by(RosterName.name.asc()).all())
+    # An archived class still lets its own children back in to their work —
+    # it only stops taking new ones. A year ending is not a reason to lock
+    # somebody out of what they wrote.
+    if k.archived_at:
+        names = [r for r in names if r.claimed_by]
     return {"class_id": k.id, "class_name": k.name, "school": k.school or "",
+            "archived": bool(k.archived_at),
             "names": [{"id": r.id, "name": r.name,
                        # "You have been here before", so the page can say
                        # "welcome back" rather than looking like a fresh claim.
@@ -6905,6 +7111,14 @@ def craxlearn_claim(claim: ClaimIn, response: Response, request: Request,
     r = db.get(RosterName, claim.roster_id)
     if not r or r.class_id != k.id:
         raise HTTPException(404, "That name is not on this class register")
+    if r.removed_at:
+        raise HTTPException(404, "That name is no longer on this register. "
+                                 "Ask your teacher.")
+    # A class that has been put away takes nobody new. The children already
+    # on it keep coming back — that is the branch below.
+    if k.archived_at and not r.claimed_by:
+        raise HTTPException(409, "This class has finished for the year. Ask "
+                                 "your teacher for your new class code.")
 
     if r.claimed_by:
         back = db.get(User, r.claimed_by)

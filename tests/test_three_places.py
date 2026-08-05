@@ -26,6 +26,7 @@ import datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"] = "0"
 os.environ["COOKIE_SECURE"] = "0"
 
@@ -75,11 +76,15 @@ main._CODE_TRIES.clear()
 main._CODE_FAILS.clear()
 code = db.get(main.Klass, CID).join_code
 kid = TestClient(main.app)
-free = kid.post("/api/craxlearn/code", json={"code": code}).json()["names"]
+# Roster names no longer disappear when claimed, so "the first name on
+# the list" is the same child every time and every client after the
+# first lands in one account — which single-session sign-in then signs
+# out. Take the first name nobody has taken instead.
+free = [n for n in kid.post("/api/craxlearn/code", json={"code": code}).json()["names"] if not n.get("taken")]
 kid.post("/api/craxlearn/claim",
          json={"code": code, "roster_id": free[0]["id"]})
 kid2 = TestClient(main.app)
-free2 = kid2.post("/api/craxlearn/code", json={"code": code}).json()["names"]
+free2 = [n for n in kid2.post("/api/craxlearn/code", json={"code": code}).json()["names"] if not n.get("taken")]
 kid2.post("/api/craxlearn/claim",
           json={"code": code, "roster_id": free2[0]["id"]})
 

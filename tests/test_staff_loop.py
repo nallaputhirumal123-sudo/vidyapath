@@ -1,6 +1,7 @@
 import os, sys, time, datetime as dt
 sys.path.insert(0, r"C:\Users\nalla\vidyapath")
 os.environ.setdefault("JWT_SECRET","t"*40); os.environ["DATABASE_URL"]="sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deployment
 os.environ["JOBS_ENABLED"]="0"; os.environ["COOKIE_SECURE"]="0"
 import main
 from fastapi.testclient import TestClient
@@ -38,12 +39,16 @@ kidsA=[]
 codeA=db.get(main.Klass,A).join_code
 for _ in range(3):
     c=TestClient(main.app)
-    free=c.post('/api/craxlearn/code',json={'code':codeA}).json()['names']
+# Roster names no longer disappear when claimed, so "the first name on
+# the list" is the same child every time and every client after the
+# first lands in one account — which single-session sign-in then signs
+# out. Take the first name nobody has taken instead.
+    free=[n for n in c.post('/api/craxlearn/code',json={'code':codeA}).json()['names'] if not n.get('taken')]
     if not free: break
     c.post('/api/craxlearn/claim',json={'code':codeA,'roster_id':free[0]['id']}); kidsA.append(c)
 codeB=db.get(main.Klass,B).join_code
 kb=TestClient(main.app)
-freeB=kb.post('/api/craxlearn/code',json={'code':codeB}).json()['names']
+freeB=[n for n in kb.post('/api/craxlearn/code',json={'code':codeB}).json()['names'] if not n.get('taken')]
 kb.post('/api/craxlearn/claim',json={'code':codeB,'roster_id':freeB[0]['id']})
 print("\nan update to one class reaches that whole class")
 r=tch.post('/api/office/notice',json={'title':'Physics test Friday','body':'ch 4','urgent':False,
