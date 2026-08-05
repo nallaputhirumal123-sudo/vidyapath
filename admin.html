@@ -983,11 +983,11 @@ async function renderSchools(){
       <thead><tr><th>School</th><th>What they have</th><th>Head code</th><th>Head(s)</th><th>Classrooms</th><th></th></tr></thead>
       <tbody>${schools.length?schools.map(s=>`<tr>
         <td>${esc(s.name)}<div style="font-size:11px;color:var(--muted)">${esc([s.city,s.country].filter(Boolean).join(", "))}</div></td>
-        <td>${s.product==="both"
-            ? '<span class="pill">Craxlearn + job board</span>'
-            : '<span class="pill ok">Craxlearn only</span>'}
-          <div><button class="btn ghost sm" data-prod="${s.id}" data-to="${s.product==="both"?"craxlearn":"both"}" style="margin-top:5px">
-            ${s.product==="both"?"Turn the job board off":"Turn the job board on"}</button></div></td>
+        <td>${s.product==="learning_only"
+            ? '<span class="pill ok">Craxlearn only</span>'
+            : '<span class="pill">Craxlearn + job board (18+)</span>'}
+          <div><button class="btn ghost sm" data-prod="${s.id}" data-to="${s.product==="learning_only"?"both":"learning_only"}" style="margin-top:5px">
+            ${s.product==="learning_only"?"Turn the job board on":"Turn the job board off"}</button></div></td>
         <td><b style="color:var(--accent)">${esc(s.head_code||"—")}</b></td>
         <td>${s.heads.length?s.heads.map(h=>esc(h.name)).join(", "):'<span style="color:var(--muted)">not signed up yet</span>'}</td>
         <td>${s.classrooms.length}</td>

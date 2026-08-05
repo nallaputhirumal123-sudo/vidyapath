@@ -18,12 +18,16 @@ Five walls, and they fail in different directions on purpose:
   staff        a work account the school issued. Not the school's to open
                either: a school buying the job board buys it for its
                learners, not for its teachers.
-  institution  the school did not buy it. Nobody enrolled there sees it,
-               at any age.
+  institution  the school ASKED for it to be shut. Opt-out, not opt-in: a
+               school is not a reason to hide work from an eighteen-year-old,
+               and a Class 12 student applying for their first job is the
+               point of having built it. A school that wants none of it on
+               its premises sets the switch and gets exactly that.
   age          under 18. Not the institution's to waive, ever.
 
-Only an ordinary personal account — its own email, no school attached, over
-18 — reaches the job half at all.
+So the job half is shut to a class-code login and to staff always, to anybody
+under 18 always, and to a whole institution only when that institution has
+asked for it.
 
 The last test is the one that catches tomorrow's mistake: it walks the live
 route table and fails if a route has appeared that belongs to neither half.
@@ -109,9 +113,12 @@ main.send_email = lambda *a, **k: None
 stamp = int(time.time())
 db = main.SessionLocal()
 
-# A school that bought Craxlearn, and a coaching centre that bought both.
+# A school that asked for the job board to be switched off, and a coaching
+# centre on the default. The default is ON for over-18 learners: a school is
+# not a reason to hide work from an eighteen-year-old, and it is opt-OUT so
+# that a school which does want it hidden gets exactly that.
 school = main.School(name=f"Ridge School {stamp}", city="Pune",
-                     country="India", product="craxlearn")
+                     country="India", product="learning_only")
 centre = main.School(name=f"Apex Coaching {stamp}", city="Pune",
                      country="India", product="both")
 db.add_all([school, centre])
@@ -145,8 +152,8 @@ def learner(tag, school_row, dob):
 ADULT = dt.date(1998, 3, 3)
 CHILD = dt.date(2012, 3, 3)
 
-school_adult, _ = learner("sa", school, ADULT)     # 18+, but school-only
-school_child, _ = learner("sc", school, CHILD)     # under 18, school-only
+school_adult, _ = learner("sa", school, ADULT)     # 18+, school opted out
+school_child, _ = learner("sc", school, CHILD)     # under 18, school opted out
 centre_adult, _ = learner("ca", centre, ADULT)     # 18+, centre bought both
 centre_child, _ = learner("cc", centre, CHILD)     # under 18 at that centre
 public_adult, _ = learner("pa", None, ADULT)       # on their own account
@@ -155,7 +162,7 @@ public_none, pu = learner("pn", None, None)        # never said their age
 JOB = "/api/jobs?limit=1"
 
 r = school_adult.get(JOB)
-check("an adult at a Craxlearn-only school is still refused",
+check("an adult at a school that switched it off is refused",
       r.status_code == 403, str(r.status_code))
 check("and told which wall it was",
       r.json().get("craxlearn") == "institution", str(r.json()))
@@ -169,8 +176,75 @@ check("an adult at a centre that bought both gets through",
 
 r = centre_child.get(JOB)
 check("but a child there does not", r.status_code == 403, str(r.status_code))
+
 check("and it is the age wall, which the centre cannot waive",
       r.json().get("craxlearn") == "age", str(r.json()))
+
+# The default, which is the case that matters most and the one nobody sets
+# up deliberately: a school that has never touched the switch. Its
+# eighteen-year-olds get the job board. Its fourteen-year-olds do not, its
+# staff do not, and its class-code logins do not — none of which the school
+# has to configure, and none of which it can turn on.
+plain = main.School(name=f"Plain School {stamp}", city="Pune",
+                    country="India", product="craxlearn")
+db.add(plain)
+db.commit()
+db.add(main.Klass(name="12-A", join_code=f"PL{stamp}"[:16], teacher_id=1,
+                  school=plain.name, school_id=plain.id))
+db.commit()
+
+plain_adult, _ = learner("da", plain, ADULT)
+plain_child, _ = learner("dc", plain, CHILD)
+plain_none, _ = learner("dn", plain, None)
+plain_staff, staff_u = learner("ds", plain, ADULT)
+db.add(main.TeacherAccess(user_id=staff_u.id, school=plain.name,
+                          school_id=plain.id, role="teacher"))
+plain_code, code_u = learner("dk", plain, ADULT)
+code_u.kind = "classcode"
+db.commit()
+
+r = plain_adult.get(JOB)
+check("an 18-year-old at an ordinary school REACHES the job board",
+      r.status_code == 200, str(r.status_code))
+
+r = plain_child.get(JOB)
+check("a 14-year-old at the same school does not", r.status_code == 403,
+      str(r.status_code))
+check("and it is the age wall, not the school's",
+      r.json().get("craxlearn") == "age", str(r.json().get("craxlearn")))
+
+r = plain_none.get(JOB)
+check("nor does one who never said their age — inside a school, silence "
+      "is a child", r.status_code == 403, str(r.status_code))
+
+r = plain_staff.get(JOB)
+check("nor a teacher there, whatever their age", r.status_code == 403,
+      str(r.status_code))
+check("and it is the staff wall", r.json().get("craxlearn") == "staff",
+      str(r.json().get("craxlearn")))
+
+r = plain_code.get(JOB)
+check("nor a class-code login, even one stating 18",
+      r.status_code == 403, str(r.status_code))
+check("and it is the class-code wall",
+      r.json().get("craxlearn") == "classcode",
+      str(r.json().get("craxlearn")))
+
+# And the switch closes it again, for everybody, without touching anything
+# else about the school.
+plain.product = "learning_only"
+db.commit()
+r = plain_adult.get(JOB)
+check("the school can switch it off and the same adult is refused",
+      r.status_code == 403, str(r.status_code))
+check("with the institution named as the reason",
+      r.json().get("craxlearn") == "institution",
+      str(r.json().get("craxlearn")))
+plain.product = "craxlearn"
+db.commit()
+r = plain_adult.get(JOB)
+check("and switching it back on restores them", r.status_code == 200,
+      str(r.status_code))
 
 r = public_adult.get(JOB)
 check("somebody on their own account, over 18, gets through",
