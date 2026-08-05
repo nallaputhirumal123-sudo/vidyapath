@@ -154,8 +154,9 @@ room = board.post("/api/craxlearn/room", json={"code": SUBJ_CODE}).json()
 TOKEN = room.get("board_token")
 ck("a subject code hands back a board token", bool(TOKEN), str(TOKEN)[:30])
 r = board.post("/api/craxlearn/board/save",
-               json={"board_token": TOKEN, "topic": f"Lenses {st}",
-                     "lesson": {"steps": [{"t": "A convex lens converges."}]}})
+               json={"topic": f"Lenses {st}",
+                     "lesson": {"steps": [{"t": "A convex lens converges."}]}},
+               headers={"X-Board-Token": TOKEN})
 ck("and that token saves the lesson with no sign-in at all",
    r.status_code == 200, r.text[:130])
 mats = tch.get(f"/api/class/{CID}/materials").json().get("materials", [])
@@ -178,9 +179,10 @@ print("")
 print("and it cannot be pointed at another class")
 other = head.post("/api/teacher/class", json={"name": f"9-X {st}"}).json()
 r = board.post("/api/craxlearn/board/save",
-               json={"board_token": TOKEN, "class_id": other["id"],
-                     "subject": "History", "topic": f"Elsewhere {st}",
-                     "lesson": {"steps": [{"t": "not here"}]}})
+               json={"class_id": other["id"], "subject": "History",
+                     "topic": f"Elsewhere {st}",
+                     "lesson": {"steps": [{"t": "not here"}]}},
+               headers={"X-Board-Token": TOKEN})
 ck("the class_id in the request is ignored", r.status_code == 200, r.text[:110])
 away = head.get("/api/class/" + str(other["id"]) + "/materials").json().get("materials", [])
 ck("nothing landed in the other class", not away, str(away)[:120])
@@ -190,8 +192,8 @@ ck("it went to the token’s own class and subject",
        for m in mats), str(mats)[:170])
 ck("a rubbish token is refused",
    board.post("/api/craxlearn/board/save",
-              json={"board_token": "not.a.token", "topic": "x",
-                    "lesson": {"steps": [{"t": "x"}]}}).status_code in (401, 422))
+              json={"topic": "xx", "lesson": {"steps": [{"t": "x"}]}},
+              headers={"X-Board-Token": "not.a.token"}).status_code == 401)
 
 db.close()
 print("\n".join("FAIL " + x for x in F) if F else "")

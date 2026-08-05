@@ -1770,12 +1770,17 @@ function setJoinRole(role){
   // A school admin's code is ten digits and a subject code is T- plus
   // four; the placeholder shows both because one field takes either.
   if(code) code.placeholder = teacher ? "T-4M2X or 4820561973" : "VP-7K3Q";
+  /* No email and no password on this form any more, for anybody.
+     The school office makes a teacher's profile and puts them on a subject;
+     the code they were handed is what turns that into a session. Asking for
+     two credentials nobody gave them was the reason a teacher with a correct
+     code still could not get in. */
   const staff=$("#jn_staff");
-  if(staff) staff.style.display = teacher ? "" : "none";
+  if(staff) staff.style.display = "none";
   const hint=$("#jn_hint");
   if(hint) hint.textContent = teacher
-    ? "Your subject or head-teacher code. A teacher account needs a password, "+
-      "because this code opens a whole school's registers and marks."
+    ? "The code your school office gave you — one for each classroom and "+
+      "subject you teach. There is no password."
     : "The code your teacher gave you. You will tap your name next — there is "+
       "no password.";
   $("#jn_names").innerHTML="";
@@ -1795,29 +1800,40 @@ $("#joinForm").onsubmit=async e=>{
   /* Staff sign in, then redeem. A head teacher who already had an account
      used to be bounced to the signup form and told to make a second one. */
   if(JOIN_ROLE==="teacher"){
-    const em=$("#jn_email").value.trim(), pw=$("#jn_pw").value;
-    if(!em || !pw){
-      b.disabled=false;
-      authMsg("Sign in with your school account, then the code puts your "+
-              "classes on it. No account yet? Use Create account.");
-      return;
-    }
-    b.textContent="Signing in…";
-    try{
-      USER=await api.post("/api/auth/login",{email:em,password:pw});
-      AUTHED=true;
-    }catch(err){
-      authMsg(err.message); b.disabled=false; b.textContent="Continue →";
-      return;
-    }
+    /* The code, and nothing else.
+     *
+     * This used to ask for an email and a password FIRST and then redeem the
+     * code on top of the account it signed in to. A teacher was handed a code
+     * by the school office and met a form asking for two things nobody gave
+     * them — and the account the office had made for them was created with an
+     * address that, more than once, could not even be signed in with.
+     *
+     * The code is now the way in. It signs them in as the person the school
+     * already put on that subject, which is why it can be the only field:
+     * the office made the profile and assigned it, and the code turns that
+     * into a session.
+     *
+     * A ten-digit school code is not a subject code and still redeems the
+     * old way, on an account that is already signed in — that half is not
+     * converted yet and says so rather than failing quietly. */
+    b.textContent="Checking the code…";
     let landed=null;
-    try{ landed=await api.post("/api/class/join",{code:code}); }
-    catch(codeErr){
-      /* Signed in already, so do not throw them out — say what was wrong
-         with the code and let them carry on. */
-      await boot();
-      toast(codeErr.message||"That code was not recognised.");
-      return;
+    try{
+      const got=await api.post("/api/auth/code",{code:code});
+      USER=await api.get("/api/auth/me");
+      AUTHED=true;
+      landed={role:"teacher", "class":got.class_name, subject:got.subject};
+    }catch(codeErr){
+      if(codeErr && codeErr.status===404 && AUTHED){
+        /* Not a subject code. If they are already signed in, it may be a
+           school code, which still works the old way. */
+        try{ landed=await api.post("/api/class/join",{code:code}); }
+        catch(e2){ authMsg(e2.message); b.disabled=false;
+                   b.textContent="Continue →"; return; }
+      }else{
+        authMsg(codeErr.message); b.disabled=false;
+        b.textContent="Continue →"; return;
+      }
     }
     await boot();
     /* Go where the code actually put you, not where the tab was labelled.

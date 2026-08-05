@@ -3966,8 +3966,18 @@ def head_rotate_slot(sid: int, user: User = Depends(head_user),
         raise HTTPException(404, "Not found")
     _head_or_admin(db, s.class_id, user)
     s.code = _gen_slot_code(db)
-    s.teacher_id = 0            # rotating a code unassigns the current teacher
-    s.status = "open"
+    # The teacher STAYS on the subject.
+    #
+    # This used to set teacher_id = 0, which was right when the code was a
+    # ticket somebody redeemed to claim the slot: rotating it took the slot
+    # back so it could be given to somebody else.
+    #
+    # The code is now the teacher's sign-in. Rotating it is what a school does
+    # when a code has been read off a board or passed around a class — it
+    # replaces a credential. Unassigning the teacher as a side effect meant
+    # the new code let nobody in at all, and the teacher was quietly dropped
+    # from a class they still teach. Rotate to replace a code; use
+    # /api/head/assign to change who holds the subject.
     db.commit()
     return _slot_json(db, s)
 
@@ -7390,6 +7400,70 @@ def craxlearn_code(body: CodeIn, request: Request,
             "roster_ready": bool(names)}
 
 
+@app.post("/api/auth/code")
+def sign_in_with_code(body: CodeIn, response: Response, request: Request,
+                      db: Session = Depends(get_db)):
+    """Sign a member of staff in with their code, and nothing else.
+
+    A teacher standing in front of a class does not type an email address and
+    a password. They were handed a code by the school office — one per
+    classroom they teach in, per subject — and that code is how they reach
+    their own classes.
+
+    It signs in as the person the school ALREADY put on that subject. It never
+    creates an account and never guesses a name: the office makes the
+    teacher's profile and assigns them to a subject, and this turns their code
+    into a session on the account that was made for them. A code for a subject
+    nobody has been assigned to is refused, because the alternative is an
+    account with no name that the school did not create and cannot recognise.
+
+    What this costs, said here rather than left to be discovered: the code IS
+    the credential. Whoever holds it is that teacher. It is per classroom and
+    per subject, so one that leaks exposes one subject in one room rather than
+    a school, and it can be rotated the moment it travels. That is the whole
+    of the protection, and it is the shape the school asked for.
+
+    Rate-limited on the same counters as the register, because guessing at
+    this is guessing at a way into a classroom.
+    """
+    _code_guard(request)
+    code = body.code.strip().upper()
+
+    slot = (db.query(SubjectSlot)
+              .filter(func.upper(SubjectSlot.code) == code).first())
+    if not slot:
+        _code_missed(request)
+        raise HTTPException(
+            404, "No subject has that code. A pupil's class code goes in the "
+                 "class sign-in, not here.")
+
+    k = db.get(Klass, slot.class_id)
+    if not k:
+        _code_missed(request)
+        raise HTTPException(404, "That subject's class no longer exists")
+    if not slot.teacher_id:
+        raise HTTPException(
+            409, "Nobody has been put on that subject yet. Ask the school "
+                 "office to assign you to it, and this code will then let "
+                 "you in.")
+    u = db.get(User, slot.teacher_id)
+    if not u or not u.is_active:
+        raise HTTPException(
+            409, "The account on that subject is not available. Ask the "
+                 "school office.")
+    # A pupil's class-code account must never be reachable this way, even if
+    # one is still sitting on a slot from before that was stopped.
+    if (u.kind or "") == "classcode":
+        raise HTTPException(
+            403, "That subject is held by a pupil's class-code account. Ask "
+                 "the school office to put a teacher on it.")
+
+    set_session(response, u, db)
+    return {"ok": True, "kind": "teacher", "name": u.name,
+            "class_id": k.id, "class_name": k.name,
+            "subject": slot.subject or "", "school": k.school or ""}
+
+
 class ClaimIn(BaseModel):
     code: str = Field(min_length=3, max_length=16)
     roster_id: int
@@ -8056,10 +8130,6 @@ def _board_subject(db, cid, user, asked):
 
 class BoardSaveIn(BaseModel):
     class_id: int = 0
-    # What a subject code bought at the board. When present, the class and
-    # subject come from it and the two fields above are ignored — a token for
-    # 6-a Science cannot be pointed at 6-b.
-    board_token: str = Field(default="", max_length=800)
     topic: str = Field(min_length=2, max_length=200)
     title: str = Field(default="", max_length=240)
     subject: str = Field(default="", max_length=80)
@@ -8067,8 +8137,36 @@ class BoardSaveIn(BaseModel):
     lesson: dict = {}
 
 
+def board_or_teacher(request: Request, db: Session = Depends(get_db)):
+    """Either a signed-in teacher, or a board holding a subject code's token.
+
+    A DEPENDENCY, and the token comes from a header rather than the body, for
+    a reason worth writing down: FastAPI resolves dependencies before it
+    validates the body. With the check inside the handler, an anonymous
+    caller with a malformed body got a 422 describing the schema instead of
+    being turned away — the refusal has to come first, and it can only come
+    first if it does not need to read the body.
+
+    A credential belongs in a header in any case. It is not part of what is
+    being saved.
+
+    Returns (user, grant): exactly one of them is set.
+    """
+    grant = _board_grant(db, request.headers.get("X-Board-Token", ""))
+    if grant is not None:
+        return None, grant
+    try:
+        user = current_user(request, db)
+    except HTTPException:
+        raise HTTPException(
+            401, "Sign in, or open this classroom with your subject code "
+                 "first.")
+    return teacher_user(user, db), None
+
+
 @app.post("/api/craxlearn/board/save")
-def craxlearn_board_save(body: BoardSaveIn, request: Request,
+def craxlearn_board_save(body: BoardSaveIn,
+                         who=Depends(board_or_teacher),
                          db: Session = Depends(get_db)):
     """Keep what was just taught, on the class's subject page.
 
@@ -8099,19 +8197,8 @@ def craxlearn_board_save(body: BoardSaveIn, request: Request,
     pointed at 6-b, and a browser cannot rename the subject it is filing
     under.
     """
-    grant = _board_grant(db, body.board_token)
-    user = None
+    user, grant = who
     if grant is None:
-        # No token: the ordinary path, and it must still be a teacher of the
-        # class. Resolved here rather than as a dependency so that a missing
-        # session gives "sign in", not a confusing 422 about a token.
-        try:
-            user = current_user(request, db)
-        except HTTPException:
-            raise HTTPException(
-                401, "Sign in to save this, or open the class with your "
-                     "subject code first.")
-        user = teacher_user(user, db)
         _own_class(db, body.class_id, user)
         class_id = body.class_id
         subject = _board_subject(db, body.class_id, user, body.subject)
