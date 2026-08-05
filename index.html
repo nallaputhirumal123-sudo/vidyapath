@@ -1072,9 +1072,18 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
           </div>
           <div class="field" id="su_schoolWrap" style="display:none"><label>Your school</label>
             <select id="su_school"><option value="">— Select your school —</option></select></div>
-          <div class="field"><label>Join code (optional)</label>
-            <input type="text" id="su_code" placeholder="e.g. VP-7K3Q"/>
-            <small style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">Only if your school gave you one. You can join with a code later.</small></div>
+          <!-- No join code here.
+
+               Nobody who has a code needs to create an account. A pupil taps
+               their name off the register, a teacher signs in with their
+               subject code, and a school admin redeems theirs — all three are
+               on the Join with code tab and none of them makes an account
+               here. Offering the box on this form asked people to do two
+               things when one would have done, and sent teachers who had been
+               given a code down the signup path they did not need.
+
+               Create account is now for one person only: somebody with no
+               code at all, arriving on their own. -->
           <button class="btn wide" type="submit" id="su_btn">Create account →</button>
         </form>
 
@@ -1927,7 +1936,8 @@ $("#signupForm").onsubmit=async e=>{
     USER=await api.post("/api/auth/signup",{
       name:$("#su_name").value, email:$("#su_email").value, password:$("#su_pw").value,
       college:$("#su_college").value, city:$("#su_city").value, degree:$("#su_degree").value,
-      school_code:$("#su_code").value,
+      /* No school_code: the field is gone. Codes are redeemed on the Join
+         with code tab, by people who already have somewhere to be. */
     });
     AUTHED=true; await boot();
   }catch(err){ authMsg(err.message); }

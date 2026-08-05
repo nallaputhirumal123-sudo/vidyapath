@@ -71,6 +71,23 @@ print("\nthe remote survives, because it is how a teacher faces the room")
 ck("remote is a tile", "remote" in tiles)
 ck("and it is not treated as practice", "remote" not in PRACTICE)
 
+print("")
+print("the board does not put a register on a television")
+# The class code used to answer with every child's name so a pupil could tap
+# theirs. On a pupil's own phone that is right, and it is still there. On a
+# screen at the front of a room it was a list of children, readable by the
+# whole class and by anybody walking past.
+ck("the board never asks for the register",
+   "craxlearn/code" not in SRC, "the roster route is called from the board")
+ck("nor claims a name from it",
+   "craxlearn/claim" not in SRC, "the claim route is called from the board")
+ck("a class code opens the room instead",
+   'room.kind === "class"' in SRC)
+INDEX = io.open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+ck("and a pupil can still sign in on their own device",
+   "craxlearn/code" in INDEX and "craxlearn/claim" in INDEX,
+   "the register sign-in must survive somewhere")
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\n{len(P)} passed, {len(F)} failed")
 sys.exit(1 if F else 0)
