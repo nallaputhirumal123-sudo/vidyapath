@@ -7221,6 +7221,71 @@ class CodeIn(BaseModel):
     code: str = Field(min_length=3, max_length=16)
 
 
+@app.post("/api/craxlearn/room")
+def craxlearn_room(body: CodeIn, request: Request,
+                   db: Session = Depends(get_db)):
+    """Which classroom a code names. Opens a room; signs nobody in.
+
+    The board at the front of a room needs to know where it is standing —
+    which class, and which subject — so that a lesson taught on it is filed
+    where the class will look for it. Two codes name that:
+
+        VP-XXXXXX   a class     ->  the room, and the subjects taught in it
+        T-XXXX      a subject   ->  the room AND the subject
+
+    **It deliberately does not sign anybody in.** A subject code redeemed at
+    /api/class/join grants teacher access, and doing the same here was the
+    obvious build: the teacher types their code on the board and is in. On a
+    shared screen at the front of a classroom that is a session handed to
+    whoever reads the code off the board — which is every child in the room.
+    A code is fine for saying WHICH lesson this is. It is not enough to say
+    WHO is teaching it, on a device thirty people are looking at.
+
+    So this answers "where am I", the board remembers it, and the identity
+    still comes from a real sign-in. If you would rather the code signed a
+    teacher in, that is a decision to take deliberately and not a line to
+    slip into a helper.
+
+    Rate-limited like every other code lookup: this returns a class's name
+    and its subjects, so guessing at it must cost the same as guessing at the
+    register.
+    """
+    _code_guard(request)
+    raw = body.code.strip()
+    code = raw.upper()
+
+    slot = (db.query(SubjectSlot)
+              .filter(func.upper(SubjectSlot.code) == code).first())
+    if slot:
+        k = db.get(Klass, slot.class_id)
+        if not k:
+            _code_missed(request)
+            raise HTTPException(404, "That subject's class no longer exists")
+        who = db.get(User, slot.teacher_id) if slot.teacher_id else None
+        return {"kind": "subject", "class_id": k.id, "class_name": k.name,
+                "school": k.school or "", "subject": slot.subject or "",
+                "teacher": (who.name if who else ""),
+                "archived": bool(k.archived_at)}
+
+    k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
+    if not k:
+        _code_missed(request)
+        raise HTTPException(404, "No class or subject has that code")
+    slots = (db.query(SubjectSlot)
+               .filter(SubjectSlot.class_id == k.id)
+               .order_by(SubjectSlot.subject).all())
+    names = {}
+    for s in slots:
+        if s.teacher_id and s.teacher_id not in names:
+            u = db.get(User, s.teacher_id)
+            names[s.teacher_id] = u.name if u else ""
+    return {"kind": "class", "class_id": k.id, "class_name": k.name,
+            "school": k.school or "", "archived": bool(k.archived_at),
+            "subjects": [{"subject": s.subject or "",
+                          "teacher": names.get(s.teacher_id, "")}
+                         for s in slots]}
+
+
 @app.post("/api/craxlearn/code")
 def craxlearn_code(body: CodeIn, request: Request,
                    db: Session = Depends(get_db)):

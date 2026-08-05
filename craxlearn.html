@@ -829,11 +829,71 @@ function codeForm(){
   el("gCode").onkeydown = function(e){ if(e.key === "Enter") findClass(); };
 }
 
+/* Which classroom this board is standing in.
+ *
+ * ROOM is set by a class code (the room) or a subject code (the room and the
+ * subject), and it is what a saved lesson is filed under. It is NOT a
+ * sign-in: the server deliberately refuses to mint a session from a code
+ * here, because a code on a screen at the front of a room has been read by
+ * everybody in it. Identity still comes from signing in.
+ */
+var ROOM = null;
+
+function roomLine(){
+  if(!ROOM) return "";
+  return '<div class="note" style="margin:.6rem 0">' +
+    '<b>' + esc(ROOM.class_name) + '</b>' +
+    (ROOM.subject ? ' · ' + esc(ROOM.subject) : "") +
+    (ROOM.school ? '<span class="muted"> · ' + esc(ROOM.school) + '</span>' : "") +
+    '<div class="muted">Anything saved from this board goes here.</div>' +
+    '</div>';
+}
+
+/* A class code or a subject code, in the same box. Tried before the student
+   sign-in, so a teacher typing T-KDV9 gets their subject rather than "no
+   class has that code". */
+async function openRoom(code){
+  try{
+    var d = await api.post("/api/craxlearn/room", { code: code });
+    ROOM = d;
+    return d;
+  }catch(e){ return null; }
+}
+
 async function findClass(){
   var msg = el("gateMsg");
   var code = ((el("gCode") || {}).value || "").trim();
   if(code.length < 3){ msg.textContent = "Type the code your teacher gave you."; return; }
   msg.textContent = "Looking…";
+
+  /* A subject code first. One box takes either kind, because a person
+     standing at a board has one code in their hand and should not have to
+     know which sort it is — and typing T-KDV9 here used to answer "no class
+     has that code", which is true and unhelpful.
+
+     A subject code opens the room and names the subject. It does not sign
+     anybody in: on a screen at the front of a class, a code has been read by
+     everybody in the room. */
+  var room = await openRoom(code);
+  if(room && room.kind === "subject"){
+    msg.textContent = "";
+    el("gateForm").innerHTML =
+      '<p class="muted" style="margin-top:0">This board is now open on</p>' +
+      '<div class="big">' + esc(room.class_name) + " · " +
+        esc(room.subject) + "</div>" +
+      (room.teacher
+        ? '<p class="muted">' + esc(room.teacher) + " teaches this.</p>"
+        : '<p class="muted">No teacher is on this subject yet.</p>') +
+      '<p class="muted">Sign in to save what you teach here. Anything kept ' +
+      'from this board is filed under this class and subject.</p>' +
+      '<button class="btn" id="gRoomSignIn">Sign in</button> ' +
+      '<button class="btn ghost" id="gBack2">← Different code</button>';
+    el("gRoomSignIn").onclick = function(){
+      el("gateMsg").textContent = ""; gateForm("in"); };
+    el("gBack2").onclick = function(){ ROOM = null; el("gateMsg").textContent = ""; codeForm(); };
+    return;
+  }
+
   var d;
   try{ d = await api.post("/api/craxlearn/code", { code: code }); }
   catch(e){ msg.textContent = e.message; return; }
