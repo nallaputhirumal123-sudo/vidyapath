@@ -2452,6 +2452,61 @@ function renderHome(){
   const list=activeTracks();
   const first=(USER.name||"").trim().split(" ")[0];
 
+  /* Staff get their own home, not a curriculum with the statistics removed.
+   *
+   * Trimming the stats block left a school administrator looking at "Up
+   * next: What is a computer really doing?", today's coding challenge, and
+   * six stages of a Python course — none of it theirs, all of it above the
+   * school they came here to run. Half-hiding a learner's page does not make
+   * it a teacher's page.
+   *
+   * So this returns early with what a member of staff actually opens the
+   * site for, and the learner home below is left exactly as it was for the
+   * people it was written for. */
+  if(USER.is_teacher || USER.is_admin){
+    const isHead = USER.role==="head" || USER.role==="schooladmin" || USER.is_admin;
+    $("#main").innerHTML=`
+      <div class="hero">
+        <h1>Welcome, ${esc(first)}.</h1>
+        <p>${isHead
+          ? "Your school: the classes, who teaches what, the register, attendance and fees."
+          : "Your classrooms and the subjects you teach in them."}</p>
+        <div class="row">
+          <button class="btn" data-nav="teacher">${isHead?"Open the school →":"Your classrooms →"}</button>
+          <button class="btn ghost" data-nav="tmsgs">Student messages</button>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-bottom:26px">
+        ${isHead ? "" : `<button class="tile" data-nav="ask">
+          <div style="font-size:15px;font-weight:750">💬 Ask Axle anything</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+            Any subject, explained on the board and read aloud. Included with
+            your school.</div></button>
+        <button class="tile" data-nav="scan">
+          <div style="font-size:15px;font-weight:750">📷 Scan a problem</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+            Photograph a question out of a book and have it worked
+            through.</div></button>`}
+        ${isHead ? `<button class="tile" data-nav="learners">
+          <div style="font-size:15px;font-weight:750">🎒 All learners</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+            Everybody enrolled, across every class.</div></button>
+        <button class="tile" data-nav="fees">
+          <div style="font-size:15px;font-weight:750">💳 Fees</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
+            What is billed, what is paid, and who is overdue.</div></button>` : ""}
+      </div>
+      <div class="eyebrow">The board</div>
+      <div class="card">
+        <b>craxle.com/craxlearn</b> — open it on the classroom screen and enter
+        your subject code. Whatever you teach is saved to that class and
+        subject.
+        <div style="margin-top:12px">
+          <a class="btn sm" href="/craxlearn">Open the board →</a></div>
+      </div>`;
+    return;
+  }
+
   $("#main").innerHTML=`
   <div class="hero">
     <h1>${totalDone()?`Welcome back, ${esc(first)}.`:`Welcome, ${esc(first)}.`}</h1>
