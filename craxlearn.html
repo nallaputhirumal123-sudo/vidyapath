@@ -794,16 +794,112 @@ async function shoot(){
     cv.width = st.width || v.videoWidth || 1920;
     cv.height = st.height || v.videoHeight || 1080;
     cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
-    var a = document.createElement("a");
-    a.href = cv.toDataURL("image/png");
-    a.download = "craxlearn-" + new Date().toISOString().slice(0,16)
-                   .replace(/[:T]/g,"-") + ".png";
-    a.click();
+    /* The frame is captured; now choose how much of it to keep. */
+    cropPick(cv);
   }catch(e){
     /* Cancelling the picker is not an error worth a dialog. */
   }finally{
     if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
   }
+}
+
+
+/* Choose a part of the picture, or keep all of it.
+ *
+ * The screenshot took the whole surface and downloaded it. On a board that is
+ * usually far more than anybody wanted — a teacher photographing one worked
+ * equation got the browser chrome, the tab bar and the other half of a split
+ * screen with it, and then had to crop it somewhere else.
+ *
+ * So the captured frame is shown back and a rectangle is dragged over the
+ * part that matters. Dragging on the IMAGE rather than on the live page
+ * matters: the capture is in screen pixels and the page is in CSS pixels, and
+ * on a board with any zoom or scaling those are not the same coordinates. What
+ * you drag over is exactly what you get.
+ */
+function cropPick(src){
+  var back = document.createElement("div");
+  back.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000c;" +
+    "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+    "gap:.6rem;padding:1rem";
+  var bar = document.createElement("div");
+  bar.style.cssText = "color:#fff;font:600 15px system-ui;display:flex;" +
+    "gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:center";
+  bar.innerHTML = '<span>Drag over the part you want.</span>' +
+    '<button class="btn ghost" id="shotAll">Whole screen</button>' +
+    '<button class="btn ghost" id="shotNo">Cancel</button>';
+  var holder = document.createElement("div");
+  holder.style.cssText = "position:relative;max-width:96vw;max-height:80vh;" +
+    "box-shadow:0 0 0 1px #fff3";
+  var img = document.createElement("img");
+  img.src = src.toDataURL("image/png");
+  img.style.cssText = "display:block;max-width:96vw;max-height:80vh;" +
+    "cursor:crosshair;user-select:none;-webkit-user-drag:none";
+  var box = document.createElement("div");
+  box.style.cssText = "position:absolute;border:2px solid #ff9933;" +
+    "background:#ff993322;display:none;pointer-events:none";
+  holder.appendChild(img); holder.appendChild(box);
+  back.appendChild(bar); back.appendChild(holder);
+  document.body.appendChild(back);
+
+  function close(){ if(back.parentNode) back.parentNode.removeChild(back); }
+  function save(cnv){
+    var a = document.createElement("a");
+    a.href = cnv.toDataURL("image/png");
+    a.download = "craxlearn-" + new Date().toISOString().slice(0,16)
+                   .replace(/[:T]/g,"-") + ".png";
+    a.click();
+    close();
+  }
+  el("shotNo").onclick = close;
+  el("shotAll").onclick = function(){ save(src); };
+  back.addEventListener("keydown", function(e){
+    if(e.key === "Escape") close(); });
+
+  var a0 = null;
+  function spot(e){
+    var r = img.getBoundingClientRect();
+    var t = (e.touches && e.touches[0]) || e;
+    return [Math.min(Math.max(t.clientX - r.left, 0), r.width),
+            Math.min(Math.max(t.clientY - r.top, 0), r.height)];
+  }
+  img.addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    img.setPointerCapture(e.pointerId);
+    a0 = spot(e);
+    box.style.display = "block";
+    box.style.left = a0[0] + "px"; box.style.top = a0[1] + "px";
+    box.style.width = "0px"; box.style.height = "0px";
+  });
+  img.addEventListener("pointermove", function(e){
+    if(!a0) return;
+    var b = spot(e);
+    box.style.left = Math.min(a0[0], b[0]) + "px";
+    box.style.top = Math.min(a0[1], b[1]) + "px";
+    box.style.width = Math.abs(b[0] - a0[0]) + "px";
+    box.style.height = Math.abs(b[1] - a0[1]) + "px";
+  });
+  img.addEventListener("pointerup", function(e){
+    if(!a0) return;
+    var b = spot(e), start = a0; a0 = null;
+    var r = img.getBoundingClientRect();
+    /* The image is shown scaled to fit, so what was dragged has to be
+       converted back into the captured frame's own pixels — otherwise a
+       crop on a board would come out a third of the size it looked. */
+    var kx = src.width / r.width, ky = src.height / r.height;
+    var x = Math.min(start[0], b[0]) * kx, y = Math.min(start[1], b[1]) * ky;
+    var w = Math.abs(b[0] - start[0]) * kx, h = Math.abs(b[1] - start[1]) * ky;
+    if(w < 8 || h < 8){
+      /* A tap, not a drag. Treat it as "I did not mean to select" rather
+         than saving an eight-pixel picture nobody asked for. */
+      box.style.display = "none";
+      return;
+    }
+    var out = document.createElement("canvas");
+    out.width = Math.round(w); out.height = Math.round(h);
+    out.getContext("2d").drawImage(src, x, y, w, h, 0, 0, out.width, out.height);
+    save(out);
+  });
 }
 
 /* ---------- room size ---------- */
