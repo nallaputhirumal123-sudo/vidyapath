@@ -63,6 +63,10 @@ h1{font-size:1.5rem}h2{font-size:1.2rem}h3{font-size:1rem}
   font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;
 }
 .iconbtn:active{border-color:var(--accent)}
+/* The tool currently held. Without it a teacher who has picked the rectangle
+   has no way to tell, and finds out by drawing one. */
+.iconbtn.on{border-color:var(--accent);color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent)}
 
 /* ---- the tile grid: the whole home screen ---- */
 #main{padding:var(--pad);max-width:1500px;margin:0 auto}
@@ -1346,13 +1350,19 @@ function write(){
             ';width:2rem"></button>';
         }).join("") +
         '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
+        SHAPES.map(function(sh){
+          return '<button class="iconbtn" data-shape="' + sh.k +
+            '" title="' + sh.name + '">' + sh.ic + "</button>"; }).join("") +
         '<input type="range" id="wSize" min="2" max="28" value="5" ' +
           'title="Thickness" style="width:6rem">' +
         '<button class="iconbtn" id="wUndo" title="Undo">↶</button>' +
         '<button class="iconbtn" id="wRedo" title="Redo">↷</button>' +
         '<span class="grow"></span>' +
         '<button class="btn ghost" id="wClear">Clear</button>' +
-        '<button class="btn ghost" id="wShot" title="Save the board as a picture">Save</button>' +
+        '<button class="btn" id="wKeep" title="Keep this on the class page">' +
+          "Save to the class</button>" +
+        '<button class="btn ghost" id="wShot" title="Download it as a picture">' +
+          "Download</button>" +
       "</div>" +
       '<div class="wsurf" id="wSurf">' +
         '<canvas id="wCanvas"></canvas>' +
@@ -1362,6 +1372,51 @@ function write(){
       "</div>" +
     "</div>" +
     (OPEN ? signInPrompt("keep this on your subject's page") : "");
+
+  /* Straight things, drawn as strokes.
+   *
+   * A shape here is not a new kind of object: it is a stroke whose points
+   * happen to lie on a line, a box or a circle. That is the whole design.
+   * Undo, redo, the export, the save to a class and the redraw at any size
+   * all work on strokes and none of them need to know these exist — a shape
+   * that was its own type would have needed every one of them taught about
+   * it, and one of them would have been missed.
+   */
+  var SHAPES = [
+    { k: "line",  ic: "╱", name: "Straight line" },
+    { k: "arrow", ic: "→", name: "Arrow" },
+    { k: "rect",  ic: "▭", name: "Rectangle" },
+    { k: "oval",  ic: "◯", name: "Circle" }
+  ];
+  var shape = "";          /* "" is the pen */
+
+  function shapePoints(kind, a, b){
+    var x0 = a[0], y0 = a[1], x1 = b[0], y1 = b[1], out = [], i;
+    function P(x, y){ return [x, y, 0.5]; }
+    if(kind === "line"){ return [P(x0, y0), P(x1, y1)]; }
+    if(kind === "arrow"){
+      var dx = x1 - x0, dy = y1 - y0;
+      var len = Math.sqrt(dx * dx + dy * dy) || 1;
+      var ux = dx / len, uy = dy / len;
+      var head = Math.min(28, len * 0.28);      /* never longer than the shaft */
+      var lx = x1 - ux * head, ly = y1 - uy * head;
+      var px = -uy * head * 0.45, py = ux * head * 0.45;
+      return [P(x0, y0), P(x1, y1),
+              P(lx + px, ly + py), P(x1, y1),
+              P(lx - px, ly - py), P(x1, y1)];
+    }
+    if(kind === "rect"){
+      return [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1), P(x0, y0)];
+    }
+    /* An ellipse in the dragged box, so a circle is a drag held square. */
+    var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    var rx = Math.abs(x1 - x0) / 2, ry = Math.abs(y1 - y0) / 2;
+    for(i = 0; i <= 48; i++){
+      var t = (i / 48) * Math.PI * 2;
+      out.push(P(cx + Math.cos(t) * rx, cy + Math.sin(t) * ry));
+    }
+    return out;
+  }
 
   var cv = el("wCanvas"), surf = el("wSurf");
   var ctx = cv.getContext("2d");
@@ -1503,6 +1558,7 @@ function write(){
     live = { c: pen, e: erasing, w: size, p: [] };
     var p0 = at(e);
     live.p.push(p0);
+    if(shape){ live.from = p0; return; }    /* a shape grows from here */
     extend([p0[0] + 0.01, p0[1], p0[2]]);   // a dot is a mark too
   });
   cv.addEventListener("pointermove", function(e){
@@ -1510,6 +1566,13 @@ function write(){
     /* A stylus reports far faster than the screen repaints. Reading the
        samples the browser held back is the difference between handwriting
        and a polygon. */
+    if(live.from){
+      /* Redrawn from the two corners every time, so dragging back and forth
+         resizes it instead of leaving a trail behind. */
+      live.p = shapePoints(shape, live.from, at(e));
+      redraw();
+      return;
+    }
     var pts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null) || [e];
     for(var i = 0; i < pts.length; i++) extend(at(pts[i]));
   });
@@ -1517,6 +1580,7 @@ function write(){
     cv.addEventListener(ev, function(){
       if(!live) return;
       if(live.p.length > 1){
+        delete live.from;
         strokes.push(live);
         undone.length = 0;    // a new mark ends the redo trail
       }
@@ -1524,8 +1588,23 @@ function write(){
     });
   });
 
+  function markTool(){
+    el("wTools").querySelectorAll("[data-shape]").forEach(function(q){
+      q.classList.toggle("on", q.dataset.shape === shape);
+    });
+  }
+  el("wTools").querySelectorAll("[data-shape]").forEach(function(b){
+    b.onclick = function(){
+      /* Tapping the tool you are holding puts the pen back, so there is
+         always a way out without hunting for a pen button. */
+      shape = (shape === b.dataset.shape) ? "" : b.dataset.shape;
+      if(shape) erasing = false;
+      markTool();
+    };
+  });
   el("wTools").querySelectorAll("[data-pen]").forEach(function(b){
     b.onclick = function(){
+      shape = ""; markTool();
       if(b.dataset.pen === "erase"){ erasing = true; return; }
       erasing = false;
       pen = PENS[+b.dataset.pen].colour;
@@ -1557,6 +1636,24 @@ function write(){
      they wrote it full screen or in a corner of a four-way split. Solid
      background first, or a transparent PNG opens as black on black in half
      the apps it will be sent to. */
+  /* The writing space has no toast — the board has no global one at all —
+     so it says things on the hint line under the canvas, which is where a
+     person writing on it is already looking. */
+  function wSay(text){
+    var hint = el("wHint");
+    if(hint){ hint.textContent = text; hint.style.display = ""; }
+  }
+
+  /* The drawing, at print size, as a PNG blob. */
+  function boardPng(cb){
+    var out = document.createElement("canvas");
+    out.width = BOARD_W * 2;
+    out.height = Math.round(BH * 2);
+    paintBoard(out.getContext("2d"), 2, 0, 0, out.width, out.height);
+    if(out.toBlob) out.toBlob(cb, "image/png");
+    else cb(null);
+  }
+
   el("wShot").onclick = function(){
     var out = document.createElement("canvas");
     out.width = BOARD_W * 2;
@@ -1567,6 +1664,78 @@ function write(){
     a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
                    .replace(/[:T]/g, "-") + ".png";
     a.click();
+  };
+
+  /* Keep what was written by hand on the class's subject page.
+   *
+   * The Save button downloaded a PNG, which is a file in somebody's Downloads
+   * folder and not a thing the class can find. The lesson Axle teaches files
+   * itself under the class and subject it was taught in; a page of working
+   * written by hand on the same board did not, and a worked example on a
+   * whiteboard is exactly the thing a child wants again the night before an
+   * exam.
+   *
+   * Where it goes is decided the same way the AI lesson decides: the room the
+   * board is open on, or the one subject this teacher holds in the class. If
+   * that is genuinely ambiguous it asks rather than guessing, because filing
+   * a page of algebra under History is worse than one more question. */
+  var keep = el("wKeep");
+  if(keep) keep.onclick = async function(){
+    if(OPEN){
+      wSay("Sign in with your subject code to keep this on the class page.");
+      return;
+    }
+    var cid = 0, subject = "";
+    if(ROOM && ROOM.class_id){ cid = ROOM.class_id; subject = ROOM.subject || ""; }
+    if(!cid){
+      var mine = (ME.classes || []).filter(function(c){ return c.mine !== false; });
+      if(mine.length === 1){
+        cid = mine[0].id;
+        var subs = (mine[0].subjects || []).filter(function(x){ return x.mine; });
+        if(subs.length === 1) subject = subs[0].name || "";
+      }
+    }
+    if(!cid){
+      wSay("Open a classroom first — enter the class or subject code.");
+      return;
+    }
+    if(!subject){
+      subject = (prompt("Which subject does this belong to?", "") || "").trim();
+      if(!subject) return;
+    }
+    var title = (prompt("What is this page?",
+                        "Board notes — " + new Date().toLocaleDateString()) || "").trim();
+    if(!title) return;
+
+    keep.disabled = true;
+    var was = keep.textContent;
+    keep.textContent = "Saving…";
+    boardPng(async function(blob){
+      if(!blob){
+        keep.disabled = false; keep.textContent = was;
+        wSay("This browser cannot turn the board into a picture.");
+        return;
+      }
+      try{
+        var fd = new FormData();
+        fd.append("file", blob, "board.png");
+        fd.append("title", title);
+        fd.append("subject", subject);
+        var r = await fetch("/api/teacher/class/" + cid + "/material/file", {
+          method: "POST", credentials: "same-origin", body: fd });
+        var txt = await r.text();
+        var data = null;
+        try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = null; }
+        if(!r.ok){
+          throw new Error(_detailText(data && data.detail, r.status, r.statusText));
+        }
+        wSay("Kept on " + subject + ". Your class can open it any time.");
+      }catch(e){
+        wSay(e.message || "It could not be saved.");
+      }finally{
+        keep.disabled = false; keep.textContent = was;
+      }
+    });
   };
 }
 
