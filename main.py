@@ -5785,7 +5785,22 @@ def _notice_json(n):
 
 class StaffIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
-    email: str = Field(min_length=5, max_length=255)
+    # EmailStr, the same validator sign-in uses, and that is the whole point.
+    #
+    # This was a plain str with a minimum length. So a head could type
+    # "latha@bhashyam.100" — a real-looking address whose top-level domain does
+    # not exist — and this route accepted it, created the account, printed a
+    # one-time password and told the head "they can sign in now". They could
+    # not. LoginIn.email is EmailStr, so every attempt was rejected before it
+    # reached the password check, and the account was unusable from the moment
+    # it was made. The teacher, the head and I all assumed the password or the
+    # code was wrong; nothing was wrong with either.
+    #
+    # Two forms validating the same field differently is how an account gets
+    # created that can never be used. They match now, so the head is told at
+    # the moment of typing rather than a day later by a teacher who cannot
+    # get in.
+    email: EmailStr
     role: str = Field(default="teacher", max_length=16)
 
 
@@ -5866,6 +5881,83 @@ def head_list_staff(user: User = Depends(head_user),
                        "since": ta.created_at.isoformat() if ta.created_at else ""}
                       for ta, u in q.order_by(TeacherAccess.role).limit(500).all()],
             "roles": list(SCHOOL_ROLES)}
+
+
+class StaffEditIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    email: Optional[EmailStr] = None
+    new_password: bool = False
+
+
+@app.patch("/api/head/staff/{uid}")
+def head_edit_staff(uid: int, body: StaffEditIn,
+                    user: User = Depends(head_user),
+                    db: Session = Depends(get_db)):
+    """Correct a member of staff's name or email, or give them a new password.
+
+    There was no way to do either, and both are ordinary. A head who typed
+    a colleague's address wrongly had made an account nobody could ever sign
+    in to: the address was rejected at the login form, removing their access
+    did not free the address because the User row kept it, and adding them
+    again with the right one left the dead account behind holding a name.
+
+    The password half exists for the same reason. The one-time password is
+    shown once and stored only as a hash, which is right — but "shown once"
+    and "no way to issue another" together mean a teacher who closed the tab
+    is finished. A head can hand out a new one.
+
+    The account is never replaced, only corrected: the same row keeps its id,
+    so the classes it teaches, the work it set and the marks it gave all stay
+    attached to it.
+    """
+    target = db.get(User, uid)
+    if not target:
+        raise HTTPException(404, "No such account")
+
+    t = teacher_row(user, db)
+    sid = (t.school_id if t else 0)
+    ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == uid).first()
+    if not user.is_admin and (not ta or ta.school_id != sid):
+        raise HTTPException(403, "They are not at your school")
+
+    out = {"ok": True, "user_id": uid, "changed": []}
+
+    if body.name.strip():
+        target.name = body.name.strip()[:120]
+        out["changed"].append("name")
+
+    if body.email:
+        new = str(body.email).lower().strip()
+        if new != (target.email or "").lower():
+            clash = (db.query(User).filter(User.email == new,
+                                           User.id != uid).first())
+            if clash:
+                raise HTTPException(
+                    409, "Another account already uses that email address.")
+            target.email = new
+            out["changed"].append("email")
+            out["email"] = new
+
+    if body.new_password:
+        # A class-code account has no password anybody holds and no address
+        # that receives; handing one a password would make a second way in to
+        # a child's account, which is not a thing a head should be able to do.
+        if (target.kind or "") == "classcode":
+            raise HTTPException(
+                400, "That is a pupil's class-code account, not a member of "
+                     "staff. It has no password by design.")
+        temp = secrets.token_urlsafe(9)
+        target.password_hash = hash_pw(temp)
+        # Every device holding a session for this account is signed out, which
+        # is the point of issuing a new password.
+        target.session_token = ""
+        out["temporary_password"] = temp
+        out["changed"].append("password")
+
+    if not out["changed"]:
+        raise HTTPException(400, "Nothing to change.")
+    db.commit()
+    return out
 
 
 @app.delete("/api/head/staff/{uid}")

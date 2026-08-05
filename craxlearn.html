@@ -440,6 +440,38 @@ window.__paneBody = function(){
 /* The tools that are separate files and own their own repainting. */
 var MODULE_TOOLS = ["net", "lab", "sqlboard", "scan"];
 
+/* One sentence out of whatever the server put in "detail".
+
+   Three shapes arrive here: a plain string (our own refusals), an object with
+   a .message (a structured refusal), and an ARRAY of {loc, msg} from FastAPI
+   when a field fails validation. The array is the one that matters, because
+   an array passed to new Error() stringifies to "[object Object]" — which is
+   what reached the screen instead of the reason. */
+function _detailText(detail, status, statusText){
+  var fallback = statusText || ("Request failed (" + status + ")");
+  if(!detail) return fallback;
+  if(typeof detail === "string") return detail;
+  if(Object.prototype.toString.call(detail) === "[object Array]"){
+    var first = detail[0];
+    if(!first) return fallback;
+    if(typeof first === "string") return first;
+    var msg = (first.msg || first.message || fallback)
+                .replace(/^Value error,\s*/i, "");
+    var loc = [];
+    if(Object.prototype.toString.call(first.loc) === "[object Array]"){
+      loc = first.loc.filter(function(x){
+        return ["body","query","path","header"].indexOf(x) === -1; });
+    }
+    var field = loc.length ? String(loc[loc.length - 1]) : "";
+    if(field && msg.toLowerCase().indexOf(field.toLowerCase()) === -1){
+      msg = field.replace(/_/g, " ") + ": " + msg;
+    }
+    return msg;
+  }
+  if(typeof detail === "object") return detail.message || fallback;
+  return fallback;
+}
+
 async function req(method, path, body){
   var opt = { method:method, credentials:"same-origin",
               headers:{ "Content-Type":"application/json" } };
@@ -449,7 +481,12 @@ async function req(method, path, body){
   var data = null;
   try{ data = text ? JSON.parse(text) : null; }catch(e){ data = null; }
   if(!r.ok){
-    var msg = (data && data.detail) || r.statusText || "Something went wrong";
+    /* detail is a string for our own refusals and an ARRAY of
+       {loc, msg} objects for a FastAPI validation failure. Passing the array
+       straight to new Error() gives the message "[object Object]", which is
+       what a teacher saw on the board instead of being told which field was
+       wrong. Same helper, same reasoning as index.html. */
+    var msg = _detailText(data && data.detail, r.status, r.statusText);
     var err = new Error(msg);
     err.status = r.status;
     /* The gate answers 403 with a reason, so the page can say WHICH wall

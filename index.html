@@ -1178,6 +1178,52 @@ var TUTOR = window.Tutor || {
 };
 
 /* ===================== API ===================== */
+/* Turn whatever the server put in "detail" into one sentence a person can act on.
+
+   A failure has three shapes here and only one of them is a string:
+
+     "No class has that code"                     — ours, already a sentence
+     {message: "...", needs_confirm: "6-a", ...}  — ours, structured refusal
+     [{loc:["body","email"], msg:"..."}, ...]     — FastAPI validation, an ARRAY
+
+   The last one is the one that kept reaching people as "[object Object]", and
+   later as "Request failed (422)" — because an array IS an object, so a check
+   for typeof "object" catches it and then finds no .message on it. Both are
+   the same failure to look inside: the actual explanation was sitting in
+   detail[0].msg the whole time. A teacher who typed latha@bhashyam.100 was
+   told nothing, when the server had already said the top-level domain was not
+   valid.
+
+   The field name is included because a form with four inputs and a message
+   about "value" does not say which box to go back to. */
+function detailText(detail, status){
+  const fallback = "Request failed (" + status + ")";
+  if(!detail) return fallback;
+  if(typeof detail === "string") return detail;
+
+  if(Array.isArray(detail)){
+    const first = detail[0];
+    if(!first) return fallback;
+    if(typeof first === "string") return first;
+    let msg = first.msg || first.message || fallback;
+    /* loc is ["body", "email"] — the last part is the field. "body" and
+       "query" name the envelope, not anything the person filled in. */
+    const loc = Array.isArray(first.loc)
+      ? first.loc.filter(x => !["body","query","path","header"].includes(x))
+      : [];
+    const field = loc.length ? String(loc[loc.length - 1]) : "";
+    /* Pydantic prefixes with "Value error, " which means nothing to a reader. */
+    msg = msg.replace(/^Value error,\s*/i, "");
+    if(field && msg.toLowerCase().indexOf(field.toLowerCase()) === -1){
+      msg = field.replace(/_/g, " ") + ": " + msg;
+    }
+    return detail.length > 1 ? msg + " (and " + (detail.length-1) + " more)" : msg;
+  }
+
+  if(typeof detail === "object") return detail.message || detail.detail || fallback;
+  return fallback;
+}
+
 const api = {
   async call(path, opts={}, _attempt=0){
     /* Every request gets a deadline. Without one, a fetch that never settles
@@ -1250,13 +1296,10 @@ const api = {
          "[object Object]", which is what a person then sees in an alert.
          So the sentence is pulled out of it, and the whole body is attached
          for a caller that wants to act on it rather than print it. */
-      const d = data.detail;
-      const msg = (d && typeof d === "object")
-        ? (d.message || "Request failed ("+r.status+")")
-        : (d || "Request failed ("+r.status+")");
-      const err = new Error(msg);
+      const err = new Error(detailText(data.detail, r.status));
       err.status = r.status;
-      err.data = (d && typeof d === "object") ? d : {};
+      err.data = (data.detail && typeof data.detail === "object"
+                  && !Array.isArray(data.detail)) ? data.detail : {};
       throw err;
     }
     return data;
@@ -6279,11 +6322,26 @@ async function staffPaint(cid){
    because the class screen and the admin screen both want it. */
 let SCHOOL_STAFF = [];
 
+/* "Nobody works here" and "I could not find out who works here" are
+   different answers, and this used to give the first one for both. A teacher
+   opening a class saw "No staff yet — add them on the School admin screen"
+   with four members of staff listed directly above it, because /api/head/staff
+   is head-only and the 403 was caught and turned into an empty list.
+
+   That message then sent them to a screen to add people who were already
+   there. STAFF_ERROR keeps the difference so the screen can say which it is. */
+let STAFF_ERROR = "";
 async function staffLoad(){
   try{
     const d=await api.get("/api/head/staff");
     SCHOOL_STAFF=(d && (d.staff||d.people||d.rows))||[];
-  }catch(e){ SCHOOL_STAFF=[]; }
+    STAFF_ERROR="";
+  }catch(e){
+    SCHOOL_STAFF=[];
+    STAFF_ERROR = (e && e.status===403)
+      ? "Only the school admin can change who teaches a subject."
+      : ((e && e.message) || "Could not load the staff list.");
+  }
   return SCHOOL_STAFF;
 }
 
@@ -6296,7 +6354,8 @@ async function staffPickFill(){
     ? `<option value="0">Choose a teacher…</option>`
       + teach.map(p=>`<option value="${p.id||p.user_id}">${
           esc(p.name||p.email)}</option>`).join("")
-    : `<option value="0">No staff yet — add them on the School admin screen</option>`;
+    : `<option value="0">${esc(STAFF_ERROR
+        || "No staff yet — add them on the School admin screen")}</option>`;
 }
 
 /* Put an existing member of staff on a subject here. No account is made and
@@ -6332,8 +6391,59 @@ async function schoolStaffPaint(){
           ${esc(p.name||p.email)}
           <span style="font-size:11.5px;color:var(--dim)">· ${
             esc(p.role||"teacher")}${p.email?" · "+esc(p.email):""}</span></span>
+        <span style="display:flex;gap:5px;flex:0 0 auto">
+          <button class="btn ghost sm" data-cls="stfix"
+            data-id="${p.id||p.user_id}" data-em="${esc(p.email||"")}"
+            >Fix email</button>
+          <button class="btn ghost sm" data-cls="stpw"
+            data-id="${p.id||p.user_id}" data-nm="${esc(p.name||p.email||"")}"
+            >New password</button>
+        </span>
       </div>`).join("")
-    : `<div style="color:var(--dim);font-size:13px">No staff yet.</div>`;
+    : `<div style="color:var(--dim);font-size:13px">${
+        esc(STAFF_ERROR || "No staff yet.")}</div>`;
+}
+
+/* Correcting a typed email, and issuing a replacement password.
+
+   Neither was possible. A head who mistyped an address had made an account
+   that could never sign in — the address was refused at the login form, and
+   removing their access did not free it because the account kept it. And the
+   one-time password is shown once by design, which is right, but with no way
+   to issue another a teacher who closed the tab was finished.
+
+   The account is corrected, never replaced, so the classes they teach and the
+   work they set stay attached to them. */
+async function staffFixEmail(uid, current){
+  const next=prompt("Correct this teacher's email address.\n\n"+
+    "Sign-in checks it is a real address, so a typo here is an account "+
+    "nobody can use.", current||"");
+  if(next===null) return;
+  if(!next.trim()){ toast("An email address is needed."); return; }
+  try{
+    const r=await api.patch("/api/head/staff/"+uid, {email:next.trim()});
+    await schoolStaffPaint();
+    toast("Email corrected to "+(r.email||next.trim())+". They can sign in with it now.");
+  }catch(e){ toast(e.message); }
+}
+
+async function staffNewPassword(uid, who){
+  if(!confirm("Give "+(who||"this teacher")+" a new password?\n\n"+
+              "It is shown once. Their old password stops working and any "+
+              "device they are signed in on is signed out.")) return;
+  try{
+    const r=await api.patch("/api/head/staff/"+uid, {new_password:true});
+    await schoolStaffPaint();
+    const out=document.getElementById("hStMade");
+    if(out && r.temporary_password){
+      out.style.display="";
+      out.innerHTML=`<div style="font-weight:650;margin-bottom:4px">New password for ${esc(who||"")}</div>`+
+        `<div style="font-size:13px">Password <b>${esc(r.temporary_password)}</b></div>`+
+        `<div style="font-size:12px;color:var(--dim);margin:6px 0">`+
+        `Read it to them now. It is shown once and is not kept anywhere we can look it up.</div>`+
+        `<button class="btn ghost sm" onclick="this.parentNode.style.display='none'">Done</button>`;
+    }
+  }catch(e){ toast(e.message); }
 }
 
 async function schoolStaffAdd(){
@@ -6876,6 +6986,8 @@ document.addEventListener("click",e=>{
   else if(k==="atall") attAll(id);
   else if(k==="atsave") attSave();
   else if(k==="feepaid") feeMarkPaid(id, b.dataset.amt);
+  else if(k==="stfix") staffFixEmail(id, b.dataset.em||"");
+  else if(k==="stpw") staffNewPassword(id, b.dataset.nm||"");
   else if(k==="rosdel") rosDel(id, cid);
   else if(k==="rosoff") rosOff(id, cid);
   else if(k==="rosback") rosBack(id, cid);
