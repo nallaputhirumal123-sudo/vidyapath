@@ -79,12 +79,17 @@ ck("it resolves", r.status_code == 200, r.text[:120])
 d = r.json()
 ck("as a class", d.get("kind") == "class", str(d.get("kind")))
 ck("and names it", d.get("class_name", "").startswith("9-R"), str(d.get("class_name")))
-ck("and lists the subjects taught in it",
-   any(x.get("subject") == "Science" for x in d.get("subjects", [])),
-   str(d.get("subjects")))
-ck("with who teaches each",
-   any(x.get("teacher") == "Rao Science" for x in d.get("subjects", [])),
-   str(d.get("subjects")))
+# The class code is held by every child in the class. The first version of
+# this route answered it with the subject list and each subject's teacher —
+# a timetable and a staff list, handed to anybody holding a code that is by
+# design passed around a classroom. A board needs to know which room it is
+# in; it does not need to be told who works there.
+ck("it does NOT list the subjects to a class-code holder",
+   not d.get("subjects"), str(d.get("subjects")))
+ck("nor name any member of staff",
+   "Rao Science" not in str(d), str(d)[:140])
+ck("and hands out no board token either",
+   not d.get("board_token"), str(d.get("board_token"))[:40])
 
 print("\na subject code names the room AND the subject")
 fresh()
@@ -141,6 +146,52 @@ fresh()
 r = board.post("/api/craxlearn/code", json={"code": SUBJ_CODE})
 ck("and a subject code is still not a register",
    r.status_code == 404, f"got {r.status_code}")
+
+print("")
+print("the subject code is what a teacher joins the classroom with")
+fresh()
+room = board.post("/api/craxlearn/room", json={"code": SUBJ_CODE}).json()
+TOKEN = room.get("board_token")
+ck("a subject code hands back a board token", bool(TOKEN), str(TOKEN)[:30])
+r = board.post("/api/craxlearn/board/save",
+               json={"board_token": TOKEN, "topic": f"Lenses {st}",
+                     "lesson": {"steps": [{"t": "A convex lens converges."}]}})
+ck("and that token saves the lesson with no sign-in at all",
+   r.status_code == 200, r.text[:130])
+mats = tch.get(f"/api/class/{CID}/materials").json().get("materials", [])
+ck("filed under the right class and subject",
+   any(m.get("subject") == "Science" and f"Lenses {st}" in (m.get("title") or "")
+       for m in mats), str(mats)[:150])
+ck("and attributed to the teacher the school put on that subject",
+   any(f"Lenses {st}" in (m.get("title") or "") and m.get("by") == "Rao Science"
+       for m in mats), str(mats)[:200])
+print("")
+print("and the token buys ONLY that")
+ck("it is not a session", board.get("/api/auth/me").status_code in (401, 403))
+ck("it cannot read the register",
+   board.get(f"/api/teacher/class/{CID}/roster").status_code in (401, 403))
+ck("nor the discussion",
+   board.get(f"/api/class/{CID}/discussion").status_code in (401, 403))
+ck("nor the school",
+   board.get("/api/head/overview").status_code in (401, 403))
+print("")
+print("and it cannot be pointed at another class")
+other = head.post("/api/teacher/class", json={"name": f"9-X {st}"}).json()
+r = board.post("/api/craxlearn/board/save",
+               json={"board_token": TOKEN, "class_id": other["id"],
+                     "subject": "History", "topic": f"Elsewhere {st}",
+                     "lesson": {"steps": [{"t": "not here"}]}})
+ck("the class_id in the request is ignored", r.status_code == 200, r.text[:110])
+away = head.get("/api/class/" + str(other["id"]) + "/materials").json().get("materials", [])
+ck("nothing landed in the other class", not away, str(away)[:120])
+mats = tch.get(f"/api/class/{CID}/materials").json().get("materials", [])
+ck("it went to the token’s own class and subject",
+   any(f"Elsewhere {st}" in (m.get("title") or "") and m.get("subject") == "Science"
+       for m in mats), str(mats)[:170])
+ck("a rubbish token is refused",
+   board.post("/api/craxlearn/board/save",
+              json={"board_token": "not.a.token", "topic": "x",
+                    "lesson": {"steps": [{"t": "x"}]}}).status_code in (401, 422))
 
 db.close()
 print("\n".join("FAIL " + x for x in F) if F else "")

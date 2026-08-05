@@ -7221,6 +7221,67 @@ class CodeIn(BaseModel):
     code: str = Field(min_length=3, max_length=16)
 
 
+BOARD_TOKEN_HOURS = 12
+
+
+def _board_token(slot, k):
+    """What a subject code is worth at a board, and no more.
+
+    A teacher joins the classroom with their code — that is the rule the
+    school was given, and typing an email and a password on a television in
+    front of thirty children is not a thing anybody does twice.
+
+    The obvious implementation is to mint a normal session for the teacher who
+    holds the slot. That hands out an account. The code is written on a board,
+    read aloud, passed down a row; whoever types it would get the register,
+    the marks, every subject's discussion and the school's fees.
+
+    So the code buys one capability instead of an identity: put a lesson taught
+    at this board into THIS class under THIS subject. Nothing else. A token
+    that names a class and a subject and can be used for exactly one route.
+
+    It expires in half a day, because a board is a shared device and a
+    classroom is empty by evening — and it is rotatable already, since a
+    subject code can be reissued whenever it travels.
+
+    A pupil who types the code can therefore save a lesson into their own
+    subject's material, which is untidy and which a teacher can delete. They
+    cannot read anything about anybody.
+    """
+    payload = {
+        "kind": "board",
+        "slot": slot.id,
+        "cls": k.id,
+        "subject": slot.subject or "",
+        "teacher": slot.teacher_id or 0,
+        "exp": now() + dt.timedelta(hours=BOARD_TOKEN_HOURS),
+        "iat": now(),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def _board_grant(db, token):
+    """Read a board token back, or None. Never raises into a request."""
+    if not token:
+        return None
+    try:
+        p = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+    if p.get("kind") != "board":
+        return None
+    slot = db.get(SubjectSlot, int(p.get("slot") or 0))
+    if not slot or slot.class_id != int(p.get("cls") or 0):
+        return None
+    # The code may have been rotated since this token was minted, which is how
+    # a school takes a leaked one out of circulation. A token outliving the
+    # code it came from would make rotation do nothing.
+    if (slot.subject or "") != (p.get("subject") or ""):
+        return None
+    return {"class_id": slot.class_id, "subject": slot.subject or "",
+            "teacher_id": slot.teacher_id or 0, "slot_id": slot.id}
+
+
 @app.post("/api/craxlearn/room")
 def craxlearn_room(body: CodeIn, request: Request,
                    db: Session = Depends(get_db)):
@@ -7265,25 +7326,22 @@ def craxlearn_room(body: CodeIn, request: Request,
         return {"kind": "subject", "class_id": k.id, "class_name": k.name,
                 "school": k.school or "", "subject": slot.subject or "",
                 "teacher": (who.name if who else ""),
-                "archived": bool(k.archived_at)}
+                "archived": bool(k.archived_at),
+                # The board's whole entitlement, in one short-lived token.
+                "board_token": _board_token(slot, k)}
 
     k = db.query(Klass).filter(func.upper(Klass.join_code) == code).first()
     if not k:
         _code_missed(request)
         raise HTTPException(404, "No class or subject has that code")
-    slots = (db.query(SubjectSlot)
-               .filter(SubjectSlot.class_id == k.id)
-               .order_by(SubjectSlot.subject).all())
-    names = {}
-    for s in slots:
-        if s.teacher_id and s.teacher_id not in names:
-            u = db.get(User, s.teacher_id)
-            names[s.teacher_id] = u.name if u else ""
+    # The class code is held by every child in the class, so this answers with
+    # the room and nothing about the staff who teach in it. The first version
+    # returned the subject list and each subject's teacher — which is a
+    # timetable and a staff list handed to anybody holding a code that is, by
+    # design, passed around a classroom. A board needs to know which room it
+    # is in; it does not need to be told who works there.
     return {"kind": "class", "class_id": k.id, "class_name": k.name,
-            "school": k.school or "", "archived": bool(k.archived_at),
-            "subjects": [{"subject": s.subject or "",
-                          "teacher": names.get(s.teacher_id, "")}
-                         for s in slots]}
+            "school": k.school or "", "archived": bool(k.archived_at)}
 
 
 @app.post("/api/craxlearn/code")
@@ -7997,7 +8055,11 @@ def _board_subject(db, cid, user, asked):
 
 
 class BoardSaveIn(BaseModel):
-    class_id: int
+    class_id: int = 0
+    # What a subject code bought at the board. When present, the class and
+    # subject come from it and the two fields above are ignored — a token for
+    # 6-a Science cannot be pointed at 6-b.
+    board_token: str = Field(default="", max_length=800)
     topic: str = Field(min_length=2, max_length=200)
     title: str = Field(default="", max_length=240)
     subject: str = Field(default="", max_length=80)
@@ -8006,8 +8068,7 @@ class BoardSaveIn(BaseModel):
 
 
 @app.post("/api/craxlearn/board/save")
-def craxlearn_board_save(body: BoardSaveIn,
-                         user: User = Depends(teacher_user),
+def craxlearn_board_save(body: BoardSaveIn, request: Request,
                          db: Session = Depends(get_db)):
     """Keep what was just taught, on the class's subject page.
 
@@ -8020,21 +8081,64 @@ def craxlearn_board_save(body: BoardSaveIn,
 
     Saved as text rather than a file, so it opens on the subject page instead
     of downloading something a phone may not be able to read.
+
+    Two ways in, and only two.
+
+    A signed-in teacher, as before — the ordinary case, and the one that
+    reaches this from a laptop.
+
+    Or a board token, which is what a subject code buys at the board itself.
+    It names one class and one subject and unlocks this route and no other:
+    the teacher joins the classroom with their code, teaches, and what they
+    taught lands under their subject. It cannot read a register, a mark, a
+    discussion or a fee, because it is not an account — it is one capability
+    with an expiry on it.
+
+    The class_id and subject in the request are IGNORED when a board token is
+    used. They are taken from the token, so a code for 6-a Science cannot be
+    pointed at 6-b, and a browser cannot rename the subject it is filing
+    under.
     """
-    _own_class(db, body.class_id, user)
+    grant = _board_grant(db, body.board_token)
+    user = None
+    if grant is None:
+        # No token: the ordinary path, and it must still be a teacher of the
+        # class. Resolved here rather than as a dependency so that a missing
+        # session gives "sign in", not a confusing 422 about a token.
+        try:
+            user = current_user(request, db)
+        except HTTPException:
+            raise HTTPException(
+                401, "Sign in to save this, or open the class with your "
+                     "subject code first.")
+        user = teacher_user(user, db)
+        _own_class(db, body.class_id, user)
+        class_id = body.class_id
+        subject = _board_subject(db, body.class_id, user, body.subject)
+        teacher_id = user.id
+        by = user.name
+    else:
+        class_id = grant["class_id"]
+        subject = grant["subject"]
+        # Attributed to whoever the school put on that subject, which is who
+        # the class will expect to see against it. If the slot is unfilled it
+        # is attributed to nobody rather than to whoever was standing there.
+        teacher_id = grant["teacher_id"]
+        who = db.get(User, teacher_id) if teacher_id else None
+        by = who.name if who else ""
+
     text = _lesson_to_body(body.lesson or {}, "")
     if not text:
         raise HTTPException(400, "There is nothing in that lesson to save.")
-    subject = _board_subject(db, body.class_id, user, body.subject)
     title = (body.title or body.topic).strip()[:240]
-    m = Material(class_id=body.class_id, teacher_id=user.id,
+    m = Material(class_id=class_id, teacher_id=teacher_id,
                  subject=subject,
                  title=title, note=(body.note or "").strip()[:2000],
                  body=text, figures=_lesson_figures(body.lesson or {}))
     db.add(m)
     db.commit()
     db.refresh(m)
-    return {"ok": True, "material": _material_json(m, by=user.name)}
+    return {"ok": True, "material": _material_json(m, by=by)}
 
 
 # ---- the phone as a remote control ---------------------------------------

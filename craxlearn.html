@@ -346,9 +346,16 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
       <div id="clockDate" class="muted"></div>
     </div>
     <div class="tabs" role="tablist">
-      <button role="tab" id="tabCode" aria-selected="true">Class code</button>
-      <button role="tab" id="tabIn" aria-selected="false">Sign in</button>
-      <button role="tab" id="tabUp" aria-selected="false">New account</button>
+      <!-- No "New account" here, on purpose.
+
+           Nobody signs up at a board. A board is a screen on a classroom
+           wall: the school admin signs in on it once to turn it on, teachers
+           join their own classroom with the code they were given, and pupils
+           tap their name off the register. An account is made by the school,
+           on the school's own screen, by somebody who knows who they are
+           employing — not by whoever is standing in front of the television.
+        -->
+      <button role="tab" id="tabCode" aria-selected="true">Enter a code</button>
       <button role="tab" id="tabRemote" aria-selected="false">Remote</button>
       <button role="tab" id="tabOpen" aria-selected="false">Just the board</button>
     </div>
@@ -822,7 +829,7 @@ function scale(next){
  */
 function codeForm(){
   el("gateForm").innerHTML =
-    '<input id="gCode" placeholder="Class code" autocapitalize="characters" ' +
+    '<input id="gCode" placeholder="Class or subject code" autocapitalize="characters" ' +
       'autocomplete="off" style="text-transform:uppercase;letter-spacing:.1em">' +
     '<button class="btn" id="gCodeGo">Find my class</button>';
   el("gCodeGo").onclick = findClass;
@@ -884,12 +891,11 @@ async function findClass(){
       (room.teacher
         ? '<p class="muted">' + esc(room.teacher) + " teaches this.</p>"
         : '<p class="muted">No teacher is on this subject yet.</p>') +
-      '<p class="muted">Sign in to save what you teach here. Anything kept ' +
-      'from this board is filed under this class and subject.</p>' +
-      '<button class="btn" id="gRoomSignIn">Sign in</button> ' +
+      '<p class="muted">Anything you keep from this board is filed under ' +
+      'this class and this subject.</p>' +
+      '<button class="btn" id="gRoomGo">Open the board</button> ' +
       '<button class="btn ghost" id="gBack2">← Different code</button>';
-    el("gRoomSignIn").onclick = function(){
-      el("gateMsg").textContent = ""; gateForm("in"); };
+    el("gRoomGo").onclick = function(){ openBoard(); };
     el("gBack2").onclick = function(){ ROOM = null; el("gateMsg").textContent = ""; codeForm(); };
     return;
   }
@@ -1661,12 +1667,12 @@ function signInPrompt(what){
 function wireSignIn(host){
   (host || document).querySelectorAll("[data-signin]").forEach(function(b){
     b.onclick = function(){
-      /* Straight to the sign-in form, with the board still behind it: the
-         ink is in the page, so it is still there afterwards. */
+      /* Straight to the code box, with the board still behind it: the ink
+         is in the page, so it is still there afterwards. */
       OPEN = false;
       el("app").hidden = true;
       el("gate").hidden = false;
-      tab("In");
+      tab("Code");
     };
   });
 }
@@ -3598,9 +3604,14 @@ async function boot(){
   el("app").hidden = !signedIn;
   if(!signedIn){
     el("who").innerHTML = "";
-    /* The class code first, because it is the one most people arriving here
-       are holding. An email box in front of a nine-year-old with a code in
-       their hand is a wrong turn they take before they read the tabs. */
+    /* Sign in first. The school admin turns the board on; until somebody
+       does, this screen is a canvas and nothing else.
+
+       The class code used to open first, on the reasoning that a child
+       arriving with a code in their hand should not meet an email box. That
+       is true of a pupil on their own phone and wrong for the board itself,
+       which is switched on once in the morning by whoever runs the room and
+       then stays on. The code tab is one tap away for everybody else. */
     tab("Code");
     return;
   }
@@ -3612,18 +3623,25 @@ async function boot(){
 }
 
 function tab(which){
-  ["Code","In","Up","Remote","Open"].forEach(function(t){
-    el("tab" + t).setAttribute("aria-selected", String(t === which));
+  /* "Up" is deliberately not in this list any more — there is no New account
+     tab on a board. Left as a lookup that tolerates a missing element rather
+     than a hard el() call, because the next tab somebody removes should
+     change the gate and not break it. */
+  ["Code","Remote","Open"].forEach(function(t){
+    var b = document.getElementById("tab" + t);
+    if(b) b.setAttribute("aria-selected", String(t === which));
   });
   el("gateMsg").textContent = "";
-  if(which === "Code") codeForm();
-  else if(which === "Remote") remoteJoinForm();
+  if(which === "Remote") remoteJoinForm();
   else if(which === "Open") openForm();
-  else gateForm(which === "Up" ? "up" : "in");
+  else codeForm();
 }
 el("tabCode").onclick = function(){ tab("Code"); };
-el("tabIn").onclick   = function(){ tab("In"); };
-el("tabUp").onclick   = function(){ tab("Up"); };
+/* No sign-in on the board. Nobody types an email address on a television in
+   front of a class: the school code turns the board on, a teacher opens
+   their own classroom with their subject code, and a pupil taps their name
+   off the register. Every way in here is a code. */
+/* tabUp is gone: a board is not a place to create an account. */
 el("tabRemote").onclick = function(){ tab("Remote"); };
 el("tabOpen").onclick = function(){ tab("Open"); };
 el("homeBtn").onclick = function(){ go("home"); };
