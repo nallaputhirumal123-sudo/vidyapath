@@ -2650,6 +2650,12 @@ function renderHome(){
       <span style="color:var(--muted);font-size:14px">Now build the four portfolio projects and start applying.</span>
       <div style="margin-top:12px"><button class="btn sm" data-nav="projects">Go to projects →</button></div></div>`}
 
+  <!-- Filled in after the page is drawn, and only for somebody who is not in
+       a class yet. A child arriving with a code in their hand had to find
+       "My class" in the sidebar first; the code is the reason they are here,
+       so it belongs on the first screen. -->
+  <div id="homeJoin"></div>
+
   ${dailyChallengeHTML()}
 
   ${trackGroupHTML(list)}
@@ -2664,6 +2670,48 @@ function renderHome(){
 
   <footer>Craxle · All videos and reference links point to free public resources — official docs, MDN, freeCodeCamp, Kaggle, Harvard CS50 and similar.<br>
   Salary and job-market figures change constantly; always check current live sources before making decisions.<br><span data-version style="opacity:.7"></span></footer>`;
+  homeJoinFill();
+}
+
+/* Put "Join a class" on the first screen, for somebody who is not in one.
+ *
+ * The box lived on My class, which a child had to find in the sidebar — and
+ * the code in their hand is the whole reason they are here. Drawn after the
+ * page rather than with it, because knowing whether they are already in a
+ * class takes a request, and the home page must not wait on one.
+ *
+ * A child who IS in a class gets a way through to it instead of an empty
+ * form asking for a code they have already used. */
+async function homeJoinFill(){
+  const box=document.getElementById("homeJoin");
+  if(!box) return;
+  let classes=[];
+  try{
+    const d=await api.get("/api/class/mine");
+    classes=(d && (d.classes||d.rows))||[];
+  }catch(e){ return; }        /* no class list, no box — never an error here */
+  if(!document.getElementById("homeJoin")) return;   /* page moved on */
+  if(classes.length){
+    box.innerHTML=`<div class="card" style="margin-bottom:26px">
+      <b>🎓 ${esc(classes[0].name||"Your class")}</b>
+      <div style="font-size:12.5px;color:var(--dim);margin-top:3px">
+        Your subjects, the work set, and what your class is asking.</div>
+      <div style="margin-top:11px"><button class="btn sm" data-nav="class">Open my class →</button></div>
+    </div>`;
+    return;
+  }
+  box.innerHTML=`<div class="card" style="margin-bottom:26px;border-color:var(--accent)">
+    <b>Join a class</b>
+    <div style="font-size:12.5px;color:var(--dim);margin-top:3px">
+      Enter the code your teacher gave you. You will tap your own name next —
+      there is no password.</div>
+    <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+      <input id="joinCode" class="ask-input" style="max-width:220px"
+        placeholder="Class code e.g. VP-7K3Q"/>
+      <button class="btn sm" data-cls="join">Join →</button></div>
+    <div id="joinMsg" style="font-size:13px;margin-top:8px;color:var(--dim)"></div>
+  </div>`;
+  wireJoin();
 }
 
 /* ===================== PATHS ===================== */
@@ -6873,6 +6921,16 @@ async function renderTeacherClass(cid){
   catch(e){ $("#main").innerHTML=`<div class="crumb"><button data-cls="backteacher">← All classes</button></div><p class="sub">${esc(e.message)}</p>`; return; }
   TEACHER_CLASS=d;
   const asg=d.assignments||[], roster=d.roster||[], sched=d.schedule||[];
+  /* Study material, the discussion, assignments and the timetable are the
+     teacher's, not the office's.
+     The office creates the class, its subjects and its register, assigns who
+     teaches what, and keeps attendance and fees. What is taught in a subject
+     — the reading, the questions, the homework, the order of the term — is
+     the person teaching it. An administrator was being shown all four
+     composers for every subject in the school, which is both a lot of screen
+     and an invitation to set work in somebody else's lesson. */
+  const TEACHES = !(USER.role === "head" || USER.role === "schooladmin"
+                    || USER.is_admin);
   const head=asg.map(a=>`<th title="${esc(a.title)}" style="font-size:11px;padding:5px 4px">${esc((a.subject||a.title).slice(0,10))}</th>`).join("");
   const rrows=roster.length?roster.map(s=>`<tr>
       <td style="padding:6px">${esc(s.name)}</td>
@@ -6928,6 +6986,7 @@ async function renderTeacherClass(cid){
       </div>
     </div>
 
+    ${TEACHES ? `
     <div class="eyebrow">Study material</div>
     <p class="sub" style="margin:-2px 0 8px">Chapters, slides, a link — things
       to read, not work to hand in. Material outlives the homework it was
@@ -7007,7 +7066,12 @@ async function renderTeacherClass(cid){
         <div class="field"><label>What happens</label><input id="scText" placeholder="e.g. Chapter 3, then practice"/></div>
       </div>
       <button class="btn sm" data-cls="addsched" data-id="${cid}">Add to schedule</button>
-    </div>`;
+    </div>
+    ` : `<div class="card" style="color:var(--dim)">
+        Study material, the class discussion, assignments and the timetable
+        belong to the teacher of each subject. You can see them on the
+        subject pages; setting them is theirs to do.
+      </div>`}`;
   /* After the screen is on the page, not before: the register needs its own
      call for the roster ids, and a slow one must not hold up the class. */
   rosterPaint(cid);
