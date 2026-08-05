@@ -7409,6 +7409,29 @@ def class_discussion(cid: int, subject: str = "",
     """
     _in_class_or_teaching(db, cid, user)
     q = db.query(ClassPost).filter(ClassPost.class_id == cid)
+
+    # A teacher reads their own subjects and no others. Applied to the query
+    # rather than to the page, so a thread another teacher's class is having
+    # is not sent to the browser and then hidden by a screen.
+    scope = _discussion_scope(db, cid, user)
+    if scope is not None:
+        want_one = subject.strip().lower()
+        if want_one and want_one not in scope:
+            raise HTTPException(
+                403, "You do not teach that subject in this class. Its "
+                     "discussion belongs to the teacher who does.")
+        # A message with no subject is the class talking to itself rather than
+        # a lesson happening, so it stays readable by everyone who teaches
+        # here. Without this a teacher lost sight of their own class-level
+        # thread the moment they were given a subject — which is how a rule
+        # meant to separate two subjects ended up hiding the class.
+        keep = func.lower(func.coalesce(ClassPost.subject, "")) == ""
+        if scope:
+            keep = or_(keep,
+                       func.lower(func.coalesce(ClassPost.subject, ""))
+                       .in_(list(scope)))
+        q = q.filter(keep)
+
     if subject.strip():
         # Filtered here rather than in the page. The subject screen was
         # fetching every thread in the class and dropping most of them, which
@@ -7464,6 +7487,22 @@ def class_discussion_post(cid: int, body: PostIn,
         root = db.get(ClassPost, parent)
         if root is not None and not (body.subject or "").strip():
             body.subject = root.subject or ""
+    # Answering is the same rule as reading. Checked after the parent has been
+    # resolved, because a reply inherits its question's subject — so the check
+    # has to run against the subject the message will actually be filed under,
+    # not the one the form happened to send.
+    scope = _discussion_scope(db, cid, user)
+    if scope is not None:
+        want = (body.subject or "").strip().lower()
+        # Only a message filed UNDER a subject is restricted. One with no
+        # subject is addressed to the class, and refusing those stopped
+        # teachers posting to their own classes at all — the check fired on
+        # an empty string that was never in anybody's subject list.
+        if want and want not in scope:
+            raise HTTPException(
+                403, "You do not teach that subject in this class, so this "
+                     "thread is not yours to answer.")
+
     staff = _my_subjects(db, cid, user)
     row = ClassPost(class_id=cid, user_id=user.id, parent_id=parent,
                     subject=body.subject.strip()[:80],
@@ -7488,9 +7527,26 @@ def class_discussion_delete(cid: int, pid: int,
     row = db.get(ClassPost, pid)
     if not row or row.class_id != cid:
         raise HTTPException(404, "Not found")
+    # Your own always. Somebody else's only if you teach it.
+    #
+    # NOT _discussion_scope: that answers "what may you read", and for a
+    # child in the class the answer is "everything their class is taught".
+    # Using it here handed every pupil the power to delete their classmates'
+    # messages — a rule about which teacher owns a thread, turned into a
+    # moderation right for thirty children, by reusing one helper for two
+    # different questions.
+    #
+    # _my_subjects answers the other question: None for the head and the
+    # office, the subjects held for a teacher, and an empty set for a pupil.
     teaches = _my_subjects(db, cid, user)
-    if row.user_id != user.id and not (teaches is None or teaches):
-        raise HTTPException(403, "That is somebody else's message")
+    if row.user_id != user.id:
+        here = (row.subject or "").strip().lower()
+        may = (teaches is None) or bool(teaches) and (
+            not here or here in {str(s).strip().lower() for s in teaches})
+        if not may:
+            raise HTTPException(
+                403, "That is somebody else's message, and it is in a "
+                     "subject you do not teach.")
     # A question takes its replies with it, or the class is left answering
     # something nobody can see.
     db.query(ClassPost).filter(ClassPost.class_id == cid,
@@ -7611,6 +7667,39 @@ def drop_material(mid: int, user: User = Depends(teacher_user),
     db.delete(m)
     db.commit()
     return {"ok": True}
+
+
+def _discussion_scope(db, cid, user):
+    """Which subjects this person may read and answer in. None means all.
+
+    A subject thread is the one place in a class where children talk to each
+    other in front of a teacher, and it was open to every teacher of the
+    class: the maths teacher could read the science thread. That is not a
+    staffroom noticeboard, it is thirty children asking questions, and the
+    rule the school was given is that the teacher of THAT subject answers it.
+
+    Three answers, and the order matters:
+
+      * the head, and the office, see everything — they are responsible for
+        the whole school and cannot supervise what they cannot read;
+      * a child in the class sees every subject their class is taught,
+        because those are their own lessons;
+      * everybody else is staff, and sees the subjects they hold here.
+
+    Membership is checked before the subject slots rather than after, because
+    a teacher who is also enrolled somewhere must not have their own class's
+    threads narrowed to the subjects they teach in it.
+    """
+    if user.is_admin or is_head(user, db):
+        return None
+    if (db.query(ClassMember)
+          .filter(ClassMember.class_id == cid,
+                  ClassMember.user_id == user.id).first()):
+        return None
+    return {(s.subject or "").strip().lower()
+            for s in db.query(SubjectSlot).filter(
+                SubjectSlot.class_id == cid,
+                SubjectSlot.teacher_id == user.id).all()}
 
 
 def _in_class_or_teaching(db, cid, user):

@@ -114,7 +114,7 @@ by typing their name into a class.
 |---|---|
 | Every subject has its own thread, per class | **Built** — `/api/class/{cid}/discussion?subject=` |
 | Students of that class can post and reply | **Built** |
-| **Only the teacher assigned to that subject sees and replies** | **MISSING** — see gap 4 |
+| **Only the teacher assigned to that subject sees and replies** | **Built** — `_discussion_scope` |
 
 ---
 
@@ -159,20 +159,27 @@ password instead.
 **Fix:** accept a subject code at the board and open that subject, in that
 class, for the teacher who holds it.
 
-### Gap 4 — any teacher of a class can read every subject's discussion
+### Gap 4 — CLOSED
 
-`class_discussion` gates on `_in_class_or_teaching(db, cid, user)` — in the
-class, or teaching *anything* in it. So the maths teacher can read the
-science thread.
+`_discussion_scope` now answers, per class: the head and office see
+everything, a child sees every subject their class is taught, a teacher sees
+the subjects they hold. Reading, replying and deleting all use it. A message
+with no subject is addressed to the class and stays visible to everyone who
+teaches there.
 
-**Fix:** for staff, scope reading and replying to the subjects they hold.
-A school admin still sees everything, because they are responsible for it.
+Two things this got wrong first, both worth keeping written down. Restricting
+subject-less messages stopped teachers posting to their own class at all —
+the check fired on an empty string, which is in nobody's subject list. And
+reusing the read helper to decide who may DELETE handed every pupil the power
+to remove their classmates' messages, because for a child that helper
+correctly answers "every subject". Reading and moderating are two questions
+and they need two helpers. tests/test_subject_walls.py (22).
 
 ---
 
 ## Order to build them
 
-4, then 1, then 2 and 3 together.
+~~4~~ done. Then 1, then 2 and 3 together.
 
 Gap 4 is a privacy rule and the smallest change. Gap 1 unblocks a real school
 with more than one office account. Gaps 2 and 3 are one piece of work — the
