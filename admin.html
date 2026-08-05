@@ -992,7 +992,8 @@ async function renderSchools(){
         <td>${s.heads.length?s.heads.map(h=>esc(h.name)).join(", "):'<span style="color:var(--muted)">not signed up yet</span>'}</td>
         <td>${s.classrooms.length}</td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn ghost sm" data-newhead="${s.id}">New head code</button>
+          <button class="btn ghost sm" data-newhead="${s.id}">Another admin code</button>
+          <button class="btn ghost sm" data-codes="${s.id}">Codes</button>
           <button class="btn danger sm" data-delschool="${s.id}">Delete</button></td>
       </tr>`).join(""):`<tr><td colspan="6" style="color:var(--muted);padding:14px">No schools enrolled yet.</td></tr>`}</tbody>
     </table></div>
@@ -1051,10 +1052,49 @@ async function renderSchools(){
       alert("School enrolled.\n\nHead-teacher code: "+r.head_code+"\n\nGive this to the head teacher — they sign up with it."); renderSchools(); }
     catch(e){ m.textContent=e.message; }
   };
+  /* Issuing another admin code no longer cancels the ones already out.
+     A school has more than one person in the office, and the old behaviour
+     meant giving the second one their code silently killed the first one's —
+     which they discovered the next time they tried to use it. */
   document.querySelectorAll("[data-newhead]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Make a new head code? The old one stops working, and you can then remove the previous head's account.")) return;
-    try{ const r=await api.post("/api/admin/school/"+b.dataset.newhead+"/head-code",{}); alert("New head code: "+r.head_code); renderSchools(); }
-    catch(e){ alert(e.message); }
+    if(!confirm("Issue another admin code for this school?\n\n"+
+                "Codes already given out keep working. Use Codes to stop "+
+                "one of them.")) return;
+    try{
+      const r=await api.post("/api/admin/school/"+b.dataset.newhead+"/head-code",{});
+      alert("New admin code: "+r.head_code+"\n\n"+
+            r.live_codes+" code(s) now live for this school.\n\n"+
+            "They enter it on the teacher sign-in, with their own email and "+
+            "password.");
+      renderSchools();
+    }catch(e){ alert(e.message); }
+  });
+
+  /* Every code for the school, live and spent, and who redeemed one.
+     Issuing without a list was issuing into the dark: nobody could say how
+     many codes were out or which had been used, so revoking one meant
+     revoking all of them and starting again. */
+  document.querySelectorAll("[data-codes]").forEach(b=>b.onclick=async()=>{
+    const sid=b.dataset.codes;
+    let d; try{ d=await api.get("/api/admin/school/"+sid+"/head-codes"); }
+    catch(e){ alert(e.message); return; }
+    const live=(d.codes||[]).filter(c=>c.active);
+    const dead=(d.codes||[]).filter(c=>!c.active);
+    const who=(d.admins||[]).map(a=>a.name+" ("+a.email+")").join("\n  ")
+                || "nobody yet";
+    const msg=d.school+"\n\nADMINS SIGNED UP:\n  "+who+
+      "\n\nLIVE CODES:\n  "+(live.map(c=>c.code).join("\n  ")||"none")+
+      (dead.length?"\n\nSTOPPED: "+dead.length:"")+
+      "\n\nType a live code to stop it, or Cancel.";
+    const pick=prompt(msg, "");
+    if(!pick) return;
+    const hit=live.find(c=>c.code===pick.trim());
+    if(!hit){ alert("That is not one of the live codes."); return; }
+    try{
+      const r=await api.del("/api/admin/school/"+sid+"/head-code/"+hit.id);
+      alert("That code no longer works.\n\n"+(r.note||""));
+      renderSchools();
+    }catch(e){ alert(e.message); }
   });
   document.querySelectorAll("[data-prod]").forEach(b=>b.onclick=async()=>{
     const to=b.dataset.to;

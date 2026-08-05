@@ -33,7 +33,7 @@ wrong for an account with a school's records behind it. Enforced in
 | Create a school by name | **Built** — `POST /api/admin/school` |
 | Get that school's admin code back | **Built** — returned by the same call as `head_code` |
 | Issue more admin codes for a school | **Built** — `POST /api/admin/school/{sid}/head-code` |
-| **Several admins per school, each with a code** | **MISSING** — see gap 1 |
+| **Several admins per school, each with a code** | **Built** — issuing no longer cancels |
 
 The admin code is **ten digits, nothing else**. Not `HEAD-ABCD`: every
 character is on a numeric keypad, and the code does not announce in itself
@@ -65,7 +65,7 @@ There are exactly three, and they are all anchored to one class.
 
 | Code | Shape | Held by | Opens |
 |---|---|---|---|
-| Admin code | 10 digits | one per school today | the school |
+| Admin code | 10 digits | as many per school as you issue | the school |
 | Class code | `VP-XXXXXX` | every student in the class | that class's register |
 | Subject code | `T-XXXX` | the teacher of that subject | that subject, in that class |
 
@@ -128,18 +128,21 @@ nothing from another teacher's subject. Built.
 
 # The four gaps
 
-### Gap 1 — a school can only have one admin code at a time
+### Gap 1 — CLOSED
 
-`admin_new_head_code` deactivates every previous head code for that school
-before issuing a new one:
+Issuing an admin code no longer deactivates the ones already out, so a school
+can have as many people in its office as it needs. Revoking is its own act on
+one code: `DELETE /api/admin/school/{sid}/head-code/{code_id}`, with
+`GET .../head-codes` to see what is live, what is spent, and who redeemed
+one — issuing without a list was issuing into the dark.
 
-    for old in ...is_head == True: old.active = False
+`?replace_all=true` keeps the old behaviour for the case it was really for:
+somebody has left and every code issued so far should stop working.
 
-So issuing a second admin their code **cancels the first admin's**. The
-comment says it is so a former head cannot re-register, which is a real
-concern — but it is aimed at revocation and it costs multi-admin.
-
-**Fix:** issue codes without cancelling, and revoke one explicitly.
+A revoked code does NOT unmake an administrator who already used it. A code
+is how somebody became one, not what keeps them one; removing them is done on
+the staff list, where you can see who they are.
+tests/test_many_admins.py (22).
 
 ### Gap 2 — the board has no "open this classroom" mode for an admin
 
@@ -179,7 +182,7 @@ and they need two helpers. tests/test_subject_walls.py (22).
 
 ## Order to build them
 
-~~4~~ done. Then 1, then 2 and 3 together.
+~~4~~ and ~~1~~ done. Next: 2 and 3 together.
 
 Gap 4 is a privacy rule and the smallest change. Gap 1 unblocks a real school
 with more than one office account. Gaps 2 and 3 are one piece of work — the

@@ -4120,19 +4120,102 @@ def admin_create_school(body: SchoolIn, user: User = Depends(admin_user),
 
 
 @app.post("/api/admin/school/{sid}/head-code")
-def admin_new_head_code(sid: int, user: User = Depends(admin_user),
+def admin_new_head_code(sid: int, replace_all: bool = False,
+                        user: User = Depends(admin_user),
                         db: Session = Depends(get_db)):
+    """Issue an admin code for a school. Several may be live at once.
+
+    This used to deactivate every previous head code before issuing a new
+    one. The intention was revocation — a head who leaves must not be able to
+    re-register — and the effect was that a school could only ever have one
+    administrator: giving the second one their code cancelled the first one's,
+    silently, and the first person found out the next time they tried to use
+    it.
+
+    A school of any size has more than one person in the office. So issuing
+    is now just issuing, and revoking is its own act with its own route,
+    which is the honest shape: one button that does two things is how you
+    take away access you meant to grant.
+
+    replace_all=true keeps the old behaviour for the case it was really for —
+    an administrator has left and every code issued so far should stop
+    working.
+    """
     sc = db.get(School, sid)
     if not sc:
         raise HTTPException(404, "School not found")
-    # deactivate old head codes so a former head cannot re-register
-    for old in db.query(TeacherCode).filter(TeacherCode.school_id == sid,
-                                            TeacherCode.is_head == True).all():  # noqa: E712
-        old.active = False
+    revoked = 0
+    if replace_all:
+        for old in db.query(TeacherCode).filter(
+                TeacherCode.school_id == sid,
+                TeacherCode.is_head == True,                    # noqa: E712
+                TeacherCode.active == True).all():              # noqa: E712
+            old.active = False
+            revoked += 1
     code = _gen_head_code(db)
     db.add(TeacherCode(code=code, school=sc.name, school_id=sc.id, is_head=True))
     db.commit()
-    return {"head_code": code}
+    live = db.query(func.count(TeacherCode.id)).filter(
+        TeacherCode.school_id == sid,
+        TeacherCode.is_head == True,                            # noqa: E712
+        TeacherCode.active == True).scalar()                    # noqa: E712
+    return {"head_code": code, "revoked": revoked, "live_codes": live}
+
+
+@app.get("/api/admin/school/{sid}/head-codes")
+def admin_list_head_codes(sid: int, user: User = Depends(admin_user),
+                          db: Session = Depends(get_db)):
+    """Every admin code for a school, live and spent, and who redeemed it.
+
+    Issuing without a list is issuing into the dark: nobody could say how many
+    codes were out, which had been used, or by whom — so revoking one meant
+    revoking all of them and starting again.
+    """
+    sc = db.get(School, sid)
+    if not sc:
+        raise HTTPException(404, "School not found")
+    rows = (db.query(TeacherCode)
+              .filter(TeacherCode.school_id == sid,
+                      TeacherCode.is_head == True)              # noqa: E712
+              .order_by(TeacherCode.id.desc()).limit(100).all())
+    # Who is actually a school admin here, so an unredeemed code is visibly
+    # different from one somebody is using.
+    heads = (db.query(User, TeacherAccess)
+               .join(TeacherAccess, TeacherAccess.user_id == User.id)
+               .filter(TeacherAccess.school_id == sid,
+                       TeacherAccess.role == "head").all())
+    return {
+        "school": sc.name,
+        "codes": [{"id": c.id, "code": c.code, "active": bool(c.active)}
+                  for c in rows],
+        "admins": [{"user_id": u.id, "name": u.name, "email": u.email}
+                   for u, _ta in heads],
+    }
+
+
+@app.delete("/api/admin/school/{sid}/head-code/{code_id}")
+def admin_revoke_head_code(sid: int, code_id: int,
+                           user: User = Depends(admin_user),
+                           db: Session = Depends(get_db)):
+    """Stop one admin code working, leaving the others alone.
+
+    The counterpart to issuing. A code is deactivated rather than deleted, so
+    the record that it existed survives — a school asking "who was given
+    access, and when did it stop" is asking a question a deleted row cannot
+    answer.
+
+    This does not remove anybody who has already redeemed it. A code is how
+    somebody became an administrator, not what keeps them one; taking their
+    access away is done on the staff list, where you can see who they are.
+    """
+    c = db.get(TeacherCode, code_id)
+    if not c or c.school_id != sid or not c.is_head:
+        raise HTTPException(404, "No such code for that school")
+    c.active = False
+    db.commit()
+    return {"ok": True, "code_id": code_id, "active": False,
+            "note": "Anyone who already redeemed this code is still an "
+                    "administrator. Remove them on the school's staff list."}
 
 
 @app.delete("/api/admin/school/{sid}")
