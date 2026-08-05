@@ -5,6 +5,21 @@ os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deploymen
 os.environ["JOBS_ENABLED"]="0"; os.environ["COOKIE_SECURE"]="0"
 import main
 from fastapi.testclient import TestClient
+
+def _pw(uid, pw='TeachPass123!'):
+    """A password for a staff account, for suites that only need a session.
+
+    Staff are not given one when they are created any more — a teacher signs
+    in with the subject code the office hands them. These suites are about
+    what a teacher may SEE once signed in, not about how they got there, so
+    they set one directly rather than being rewritten around codes.
+    """
+    _d = main.SessionLocal()
+    _u = _d.get(main.User, uid)
+    _u.password_hash = main.hash_pw(pw)
+    _d.commit(); _d.close()
+    return pw
+
 main.Base.metadata.create_all(bind=main.engine); main.send_email=lambda *a,**k: None
 st=int(time.time()); db=main.SessionLocal(); P=F=0
 def ck(n,ok,d=""):
@@ -24,7 +39,7 @@ made=adm.post('/api/head/staff',json={'name':'Latha','email':'lb%d@s.in'%st,'rol
 adm.post('/api/head/assign',json={'class_id':A,'subject':'Physics','user_id':made['user_id']})
 adm.post('/api/head/assign',json={'class_id':B,'subject':'Physics','user_id':made['user_id']})
 adm.post('/api/head/assign',json={'class_id':B,'subject':'Chemistry','user_id':made['user_id']})
-t=TestClient(main.app); t.post('/api/auth/login',json={'email':'lb%d@s.in'%st,'password':made['temporary_password']})
+t=TestClient(main.app); t.post('/api/auth/login',json={'email':'lb%d@s.in'%st,'password':_pw(made['user_id'])})
 
 print("\nwhich subject the board can work out on its own")
 sa=[x for x in t.get('/api/class/%d/subjects'%A).json()['subjects'] if x['teacher_id']==made['user_id']]

@@ -6226,14 +6226,19 @@ async function renderHead(){
       <div class="card" style="padding:12px;margin-bottom:6px">
         <div id="hStaffList" style="margin-bottom:10px">Loading…</div>
         <div id="hStMade"></div>
-        <div class="two">
-          <div class="field"><label>Their name</label>
-            <input id="hStName" class="ask-input" placeholder="e.g. Latha R"/></div>
-          <div class="field"><label>Their email</label>
-            <input id="hStEmail" class="ask-input" type="email"
-              placeholder="latha@school.in"/></div>
-        </div>
+        <!-- A name, and nothing else.
+
+             The email box is gone because nothing uses one: a teacher signs
+             in with the subject code you give them. Asking for an address
+             let a school create latha@bhashyam.100 — accepted here, refused
+             at the login form — and that account was unusable from the
+             moment it existed. -->
+        <div class="field"><label>Their name</label>
+          <input id="hStName" class="ask-input" placeholder="e.g. Latha R"/></div>
         <button class="btn sm" data-cls="hstaffadd">Add teacher</button>
+        <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
+          Then put them on a subject in a class. That subject's code is how
+          they sign in — there is no password.</div>
       </div>
       <div id="hMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
 
@@ -6266,6 +6271,17 @@ async function renderHead(){
         <button class="btn sm" data-cls="haddslot" data-id="${c.id}">Add subject</button></div>
     </div>`).join(""):`<div class="card" style="color:var(--dim)">No classrooms yet. Create your first one above.</div>`}`;
   const n=$("#hName"); if(n)n.onkeydown=e=>{ if(e.key==="Enter")hMk(); };
+
+  /* Fill the staff list. Nothing did.
+   *
+   * The markup ships with "Loading…" in that box and schoolStaffPaint was
+   * only ever called from the handlers that CHANGE the list — adding a
+   * teacher, correcting an email, issuing a password. So a school that had
+   * not added anybody yet, or an administrator arriving on a fresh screen,
+   * read "Loading…" forever, and the only way to make it resolve was to add
+   * a teacher. A placeholder that never resolves says the server is slow
+   * when the truth is that nobody asked it anything. */
+  schoolStaffPaint();
 }
 async function hMk(){
   const el=$("#hName"); if(!el)return; const name=(el.value||"").trim(); if(!name)return;
@@ -6529,100 +6545,75 @@ async function schoolStaffPaint(){
         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
           ${esc(p.name||p.email)}
           <span style="font-size:11.5px;color:var(--dim)">· ${
-            esc(p.role||"teacher")}${p.email?" · "+esc(p.email):""}</span></span>
+            esc(p.role||"teacher")}${
+            (p.email&&p.email.indexOf("schoolcode.invalid")<0
+             &&p.email.indexOf("classcode.invalid")<0)
+              ? " · "+esc(p.email) : ""}</span></span>
         <span style="display:flex;gap:5px;flex:0 0 auto">
-          <button class="btn ghost sm" data-cls="stfix"
-            data-id="${p.id||p.user_id}" data-em="${esc(p.email||"")}"
-            >Fix email</button>
-          <button class="btn ghost sm" data-cls="stpw"
-            data-id="${p.id||p.user_id}" data-nm="${esc(p.name||p.email||"")}"
-            >New password</button>
+          <button class="btn ghost sm" data-cls="strm"
+            data-id="${p.id||p.user_id}" data-nm="${esc(p.name||"")}"
+            >Remove</button>
         </span>
       </div>`).join("")
     : `<div style="color:var(--dim);font-size:13px">${
         esc(STAFF_ERROR || "No staff yet.")}</div>`;
 }
 
-/* Correcting a typed email, and issuing a replacement password.
+/* Taking a member of staff off the school.
 
-   Neither was possible. A head who mistyped an address had made an account
-   that could never sign in — the address was refused at the login form, and
-   removing their access did not free it because the account kept it. And the
-   one-time password is shown once by design, which is right, but with no way
-   to issue another a teacher who closed the tab was finished.
-
-   The account is corrected, never replaced, so the classes they teach and the
-   work they set stay attached to them. */
-async function staffFixEmail(uid, current){
-  const next=prompt("Correct this teacher's email address.\n\n"+
-    "Sign-in checks it is a real address, so a typo here is an account "+
-    "nobody can use.", current||"");
-  if(next===null) return;
-  if(!next.trim()){ toast("An email address is needed."); return; }
+   Their access goes; their account does not. A teacher may hold a personal
+   account of their own, and a school admin removing them from this school has
+   no business deleting a person — what ends is their reach into this school's
+   registers and marks. */
+async function staffRemove(uid, who){
+  if(!confirm("Remove "+(who||"this member of staff")+" from the school?\n\n"+
+              "They lose access to every class here. Their account and the "+
+              "work they set are kept.")) return;
   try{
-    const r=await api.patch("/api/head/staff/"+uid, {email:next.trim()});
+    await api.del("/api/head/staff/"+uid);
     await schoolStaffPaint();
-    toast("Email corrected to "+(r.email||next.trim())+". They can sign in with it now.");
+    toast("Removed from the school.");
   }catch(e){ toast(e.message); }
 }
 
-async function staffNewPassword(uid, who){
-  if(!confirm("Give "+(who||"this teacher")+" a new password?\n\n"+
-              "It is shown once. Their old password stops working and any "+
-              "device they are signed in on is signed out.")) return;
-  try{
-    const r=await api.patch("/api/head/staff/"+uid, {new_password:true});
-    await schoolStaffPaint();
-    const out=document.getElementById("hStMade");
-    if(out && r.temporary_password){
-      out.style.display="";
-      out.innerHTML=`<div style="font-weight:650;margin-bottom:4px">New password for ${esc(who||"")}</div>`+
-        `<div style="font-size:13px">Password <b>${esc(r.temporary_password)}</b></div>`+
-        `<div style="font-size:12px;color:var(--dim);margin:6px 0">`+
-        `Read it to them now. It is shown once and is not kept anywhere we can look it up.</div>`+
-        `<button class="btn ghost sm" onclick="this.parentNode.style.display='none'">Done</button>`;
-    }
-  }catch(e){ toast(e.message); }
-}
+/* Adding a teacher: a name, and nothing else.
 
+   It asked for an email as well, and the email was the problem. Sign-in
+   validates addresses and this form did not, so a school could create
+   latha@bhashyam.100 — accepted here, refused at the login form — and the
+   account was unusable from the moment it existed. Then it printed a
+   one-time password, which nobody needs either: a teacher signs in with the
+   subject code the office gives them.
+
+   So: a name. The office puts them on a subject, and that subject's code is
+   how they get in. */
 async function schoolStaffAdd(){
   const name=($("#hStName").value||"").trim();
-  const email=($("#hStEmail").value||"").trim();
   if(name.length<2){ toast("Give their name."); return; }
-  if(email.indexOf("@")<1){ toast("Give their email."); return; }
+  const emailEl=$("#hStEmail");
+  const email=((emailEl&&emailEl.value)||"").trim();
   let made;
-  try{ made=await api.post("/api/head/staff",
-                           {name:name, email:email, role:"teacher"}); }
+  const payload={name:name, role:"teacher"};
+  if(email) payload.email=email;      /* only if a school volunteers one */
+  try{ made=await api.post("/api/head/staff", payload); }
   catch(e){ toast(e.message); return; }
-  $("#hStName").value=""; $("#hStEmail").value="";
+  $("#hStName").value=""; if(emailEl) emailEl.value="";
   await schoolStaffPaint();
 
-  /* Shown once and stored only as a hash, so it stays until dismissed rather
-     than vanishing on the next repaint with the only copy of it. */
   const out=document.getElementById("hStMade");
   if(out){
-    out.innerHTML = made.temporary_password
-      ? `<div class="card" style="padding:11px;margin:10px 0;
-           border-color:var(--accent)">
-           <b>${esc(made.name)} can sign in now.</b>
-           <div style="font-size:12.5px;margin-top:5px">Email
-             <b>${esc(made.email||email)}</b><br>Password
-             <b style="letter-spacing:1px">${esc(made.temporary_password)}</b></div>
-           <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
-             Write this down or read it to them now. It is shown once and is
-             not kept anywhere we can look it up.</div>
-           <button class="btn ghost sm" data-cls="staffclear"
-             style="margin-top:8px">Done</button></div>`
-      : `<div class="card" style="padding:11px;margin:10px 0">
-           <b>${esc(made.name)} was added.</b>
-           <div style="font-size:12.5px;color:var(--dim);margin-top:4px">${
-             esc(made.note||"They already had an account, so their existing "+
-                 "password still works.")}</div>
-           <button class="btn ghost sm" data-cls="staffclear"
-             style="margin-top:8px">Done</button></div>`;
+    out.innerHTML = `<div class="card" style="padding:11px;margin:10px 0;
+         border-color:var(--accent)">
+         <b>${esc(made.name)} was added.</b>
+         <div style="font-size:12.5px;color:var(--dim);margin-top:4px">${
+           esc(made.note||"Put them on a subject in a class. That subject's "+
+               "code is how they sign in.")}</div>
+         <button class="btn ghost sm" data-cls="staffclear"
+           style="margin-top:8px">Done</button></div>`;
   }
   toast("Staff added.");
 }
+
 
 function staffClear(){
   ["staffMade","hStMade"].forEach(id=>{
@@ -7125,8 +7116,7 @@ document.addEventListener("click",e=>{
   else if(k==="atall") attAll(id);
   else if(k==="atsave") attSave();
   else if(k==="feepaid") feeMarkPaid(id, b.dataset.amt);
-  else if(k==="stfix") staffFixEmail(id, b.dataset.em||"");
-  else if(k==="stpw") staffNewPassword(id, b.dataset.nm||"");
+  else if(k==="strm") staffRemove(id, b.dataset.nm||"");
   else if(k==="rosdel") rosDel(id, cid);
   else if(k==="rosoff") rosOff(id, cid);
   else if(k==="rosback") rosBack(id, cid);

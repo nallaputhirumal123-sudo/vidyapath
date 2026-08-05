@@ -4271,13 +4271,89 @@ def admin_revoke_head_code(sid: int, code_id: int,
 
 
 @app.delete("/api/admin/school/{sid}")
-def admin_delete_school(sid: int, user: User = Depends(admin_user),
+def admin_delete_school(sid: int, confirm: str = "",
+                        user: User = Depends(admin_user),
                         db: Session = Depends(get_db)):
+    """Delete a school and everything that belongs to it.
+
+    It used to delete the School row alone. Nothing else references it by
+    foreign key — school_id is a plain integer on the teacher codes, the
+    staff access rows and the classrooms — so the school vanished from the
+    list and its teachers, its codes and its classes all stayed behind,
+    attached to a school that no longer existed. The admin screen showed
+    "Schools: none yet" above three teachers and two classrooms.
+
+    Now it takes them with it, in the order that leaves nothing orphaned:
+
+      * every classroom, through the same explicit clean-up delete_class
+        uses — the register, assignments, submissions, discussion, material
+        and timetable — because SQLite does not enforce ON DELETE CASCADE
+        and relying on it means two databases behaving differently;
+      * the staff access rows, so nobody is left a teacher of nowhere;
+      * the school's codes, so none of them can be redeemed afterwards.
+
+    Accounts are NOT deleted. A teacher's account may be their own — an
+    ordinary sign-in at another school, or a personal one — and a platform
+    administrator removing a school has no business deleting a person. What
+    goes is their access to a school that no longer exists. A code-issued
+    account left with no access is inert: it can sign in and see nothing.
+
+    Confirmed by typing the school's name, for the same reason deleting a
+    class is: this removes a year of other people's work, and a yes/no box
+    is answered without reading.
+    """
     sc = db.get(School, sid)
-    if sc:
-        db.delete(sc)
-        db.commit()
-    return {"ok": True}
+    if not sc:
+        return {"ok": True, "deleted": ""}
+
+    classes = db.query(Klass).filter(Klass.school_id == sid).all()
+    staff = db.query(TeacherAccess).filter(TeacherAccess.school_id == sid).all()
+    codes = db.query(TeacherCode).filter(TeacherCode.school_id == sid).all()
+    held = {"classes": len(classes), "staff": len(staff), "codes": len(codes),
+            "students": db.query(RosterName).filter(
+                RosterName.class_id.in_([k.id for k in classes]),
+                RosterName.claimed_by != 0).count() if classes else 0}
+
+    # Codes are deliberately NOT counted here. Creating a school mints one, so
+    # counting them meant a school made thirty seconds ago and never used
+    # still demanded its name typed back — and a confirmation that fires when
+    # there is nothing to lose is one people learn to click through.
+    # Classrooms, staff and signed-in children are what make this expensive.
+    substantial = held["classes"] or held["staff"] or held["students"]
+    if substantial and confirm.strip().lower() != (sc.name or "").lower():
+        raise HTTPException(409, {
+            "message": (
+                f"{sc.name} still has {held['classes']} classroom(s), "
+                f"{held['staff']} member(s) of staff and {held['students']} "
+                f"signed-in student(s). Deleting it removes the classes and "
+                f"everything in them, and takes away every teacher's access. "
+                f"Type the school's name to confirm."),
+            "needs_confirm": sc.name, "holds": held})
+
+    for k in classes:
+        aids = [a.id for a in
+                db.query(Assignment).filter(Assignment.class_id == k.id).all()]
+        if aids:
+            db.query(Submission).filter(
+                Submission.assignment_id.in_(aids)).delete(synchronize_session=False)
+            db.query(AssignmentMessage).filter(
+                AssignmentMessage.assignment_id.in_(aids)).delete(synchronize_session=False)
+        for model in (Assignment, RosterName, ClassMember, ClassroomTeacher,
+                      SubjectSlot, ClassPost, Material, ScheduleItem):
+            db.query(model).filter(model.class_id == k.id).delete(
+                synchronize_session=False)
+        db.delete(k)
+
+    db.query(TeacherAccess).filter(
+        TeacherAccess.school_id == sid).delete(synchronize_session=False)
+    db.query(TeacherCode).filter(
+        TeacherCode.school_id == sid).delete(synchronize_session=False)
+    db.delete(sc)
+    db.commit()
+    return {"ok": True, "deleted": sc.name, "removed": held,
+            "note": "Accounts were kept. What was removed is their access to "
+                    "this school — a platform administrator deleting a school "
+                    "should not delete people."}
 
 
 class ProductIn(BaseModel):
@@ -5979,7 +6055,19 @@ class StaffIn(BaseModel):
     # created that can never be used. They match now, so the head is told at
     # the moment of typing rather than a day later by a teacher who cannot
     # get in.
-    email: EmailStr
+    # Optional now, and usually absent.
+    #
+    # A teacher signs in with the subject code the office gives them, so there
+    # is nothing for an address to do: nothing is ever sent to it and it is
+    # not a way in. Asking for one produced accounts made with addresses that
+    # could not be signed in with — latha@bhashyam.100 among them — and every
+    # one of those was unusable from the moment it was created.
+    #
+    # If a school does give one it is validated exactly as sign-in validates
+    # it, which is the rule that stopped that class of dead account. If they
+    # do not, a synthetic unroutable address is used, the same way a pupil's
+    # class-code account works.
+    email: Optional[EmailStr] = None
     role: str = Field(default="teacher", max_length=16)
 
 
@@ -6008,8 +6096,9 @@ def head_create_staff(body: StaffIn, user: User = Depends(head_user),
     if not user.is_admin and not sid:
         raise HTTPException(403, "Your account is not attached to a school")
 
-    email = body.email.lower().strip()
-    existing = db.query(User).filter(User.email == email).first()
+    email = (str(body.email).lower().strip() if body.email else "")
+    existing = (db.query(User).filter(User.email == email).first()
+                if email else None)
     if existing:
         if existing.id == user.id:
             raise HTTPException(
@@ -6030,8 +6119,14 @@ def head_create_staff(body: StaffIn, user: User = Depends(head_user),
                         "still works."}
 
     temp = secrets.token_urlsafe(9)
+    if not email:
+        # Synthetic and unroutable, exactly as a pupil's is. The subject code
+        # the office hands them is the credential; this address exists only
+        # because a row needs one and must not collide with a real person's.
+        email = f"staff{secrets.token_hex(5)}@schoolcode.invalid"
     u = User(name=body.name.strip()[:120], email=email,
-             password_hash=hash_pw(temp), is_active=True, email_verified=False)
+             password_hash=hash_pw(temp), kind="schoolstaff",
+             is_active=True, email_verified=False)
     db.add(u)
     db.commit()
     db.refresh(u)
@@ -6041,9 +6136,9 @@ def head_create_staff(body: StaffIn, user: User = Depends(head_user),
         ta.role = role
         db.commit()
     return {"ok": True, "created": True, "user_id": u.id, "name": u.name,
-            "email": u.email, "role": role, "temporary_password": temp,
-            "note": "Give them this password. They should change it after "
-                    "signing in — it is shown once and not stored readably."}
+            "email": u.email, "role": role,
+            "note": "Put them on a subject in a class. The code that subject "
+                    "gets is how they sign in — there is no password."}
 
 
 @app.get("/api/head/staff")

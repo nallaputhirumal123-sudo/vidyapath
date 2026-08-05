@@ -101,13 +101,25 @@ r = admin.post("/api/head/staff",
                      "role": "teacher"})
 must("the teacher account is made", r.status_code == 200, r.text[:70])
 made = r.json()
-temp_pw = made.get("temporary_password")
-must("with a password to read out once", bool(temp_pw))
+must("and no password is handed out — there is nothing to type one into",
+     not made.get("temporary_password"), str(made)[:100])
 r = admin.post("/api/head/assign",
                json={"class_id": CID, "subject": "Science",
                      "user_id": made["user_id"]})
 must("and they are put on Science in this class", r.status_code == 200,
      r.text[:70])
+# The subject they were put on is what they sign in with, so the journey
+# needs its code from here on.
+_slots = admin.get(f"/api/class/{CID}/subjects").json().get("subjects", [])
+SUBJ_CODE = next((s.get("code") for s in _slots
+                  if (s.get("subject") or "") == "Science"), "")
+if not SUBJ_CODE:
+    _hd = admin.get("/api/head/overview").json()
+    for _c in (_hd.get("classrooms") or []):
+        if _c.get("id") == CID:
+            SUBJ_CODE = next((x.get("code") for x in (_c.get("subjects") or [])
+                              if (x.get("subject") or "") == "Science"), "")
+must("the subject has a code to give them", bool(SUBJ_CODE), str(_slots)[:120])
 
 print("\n5. the register is typed, with roll numbers")
 r = admin.post(f"/api/teacher/class/{CID}/roster",
@@ -129,9 +141,15 @@ must("tapping a name signs them in, with no password",
      r.status_code == 200, r.text[:70])
 
 print("\n7. the teacher signs in with what they were given")
+# Which is the subject code, and only that. No email, no password: the office
+# made their profile and put them on Science, and the code for that subject
+# in this class is the whole sign-in.
+main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 teacher = TestClient(main.app)
-r = teacher.post("/api/auth/login", json={"email": tem, "password": temp_pw})
-must("the one-time password works", r.status_code == 200, r.text[:70])
+r = teacher.post("/api/auth/code", json={"code": SUBJ_CODE})
+must("their subject code signs them in", r.status_code == 200, r.text[:110])
+must("as the person the office assigned",
+     (r.json() or {}).get("name") == "Ravi (teacher)", r.text[:110])
 
 print("\n8. and does the day's work")
 r = teacher.post(f"/api/teacher/class/{CID}/assignment",

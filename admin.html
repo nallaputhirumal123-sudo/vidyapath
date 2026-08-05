@@ -163,7 +163,24 @@ const api={
       body:o.body!==undefined?JSON.stringify(o.body):undefined});
     if(r.status===401||r.status===403){ showGate(r.status===403?"That account is not an administrator.":""); throw new Error("auth"); }
     const t=await r.text(); let d; try{d=t?JSON.parse(t):{}}catch(e){d={detail:t}}
-    if(!r.ok) throw new Error(d.detail||"Request failed");
+    if(!r.ok){
+      /* A detail is a string for an ordinary refusal, an ARRAY of {loc,msg}
+         when a field fails validation, and an object when a refusal has to
+         say what it is refusing and what would change the answer. Throwing
+         the raw value gave "[object Object]" for the last two, and dropping
+         the status meant a caller could not tell a 409 that wants a
+         confirmation from a 500 that wants a bug report. */
+      const x=d.detail;
+      let msg;
+      if(typeof x==="string") msg=x;
+      else if(Array.isArray(x)) msg=(x[0]&&(x[0].msg||x[0].message))||("Request failed ("+r.status+")");
+      else if(x&&typeof x==="object") msg=x.message||("Request failed ("+r.status+")");
+      else msg="Request failed ("+r.status+")";
+      const err=new Error(msg);
+      err.status=r.status;
+      err.data=(x&&typeof x==="object"&&!Array.isArray(x))?x:{};
+      throw err;
+    }
     return d;
   },
   get:p=>api.call(p), post:(p,b)=>api.call(p,{method:"POST",body:b}),
@@ -1126,9 +1143,32 @@ async function renderSchools(){
       renderSchools();
     }catch(e){ alert(e.message); }
   });
+  /* Deleting a school takes its classrooms, its staff access and its codes.
+     It used to delete the School row alone and leave all three behind,
+     attached to a school that no longer existed — which is why this screen
+     could read "Schools: none yet" above three teachers and two classrooms.
+     The server refuses until the name is typed, and says what it holds. */
   document.querySelectorAll("[data-delschool]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("Delete this school? Classrooms stay but lose their school link.")) return;
-    await api.del("/api/admin/school/"+b.dataset.delschool).catch(()=>{}); renderSchools();
+    const sid=b.dataset.delschool;
+    try{
+      await api.del("/api/admin/school/"+sid);
+      renderSchools(); return;                    /* nothing in it */
+    }catch(e){
+      const d=e.data||{};
+      if(e.status!==409 || !d.needs_confirm){ alert(e.message); return; }
+      const h=d.holds||{};
+      const typed=prompt(d.message+"\n\nThis cannot be undone.\n\n"+
+        "Type the school's name to delete it: "+d.needs_confirm);
+      if(!typed || typed.trim().toLowerCase()!==String(d.needs_confirm).toLowerCase()){
+        return;
+      }
+      try{
+        const r=await api.del("/api/admin/school/"+sid+"?confirm="+
+                              encodeURIComponent(typed.trim()));
+        alert("Deleted "+(r.deleted||"the school")+".\n\n"+(r.note||""));
+        renderSchools();
+      }catch(e2){ alert(e2.message); }
+    }
   });
   $("#tcAdd").onclick=async()=>{
     const code=($("#tcCode").value||"").trim(); const school=($("#tcSchool").value||"").trim();

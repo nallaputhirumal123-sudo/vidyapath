@@ -31,6 +31,21 @@ os.environ["COOKIE_SECURE"] = "0"
 import main                                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
 
+def _pw(uid, pw='TeachPass123!'):
+    """A password for a staff account, for suites that only need a session.
+
+    Staff are not given one when they are created any more — a teacher signs
+    in with the subject code the office hands them. These suites are about
+    what a teacher may SEE once signed in, not about how they got there, so
+    they set one directly rather than being rewritten around codes.
+    """
+    _d = main.SessionLocal()
+    _u = _d.get(main.User, uid)
+    _u.password_hash = main.hash_pw(pw)
+    _d.commit(); _d.close()
+    return pw
+
+
 PASS = FAIL = 0
 
 
@@ -85,7 +100,7 @@ admin.post("/api/head/assign",
 teacher = TestClient(main.app)
 teacher.post("/api/auth/login",
              json={"email": f"rlt{stamp}@s.in",
-                   "password": made["temporary_password"]})
+                   "password": _pw(made["user_id"])})
 
 main._CODE_TRIES.clear()
 main._CODE_FAILS.clear()

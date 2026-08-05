@@ -75,14 +75,38 @@ GOOD = f"latha{st}@example.com"
 r = head.post("/api/head/staff",
               json={"name": "Latha B", "email": GOOD, "role": "teacher"})
 ck("a real address is accepted", r.status_code == 200, r.text[:120])
-temp = (r.json() or {}).get("temporary_password", "")
-ck("and a one-time password comes back", len(temp) > 6)
+TID2 = (r.json() or {}).get("user_id")
+ck("no password is handed out any more",
+   not (r.json() or {}).get("temporary_password"), str(r.json())[:110])
 
+# The account is real and reachable — by the subject code the office gives
+# them, which is the only way in now. Creating it no longer prints a password
+# because nothing accepts one.
+_k = head.post("/api/teacher/class", json={"name": f"9-E {st}"}).json()
+_slot = head.post(f"/api/head/class/{_k['id']}/slot",
+                  json={"subject": "Physics", "teacher_id": 0}).json()
+head.post("/api/head/assign",
+          json={"class_id": _k["id"], "subject": "Physics", "user_id": TID2})
+main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 fresh = TestClient(main.app)
-r = fresh.post("/api/auth/login", json={"email": GOOD, "password": temp})
-ck("THE ACCOUNT CAN ACTUALLY SIGN IN", r.status_code == 200, r.text[:120])
+r = fresh.post("/api/auth/code", json={"code": _slot["code"]})
+ck("THE ACCOUNT CAN ACTUALLY SIGN IN, with its code",
+   r.status_code == 200, r.text[:130])
 ck("and it is a teacher",
    bool(fresh.get("/api/auth/me").json().get("is_teacher")))
+ck("and it is the account the office made",
+   fresh.get("/api/auth/me").json().get("id") == TID2)
+
+print("\na teacher can be added with no address at all")
+r = head.post("/api/head/staff", json={"name": "No Address", "role": "teacher"})
+ck("a name is enough", r.status_code == 200, r.text[:120])
+_nid = (r.json() or {}).get("user_id")
+_u = db.get(main.User, _nid)
+db.refresh(_u)
+ck("and the address it invents is unroutable",
+   (_u.email or "").endswith("@schoolcode.invalid"), _u.email)
+ck("and it is marked as school staff", (_u.kind or "") == "schoolstaff",
+   str(_u.kind))
 
 print("\ncorrecting an address that was typed wrongly")
 # Made directly, because the route now refuses to create one — which is the
@@ -112,7 +136,10 @@ r = TestClient(main.app).post("/api/auth/login",
 ck("and now they can sign in with their existing password",
    r.status_code == 200, r.text[:120])
 
-print("\nreissuing a password somebody did not write down")
+print("\nreissuing a password, for accounts that still have one")
+# Kept for schools whose staff were created before sign-in was by code. New
+# staff never get a password at all, so there is usually nothing to reissue —
+# but an account that HAS one must not be left with no way to replace it.
 r = head.patch(f"/api/head/staff/{BAD_ID}", json={"new_password": True})
 ck("a head can issue a new one", r.status_code == 200, r.text[:120])
 newpw = (r.json() or {}).get("temporary_password", "")

@@ -32,6 +32,37 @@ import time                                        # noqa: E402
 import main                                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
 
+
+def _pw_office(uid, pw="OfficePass123!"):
+    """A password for a staff account, so this suite can hold a session.
+
+    Staff are not given one when they are created — sign-in is by code — and
+    this suite is about what the office may DO once signed in, not about how
+    it got there.
+    """
+    d = main.SessionLocal()
+    u = d.get(main.User, uid)
+    u.password_hash = main.hash_pw(pw)
+    d.commit(); d.close()
+    return pw
+
+
+
+def _pw(uid, pw='TeachPass123!'):
+    """A password for a staff account, for suites that only need a session.
+
+    Staff are not given one when they are created any more — a teacher signs
+    in with the subject code the office hands them. These suites are about
+    what a teacher may SEE once signed in, not about how they got there, so
+    they set one directly rather than being rewritten around codes.
+    """
+    _d = main.SessionLocal()
+    _u = _d.get(main.User, uid)
+    _u.password_hash = main.hash_pw(pw)
+    _d.commit(); _d.close()
+    return pw
+
+
 PASS = FAIL = 0
 
 
@@ -268,14 +299,16 @@ check("a teacher cannot create staff", r.status_code == 403, str(r.status_code))
 r = head.post("/api/head/staff", json={"name": "New Teacher",
                                        "email": f"nt{stamp}@example.com"})
 check("the head can", r.status_code == 200, r.text[:150])
-check("and gets a password to hand over",
-      len(r.json().get("temporary_password", "")) > 6, r.text[:150])
+# No password is handed over any more: a teacher signs in with the subject
+# code the office gives them, and the office signs in with the school's.
+check("and no password is handed over",
+      not r.json().get("temporary_password"), r.text[:150])
 
 r = head.post("/api/head/staff", json={"name": "New Clerk",
                                        "email": f"nc{stamp}@example.com",
                                        "role": "schooladmin"})
 check("the head can appoint the office", r.status_code == 200, r.text[:150])
-clerk_pw = r.json()["temporary_password"]
+clerk_pw = _pw_office(r.json()["user_id"])
 clerk = TestClient(main.app)
 clerk.post("/api/auth/login", json={"email": f"nc{stamp}@example.com",
                                     "password": clerk_pw})

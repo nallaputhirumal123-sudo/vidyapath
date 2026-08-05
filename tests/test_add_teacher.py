@@ -31,6 +31,21 @@ os.environ["COOKIE_SECURE"] = "0"
 import main                                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
 
+def _pw(uid, pw='TeachPass123!'):
+    """A password for a staff account, for suites that only need a session.
+
+    Staff are not given one when they are created any more — a teacher signs
+    in with the subject code the office hands them. These suites are about
+    what a teacher may SEE once signed in, not about how they got there, so
+    they set one directly rather than being rewritten around codes.
+    """
+    _d = main.SessionLocal()
+    _u = _d.get(main.User, uid)
+    _u.password_hash = main.hash_pw(pw)
+    _d.commit(); _d.close()
+    return pw
+
+
 PASS = FAIL = 0
 
 
@@ -75,12 +90,16 @@ r = admin.post("/api/head/staff",
                json={"name": "Latha R", "email": temail, "role": "teacher"})
 check("a teacher account is created", r.status_code == 200, r.text[:80])
 made = r.json()
-check("a one-time password comes back", bool(made.get("temporary_password")),
-      "a school onboarding somebody with no work address needs this")
-check("it is not something we could look up later",
-      made["temporary_password"] not in (
+# No password comes back any more, and that is the point. A teacher signs in
+# with the subject code the office gives them, so there is nothing for a
+# password to be typed into — and the one this used to print was the reason a
+# school could create an account nobody could ever use.
+check("no password is handed out", not made.get("temporary_password"),
+      str(made)[:110])
+check("whatever password the row holds is stored hashed, not readably",
+      _pw(made["user_id"]) not in (
           db.get(main.User, made["user_id"]).password_hash or ""),
-      "shown once, stored hashed")
+      "never stored in a form anybody can read back")
 
 print("\nputting them on a subject")
 r = admin.post("/api/head/assign",
@@ -98,7 +117,7 @@ check("the class lists them",
 print("\nthe part that actually matters: can they work")
 teacher = TestClient(main.app)
 r = teacher.post("/api/auth/login",
-                 json={"email": temail, "password": made["temporary_password"]})
+                 json={"email": temail, "password": _pw(made["user_id"])})
 check("they can sign in with what they were given", r.status_code == 200,
       r.text[:70])
 r = teacher.post(f"/api/teacher/class/{CID}/assignment",
