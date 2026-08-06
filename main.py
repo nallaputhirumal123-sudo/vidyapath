@@ -2855,14 +2855,32 @@ def mark_quiz(body: MarkQuizIn, user: User = Depends(current_user)):
     return _quiz.mark(qs, body.answers or {})
 
 
+def _teacher_or_board(request: Request, db: Session = Depends(get_db)):
+    """`board_or_teacher`, reachable from a route defined above it.
+
+    The board's dependency lives beside the board's routes, thousands of
+    lines below this one, and a decorator is evaluated when the module is
+    read. Looking the name up inside a function body defers that to the
+    request, which is the only place it is needed.
+    """
+    return board_or_teacher(request, db)
+
+
 @app.post("/api/teach/pdf")
 async def teach_from_pdf(file: UploadFile = File(...),
-                         user: User = Depends(current_user),
+                         who=Depends(_teacher_or_board),
                          db: Session = Depends(get_db)):
     """Turn a teacher's own document into a lesson for the board.
 
     Teachers only: this is the tool their school gave them, and it costs a
     model call per document.
+
+    Or a board holding a subject code's token — which is the same teacher,
+    standing at the front of the room with the chapter they are about to
+    teach, and no keyboard to sign in from. The model call is charged to
+    whoever the school put on that subject, so an AI bill always has a name
+    against it. A subject with nobody on it cannot spend: there would be
+    nobody to charge, and the code would be an open tap.
 
     Cached on the file's bytes, so the same chapter uploaded from a phone in
     the corridor and again from the desk in the classroom is one call — and a
@@ -2872,10 +2890,13 @@ async def teach_from_pdf(file: UploadFile = File(...),
     chapter is telling us what to teach; reaching for Wolfram or the model's
     own knowledge would quietly cover material the exam does not.
     """
-    if not (user.is_teacher if hasattr(user, "is_teacher") else False) \
-            and not user.is_admin and teacher_row(user, db) is None:
-        raise HTTPException(403, "Uploading teaching material is for "
-                                 "teacher accounts.")
+    user, grant = who
+    if grant is not None:
+        user = db.get(User, grant["teacher_id"]) if grant["teacher_id"] else None
+        if user is None:
+            raise HTTPException(
+                403, "No teacher is on this subject yet, so there is nobody "
+                     "to make a lesson as. Ask the office to assign one.")
     # The file is checked before the service is. Telling somebody who sent an
     # empty file that the AI is switched off sends them to the wrong problem.
     raw = await file.read()
@@ -8426,6 +8447,123 @@ def craxlearn_board_save(body: BoardSaveIn,
     db.commit()
     db.refresh(m)
     return {"ok": True, "material": _material_json(m, by=by)}
+
+
+def _board_where(who, db, class_id=0, subject=""):
+    """The one class and one subject a board request is allowed to touch.
+
+    A board token names both, and they are read from the token rather than
+    from the request: a code for 6-a Science cannot be pointed at 6-b, and a
+    browser cannot rename the subject it is filing under. A signed-in teacher
+    says which class, and is held to the subjects they actually teach.
+    """
+    user, grant = who
+    if grant is not None:
+        return grant["class_id"], grant["subject"], grant["teacher_id"]
+    _own_class(db, class_id, user)
+    return class_id, _board_subject(db, class_id, user, subject), user.id
+
+
+@app.post("/api/craxlearn/board/file")
+async def craxlearn_board_file(file: UploadFile = File(...),
+                               title: str = Form(default=""),
+                               note: str = Form(default=""),
+                               class_id: int = Form(default=0),
+                               subject: str = Form(default=""),
+                               who=Depends(board_or_teacher),
+                               db: Session = Depends(get_db)):
+    """Keep the document itself, exactly as it is.
+
+    The other half of the board's upload. A chapter can be turned into a
+    lesson, and often should be — but a worksheet, a past paper or a marked
+    diagram is wanted on the screen unchanged, and turning it into prose
+    would be destroying the thing the teacher meant to show.
+
+    So both land in the same place, under the same class and subject, and the
+    class sees one list. This one costs nothing and never fails on a scan,
+    which is why it is offered first to a teacher whose PDF is a photograph
+    of a page.
+    """
+    cid, subj, teacher_id = _board_where(who, db, class_id, subject)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "That file is empty")
+    if len(raw) > MATERIAL_MAX:
+        raise HTTPException(
+            400, f"That file is {len(raw) // 1_000_000} MB. The limit is "
+                 f"{MATERIAL_MAX // 1_000_000} MB — split it, or link to it "
+                 f"instead.")
+    mime = (file.content_type or "").lower().split(";")[0].strip()
+    if mime not in MATERIAL_MIMES:
+        raise HTTPException(
+            400, "Upload a PDF, a PowerPoint, a Word document, a text file "
+                 "or an image.")
+    m = Material(class_id=cid, teacher_id=teacher_id, subject=subj,
+                 title=((title or "").strip()
+                        or (file.filename or "Document"))[:240],
+                 note=(note or "").strip()[:2000],
+                 file_data=base64.b64encode(raw).decode(),
+                 file_name=(file.filename or "document")[:160],
+                 mime=mime, size=len(raw))
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    owner = db.get(User, teacher_id) if teacher_id else None
+    return {"ok": True, "material": _material_json(
+        m, by=(owner.name if owner else ""))}
+
+
+@app.get("/api/craxlearn/board/materials")
+def craxlearn_board_materials(class_id: int = 0, subject: str = "",
+                              who=Depends(board_or_teacher),
+                              db: Session = Depends(get_db)):
+    """What has already been saved for this subject, ready to put back up.
+
+    The point of saving a lesson is opening it again. Until now the only way
+    back to one was the class page on somebody's laptop, which is not where
+    the teacher is standing.
+
+    Only this subject's material, because that is the whole of what the token
+    names. It is not a way to read another teacher's shelf.
+    """
+    cid, subj, _ = _board_where(who, db, class_id, subject)
+    rows = (db.query(Material)
+              .filter(Material.class_id == cid,
+                      func.lower(func.coalesce(Material.subject, ""))
+                      == (subj or "").lower())
+              .order_by(Material.created_at.desc()).limit(60).all())
+    ids = {m.teacher_id for m in rows if m.teacher_id}
+    names = {u.id: u.name
+             for u in db.query(User).filter(User.id.in_(ids)).all()} \
+        if ids else {}
+    return {"class_id": cid, "subject": subj,
+            "materials": [_material_json(m, by=names.get(m.teacher_id, ""))
+                          for m in rows]}
+
+
+@app.get("/api/craxlearn/board/material/{mid}/file")
+def craxlearn_board_material_file(mid: int, class_id: int = 0,
+                                  subject: str = "",
+                                  who=Depends(board_or_teacher),
+                                  db: Session = Depends(get_db)):
+    """The document itself, for showing on the board.
+
+    Checked against the room the token names, not against the id in the URL.
+    Counting up from 1 must not walk out of this classroom.
+    """
+    cid, subj, _ = _board_where(who, db, class_id, subject)
+    m = db.get(Material, mid)
+    if not m or not m.file_data or m.class_id != cid \
+            or (m.subject or "").lower() != (subj or "").lower():
+        raise HTTPException(404, "Not found")
+    try:
+        raw = base64.b64decode(m.file_data)
+    except Exception:
+        raise HTTPException(500, "That file is stored damaged")
+    return Response(
+        content=raw, media_type=m.mime or "application/octet-stream",
+        headers={"Content-Disposition":
+                 f'inline; filename="{(m.file_name or "document")[:80]}"'})
 
 
 # ---- the phone as a remote control ---------------------------------------

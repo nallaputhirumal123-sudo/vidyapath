@@ -514,6 +514,62 @@ window.api = {
   del:  function(p){ return req("DELETE", p); }
 };
 
+/* ---------- what a subject code is worth here ----------
+ *
+ * A subject code opens the room and hands back a short-lived token naming
+ * one class and one subject. The server has honoured it for a while; nothing
+ * on this page ever sent it, so a board opened with a code could draw and
+ * calculate and keep nothing.
+ *
+ * It goes in a HEADER rather than the body or the URL, for two reasons. It
+ * is a credential and not part of what is being saved; and the routes that
+ * take it must be able to refuse an anonymous caller before they look at a
+ * body, which they can only do if the refusal does not need one.
+ *
+ * BOARDED is the question every caller actually wants answered: is this
+ * board standing in a subject it may file into. */
+function boarded(){ return !!(ROOM && ROOM.board_token); }
+
+function bhdr(h){
+  h = h || {};
+  if(boarded()) h["X-Board-Token"] = ROOM.board_token;
+  return h;
+}
+
+/* The same three verbs as `api`, carrying the token. A signed-in teacher
+   sends the cookie as well and the server prefers whichever arrives — so one
+   set of call sites serves both, instead of every button branching on how
+   the person in front of it got here. */
+window.bapi = {
+  get: function(p){
+    return _bfetch("GET", p, null, { "Content-Type":"application/json" });
+  },
+  post: function(p, b){
+    return _bfetch("POST", p, JSON.stringify(b || {}),
+                   { "Content-Type":"application/json" });
+  },
+  /* Multipart: the Content-Type must be left off entirely so the browser can
+     write the boundary into it. Setting it by hand produces a body no server
+     can split. */
+  send: function(p, fd){ return _bfetch("POST", p, fd, {}); }
+};
+
+async function _bfetch(method, path, body, headers){
+  var opt = { method:method, credentials:"same-origin",
+              headers: bhdr(headers) };
+  if(body !== null && body !== undefined) opt.body = body;
+  var r = await fetch(path, opt);
+  var text = await r.text();
+  var data = null;
+  try{ data = text ? JSON.parse(text) : null; }catch(e){ data = null; }
+  if(!r.ok){
+    var err = new Error(_detailText(data && data.detail, r.status, r.statusText));
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
 /* ---------- state ---------- */
 var ME = null;
 var VIEW = { page:"home" };
@@ -564,6 +620,7 @@ var TOOL_NAMES = {
   materials:"Study material", roster:"Class register", roll:"Your classes",
   inbox:"To review", activity:"What the class is asking",
   sources:"Where answers come from", remote:"Remote",
+  bring:"Bring in a document",
   assignment:"Assignment",
   student:"A student", review:"Reviewing"
 };
@@ -1130,6 +1187,8 @@ var TILES = [
     sub:"Mix real reagents and run real experiments. Every reaction from a table, never guessed." },
   { page:"sqlboard", ic:"🗄️", name:"SQL board",
     sub:"Write queries against a real database and see what comes back." },
+  { page:"bring",  ic:"📄", name:"Bring in a document",
+    sub:"Put a chapter, a worksheet or a past paper on the board — as it is, or written up as a lesson." },
   { page:"remote", ic:"📱", name:"Remote",
     sub:"Drive this board from your phone, so you can teach facing the room." }
 ];
@@ -1324,13 +1383,24 @@ function home(){
    * Only the home screen is shortened, which is the difference between
    * moving a door and bricking up a room. */
   var PRACTICE_TILES = ["tracks", "net", "lab", "sqlboard"];
+  /* An open board holding a subject code is not the same as an open board.
+     It cannot read a register or a mark and it is still nobody's account,
+     but it names one class and one subject, and bringing a document into
+     THAT is exactly what the code is for. So the document tile is offered
+     alongside the two that need no server. */
   var offer = OPEN
     ? TILES.filter(function(t){
-        return OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote"; })
+        return OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote" ||
+               (t.page === "bring" && boarded()); })
     : TILES.filter(function(t){
         return !(teacher && PRACTICE_TILES.indexOf(t.page) >= 0); });
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
        offer.map(tile).join("") + "</div>";
+  /* And what has already been kept for this subject, on the home screen
+     rather than two taps into a tool. A lesson taught last week is opened
+     again far more often than a new one is written, and the teacher wanting
+     it is standing in front of the class, mid-sentence. */
+  if(boarded()) h += '<div id="homeSaved"></div>';
 
   /* A student has one classroom, and that classroom has several subjects
      with a different teacher in front of each. Naming the room alone left a
@@ -1393,6 +1463,50 @@ function home(){
        "open, and listed with its licence." +
        "</div>";
   main().innerHTML = h;
+  if(boarded()) homeSaved();
+}
+
+/* The saved explanations, on the home screen of a board that knows its
+   subject. Not awaited by home(): the tiles must be on the screen the
+   instant the board opens, and a list of last term's lessons arriving a
+   moment later is fine. It writes into a box home() already put there, so a
+   slow answer landing after somebody has moved on writes into nothing
+   rather than over whatever is now on the screen. */
+async function homeSaved(){
+  var host = el("homeSaved");
+  if(!host) return;
+  var d;
+  try{
+    d = await window.bapi.get("/api/craxlearn/board/materials" +
+      "?class_id=" + (ROOM.class_id || 0) +
+      "&subject=" + encodeURIComponent(ROOM.subject || ""));
+  }catch(e){ return; }
+  var mats = (d.materials || []).slice(0, 6);
+  host = el("homeSaved");
+  if(!host) return;
+  if(!mats.length){
+    host.innerHTML = '<div class="eyebrow">Saved on this subject</div>' +
+      '<div class="muted">Nothing kept here yet. Teach something, or bring ' +
+      "in a document, and it will be on this list.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="eyebrow">Saved on this subject</div>' +
+    mats.map(function(x){
+      var what = x.kind === "lesson" ? "a lesson"
+               : x.kind === "link"   ? "a link"
+                                     : (x.file_name || "a document");
+      return '<div class="card" style="display:flex;gap:.6rem;' +
+        'align-items:center;flex-wrap:wrap">' +
+        '<div style="flex:1 1 14rem"><b>' + esc(x.title) + "</b>" +
+        '<div class="muted">' + esc(what) +
+        (x.at ? " · " + esc(String(x.at).slice(0, 10)) : "") + "</div></div>" +
+        '<button class="btn" data-homeput="' + x.id + '">Put it up</button>' +
+        "</div>";
+    }).join("");
+  Array.prototype.forEach.call(
+    host.querySelectorAll("[data-homeput]"), function(b){
+      b.onclick = function(){ go("bring", { put: b.dataset.homeput }); };
+    });
 }
 
 /* ---------- a surface to write on ----------
@@ -1777,8 +1891,11 @@ function write(){
    * a page of algebra under History is worse than one more question. */
   var keep = el("wKeep");
   if(keep) keep.onclick = async function(){
-    if(OPEN){
-      wSay("Sign in with your subject code to keep this on the class page.");
+    /* A board holding a subject code MAY keep this — that is the whole of
+       what the code buys, and the reason a teacher typed it. Only a board
+       with no code at all has nowhere to put a page. */
+    if(OPEN && !boarded()){
+      wSay("Enter your subject code to keep this on the class page.");
       return;
     }
     var cid = 0, subject = "";
@@ -1817,14 +1934,14 @@ function write(){
         fd.append("file", blob, "board.png");
         fd.append("title", title);
         fd.append("subject", subject);
-        var r = await fetch("/api/teacher/class/" + cid + "/material/file", {
-          method: "POST", credentials: "same-origin", body: fd });
-        var txt = await r.text();
-        var data = null;
-        try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = null; }
-        if(!r.ok){
-          throw new Error(_detailText(data && data.detail, r.status, r.statusText));
-        }
+        fd.append("class_id", String(cid));
+        /* One route for a board holding a code, another for a signed-in
+           teacher. The board route takes the class and the subject from the
+           token and ignores what is in the form, which is why a code can be
+           trusted with it. */
+        await window.bapi.send(
+          boarded() ? "/api/craxlearn/board/file"
+                    : "/api/teacher/class/" + cid + "/material/file", fd);
         wSay("Kept on " + subject + ". Your class can open it any time.");
       }catch(e){
         wSay(e.message || "It could not be saved.");
@@ -3755,6 +3872,315 @@ async function teach(){
   paintLesson();
 }
 
+/* ---------- bringing a document into the lesson ----------
+ *
+ * A teacher standing at the board has the chapter they are about to teach,
+ * and until now no way to get it onto the screen. The tool that turns a PDF
+ * into a lesson has existed for months and was reachable only from the
+ * website — from a laptop, which is not where the teacher is standing.
+ *
+ * Two things are wanted and they are different things:
+ *
+ *   as it is        a worksheet, a past paper, a marked diagram. Putting it
+ *                   through a model would destroy the thing being shown.
+ *   written up      a chapter of prose, turned into steps a room can read
+ *                   from the back. Costs a model call.
+ *
+ * So it asks, once, and does not guess. As-it-is is offered first: it is
+ * free, it is instant, and it is the only one that works on a scan.
+ *
+ * Both land in the same place — this class, this subject — so the class sees
+ * one list, and so does this page the next time it is opened.
+ */
+function bringWhere(){
+  /* Which class and subject a document brought in here would be filed
+     under, and how sure we are. A board holding a subject code has no
+     choice to make; a signed-in teacher who opened a room with a CLASS code
+     has to say which of their subjects this is. */
+  if(boarded()){
+    return { fixed:true, class_id: ROOM.class_id, subject: ROOM.subject || "",
+             class_name: ROOM.class_name || "" };
+  }
+  if(!OPEN && isTeacher() && ROOM && ROOM.class_id){
+    return { fixed:false, class_id: ROOM.class_id, subject:"",
+             class_name: ROOM.class_name || "" };
+  }
+  return null;
+}
+
+var BROUGHT = null;      // the saved list, so a repaint does not refetch
+
+async function bring(arg){
+  var where = bringWhere();
+  var m = main();
+  if(!where){
+    m.innerHTML = '<h1>Bring in a document</h1>' +
+      '<div class="note">Open a classroom first — enter the class or ' +
+      'subject code your school gave you. A document has to be filed ' +
+      'somewhere, and this board does not yet know where it is standing.</div>';
+    return;
+  }
+
+  m.innerHTML = '<h1>Bring in a document</h1>' +
+    '<div class="note"><b>' + esc(where.class_name) + '</b>' +
+      (where.subject ? ' · <b>' + esc(where.subject) + "</b>" : "") +
+      '<div class="muted">Whatever you bring in is kept here, and is on the ' +
+      'class’s Study material page straight away.</div></div>' +
+    '<div class="card">' +
+      '<input type="file" id="brFile" ' +
+        'accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp">' +
+      (where.fixed ? "" :
+        '<div style="margin:.6rem 0">' +
+          subjectPicker("brSubject", where.class_id) + "</div>") +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.7rem">' +
+        '<button class="btn" id="brAsIs">Show it as it is</button>' +
+        '<button class="btn ghost" id="brLesson">Write it up as a lesson</button>' +
+      "</div>" +
+      '<div class="muted" id="brMsg" style="margin-top:.6rem">' +
+        "<b>As it is</b> keeps the document unchanged — right for a " +
+        "worksheet, a past paper or a diagram, and the only one that works " +
+        "on a scan. <b>Written up</b> reads a PDF and turns it into steps " +
+        "the back of the room can read." +
+      "</div>" +
+    "</div>" +
+    '<div id="brOut"></div>' +
+    '<div id="bOut"></div>' +
+    '<div id="brSaved"><div class="muted">Looking for what is already ' +
+      "saved…</div></div>";
+
+  function subjectNow(){
+    return where.fixed ? where.subject
+                       : ((el("brSubject") || {}).value || "").trim();
+  }
+  function chosen(){
+    var f = (el("brFile") || {}).files;
+    return f && f.length ? f[0] : null;
+  }
+
+  el("brAsIs").onclick = function(){ bringAsIs(where, subjectNow(), chosen()); };
+  el("brLesson").onclick = function(){
+    bringLesson(where, subjectNow(), chosen()); };
+
+  await bringSaved(where);
+
+  /* Arrived here by pressing "Put it up" on the home screen: open that one
+     straight away rather than making the teacher find it a second time. */
+  var want = arg && arg.put;
+  if(want){
+    var hit = (BROUGHT || []).filter(function(x){ return x.id === +want; })[0];
+    if(hit) await bringOpen(where, subjectNow(), hit);
+  }
+}
+
+function bringQuery(where, subject){
+  return "?class_id=" + (where.class_id || 0) +
+         "&subject=" + encodeURIComponent(subject || "");
+}
+
+async function bringAsIs(where, subject, file){
+  var msg = el("brMsg");
+  if(!file){ msg.textContent = "Choose a file first."; return; }
+  if(!where.fixed && !subject){
+    msg.textContent = "Say which subject this belongs to."; return;
+  }
+  msg.textContent = "Keeping it…";
+  try{
+    var fd = new FormData();
+    fd.append("file", file, file.name || "document");
+    fd.append("class_id", String(where.class_id || 0));
+    fd.append("subject", subject || "");
+    var d = await window.bapi.send("/api/craxlearn/board/file", fd);
+    msg.textContent = "Kept. It is on the class’s Study material page now.";
+    await bringSaved(where);
+    if(d && d.material) bringOpen(where, subject, d.material);
+  }catch(e){
+    msg.textContent = e.message;
+  }
+}
+
+async function bringLesson(where, subject, file){
+  var msg = el("brMsg");
+  if(!file){ msg.textContent = "Choose a file first."; return; }
+  if(!where.fixed && !subject){
+    msg.textContent = "Say which subject this belongs to."; return;
+  }
+  if(!/\.pdf$/i.test(file.name || "")){
+    msg.textContent = "Writing one up reads a PDF. For anything else, show " +
+                      "it as it is.";
+    return;
+  }
+  msg.textContent = "Reading it and writing the lesson… this takes a moment.";
+  var d;
+  try{
+    var fd = new FormData();
+    fd.append("file", file, file.name || "document.pdf");
+    d = await window.bapi.send("/api/teach/pdf", fd);
+  }catch(e){
+    msg.textContent = e.message;
+    return;
+  }
+  var L = d.lesson || {};
+  var topic = L.title || (file.name || "Document").replace(/\.pdf$/i, "");
+  msg.textContent = d.cached
+    ? "Written up already — this document had been read before."
+    : "Written up. Keep it and the class can read it again.";
+
+  /* Keeping it is a separate press, because a lesson a teacher has not
+     looked at yet is not one they have decided to file. */
+  var tail =
+    '<div class="eyebrow">Keep it on this subject</div><div class="card">' +
+    '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+      '<input id="brNote" style="flex:1 1 12rem" ' +
+        'placeholder="A line about it (optional)">' +
+      '<button class="btn" id="brKeep">Keep it</button>' +
+    "</div>" +
+    '<div class="muted" id="brKeepMsg" style="margin-top:.5rem">' +
+      "It goes to " + esc(where.class_name) +
+      (subject ? " · " + esc(subject) : "") +
+      ", where the class can open it any time." +
+    "</div></div>";
+
+  LESSON = { raw: L, topic: topic, title: L.title || topic,
+             pages: lessonPages(L, topic), at: 0,
+             view: lessonView(), tail: tail };
+  paintLesson();
+
+  var keep = el("brKeep");
+  if(keep) keep.onclick = async function(){
+    var k = el("brKeepMsg");
+    k.textContent = "Keeping…";
+    try{
+      await window.bapi.post("/api/craxlearn/board/save", {
+        class_id: where.class_id, subject: subject,
+        topic: topic, title: LESSON.title,
+        note: ((el("brNote") || {}).value || "").trim(),
+        lesson: L
+      });
+      k.textContent = "Kept. It is under Saved on this subject now.";
+      await bringSaved(where);
+    }catch(e){ k.textContent = e.message; }
+  };
+}
+
+/* What is already here, ready to put straight back up.
+ *
+ * The point of keeping a lesson is opening it again, and until now the only
+ * way back to one was the class page on somebody's laptop — which is not
+ * where the teacher is standing when they want it. */
+async function bringSaved(where){
+  var host = el("brSaved");
+  if(!host) return;
+  var subject = where.fixed ? where.subject
+                            : ((el("brSubject") || {}).value || "").trim();
+  var d;
+  try{
+    d = await window.bapi.get("/api/craxlearn/board/materials" +
+                              bringQuery(where, subject));
+  }catch(e){
+    host.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
+    return;
+  }
+  BROUGHT = d.materials || [];
+  if(!BROUGHT.length){
+    host.innerHTML = '<div class="eyebrow">Saved on this subject</div>' +
+      '<div class="muted">Nothing yet. Whatever you teach or bring in here ' +
+      "will be on this list.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="eyebrow">Saved on this subject</div>' +
+    BROUGHT.map(function(x, i){
+      var what = x.kind === "lesson" ? "a lesson"
+               : x.kind === "link"   ? "a link"
+                                     : (x.file_name || "a document");
+      return '<div class="card" style="display:flex;gap:.6rem;' +
+        'align-items:center;flex-wrap:wrap">' +
+        '<div style="flex:1 1 14rem"><b>' + esc(x.title) + "</b>" +
+          '<div class="muted">' + esc(what) +
+          (x.by ? " · " + esc(x.by) : "") +
+          (x.at ? " · " + esc(String(x.at).slice(0, 10)) : "") +
+          "</div></div>" +
+        '<button class="btn" data-brput="' + i + '">Put it up</button>' +
+        "</div>";
+    }).join("");
+  Array.prototype.forEach.call(
+    host.querySelectorAll("[data-brput]"), function(b){
+      b.onclick = function(){
+        bringOpen(where, subject, BROUGHT[+b.dataset.brput]); };
+    });
+}
+
+/* Put one back on the board.
+ *
+ * A kept lesson is words and pictures we already know how to draw, so it
+ * goes through the same renderer it was taught with. A document is fetched
+ * as a blob and shown from an object URL rather than linked to by id: the
+ * token that says this board may read it lives in a header, and a header
+ * cannot be attached to an <embed src>. Putting it in the URL instead would
+ * write a credential into the browser history of a screen thirty people can
+ * see. */
+async function bringOpen(where, subject, mat){
+  var out = el("brOut");
+  if(!out || !mat) return;
+
+  if(mat.kind === "lesson"){
+    /* A kept lesson is its WORDS and its pictures — that is how it was
+       stored, deliberately, so it opens on a phone the night before an exam
+       instead of downloading something. It is not put back through the
+       lesson renderer, which wants the steps the model returned and would
+       find none, and would then say the lesson came back empty. */
+    var figs = (mat.figures || []).map(function(f, i){
+      return { how: f.how, id: "brFig" + mat.id + "_" + i, spec: f.spec };
+    });
+    out.innerHTML = '<div class="card"><h2 style="margin-top:0">' +
+      esc(mat.title) + "</h2>" +
+      (mat.note ? '<div class="muted">' + esc(mat.note) + "</div>" : "") +
+      (mat.body || "").split("\n").map(function(ln){
+        return ln.trim() ? "<p>" + esc(ln) + "</p>" : ""; }).join("") +
+      figs.map(function(f){
+        return '<div class="figcap">' +
+          (f.how === "scene" ? "🧊 " : "✏️ ") +
+          esc((f.spec && f.spec.caption) || "") + "</div>" +
+          '<div class="fig' + (f.how === "scene" ? " fig3d" : "") + '"' +
+          (f.how === "scene" ? ' data-fill="1"' : "") +
+          ' id="' + f.id + '"></div>';
+      }).join("") +
+      "</div>";
+    await mountFigures(figs);
+    return;
+  }
+
+  if(mat.kind === "link"){
+    out.innerHTML = '<div class="card"><b>' + esc(mat.title) + "</b> " +
+      '<a href="' + esc(mat.url || "") + '" target="_blank" rel="noopener">' +
+      "Open it</a></div>";
+    return;
+  }
+
+  out.innerHTML = '<div class="card muted">Opening ' +
+    esc(mat.file_name || "the document") + "…</div>";
+  try{
+    var r = await fetch("/api/craxlearn/board/material/" + mat.id + "/file" +
+                        bringQuery(where, subject),
+                        { credentials:"same-origin", headers: bhdr() });
+    if(!r.ok) throw new Error("That document could not be opened.");
+    var blob = await r.blob();
+    var url = URL.createObjectURL(blob);
+    var mime = mat.mime || "";
+    var view = mime.indexOf("image/") === 0
+      ? '<img src="' + url + '" alt="" style="max-width:100%;display:block">'
+      : '<embed src="' + url + '" type="' + esc(mime) +
+        '" style="width:100%;height:78vh;border:0">';
+    out.innerHTML = '<div class="card"><div style="display:flex;gap:.6rem;' +
+      'align-items:center;flex-wrap:wrap;margin-bottom:.5rem">' +
+      "<b>" + esc(mat.title) + "</b>" +
+      '<span class="grow"></span>' +
+      '<a class="btn ghost" href="' + url + '" target="_blank" ' +
+        'rel="noopener">Open in a tab</a></div>' + view + "</div>";
+  }catch(e){
+    out.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
+  }
+}
+
 /* ---------- routing ---------- */
 /* go() opens a page in the live space; paint() draws one that is already
    chosen. Splitting them is what lets a space be redrawn — after a refresh,
@@ -3790,6 +4216,7 @@ async function paint(page, arg){
   else if(page === "sources")   return sources();
   else if(page === "inbox")     return inbox();
   else if(page === "materials") return materials();
+  else if(page === "bring")     return bring(arg);
   else if(page === "write")     return write();
   else if(page === "remote")    return remotePanel();
   else if(page === "calc")      return calc();
