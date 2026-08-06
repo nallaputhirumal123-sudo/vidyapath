@@ -90,14 +90,17 @@ r = admin.post("/api/head/staff",
                json={"name": "Latha R", "email": temail, "role": "teacher"})
 check("a teacher account is created", r.status_code == 200, r.text[:80])
 made = r.json()
-# No password comes back any more, and that is the point. A teacher signs in
-# with the subject code the office gives them, so there is nothing for a
-# password to be typed into — and the one this used to print was the reason a
-# school could create an account nobody could ever use.
-check("no password is handed out", not made.get("temporary_password"),
-      str(made)[:110])
-check("whatever password the row holds is stored hashed, not readably",
-      _pw(made["user_id"]) not in (
+# The password comes back, once. It stopped coming back while a subject code
+# was the way in; a subject code is a BOARD code now — read off a classroom
+# board by every child in the room — so it opens a board and signs nobody in,
+# and the office needs something to hand the teacher on their first morning.
+check("a password is handed over, once",
+      len(made.get("temporary_password") or "") > 6, str(made)[:130])
+# Read, not written. This used to call _pw(), which SETS a password — so it
+# quietly replaced the one the route had just handed back, and the sign-in
+# below then failed for a reason that had nothing to do with the route.
+check("and it is stored hashed, not readably",
+      made["temporary_password"] not in (
           db.get(main.User, made["user_id"]).password_hash or ""),
       "never stored in a form anybody can read back")
 
@@ -117,9 +120,10 @@ check("the class lists them",
 print("\nthe part that actually matters: can they work")
 teacher = TestClient(main.app)
 r = teacher.post("/api/auth/login",
-                 json={"email": temail, "password": _pw(made["user_id"])})
-check("they can sign in with what they were given", r.status_code == 200,
-      r.text[:70])
+                 json={"email": temail,
+                       "password": made["temporary_password"]})
+check("they can sign in with exactly what they were given",
+      r.status_code == 200, r.text[:70])
 r = teacher.post(f"/api/teacher/class/{CID}/assignment",
                  json={"subject": "Physics", "title": "Ch 1", "body": "read",
                        "due_date": ""})

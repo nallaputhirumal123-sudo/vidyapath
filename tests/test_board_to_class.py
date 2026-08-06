@@ -5,6 +5,7 @@ os.environ["ALLOW_SQLITE"] = "1"   # local test database; refused on a deploymen
 os.environ["JOBS_ENABLED"]="0"; os.environ["COOKIE_SECURE"]="0"
 import main
 from fastapi.testclient import TestClient
+from _school import teacher_on, make_staff   # noqa: E402
 main.Base.metadata.create_all(bind=main.engine); main.send_email=lambda *a,**k: None
 st=int(time.time()); db=main.SessionLocal(); P=F=0
 def ck(n,ok,d=""):
@@ -23,12 +24,7 @@ adm.post('/api/teacher/class/%d/roster'%CID,json={'names':'Nita S'})
 # The office creates the class and the subject; the TEACHER of that subject is
 # who files a lesson into it. The school admin used to do both, which is why
 # the two dashboards looked the same.
-_slot=adm.post('/api/head/class/%d/slot'%CID,json={'subject':'Science','teacher_id':0}).json()
-_made=adm.post('/api/head/staff',json={'name':'Board Teacher','role':'teacher'}).json()
-adm.post('/api/head/assign',json={'class_id':CID,'subject':'Science','user_id':_made['user_id']})
-main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
-tch=TestClient(main.app)
-tch.post('/api/auth/code',json={'code':db.get(main.SubjectSlot,_slot['id']).code})
+tch,_uid,_code,_sid = teacher_on(main, adm, CID, 'Science', 'Board Teacher')
 main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 code=db.get(main.Klass,CID).join_code
 kid=TestClient(main.app)

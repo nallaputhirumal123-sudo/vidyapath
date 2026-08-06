@@ -76,12 +76,13 @@ r = head.post("/api/head/staff",
               json={"name": "Latha B", "email": GOOD, "role": "teacher"})
 ck("a real address is accepted", r.status_code == 200, r.text[:120])
 TID2 = (r.json() or {}).get("user_id")
-ck("no password is handed out any more",
-   not (r.json() or {}).get("temporary_password"), str(r.json())[:110])
+PW2 = (r.json() or {}).get("temporary_password") or ""
+ck("and a password comes back, once, for the office to hand over",
+   len(PW2) > 6, str(r.json())[:110])
 
-# The account is real and reachable — by the subject code the office gives
-# them, which is the only way in now. Creating it no longer prints a password
-# because nothing accepts one.
+# The account is real and reachable — with the address the office typed and
+# the password it was handed. Whatever creation accepts, sign-in must accept,
+# which is the whole of this file.
 _k = head.post("/api/teacher/class", json={"name": f"9-E {st}"}).json()
 _slot = head.post(f"/api/head/class/{_k['id']}/slot",
                   json={"subject": "Physics", "teacher_id": 0}).json()
@@ -89,22 +90,38 @@ head.post("/api/head/assign",
           json={"class_id": _k["id"], "subject": "Physics", "user_id": TID2})
 main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 fresh = TestClient(main.app)
-r = fresh.post("/api/auth/code", json={"code": _slot["code"]})
-ck("THE ACCOUNT CAN ACTUALLY SIGN IN, with its code",
+r = fresh.post("/api/auth/login", json={"email": GOOD, "password": PW2})
+ck("THE ACCOUNT CAN ACTUALLY SIGN IN, with what it was given",
    r.status_code == 200, r.text[:130])
+# And its subject code is not a second way into it. That is a board code: it
+# names one room and one subject, and a whole class reads it off the wall.
+main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
+ck("its subject code is NOT a way into the account",
+   TestClient(main.app).post(
+       "/api/auth/code",
+       json={"code": _slot["code"]}).status_code == 403)
 ck("and it is a teacher",
    bool(fresh.get("/api/auth/me").json().get("is_teacher")))
 ck("and it is the account the office made",
    fresh.get("/api/auth/me").json().get("id") == TID2)
 
-print("\na teacher can be added with no address at all")
+print("\na teacher cannot be added without an address")
+# They could, while a subject code was the way in — there was nothing for an
+# address to do. A subject code signs nobody in now, so the address and the
+# password ARE the identity, and an account made without one is an account
+# nobody can ever use. Refused at the moment of typing rather than discovered
+# by the teacher on their first morning, which is the same rule this whole
+# file is about.
 r = head.post("/api/head/staff", json={"name": "No Address", "role": "teacher"})
-ck("a name is enough", r.status_code == 200, r.text[:120])
+ck("a name on its own is refused", r.status_code == 422, f"got {r.status_code}")
+ck("and it says which field", "email" in r.text, r.text[:110])
+r = head.post("/api/head/staff",
+              json={"name": "With Address", "role": "teacher",
+                    "email": f"with{st}@example.com"})
+ck("with an address it is made", r.status_code == 200, r.text[:120])
 _nid = (r.json() or {}).get("user_id")
 _u = db.get(main.User, _nid)
 db.refresh(_u)
-ck("and the address it invents is unroutable",
-   (_u.email or "").endswith("@schoolcode.invalid"), _u.email)
 ck("and it is marked as school staff", (_u.kind or "") == "schoolstaff",
    str(_u.kind))
 

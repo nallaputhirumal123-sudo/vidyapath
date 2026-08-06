@@ -1806,17 +1806,22 @@ function setJoinRole(role){
   // A school admin's code is ten digits and a subject code is T- plus
   // four; the placeholder shows both because one field takes either.
   if(code) code.placeholder = teacher ? "T-4M2X or 4820561973" : "VP-7K3Q";
-  /* No email and no password on this form any more, for anybody.
-     The school office makes a teacher's profile and puts them on a subject;
-     the code they were handed is what turns that into a session. Asking for
-     two credentials nobody gave them was the reason a teacher with a correct
-     code still could not get in. */
+  /* A pupil signs in with a code and no password — the register row IS the
+     credential, and there is nothing to phish or reset.
+
+     A member of staff does not. The ten-digit code the office was issued
+     still works here, once, because that is how somebody BECOMES the school
+     admin. A subject code does not: it is read off a classroom board by a
+     whole class, so it opens one subject on one board and the server refuses
+     it here — which the box now says, rather than leaving somebody typing it
+     again. */
   const staff=$("#jn_staff");
-  if(staff) staff.style.display = "none";
+  if(staff) staff.style.display = teacher ? "" : "none";
   const hint=$("#jn_hint");
   if(hint) hint.textContent = teacher
-    ? "The code your school office gave you — one for each classroom and "+
-      "subject you teach. There is no password."
+    ? "Teachers sign in with their email and password — your school office "+
+      "issues it. The ten-digit code below is for a school administrator; a "+
+      "subject code (T-…) is for a classroom board, not for signing in."
     : "The code your teacher gave you. You will tap your name next — there is "+
       "no password.";
   $("#jn_names").innerHTML="";
@@ -1830,8 +1835,42 @@ document.addEventListener("click", e=>{
 $("#joinForm").onsubmit=async e=>{
   e.preventDefault();
   const code=$("#jn_code").value.trim();
+  const b=$("#jn_btn");
+
+  /* A teacher signs in with their address and their password.
+   *
+   * Both fields are on this form for staff and the code is optional for
+   * them, because a teacher may have neither a code nor a reason for one:
+   * the office lists them on their subjects and they are simply in. Somebody
+   * who fills the code box instead gets the path below, which is right for
+   * the ten digits of a school administrator and refused for a subject code.
+   *
+   * Without this, showing the email and password fields would have been a
+   * dead end — two boxes that nothing reads. */
+  if(JOIN_ROLE==="teacher"){
+    const em=(($("#jn_email")||{}).value||"").trim();
+    const pw=(($("#jn_pw")||{}).value||"");
+    if(em && pw){
+      b.disabled=true; authMsg(""); b.textContent="Signing in…";
+      try{ await api.post("/api/auth/login",{email:em,password:pw}); }
+      catch(err){ authMsg(err.message); b.disabled=false;
+                  b.textContent="Continue →"; return; }
+      /* A code as well is somebody claiming a subject they are not yet
+         listed on. Best effort: they are signed in either way, and being
+         told "that code is already yours" would be noise. */
+      if(code.length>=3){
+        try{ await api.post("/api/class/join",{code:code}); }catch(e2){}
+      }
+      await boot();
+      S.view={page:"teacher"};
+      render();
+      toast("Signed in.");
+      return;
+    }
+  }
+
   if(code.length<3){ authMsg("Type the code you were given."); return; }
-  const b=$("#jn_btn"); b.disabled=true; authMsg("");
+  b.disabled=true; authMsg("");
 
   /* Staff sign in, then redeem. A head teacher who already had an account
      used to be bounced to the signup form and told to make a second one. */
@@ -1860,9 +1899,15 @@ $("#joinForm").onsubmit=async e=>{
       AUTHED=true;
       landed={role:"teacher", "class":got.class_name, subject:got.subject};
     }catch(codeErr){
+      /* 403 is the board code — refused here on purpose, and the message
+         says where it goes. 404 with a session may be a school code, which
+         is still redeemed the old way. Both are answers, not failures, and
+         neither should be shown as "something went wrong". */
+      if(codeErr && codeErr.status===403){
+        authMsg(codeErr.message); b.disabled=false;
+        b.textContent="Continue →"; return;
+      }
       if(codeErr && codeErr.status===404 && AUTHED){
-        /* Not a subject code. If they are already signed in, it may be a
-           school code, which still works the old way. */
         try{ landed=await api.post("/api/class/join",{code:code}); }
         catch(e2){ authMsg(e2.message); b.disabled=false;
                    b.textContent="Continue →"; return; }
@@ -5659,7 +5704,7 @@ async function renderTeacher(cid){
       <b>board code</b> — what opens that subject on a classroom board, and
       nothing else. You do not sign out to move between them. Classes and
       subjects are made by your school admin.</p>
-    <div class="card" style="margin-bottom:18px"><b>Open your subject</b> <span style="font-size:12px;color:var(--dim)">(enter the code your school admin gave you)</span>
+    <div class="card" style="margin-bottom:18px"><b>Claim a subject</b> <span style="font-size:12px;color:var(--dim)">(a code your school admin gave you for a subject you are not yet listed on)</span>
       <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
         <input id="tcJoin" class="ask-input" style="max-width:200px" placeholder="Your subject code"/>
         <button class="btn sm" data-cls="tjoin">Open →</button></div>
@@ -6464,19 +6509,27 @@ async function renderHead(){
       <div class="card" style="padding:12px;margin-bottom:6px">
         <div id="hStaffList" style="margin-bottom:10px">Loading…</div>
         <div id="hStMade"></div>
-        <!-- A name, and nothing else.
+        <!-- A name and an address. The address is how they sign in: a
+             subject code is a BOARD code, read off a classroom wall by a
+             whole class, so it opens one subject on one board and is not a
+             way into anybody's account.
 
-             The email box is gone because nothing uses one: a teacher signs
-             in with the subject code you give them. Asking for an address
-             let a school create latha@bhashyam.100 — accepted here, refused
-             at the login form — and that account was unusable from the
-             moment it existed. -->
-        <div class="field"><label>Their name</label>
-          <input id="hStName" class="ask-input" placeholder="e.g. Latha R"/></div>
+             Validated exactly as the sign-in form validates it, which is the
+             rule that stopped a whole class of dead account —
+             latha@bhashyam.100 was accepted here and refused at login, and
+             everybody assumed the password was wrong. -->
+        <div class="two">
+          <div class="field"><label>Their name</label>
+            <input id="hStName" class="ask-input" placeholder="e.g. Latha R"/></div>
+          <div class="field"><label>Their email — how they sign in</label>
+            <input id="hStEmail" class="ask-input" type="email"
+              placeholder="e.g. latha@school.in"/></div>
+        </div>
         <button class="btn sm" data-cls="hstaffadd">Add teacher</button>
         <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
-          Then put them on a subject in a class. That subject's code is how
-          they sign in — there is no password.</div>
+          A password is shown here once — write it down or read it out, it is
+          not emailed. Then put them on a subject in a class; that subject's
+          code is what opens it on a classroom board.</div>
       </div>
       <div id="hMsg" style="font-size:13px;color:var(--dim);margin-top:8px"></div></div>
 
@@ -6829,38 +6882,58 @@ async function staffRemove(uid, who){
   }catch(e){ toast(e.message); }
 }
 
-/* Adding a teacher: a name, and nothing else.
-
-   It asked for an email as well, and the email was the problem. Sign-in
-   validates addresses and this form did not, so a school could create
-   latha@bhashyam.100 — accepted here, refused at the login form — and the
-   account was unusable from the moment it existed. Then it printed a
-   one-time password, which nobody needs either: a teacher signs in with the
-   subject code the office gives them.
-
-   So: a name. The office puts them on a subject, and that subject's code is
-   how they get in. */
+/* Adding a teacher: a name, an address, and a password shown once.
+ *
+ * The address went optional while a subject code was the way in, because
+ * there was genuinely nothing for it to do. A subject code is a BOARD code
+ * now — it is chalked up and read by a whole class — so it opens one subject
+ * on one board and signs nobody in, and a teacher's address and password are
+ * their identity again.
+ *
+ * The address is validated the same way sign-in validates it. That is the
+ * rule that stopped a whole class of dead account: latha@bhashyam.100 was
+ * accepted here and refused at the login form, so the head, the teacher and
+ * everybody helping them assumed the password was wrong.
+ *
+ * The password is shown ONCE and is not emailed. A school hiring in August
+ * has staff whose school address does not exist yet, and an invitation
+ * nobody receives is a member of staff who cannot work on Monday.
+ */
 async function schoolStaffAdd(){
   const name=($("#hStName").value||"").trim();
   if(name.length<2){ toast("Give their name."); return; }
   const emailEl=$("#hStEmail");
   const email=((emailEl&&emailEl.value)||"").trim();
+  if(!email){
+    toast("An email address — it is how they sign in.");
+    if(emailEl) emailEl.focus();
+    return;
+  }
   let made;
-  const payload={name:name, role:"teacher"};
-  if(email) payload.email=email;      /* only if a school volunteers one */
-  try{ made=await api.post("/api/head/staff", payload); }
+  try{ made=await api.post("/api/head/staff",
+                           {name:name, email:email, role:"teacher"}); }
   catch(e){ toast(e.message); return; }
   $("#hStName").value=""; if(emailEl) emailEl.value="";
   await schoolStaffPaint();
 
   const out=document.getElementById("hStMade");
   if(out){
+    const pw=made.temporary_password||"";
     out.innerHTML = `<div class="card" style="padding:11px;margin:10px 0;
          border-color:var(--accent)">
          <b>${esc(made.name)} was added.</b>
+         ${pw?`<div style="margin:9px 0">
+           <div style="font-size:11px;color:var(--dim);letter-spacing:.4px">
+             SIGN IN WITH</div>
+           <div style="font-family:ui-monospace,monospace;font-size:14px">${
+             esc(made.email||email)}</div>
+           <div style="font-family:ui-monospace,monospace;font-size:16px;
+             letter-spacing:1px;color:var(--accent)">${esc(pw)}</div>
+           <button class="btn ghost sm" data-cls="copycode"
+             data-code="${esc(pw)}" style="margin-top:6px">Copy password</button>
+         </div>`:""}
          <div style="font-size:12.5px;color:var(--dim);margin-top:4px">${
-           esc(made.note||"Put them on a subject in a class. That subject's "+
-               "code is how they sign in.")}</div>
+           esc(made.note||"Put them on a subject in a class.")}</div>
          <button class="btn ghost sm" data-cls="staffclear"
            style="margin-top:8px">Done</button></div>`;
   }

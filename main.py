@@ -6170,19 +6170,18 @@ class StaffIn(BaseModel):
     # created that can never be used. They match now, so the head is told at
     # the moment of typing rather than a day later by a teacher who cannot
     # get in.
-    # Optional now, and usually absent.
+    # Required, and validated exactly as the sign-in form validates it.
     #
-    # A teacher signs in with the subject code the office gives them, so there
-    # is nothing for an address to do: nothing is ever sent to it and it is
-    # not a way in. Asking for one produced accounts made with addresses that
-    # could not be signed in with — latha@bhashyam.100 among them — and every
-    # one of those was unusable from the moment it was created.
+    # It was optional while a subject code was the way in — there was nothing
+    # for an address to do. A subject code is a board code now and signs
+    # nobody in, so a teacher's address and password ARE their identity, and
+    # an account made without one is an account nobody can ever use.
     #
-    # If a school does give one it is validated exactly as sign-in validates
-    # it, which is the rule that stopped that class of dead account. If they
-    # do not, a synthetic unroutable address is used, the same way a pupil's
-    # class-code account works.
-    email: Optional[EmailStr] = None
+    # EmailStr rather than a string with a minimum length, which is the rule
+    # that stopped a whole class of dead account: latha@bhashyam.100 was
+    # accepted at creation and refused at sign-in, so the head, the teacher
+    # and everyone helping them assumed the password was wrong.
+    email: EmailStr
     role: str = Field(default="teacher", max_length=16)
 
 
@@ -6234,11 +6233,6 @@ def head_create_staff(body: StaffIn, user: User = Depends(head_user),
                         "still works."}
 
     temp = secrets.token_urlsafe(9)
-    if not email:
-        # Synthetic and unroutable, exactly as a pupil's is. The subject code
-        # the office hands them is the credential; this address exists only
-        # because a row needs one and must not collide with a real person's.
-        email = f"staff{secrets.token_hex(5)}@schoolcode.invalid"
     u = User(name=body.name.strip()[:120], email=email,
              password_hash=hash_pw(temp), kind="schoolstaff",
              is_active=True, email_verified=False)
@@ -6250,10 +6244,23 @@ def head_create_staff(body: StaffIn, user: User = Depends(head_user),
     if ta:
         ta.role = role
         db.commit()
+    # The password comes back, once, for the office to hand over.
+    #
+    # It stopped coming back when a subject code became the way in, and that
+    # has been undone: a subject code is read off a classroom board by thirty
+    # children, so it opens a board and nothing else. A teacher signs in with
+    # their own address and their own password, and the office needs
+    # something to give them on their first morning.
+    #
+    # Not emailed. A school hiring in August has staff whose school address
+    # does not exist yet, and an invitation nobody receives is a member of
+    # staff who cannot work on Monday.
     return {"ok": True, "created": True, "user_id": u.id, "name": u.name,
-            "email": u.email, "role": role,
-            "note": "Put them on a subject in a class. The code that subject "
-                    "gets is how they sign in — there is no password."}
+            "email": u.email, "role": role, "temporary_password": temp,
+            "note": "Write this password down or read it out — it is shown "
+                    "once and is not emailed. They sign in with it and their "
+                    "address. Then put them on a subject: the code that "
+                    "subject gets is what opens it on a classroom board."}
 
 
 @app.get("/api/head/staff")
@@ -7674,28 +7681,21 @@ def craxlearn_code(body: CodeIn, request: Request,
 @app.post("/api/auth/code")
 def sign_in_with_code(body: CodeIn, response: Response, request: Request,
                       db: Session = Depends(get_db)):
-    """Sign a member of staff in with their code, and nothing else.
+    """The ten-digit code that makes somebody a school administrator.
 
-    A teacher standing in front of a class does not type an email address and
-    a password. They were handed a code by the school office — one per
-    classroom they teach in, per subject — and that code is how they reach
-    their own classes.
+    One code, one person, handed over once. It carries its own identity — the
+    name the platform admin issued it in — and it is not written on anything
+    a room can read.
 
-    It signs in as the person the school ALREADY put on that subject. It never
-    creates an account and never guesses a name: the office makes the
-    teacher's profile and assigns them to a subject, and this turns their code
-    into a session on the account that was made for them. A code for a subject
-    nobody has been assigned to is refused, because the alternative is an
-    account with no name that the school did not create and cannot recognise.
-
-    What this costs, said here rather than left to be discovered: the code IS
-    the credential. Whoever holds it is that teacher. It is per classroom and
-    per subject, so one that leaks exposes one subject in one room rather than
-    a school, and it can be rotated the moment it travels. That is the whole
-    of the protection, and it is the shape the school asked for.
+    A SUBJECT code is refused here on purpose. It used to sign in as the
+    teacher the school had put on that subject, and the whole design of a
+    subject code is that a board can be told which room it is in, which means
+    the code is chalked up, read out and passed around a class. A credential
+    that every child in the room holds is not a credential. It opens a board,
+    through /api/craxlearn/room, and identity comes from signing in.
 
     Rate-limited on the same counters as the register, because guessing at
-    this is guessing at a way into a classroom.
+    this is guessing at a way into a school.
     """
     _code_guard(request)
     code = body.code.strip().upper()
@@ -7752,31 +7752,33 @@ def sign_in_with_code(body: CodeIn, response: Response, request: Request,
             404, "No subject or school has that code. A pupil's class code "
                  "goes in the class sign-in, not here.")
 
-    k = db.get(Klass, slot.class_id)
-    if not k:
-        _code_missed(request)
-        raise HTTPException(404, "That subject's class no longer exists")
-    if not slot.teacher_id:
-        raise HTTPException(
-            409, "Nobody has been put on that subject yet. Ask the school "
-                 "office to assign you to it, and this code will then let "
-                 "you in.")
-    u = db.get(User, slot.teacher_id)
-    if not u or not u.is_active:
-        raise HTTPException(
-            409, "The account on that subject is not available. Ask the "
-                 "school office.")
-    # A pupil's class-code account must never be reachable this way, even if
-    # one is still sitting on a slot from before that was stopped.
-    if (u.kind or "") == "classcode":
-        raise HTTPException(
-            403, "That subject is held by a pupil's class-code account. Ask "
-                 "the school office to put a teacher on it.")
-
-    set_session(response, u, db)
-    return {"ok": True, "kind": "teacher", "name": u.name,
-            "class_id": k.id, "class_name": k.name,
-            "subject": slot.subject or "", "school": k.school or ""}
+    # A SUBJECT code opens a board. It is not a way into an account.
+    #
+    # This used to hand back a full session on the teacher the school had put
+    # on that subject, and the cost was written down at the time: whoever
+    # holds the code IS that teacher. What that sentence skates over is where
+    # the code lives. It is read off a classroom board, chalked up, passed
+    # down a row, printed on a timetable — by design, because a board has to
+    # be told which room it is standing in and that is what the code is FOR.
+    # Every child in the room has it.
+    #
+    # And the session it handed out was not scoped to the classroom. It was
+    # the teacher's own account: every class they teach, every register,
+    # every mark, every subject's discussion, and Ask Axle billed to them.
+    #
+    # So the code buys exactly what it is for and nothing else — the board
+    # token from /api/craxlearn/room, which names one class and one subject
+    # and unlocks the routes that file a lesson into them. Identity comes
+    # from signing in, which is a teacher's email and their own password.
+    #
+    # Refused rather than quietly redirected: somebody typing a code here has
+    # been told to, by a timetable or a colleague, and needs to know where it
+    # actually goes.
+    raise HTTPException(
+        403, "That is a board code. It opens its subject on a classroom "
+             "board — go to the board and enter it there. To reach your own "
+             "classes, sign in with your email and password; your school "
+             "office issues the password.")
 
 
 class ClaimIn(BaseModel):

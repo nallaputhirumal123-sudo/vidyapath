@@ -101,8 +101,8 @@ r = admin.post("/api/head/staff",
                      "role": "teacher"})
 must("the teacher account is made", r.status_code == 200, r.text[:70])
 made = r.json()
-must("and no password is handed out — there is nothing to type one into",
-     not made.get("temporary_password"), str(made)[:100])
+must("and a password is handed over, once, for the office to give them",
+     len(made.get("temporary_password") or "") > 6, str(made)[:110])
 r = admin.post("/api/head/assign",
                json={"class_id": CID, "subject": "Science",
                      "user_id": made["user_id"]})
@@ -141,15 +141,19 @@ must("tapping a name signs them in, with no password",
      r.status_code == 200, r.text[:70])
 
 print("\n7. the teacher signs in with what they were given")
-# Which is the subject code, and only that. No email, no password: the office
-# made their profile and put them on Science, and the code for that subject
-# in this class is the whole sign-in.
+# Their address and the password the office read out. NOT the subject code:
+# that is a board code, written up where a class can read it, and it opens one
+# subject on one board rather than an account.
 main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 teacher = TestClient(main.app)
-r = teacher.post("/api/auth/code", json={"code": SUBJ_CODE})
-must("their subject code signs them in", r.status_code == 200, r.text[:110])
-must("as the person the office assigned",
+r = teacher.post("/api/auth/login",
+                 json={"email": tem, "password": made["temporary_password"]})
+must("their password signs them in", r.status_code == 200, r.text[:110])
+must("as the person the office made",
      (r.json() or {}).get("name") == "Ravi (teacher)", r.text[:110])
+r = TestClient(main.app).post("/api/auth/code", json={"code": SUBJ_CODE})
+check("and the subject code does NOT — it is for a board",
+      r.status_code == 403, f"got {r.status_code}")
 
 print("\n8. and does the day's work")
 r = teacher.post(f"/api/teacher/class/{CID}/assignment",

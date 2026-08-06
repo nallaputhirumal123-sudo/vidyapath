@@ -301,8 +301,8 @@ r = head.post("/api/head/staff", json={"name": "New Teacher",
 check("the head can", r.status_code == 200, r.text[:150])
 # No password is handed over any more: a teacher signs in with the subject
 # code the office gives them, and the office signs in with the school's.
-check("and no password is handed over",
-      not r.json().get("temporary_password"), r.text[:150])
+check("and a password IS handed over, once",
+      len(r.json().get("temporary_password") or "") > 6, r.text[:150])
 
 r = head.post("/api/head/staff", json={"name": "New Clerk",
                                        "email": f"nc{stamp}@example.com",

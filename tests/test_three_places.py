@@ -32,6 +32,7 @@ os.environ["COOKIE_SECURE"] = "0"
 
 import main                                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
+from _school import teacher_on, make_staff   # noqa: E402
 
 PASS = FAIL = 0
 
@@ -91,18 +92,8 @@ kid2.post("/api/craxlearn/claim",
 # Material and the discussion belong to the TEACHER of a subject. `admin`
 # here runs the school: it makes the class, the subject and the register, and
 # the classroom itself is somebody else's.
-_slot = admin.post(f"/api/head/class/{CID}/slot",
-                   json={"subject": "Science", "teacher_id": 0}).json()
-_made = admin.post("/api/head/staff",
-                   json={"name": "Places Teacher", "role": "teacher"}).json()
-admin.post("/api/head/assign",
-           json={"class_id": CID, "subject": "Science",
-                 "user_id": _made["user_id"]})
-main._CODE_TRIES.clear()
-main._CODE_FAILS.clear()
-tch = TestClient(main.app)
-tch.post("/api/auth/code",
-         json={"code": db.get(main.SubjectSlot, _slot["id"]).code})
+tch, _uid, _code, _sid = teacher_on(main, admin, CID, "Science",
+                                    "Places Teacher")
 
 print("\nstudy material, which is not homework")
 r = tch.post(f"/api/teacher/class/{CID}/material/link",

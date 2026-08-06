@@ -37,6 +37,7 @@ os.environ["COOKIE_SECURE"] = "0"
 
 import main                                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
+from _school import teacher_on, make_staff   # noqa: E402
 
 main.Base.metadata.create_all(bind=main.engine)
 main._migrate_columns()
@@ -86,21 +87,14 @@ def school(tag):
     return sc, c
 
 
-def teacher_on(office, cid, subject, name):
-    """A real teacher, made the way a school makes one, holding one subject."""
-    slot = office.post(f"/api/head/class/{cid}/slot",
-                       json={"subject": subject, "teacher_id": 0}).json()
-    made = office.post("/api/head/staff",
-                       json={"name": name, "role": "teacher"}).json()
-    office.post("/api/head/assign",
-                json={"class_id": cid, "subject": subject,
-                      "user_id": made["user_id"]})
-    fresh()
-    c = TestClient(main.app)
-    r = c.post("/api/auth/code",
-               json={"code": db.get(main.SubjectSlot, slot["id"]).code})
-    assert r.status_code == 200, r.text
-    return c, made["user_id"]
+def _teacher(office, cid, subject, name):
+    """A real teacher, made the way a school makes one, holding one subject.
+
+    Signed in with their own address and the password the office was handed
+    once — not with the subject code, which is a BOARD code and opens a board.
+    """
+    c, uid, _code, _sid = teacher_on(main, office, cid, subject, name)
+    return c, uid
 
 
 # One school, two classes, two teachers who do not overlap. And a second
@@ -112,13 +106,13 @@ B = OFFICE.post("/api/teacher/class", json={"name": f"9-B {st}"}).json()
 OFFICE.post(f"/api/teacher/class/{A['id']}/roster", json={"names": "Ravi A"})
 OFFICE.post(f"/api/teacher/class/{B['id']}/roster", json={"names": "Sita B"})
 
-PHYS, PHYS_ID = teacher_on(OFFICE, A["id"], "Physics", "Physics Teacher")
-CHEM, CHEM_ID = teacher_on(OFFICE, A["id"], "Chemistry", "Chem Teacher")
-BTEACH, _ = teacher_on(OFFICE, B["id"], "Physics", "B Physics Teacher")
+PHYS, PHYS_ID = _teacher(OFFICE, A["id"], "Physics", "Physics Teacher")
+CHEM, CHEM_ID = _teacher(OFFICE, A["id"], "Chemistry", "Chem Teacher")
+BTEACH, _ = _teacher(OFFICE, B["id"], "Physics", "B Physics Teacher")
 
 SC2, OFFICE2 = school("b")
 C = OFFICE2.post("/api/teacher/class", json={"name": f"9-C {st}"}).json()
-FAR, _ = teacher_on(OFFICE2, C["id"], "Physics", "Far Teacher")
+FAR, _ = _teacher(OFFICE2, C["id"], "Physics", "Far Teacher")
 
 fresh()
 kid = TestClient(main.app)

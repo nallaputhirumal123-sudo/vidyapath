@@ -34,6 +34,7 @@ os.environ["COOKIE_SECURE"] = "0"
 
 import main                                        # noqa: E402
 from fastapi.testclient import TestClient          # noqa: E402
+from _school import teacher_on, make_staff   # noqa: E402
 
 main.Base.metadata.create_all(bind=main.engine)
 main._migrate_columns()
@@ -81,9 +82,9 @@ mat = head.post(f"/api/head/class/{CID}/slot",
                 json={"subject": "Maths", "teacher_id": 0}).json()
 
 # A real teacher on Science, so the room can charge a model call to somebody.
-r = head.post("/api/head/staff", json={"name": "Bring Teacher",
-                                       "role": "teacher"})
-TID = r.json()["user_id"]
+# Signed in with their own address and password: a subject code opens a board
+# and nothing else now, which is what the second half of this file is about.
+_tc, TID, _e, _pw = make_staff(main, head, "Bring Teacher")
 head.post("/api/head/assign",
           json={"class_id": CID, "subject": "Science", "user_id": TID})
 
@@ -203,13 +204,15 @@ ck("a subject with no teacher on it cannot buy a model call",
 
 print("\nand a signed-in teacher still uses all of it")
 fresh()
-tch = TestClient(main.app)
+tch = _tc
 _slot = (db.query(main.SubjectSlot)
            .filter(main.SubjectSlot.class_id == CID,
                    main.SubjectSlot.subject == "Science").first())
 db.refresh(_slot)
-r = tch.post("/api/auth/code", json={"code": _slot.code})
-ck("their new code signs them in", r.status_code == 200, r.text[:110])
+r = TestClient(main.app).post("/api/auth/code", json={"code": _slot.code})
+ck("their subject code does NOT sign anybody in", r.status_code == 403,
+   f"got {r.status_code}: {r.text[:90]}")
+ck("and says where it does work", "board" in r.text.lower(), r.text[:90])
 r = tch.post("/api/craxlearn/board/file",
              files={"file": ("notes.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"),
                              "image/png")},
