@@ -333,7 +333,14 @@ input.ask-input{overflow-x:auto;white-space:nowrap}
   overflow-y:auto;padding-bottom:30px}
 .main{flex:1;padding:34px 44px 80px;max-width:1120px;min-width:0}
 .brand{padding:22px 20px 18px;border-bottom:1px solid var(--line)}
-.brand h1{font-size:21px;font-weight:800;letter-spacing:-.5px}
+/* The mark, beside the name. The board carries it and this did not, so the
+   two halves of one product did not look like one product. */
+.brand h1{font-size:21px;font-weight:800;letter-spacing:-.5px;
+  display:flex;align-items:center;gap:9px}
+.brand-mark{width:26px;height:26px;border-radius:7px;flex:0 0 auto;
+  object-fit:cover;display:block}
+.tb-mark{width:22px;height:22px;border-radius:6px;flex:0 0 auto;
+  object-fit:cover;display:block;vertical-align:-5px;margin-right:7px}
 .brand h1 span{color:var(--accent)}
 .brand p{font-size:11.5px;color:var(--dim);margin-top:1px}
 
@@ -386,14 +393,22 @@ input.ask-input{overflow-x:auto;white-space:nowrap}
   border-top:1px solid rgba(143,227,176,.22)}
 .sb-outline{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;
   justify-content:center}
-.sb-ol{display:inline-flex;align-items:center;gap:6px;max-width:230px;
-  font:inherit;font-size:11.5px;color:var(--muted);cursor:pointer;
-  background:var(--panel2);border:1px solid var(--line);border-radius:999px;
-  padding:3px 10px 3px 4px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis}
+/* The step's name, whole.
+   It was one nowrap line clipped at 230px with an ellipsis, on top of a
+   .slice(0,44) that had already cut the text before it arrived — so a step
+   called "Total internal reflection and the critical angle" showed as
+   "Total internal reflec…", and the outline that exists to tell a room where
+   it is told it nothing. Two lines, wrapping, and the slice is gone. */
+.sb-ol{display:inline-flex;align-items:flex-start;gap:6px;max-width:280px;
+  font:inherit;font-size:11.5px;line-height:1.35;color:var(--muted);
+  cursor:pointer;text-align:left;
+  background:var(--panel2);border:1px solid var(--line);border-radius:14px;
+  padding:5px 11px 5px 5px;white-space:normal;overflow-wrap:anywhere}
+.sb-ol > span:last-child{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
 .sb-ol .n{display:inline-flex;align-items:center;justify-content:center;
   width:17px;height:17px;border-radius:999px;background:var(--line);
-  font-size:10px;font-weight:700;flex:0 0 17px}
+  font-size:10px;font-weight:700;flex:0 0 17px;margin-top:1px}
 .sb-ol.done{color:var(--ok)}
 .sb-ol.done .n{background:var(--ok-bg);color:var(--ok)}
 .sb-ol.on{color:var(--text);border-color:var(--accent)}
@@ -891,9 +906,35 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 @media (max-width:900px){
   .topbar{padding-right:112px}
 }
+/* A viewer you can actually see into.
+   140px is a thumbnail. A molecule, a circuit or a ray diagram on a board at
+   the front of a room has to be readable from the back of it, and the space
+   is there — the board is the widest thing on the page. It scales with the
+   viewport rather than taking a fixed number, so a phone does not get a
+   letterbox and a wall-mounted screen does not get a postage stamp. */
 .sb-scene{border:1px solid rgba(234,255,242,.16);border-radius:12px;
-  overflow:hidden;background:rgba(0,0,0,.28);margin:6px 0 10px;min-height:140px}
+  overflow:hidden;background:rgba(0,0,0,.28);margin:8px 0 12px;
+  min-height:clamp(240px,42vh,560px);width:100%}
+.ask-frame:fullscreen .sb-scene{min-height:min(62vh,720px)}
+@media(max-width:640px){ .sb-scene{min-height:clamp(200px,34vh,340px)} }
 .sb-scene-cap{font-size:11.5px;color:#8fe3b0;margin:10px 0 4px}
+
+/* Prose, so a lesson reads as something written rather than as a list of
+   assertions. The lead is the sentence somebody reads if they read one. */
+.sb-p{margin:0 0 .72em;line-height:1.62;max-width:62ch}
+.sb-lead{font-size:1.09em;line-height:1.58;color:var(--text)}
+.sb-h{font-size:.78em;letter-spacing:.1em;text-transform:uppercase;
+  color:#8fe3b0;margin:1.35em 0 .45em;font-weight:700}
+.sb-h:first-child{margin-top:0}
+
+/* A picture out of the document itself. Boxed and captioned, because a
+   reader has to be able to tell what the author drew from what we drew. */
+.sb-pic{margin:14px 0;padding:0;border:1px solid rgba(234,255,242,.14);
+  border-radius:12px;overflow:hidden;background:#fff}
+.sb-pic img{display:block;width:100%;height:auto;max-height:56vh;
+  object-fit:contain;background:#fff}
+.sb-pic figcaption{font-size:11px;color:var(--dim);background:var(--panel2);
+  padding:5px 10px;border-top:1px solid rgba(234,255,242,.10)}
 .sb-scene .td-fail{padding:14px;font-size:12.5px;color:#8fa3b0;line-height:1.6}
 
 /* ---- phones and tablets ------------------------------------------------
@@ -1149,7 +1190,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <!-- ================= APP ================= -->
 <div class="topbar" id="topbar" style="display:none">
   <button class="hamb" id="hamb" title="Menu">☰</button>
-  <div class="tb-brand">Crax<span>le</span></div>
+  <div class="tb-brand"><img class="tb-mark" src="/icon-192.png" alt="" width="192" height="192">Crax<span>le</span></div>
   <span id="topPro"></span>
   <div class="spacer"></div>
   <span class="pill hot" id="topxp"></span>
@@ -1157,7 +1198,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <div class="scrim" id="scrim"></div>
 <div class="app" id="app">
   <nav class="sidebar">
-    <div class="brand"><h1>Crax<span>le</span></h1><p>Code · Data · AI — learn anywhere</p></div>
+    <div class="brand"><h1><img class="brand-mark" src="/icon-192.png" alt="" width="192" height="192">Crax<span>le</span></h1><p>Code · Data · AI — learn anywhere</p></div>
     <div class="who" id="who"></div>
     <div class="searchwrap"><input class="search" id="search" placeholder="Search lessons…" autocomplete="off"/></div>
     <div id="nav"></div>
@@ -4388,10 +4429,105 @@ function stepLinesHTML(text){
   const lines = String(text == null ? "" : text)
     .split(/\n+/).map(s => s.trim()).filter(Boolean);
   if(!lines.length) return "";
-  return lines.map(ln =>
-    `<div class="ask-line sb-step"><span class="ask-bullet">\u203a</span>` +
-    `<span>${mathText(esc(ln).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>"))}` +
-    `</span></div>`).join("");
+
+  /* Every line was a bullet, and that is why a lesson read as a wall.
+   *
+   * A page where nothing is bigger than anything else has no shape: the eye
+   * has nowhere to land, and a room being taught from it cannot tell which
+   * of six lines was the point. Prose is not a list. So the same stored
+   * shape — one idea per line, which is right — is READ differently:
+   *
+   *   a line that is short and ends without punctuation, or ends in a
+   *   colon, is a subheading. That is what a subheading looks like in every
+   *   document anybody has read, and the model writes them without being
+   *   asked because it is writing for people.
+   *
+   *   a line beginning "- " or "• " or "1." is a genuine list item and keeps
+   *   its bullet, because sometimes the document really is a list.
+   *
+   *   everything else is a paragraph.
+   *
+   * The first paragraph is set larger — the lead. It carries the sentence a
+   * person reads if they read nothing else, and it is what makes a page look
+   * written rather than generated.
+   *
+   * Nothing is stored differently, so every lesson already in the cache
+   * renders the new way without being rebuilt. */
+  /* A heading, or a line of content that merely happens to be short?
+     "Refractive index" is a heading; "n = c / v" is the formula the lesson
+     is about, and setting it in small uppercase because it is short and has
+     no full stop hides the one line a student came for. Anything with an
+     equals sign, or made mostly of digits and symbols, is content whatever
+     its length — a heading is words. */
+  const isHead = ln => {
+    if(ln.length > 72) return false;
+    if(/[=<>≤≥±∫∑√]/.test(ln)) return false;
+    const letters = (ln.match(/[A-Za-zÀ-ɏ]/g) || []).length;
+    if(letters < ln.replace(/\s/g, "").length * 0.6) return false;
+    if(/:$/.test(ln)) return true;
+    return !/[.?!,;]$/.test(ln) && ln.split(/\s+/).length <= 9;
+  };
+  const isItem = ln => /^\s*(?:[-•*]\s+|\d+[.)]\s+)/.test(ln);
+
+  let lead = true;
+  return lines.map(ln => {
+    const html = mathText(esc(ln).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"));
+    if(isItem(ln)){
+      const body = mathText(esc(ln.replace(/^\s*(?:[-•*]\s+|\d+[.)]\s+)/, ""))
+        .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"));
+      return `<div class="ask-line sb-step"><span class="ask-bullet">›</span>` +
+             `<span>${body}</span></div>`;
+    }
+    if(isHead(ln)) return `<h4 class="sb-h">${html.replace(/:$/, "")}</h4>`;
+    const cls = lead ? "sb-p sb-lead" : "sb-p";
+    lead = false;
+    return `<p class="${cls}">${html}</p>`;
+  }).join("");
+}
+
+/* The document's own pictures, on the step they belong to.
+ *
+ * Each one knows which PAGE of the PDF it came from, and nothing knows which
+ * step of the lesson corresponds to which page — the lesson is a retelling,
+ * not a transcription. So they are spread proportionally: a picture from
+ * halfway through the document appears halfway through the lesson. It is an
+ * estimate and it is stated as one by the caption, which names the page.
+ *
+ * Better than the alternatives, both of which were tried in the head and are
+ * worse: all of them on step one is a gallery nobody reads, and none of them
+ * is what this was before — a lesson about a ray diagram with no ray
+ * diagram in it. */
+function sbPicsFor(l, i){
+  const pics = (l && l.pictures) || [];
+  if(!pics.length) return "";
+  const steps = Math.max(1, (l.steps || []).length);
+  const last = Math.max(1, ...pics.map(p => +p.page || 1));
+  const here = pics.filter((p, k) => {
+    const at = last > 1
+      ? Math.round(((+p.page || 1) - 1) / (last - 1) * (steps - 1))
+      : Math.round(k / Math.max(1, pics.length) * (steps - 1));
+    return Math.max(0, Math.min(steps - 1, at)) === i;
+  });
+  if(!here.length) return "";
+  return here.map(p =>
+    `<figure class="sb-pic">
+       <img src="${esc(p.src)}" alt="From the document, page ${+p.page || 1}"
+            loading="lazy">
+       <figcaption>From the document · page ${+p.page || 1}</figcaption>
+     </figure>`).join("");
+}
+
+/* What to call a step in the outline.
+   `st.where` is the screen a command runs on and is empty for almost every
+   lesson, so this used to fall through to the whole step text and cut it at
+   44 characters mid-word. The first LINE of a step is its heading — that is
+   how they are written — so that is the name. */
+function sbStepName(st){
+  const first = String((st && st.t) || "").split(/\n+/)
+    .map(x => x.trim()).filter(Boolean)[0] || "";
+  const name = (st && st.where) || first.replace(/:$/, "");
+  return name.length > 70 ? name.slice(0, 68).replace(/\s+\S*$/, "") + "…"
+                          : (name || "Step");
 }
 
 function sbBoardHTML(){
@@ -4404,6 +4540,7 @@ function sbBoardHTML(){
     <div style="font-size:12px;color:#8fe3b0;margin-bottom:8px">
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?stepLinesHTML(st.t):""}
+    ${sbPicsFor(l,SB.i)}
     ${(SB.i===0&&l.photo&&l.photo.url)?sbPhotoHTML(l.photo):""}
     <!-- The checker's findings are not shown here any more. They were
          printed as a red band in the middle of the lesson, between the
@@ -4482,8 +4619,8 @@ function sbToolsHTML(){
          you can see how much is left and jump to what you came for. -->
     <div class="sb-outline">
       ${l.steps.map((st,k)=>`<button class="sb-ol ${k===SB.i?"on":""}${k<SB.i?" done":""}"
-        data-sbstep="${k}" title="${esc((st.t||"").slice(0,90))}">
-        <span class="n">${k+1}</span>${esc((st.where||st.t||"").slice(0,44))}</button>`).join("")}
+        data-sbstep="${k}" title="${esc((st.t||"").slice(0,160))}">
+        <span class="n">${k+1}</span><span>${esc(sbStepName(st))}</span></button>`).join("")}
     </div>
 
     <div class="sb-tools">

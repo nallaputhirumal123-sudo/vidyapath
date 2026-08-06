@@ -3062,8 +3062,25 @@ async def teach_from_pdf(file: UploadFile = File(...),
     if not lesson.get("steps"):
         raise HTTPException(502, "That came back empty — try again.")
 
-    # A real diagram, since the document's own pictures are compressed,
-    # often scanned, and look worse projected than they did on paper.
+    # The document's own pictures, kept.
+    #
+    # They used to be thrown away on the grounds that images in a PDF are
+    # compressed and often scanned. True of some of them, and the wrong rule:
+    # it threw away the case that matters most, a chapter whose whole point
+    # IS the diagram. A lesson about a ray diagram or a labelled cell is not
+    # that lesson with the picture removed — it is a paragraph about a
+    # picture nobody can see. teachpdf.pictures() filters the furniture.
+    #
+    # Cached with the lesson, so a department sharing one chapter pays for
+    # the extraction once between all of them.
+    try:
+        lesson["pictures"] = _teachpdf.pictures(raw)
+    except Exception as e:
+        print(f"PDF pictures skipped: {type(e).__name__}: {e}")
+        lesson["pictures"] = []
+
+    # And a DRAWN diagram as well, for what the document explains without
+    # one. Not a second copy of a picture it already has.
     try:
         async with httpx.AsyncClient(follow_redirects=True) as c:
             await _offer_scene(c, lesson, lesson.get("title") or "")
@@ -8592,6 +8609,17 @@ def _lesson_to_body(lesson, task):
     return "\n".join(out).strip()[:20000]
 
 
+# A picture kept beside a lesson: how many, how big, and what a src may be.
+# Only base64 image data. An <img src> is the one attribute on a stored page
+# that a browser will go and fetch or execute for, so "it came from our own
+# extractor" is not a reason to skip checking it — the lesson has been round
+# a browser by the time it arrives here.
+PIC_KEEP = 6
+PIC_SRC_MAX = 700_000
+_PIC_SRC = re.compile(r"^data:image/(?:png|jpeg|jpg|gif|webp);base64,"
+                      r"[A-Za-z0-9+/=\s]+$")
+
+
 def _lesson_figures(lesson):
     """The drawings and the 3D out of a lesson, as JSON to keep beside it.
 
@@ -8610,12 +8638,35 @@ def _lesson_figures(lesson):
             spec = cleaner(st.get(key))
             if spec:
                 out.append({"how": key, "step": i, "spec": spec})
+
+    # And the document's OWN pictures, when the lesson came from a PDF.
+    #
+    # Without this a chapter written up on the teacher's screen arrived at
+    # the class board as words with the diagrams missing — which for a
+    # chapter about a ray diagram or a labelled cell is not a shorter lesson,
+    # it is the wrong one. They travel with the words rather than being
+    # fetched again, because the PDF they came from is on somebody's laptop.
+    #
+    # Data URLs, checked rather than trusted: this is stored and then handed
+    # to every child in the class, and "src" is the one field on the page a
+    # browser will go and execute something for. Only base64 image data gets
+    # through — no http, no svg, no javascript:.
+    for k, pic in enumerate((lesson.get("pictures") or [])[:PIC_KEEP]):
+        if not isinstance(pic, dict):
+            continue
+        src = str(pic.get("src") or "")
+        if not _PIC_SRC.match(src) or len(src) > PIC_SRC_MAX:
+            continue
+        out.append({"how": "pic", "step": int(pic.get("step") or 0),
+                    "spec": {"src": src, "page": int(pic.get("page") or 0)}})
+
     if not out:
         return ""
     text = json.dumps(out)
-    # A lesson with a protein in it is large. Past this it is not worth a row
-    # in every class's material list, and the words still save.
-    return text if len(text) <= 400000 else ""
+    # A lesson with a protein in it is large, and one carrying a chapter's
+    # diagrams is larger. Past this it is not worth a row in every class's
+    # material list, and the words still save.
+    return text if len(text) <= 1_400_000 else ""
 
 
 def _board_subject(db, cid, user, asked):

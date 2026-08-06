@@ -279,11 +279,34 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
    the width they are given, so they get a plain block; a 3D scene has no
    natural height, so it is told a shape and fills it. */
 .fig{background:var(--panel2);border-radius:12px;overflow:hidden;
-  margin:.4rem 0}
-.fig3d{position:relative;aspect-ratio:16/10}
+  margin:.5rem 0 .9rem}
+/* Wider, because a molecule or a circuit on a wall has to be readable from
+   the back of the room. 16:10 in a narrow column is a letterbox; a minimum
+   height tied to the viewport gives it the space the board actually has. */
+.fig3d{position:relative;aspect-ratio:16/10;min-height:clamp(260px,46vh,620px)}
 .fig3d > canvas{position:absolute;left:0;top:0;display:block}
 .figcap{font-size:.68rem;color:var(--muted);margin:.7rem 0 .2rem}
 .lessonBody img{max-width:100%;border-radius:12px;display:block}
+
+/* Prose on a board: a shape the eye can land on, at distance, while
+   somebody is also talking. */
+.lessonBody .lh{font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--accent);margin:1.15rem 0 .35rem;font-weight:700}
+.lessonBody .lh:first-child{margin-top:.2rem}
+.lessonBody .lp{margin:0 0 .6rem;line-height:1.6;max-width:64ch}
+.lessonBody .lead{font-size:1.12em;line-height:1.52}
+.lessonBody .ll{margin:.1rem 0 .7rem 1.1rem;padding:0}
+.lessonBody .ll li{margin:.2rem 0;line-height:1.55}
+
+/* A picture the document itself carried. On white, boxed and captioned,
+   because a room has to be able to tell what the author drew from what we
+   drew for them. */
+.lpic{margin:.8rem 0;padding:0;border:1px solid var(--line);
+  border-radius:12px;overflow:hidden;background:#fff}
+.lpic img{display:block;width:100%;height:auto;max-height:58vh;
+  object-fit:contain;background:#fff;border-radius:0}
+.lpic figcaption{font-size:.62rem;color:var(--muted);background:var(--panel2);
+  padding:.3rem .6rem;border-top:1px solid var(--line)}
 
 /* A lesson as pages. The controls sit at the top with the title, because on
    a wall-mounted board the bottom of the screen is below the shoulder of
@@ -1539,6 +1562,31 @@ async function homeSaved(){
     host.querySelectorAll("[data-homeput]"), function(b){
       b.onclick = function(){ go("bring", { put: b.dataset.homeput }); };
     });
+}
+
+/* One stored figure, as markup. Two screens draw these — the class's study
+   material list and the board's shelf — and they had a copy each, which is
+   how the one that gets a new figure kind and the one that does not end up
+   disagreeing about what a lesson looks like.
+
+   A "pic" is the document's own picture and needs no renderer at all: it is
+   an image, and it is drawn here rather than mounted later. Its src has
+   already been checked server-side to be base64 image data and nothing else,
+   which is the only reason it is safe to put in an attribute. */
+function figureHTML(f, id){
+  if(!f) return "";
+  if(f.how === "pic"){
+    var page = (f.spec && +f.spec.page) || 0;
+    return '<figure class="lpic"><img src="' + esc((f.spec || {}).src || "") +
+      '" alt="' + (page ? "From the document, page " + page : "From the document") +
+      '" loading="lazy"><figcaption>From the document' +
+      (page ? " · page " + page : "") + "</figcaption></figure>";
+  }
+  return '<div class="figcap">' + (f.how === "scene" ? "🧊 " : "✏️ ") +
+    esc((f.spec && f.spec.caption) || "") + "</div>" +
+    '<div class="fig' + (f.how === "scene" ? " fig3d" : "") + '"' +
+    (f.how === "scene" ? ' data-fill="1"' : "") +
+    ' id="' + id + '"></div>';
 }
 
 /* ---------- a surface to write on ----------
@@ -3440,12 +3488,7 @@ async function materials(){
                words. A lesson whose point was the molecule the class turned
                around is not that lesson with the molecule taken out. */
             (m.figures || []).map(function(f, i){
-              return '<div class="figcap">' +
-                (f.how === "scene" ? "🧊 " : "✏️ ") +
-                esc((f.spec && f.spec.caption) || "") + "</div>" +
-                '<div class="fig' + (f.how === "scene" ? " fig3d" : "") +
-                '"' + (f.how === "scene" ? ' data-fill="1"' : "") +
-                ' id="mFig' + m.id + "_" + i + '"></div>';
+              return figureHTML(f, "mFig" + m.id + "_" + i);
             }).join("") +
             "</div>"
           : "") +
@@ -3982,6 +4025,113 @@ function setLessonView(v){
 /* One step becomes one page. A step carrying a drawing is a page of its own
    whatever else is on it — two figures on one board page is two things
    nobody is looking at. */
+/* A lesson page that reads like something written.
+ *
+ * Every line was a <p> of the same size, so a page had no shape: nothing was
+ * bigger than anything else, the eye had nowhere to land, and a room being
+ * taught from it could not tell which of six lines was the point. On a board
+ * at the front of a classroom that matters more than anywhere else — it is
+ * read at distance, by people who are also listening to somebody talk.
+ *
+ * The stored shape does not change. One idea per line is right; it is READ
+ * differently:
+ *
+ *   short, and ending without punctuation or with a colon  ->  a heading
+ *   beginning "- ", "• " or "1."                           ->  a list item
+ *   anything else                                          ->  a paragraph
+ *
+ * and the first paragraph is the lead, set larger, because that is the
+ * sentence somebody reads if they read one. Lessons already saved render the
+ * new way without being rebuilt.
+ */
+/* A heading, or a line of content that merely happens to be short?
+ *
+ * "Refractive index" is a heading. "n = c / v" is the formula the lesson is
+ * about, and setting it in small uppercase green because it is short and has
+ * no full stop hides the one line a student came for. So anything carrying
+ * an equals sign, or made mostly of digits and symbols, is content whatever
+ * its length — a heading is words. */
+function lessonIsHeading(ln){
+  if(ln.length > 72) return false;
+  if(/[=<>≤≥±∫∑√]/.test(ln)) return false;
+  var letters = (ln.match(/[A-Za-zÀ-ɏ]/g) || []).length;
+  if(letters < ln.replace(/\s/g, "").length * 0.6) return false;
+  if(/:$/.test(ln)) return true;
+  return !/[.?!,;]$/.test(ln) && ln.split(/\s+/).length <= 9;
+}
+
+function lessonProse(text){
+  var lines = String(text == null ? "" : text)
+    .split(/\n+/).map(function(x){ return x.trim(); }).filter(Boolean);
+  if(!lines.length) return "";
+  /* Built with an open/closed flag rather than by stitching <ul> tags on
+     afterwards with a regular expression. The regex version worked on the
+     example in front of me and would have produced unbalanced markup the
+     first time a lesson had two separate lists in one step. */
+  var out = [], lead = true, inList = false;
+  function shut(){ if(inList){ out.push("</ul>"); inList = false; } }
+  lines.forEach(function(ln){
+    /* A dash or a bullet is always a list item — somebody typed a bullet.
+       A NUMBER is not: `_lesson_to_body` numbers the steps when it flattens
+       a lesson for storage, so "1. What refraction is" is the step's
+       heading and was being drawn as a bullet with the heading eaten. If
+       what follows the number reads as a heading, it is one. */
+    var dashed = /^\s*[-•*]\s+/.test(ln);
+    var numbered = /^\s*\d+[.)]\s+/.test(ln);
+    var rest = ln.replace(/^\s*(?:[-•*]\s+|\d+[.)]\s+)/, "");
+    if(numbered && lessonIsHeading(rest)){
+      shut();
+      out.push('<h3 class="lh">' + esc(rest.replace(/:$/, "")) + "</h3>");
+      return;
+    }
+    if(dashed || numbered){
+      if(!inList){ out.push('<ul class="ll">'); inList = true; }
+      out.push("<li>" + esc(rest) + "</li>");
+      return;
+    }
+    shut();
+    if(lessonIsHeading(ln)){
+      out.push('<h3 class="lh">' + esc(ln.replace(/:$/, "")) + "</h3>");
+      return;
+    }
+    out.push('<p class="' + (lead ? "lp lead" : "lp") + '">' + esc(ln) +
+             "</p>");
+    lead = false;
+  });
+  shut();
+  return out.join("");
+}
+
+/* The document's own pictures, on the page they belong to.
+ *
+ * Each knows which PAGE of the PDF it came from; nothing knows which step of
+ * the lesson corresponds to which page, because the lesson is a retelling
+ * and not a transcription. So they are spread proportionally — a picture
+ * from halfway through the document lands halfway through the lesson — and
+ * the caption names the page, so what is an estimate reads as one.
+ *
+ * The alternatives are both worse: all of them on page one is a gallery
+ * nobody looks at, and none of them is what this was before, which is a
+ * lesson about a ray diagram with no ray diagram in it. */
+function lessonPics(L, i, steps){
+  var pics = (L && L.pictures) || [];
+  if(!pics.length) return "";
+  var last = 1;
+  pics.forEach(function(p){ last = Math.max(last, +p.page || 1); });
+  var here = pics.filter(function(p, k){
+    var at = last > 1
+      ? Math.round(((+p.page || 1) - 1) / (last - 1) * (steps - 1))
+      : Math.round(k / Math.max(1, pics.length) * (steps - 1));
+    return Math.max(0, Math.min(steps - 1, at)) === i;
+  });
+  return here.map(function(p){
+    return '<figure class="lpic"><img src="' + esc(p.src) +
+      '" alt="From the document, page ' + (+p.page || 1) + '">' +
+      '<figcaption>From the document · page ' + (+p.page || 1) +
+      "</figcaption></figure>";
+  }).join("");
+}
+
 function lessonPages(L, topic){
   var pages = [];
 
@@ -4003,8 +4153,7 @@ function lessonPages(L, topic){
     var figs = [];
     var h = '<div class="card"><div class="muted">Step ' + (i + 1) +
       (st && st.where ? " · " + esc(st.where) : "") + "</div>" +
-      body.split("\n").filter(Boolean)
-          .map(function(ln){ return "<p>" + esc(ln) + "</p>"; }).join("");
+      lessonProse(body);
     if(st && st.code){
       h += '<pre class="wrap" style="font-size:.62rem;background:var(--panel2);' +
            'padding:.7rem;border-radius:12px"><code>' + esc(st.code) +
@@ -4027,6 +4176,7 @@ function lessonPages(L, topic){
            '<div class="fig fig3d" data-fill="1" id="bScene' + i + '"></div>';
       figs.push({ how:"scene", id:"bScene" + i, spec:st.scene });
     }
+    h += lessonPics(L, i, (L.steps || []).length || 1);
     h += "</div>";
     pages.push({ title: L.title || topic, html: h, figures: figs });
   });
@@ -4061,6 +4211,10 @@ async function mountFigures(figures){
     var f = figures[i], host = el(f.id);
     if(!host) continue;
     try{
+      /* A picture is already on the page — it is an <img>, drawn by
+         figureHTML. There is nothing to mount, and the "could not be built"
+         message below would otherwise replace a perfectly good diagram. */
+      if(f.how === "pic") continue;
       if(f.how === "draw" && window.Draw) Draw.mount(host, f.spec);
       else if(f.how === "sketch" && window.Sketch) Sketch.mount(host, f.spec);
       else if(f.how === "scene") await show3D(host, f.spec);
@@ -4420,19 +4574,11 @@ async function bringOpen(where, subject, mat){
     var figs = (mat.figures || []).map(function(f, i){
       return { how: f.how, id: "brFig" + mat.id + "_" + i, spec: f.spec };
     });
-    out.innerHTML = '<div class="card"><h2 style="margin-top:0">' +
+    out.innerHTML = '<div class="card lessonBody"><h2 style="margin-top:0">' +
       esc(mat.title) + "</h2>" +
       (mat.note ? '<div class="muted">' + esc(mat.note) + "</div>" : "") +
-      (mat.body || "").split("\n").map(function(ln){
-        return ln.trim() ? "<p>" + esc(ln) + "</p>" : ""; }).join("") +
-      figs.map(function(f){
-        return '<div class="figcap">' +
-          (f.how === "scene" ? "🧊 " : "✏️ ") +
-          esc((f.spec && f.spec.caption) || "") + "</div>" +
-          '<div class="fig' + (f.how === "scene" ? " fig3d" : "") + '"' +
-          (f.how === "scene" ? ' data-fill="1"' : "") +
-          ' id="' + f.id + '"></div>';
-      }).join("") +
+      lessonProse(mat.body || "") +
+      figs.map(function(f){ return figureHTML(f, f.id); }).join("") +
       "</div>";
     await mountFigures(figs);
     return;

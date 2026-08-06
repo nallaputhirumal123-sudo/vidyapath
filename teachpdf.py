@@ -19,13 +19,16 @@ their syllabus chapter is telling us what to teach, and pulling in outside
 material would quietly teach something the exam does not cover. So the lesson
 is built from the extracted text and nothing else.
 
-**Its pictures are not worth keeping.** Images inside a PDF are compressed,
-often scanned, frequently a photograph of a whiteboard. They look worse
-projected than they did on paper. The lesson gets a real diagram from the
-board's own renderers instead, chosen from what the text turns out to be
-about.
+**Its pictures ARE kept.** This said the opposite for a long time, on the
+grounds that images in a PDF are compressed, often scanned and worse
+projected than on paper. True of some of them, and the wrong rule: it threw
+away the case that matters most, a chapter whose whole point is the diagram.
+A lesson about a ray diagram, a circuit or a labelled cell is not that lesson
+with the picture removed — it is a paragraph about a picture nobody can see.
+They are filtered instead, in `pictures()`, and the board still adds a drawn
+diagram of its own where the text asks for one.
 
-Nothing here calls a model. It extracts text and hands it on.
+Nothing here calls a model. It extracts text and pictures and hands them on.
 """
 import io
 import re
@@ -127,12 +130,140 @@ nobody. Say what it MEANS, in the board's own short lines.
   it exactly. Everything else is yours to put plainly.
 - If a step in the document does not follow, teach it as the document has it
   and say plainly that it is stated without being shown.
-- Where a diagram would help, ask for one. The document's own pictures are not
-  used: they are compressed, often scanned, and look worse projected than on
-  paper.
+- Where a diagram would help, ask for one. The document's own pictures are
+  shown alongside the lesson, so a drawn diagram is for what the document
+  explains WITHOUT a picture — not a second copy of one it already has.
 
 Reply with ONLY valid JSON in this shape:
 {"title":"<what this document is about, 2-8 words>",
  "steps":[{"t":"<several short lines, one idea each, separated by newlines>",
            "where":"","code":"","lang":""}],
  "takeaway":"<the one sentence a student should leave with>"}"""
+
+
+# --------------------------------------------------------------------------
+# The document's own pictures.
+#
+# This file used to say they were not worth keeping — compressed, often
+# scanned, frequently a photograph of a whiteboard, and worse projected than
+# they were on paper. That is true of SOME of them and it was the wrong rule,
+# because it threw away the case that matters most: a chapter whose whole
+# point is the diagram. A lesson about a ray diagram, a circuit, a labelled
+# cell or a graph is not that lesson with the picture taken out — it is a
+# paragraph about a picture nobody can see.
+#
+# So they are kept, and the filtering does the work the blanket rule was
+# doing badly. What comes out is the ORIGINAL image, embedded in the PDF, not
+# a re-render of the page: it is what the author put there, at the resolution
+# they put it at.
+
+PIC_MAX = 8              # per document
+PIC_MIN_PX = 120         # smaller than this is a bullet, a rule or a logo
+PIC_MAX_EDGE = 1400      # downscaled to this, which is more than a board shows
+PIC_MAX_BYTES = 320_000  # per picture, after downscaling
+PIC_TOTAL_BYTES = 1_600_000
+
+
+def _worth_showing(im):
+    """Is this a picture, or is it furniture?
+
+    Three things get thrown out, and each of them appears on nearly every
+    real document: anything too small to be a diagram, anything so thin it is
+    a rule or a border, and anything almost entirely one colour, which is how
+    a background panel or a watermark arrives.
+    """
+    w, h = im.size
+    if w < PIC_MIN_PX or h < PIC_MIN_PX:
+        return False
+    if w > 12 * h or h > 12 * w:
+        return False
+    try:
+        small = im.convert("RGB").resize((32, 32))
+        colours = small.getcolors(32 * 32) or []
+        if colours:
+            top = max(c[0] for c in colours)
+            if top / float(32 * 32) > 0.97:
+                return False
+    except Exception:
+        pass
+    return True
+
+
+def pictures(raw):
+    """The pictures inside a PDF, in page order, as data URLs.
+
+    Never raises. A document whose images cannot be read is a document with
+    no pictures, not a failed upload — the words are the part that must
+    always arrive.
+    """
+    try:
+        import base64
+        import hashlib
+        from pypdf import PdfReader
+        from PIL import Image
+    except Exception as e:
+        print(f"teachpdf: no image support ({type(e).__name__})")
+        return []
+
+    try:
+        reader = PdfReader(io.BytesIO(raw))
+    except Exception as e:
+        print(f"teachpdf: will not open for images ({type(e).__name__})")
+        return []
+
+    out, total, seen = [], 0, set()
+    for pno, page in enumerate(reader.pages[:MAX_PAGES], 1):
+        try:
+            imgs = list(page.images)
+        except Exception:
+            continue
+        for item in imgs:
+            if len(out) >= PIC_MAX or total >= PIC_TOTAL_BYTES:
+                return out
+            # The same picture, once.
+            #
+            # Two pages of a chapter very often share one /Resources
+            # dictionary, and pypdf enumerates what a page CAN draw rather
+            # than what it does — so a two-page chapter with one diagram
+            # hands back that diagram twice, and a ten-page one hands it back
+            # ten times. Hashing the bytes is exact and costs nothing, and it
+            # also catches the honest case: a figure genuinely repeated on
+            # several pages is still one figure.
+            digest = hashlib.sha1(item.data).hexdigest()
+            if digest in seen:
+                continue
+            seen.add(digest)
+            try:
+                im = Image.open(io.BytesIO(item.data))
+                im.load()
+            except Exception:
+                continue
+            if not _worth_showing(im):
+                continue
+            try:
+                if im.mode not in ("RGB", "L"):
+                    im = im.convert("RGB")
+                if max(im.size) > PIC_MAX_EDGE:
+                    im.thumbnail((PIC_MAX_EDGE, PIC_MAX_EDGE))
+                buf = io.BytesIO()
+                # PNG for line art, which is what a diagram is; JPEG only when
+                # PNG comes out too big, which means it is a photograph.
+                im.save(buf, "PNG", optimize=True)
+                data, kind = buf.getvalue(), "png"
+                if len(data) > PIC_MAX_BYTES:
+                    buf = io.BytesIO()
+                    im.convert("RGB").save(buf, "JPEG", quality=82,
+                                           optimize=True)
+                    data, kind = buf.getvalue(), "jpeg"
+                if len(data) > PIC_MAX_BYTES:
+                    continue
+            except Exception:
+                continue
+            total += len(data)
+            out.append({
+                "src": f"data:image/{kind};base64,"
+                       + base64.b64encode(data).decode(),
+                "page": pno,
+                "w": im.size[0], "h": im.size[1],
+            })
+    return out
