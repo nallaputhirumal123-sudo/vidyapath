@@ -86,7 +86,7 @@ ck("the dashboard lists class+subject, not class",
    "9-A Maths and 9-A Science are two jobs with two registers")
 ck("and the API answers with them", '"posts": posts' in MAIN)
 ck("the code is SHOWN, never hidden",
-   'title="The code for this subject in this class"' in IDX,
+   'title="The board code for this subject in this class"' in IDX,
    "it is how a board is told which room it is in, not a password")
 ck("each post opens the board already on it",
    'href="/craxlearn#code=' in IDX)

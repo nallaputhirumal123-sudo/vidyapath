@@ -5655,9 +5655,10 @@ async function renderTeacher(cid){
      account is the identity, and the codes are what bind it to rooms. */
   const posts=data.posts||[];
   $("#main").innerHTML=`<div class="h1">🧑‍🏫 Teacher dashboard</div>
-    <p class="sub">Everything your school has put you on, each with the code
-      that opens it on a classroom board. You do not sign out to move between
-      them. Classes and subjects are made by your school admin.</p>
+    <p class="sub">Everything your school has put you on, each with its
+      <b>board code</b> — what opens that subject on a classroom board, and
+      nothing else. You do not sign out to move between them. Classes and
+      subjects are made by your school admin.</p>
     <div class="card" style="margin-bottom:18px"><b>Open your subject</b> <span style="font-size:12px;color:var(--dim)">(enter the code your school admin gave you)</span>
       <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
         <input id="tcJoin" class="ask-input" style="max-width:200px" placeholder="Your subject code"/>
@@ -5674,7 +5675,7 @@ async function renderTeacher(cid){
                board is told which room and which subject it is standing in.
                A teacher who cannot read it off their own screen has to go
                and ask the office for it in the middle of a lesson. -->
-          <span title="The code for this subject in this class"
+          <span title="The board code for this subject in this class"
             style="font-family:ui-monospace,monospace;letter-spacing:2px;
               font-size:14px;color:var(--accent);border:1px solid var(--line,#2a2a2a);
               border-radius:8px;padding:4px 9px">${esc(p.code||"—")}</span>
