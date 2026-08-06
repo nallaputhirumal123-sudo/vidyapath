@@ -216,18 +216,42 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
    flex column can grow the box that is sizing it, and the two then chase
    each other bigger every frame. */
 .paneBody.noscroll{overflow:hidden;display:flex;flex-direction:column}
-.wboard{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:.5rem}
+/* The surface first, the tools UNDER it — which is where a hand is.
+   A board is a wall, and the top of a wall is above head height in a room
+   full of children. The controls belong where the arm already is. */
+/* `flex-basis: 0`, not `auto`. With `auto` the board asks for the height of
+   its own contents — which, once the toolbar wraps to four rows in a narrow
+   pane, is the toolbar and nothing else. Anything sharing the column (the
+   sign-in prompt on an open board) then takes the rest, and the surface is
+   left with no height at all: a writing space you cannot write on. */
+.wboard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;gap:.5rem}
 /* The tools take one row in a full pane and are allowed to wrap in a
    quarter of one rather than overflow. They are kept small so wrapping is
    rare: every row they take is a row off the surface. */
-.wtools{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;flex:0 0 auto}
+/* A literal colour, not a variable with a fallback. `var(--panel2, …)` uses
+   the fallback only when the variable is UNDEFINED — if it is defined and
+   transparent, the fallback never runs and the bar is a sheet of glass with
+   whatever is behind it showing through the buttons. */
+.wtools{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;flex:0 0 auto;
+  background:#101823;border:1px solid #2a3444;
+  border-radius:14px;padding:.4rem .5rem}
 .wtools .btn{padding:.3rem .6rem;font-size:.72rem;min-height:2rem}
 .wtools .iconbtn{width:2rem;min-height:2rem;padding:0}
-.wsurf{flex:1 1 auto;min-height:0;position:relative}
+.wtools .sep{width:1px;align-self:stretch;background:var(--line,#2a3444);
+  margin:0 .15rem}
+/* A floor under the surface. A board that has been squeezed to nothing is
+   indistinguishable from one that is broken, and the pane can always scroll
+   the last row of tools out of sight instead. */
+.wsurf{flex:1 1 auto;min-height:9rem;position:relative}
 .wsurf canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
   touch-action:none}
 .whint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
   text-align:center;color:var(--muted);pointer-events:none;font-size:.8rem}
+/* Where you are on a surface that has no edges. Without it, panning an empty
+   part of the canvas looks exactly like a board that has stopped working. */
+.wwhere{position:absolute;right:.5rem;bottom:.5rem;font-size:.62rem;
+  color:var(--muted);background:rgba(0,0,0,.35);border-radius:8px;
+  padding:.15rem .4rem;pointer-events:none;font-variant-numeric:tabular-nums}
 
 /* A viewer takes whatever is left after the controls above it, and follows
    the space when it is dragged. A fixed height is wrong in both directions
@@ -1528,31 +1552,104 @@ var PENS = [
   { name:"Blue",  colour:"#5aa9e0" }
 ];
 
-/* The board fills whatever space it is given, and then holds that shape.
+/* The board has no edges.
  *
- * An empty board takes the pane's own proportions, so opening the writing
- * space never shows an empty margin — the surface simply IS the space. The
- * moment there is something written on it the shape is fixed, and further
- * dragging fits the board inside the pane rather than stretching it. That
- * is what every fixed-surface board on the market does, and the reason is
- * the same for all of them: a surface that stretched would turn a circle
- * drawn in a tall pane into an ellipse when the pane is dragged wide, and
- * handwriting into something nobody can read. Fitting also means nothing
- * ever goes out of reach, which is the point of not scrolling. */
-var BOARD_W = 1600;
+ * It used to be a fixed rectangle that fitted itself into the pane, on the
+ * reasoning that a surface which stretched would turn a circle into an
+ * ellipse and nothing would ever be out of reach. Both of those are true and
+ * neither was the problem. The problem is that a lesson is longer than a
+ * screen. A teacher working through a derivation filled the board, and then
+ * had to rub out the beginning of the working to write the end of it — which
+ * is the one moment a child looks up and needs to see the beginning.
+ *
+ * So the surface is now a plane you move over. Strokes are stored in WORLD
+ * coordinates with no bounds at all, and what is on the screen is a window
+ * onto that plane: an offset and a scale. Nothing stretches, because zoom is
+ * uniform; nothing is out of reach, because you can always get back — Fit
+ * puts every mark you have made on the screen at once, however far you have
+ * wandered.
+ *
+ * The cost of an endless surface is not knowing where you are. Two things
+ * answer that and both are deliberate: a grid that scales with the zoom, so
+ * panning has something to move against instead of looking like a board that
+ * has stopped responding, and Fit, one press away, always.
+ */
+var BOARD_UNIT = 1600;   // the width the OLD fixed board had; now just a scale
 
 /* What is on the board outlives the element it is drawn on. Splitting the
    screen rebuilds every space, and a teacher who added a second space
-   halfway through an explanation should not come back to a blank board.
-   `h` is the board's height in the same units — its shape, once locked. */
-var BOARD_INK = { strokes: [], undone: [], h: 900 };
+   halfway through an explanation should not come back to a blank board —
+   nor to a different part of the canvas than the one they were looking at,
+   so the window travels with the ink. */
+var BOARD_INK = { strokes: [], undone: [], view: null };
+
+/* Straight things, drawn as strokes.
+ *
+ * A shape here is not a new kind of object: it is a stroke whose points
+ * happen to lie on a line, a box or a circle. That is the whole design.
+ * Undo, redo, the export, the save to a class and the redraw at any size all
+ * work on strokes and none of them need to know these exist — a shape that
+ * was its own type would have needed every one of them taught about it, and
+ * one of them would have been missed.
+ *
+ * Declared out here rather than inside write(), because write() names it in
+ * the markup it builds on its first line. `var` inside the function hoisted
+ * the NAME and not the value, so the toolbar threw before it was drawn and
+ * the writing space came up empty. It parsed, so nothing caught it.
+ */
+var SHAPES = [
+  { k: "line",  ic: "╱", name: "Straight line" },
+  { k: "arrow", ic: "→", name: "Arrow" },
+  { k: "rect",  ic: "▭", name: "Rectangle" },
+  { k: "oval",  ic: "◯", name: "Circle" }
+];
+
+function shapePoints(kind, a, b){
+  var x0 = a[0], y0 = a[1], x1 = b[0], y1 = b[1], out = [], i;
+  function P(x, y){ return [x, y, 0.5]; }
+  if(kind === "line"){ return [P(x0, y0), P(x1, y1)]; }
+  if(kind === "arrow"){
+    var dx = x1 - x0, dy = y1 - y0;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var ux = dx / len, uy = dy / len;
+    var head = Math.min(28, len * 0.28);      /* never longer than the shaft */
+    var lx = x1 - ux * head, ly = y1 - uy * head;
+    var px = -uy * head * 0.45, py = ux * head * 0.45;
+    return [P(x0, y0), P(x1, y1),
+            P(lx + px, ly + py), P(x1, y1),
+            P(lx - px, ly - py), P(x1, y1)];
+  }
+  if(kind === "rect"){
+    return [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1), P(x0, y0)];
+  }
+  /* An ellipse in the dragged box, so a circle is a drag held square. */
+  var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  var rx = Math.abs(x1 - x0) / 2, ry = Math.abs(y1 - y0) / 2;
+  for(i = 0; i <= 48; i++){
+    var t = (i / 48) * Math.PI * 2;
+    out.push(P(cx + Math.cos(t) * rx, cy + Math.sin(t) * ry));
+  }
+  return out;
+}
 
 function write(){
   var host = main();
-  /* The space stops scrolling and becomes a column: toolbar, then surface. */
+  /* The space stops scrolling and becomes a column: surface, then toolbar. */
   host.classList.add("noscroll");
   host.innerHTML =
     '<div class="wboard">' +
+      '<div class="wsurf" id="wSurf">' +
+        '<canvas id="wCanvas"></canvas>' +
+        '<div class="whint" id="wHint">' +
+          "Write with a finger, a stylus or a mouse. Two fingers, or the " +
+          "space bar, to move around — the board does not end." +
+        "</div>" +
+        '<div class="wwhere" id="wWhere"></div>' +
+      "</div>" +
+      /* The bar sits UNDER the surface, one rectangle, always there. A
+         teacher at a board reaches down, not up: the top of a wall-mounted
+         screen is above head height, and a control a person has to stretch
+         for is a control they stop using by the second week. */
       '<div id="wTools" class="wtools">' +
         PENS.map(function(p, i){
           return '<button class="iconbtn" data-pen="' + i + '" title="' + p.name + '" ' +
@@ -1560,75 +1657,56 @@ function write(){
             ';width:2rem"></button>';
         }).join("") +
         '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
+        '<span class="sep"></span>' +
         SHAPES.map(function(sh){
           return '<button class="iconbtn" data-shape="' + sh.k +
             '" title="' + sh.name + '">' + sh.ic + "</button>"; }).join("") +
         '<input type="range" id="wSize" min="2" max="28" value="5" ' +
-          'title="Thickness" style="width:6rem">' +
+          'title="Thickness" style="width:5rem">' +
+        '<span class="sep"></span>' +
+        /* Moving around is a TOOL, not only a gesture. A stylus has one
+           contact point and a wall-mounted screen often has no keyboard, so
+           two-finger pan and the space bar are both unavailable exactly
+           where this matters most. */
+        '<button class="iconbtn" id="wHand" title="Move around the board">✋</button>' +
+        '<button class="iconbtn" id="wOut" title="Zoom out">−</button>' +
+        '<button class="iconbtn" id="wIn" title="Zoom in">+</button>' +
+        '<button class="btn ghost" id="wFit" title="Bring everything on ' +
+          'the board into view">Fit</button>' +
+        '<span class="sep"></span>' +
         '<button class="iconbtn" id="wUndo" title="Undo">↶</button>' +
         '<button class="iconbtn" id="wRedo" title="Redo">↷</button>' +
         '<span class="grow"></span>' +
+        '<button class="btn ghost" id="wAsk" title="Ask Axle to teach this">' +
+          "⚡ Ask Axle</button>" +
         '<button class="btn ghost" id="wClear">Clear</button>' +
         '<button class="btn" id="wKeep" title="Keep this on the class page">' +
           "Save to the class</button>" +
         '<button class="btn ghost" id="wShot" title="Download it as a picture">' +
           "Download</button>" +
       "</div>" +
-      '<div class="wsurf" id="wSurf">' +
-        '<canvas id="wCanvas"></canvas>' +
-        '<div class="whint" id="wHint">' +
-          "Write with a finger, a stylus or a mouse." +
-        "</div>" +
-      "</div>" +
-    "</div>" +
-    (OPEN ? signInPrompt("keep this on your subject's page") : "");
+    "</div>";
+  /* No sign-in card in here.
+     The pane does not scroll — it cannot, or writing on it would scroll the
+     page — so anything below the board competes with the board for height,
+     and on a short pane the card won that fight and squeezed the surface to
+     nothing. The prompt is on the home screen, where there is room for it,
+     and Save to the class says exactly the same thing at the exact moment
+     it matters. */
 
-  /* Straight things, drawn as strokes.
-   *
-   * A shape here is not a new kind of object: it is a stroke whose points
-   * happen to lie on a line, a box or a circle. That is the whole design.
-   * Undo, redo, the export, the save to a class and the redraw at any size
-   * all work on strokes and none of them need to know these exist — a shape
-   * that was its own type would have needed every one of them taught about
-   * it, and one of them would have been missed.
-   */
-  var SHAPES = [
-    { k: "line",  ic: "╱", name: "Straight line" },
-    { k: "arrow", ic: "→", name: "Arrow" },
-    { k: "rect",  ic: "▭", name: "Rectangle" },
-    { k: "oval",  ic: "◯", name: "Circle" }
-  ];
   var shape = "";          /* "" is the pen */
 
-  function shapePoints(kind, a, b){
-    var x0 = a[0], y0 = a[1], x1 = b[0], y1 = b[1], out = [], i;
-    function P(x, y){ return [x, y, 0.5]; }
-    if(kind === "line"){ return [P(x0, y0), P(x1, y1)]; }
-    if(kind === "arrow"){
-      var dx = x1 - x0, dy = y1 - y0;
-      var len = Math.sqrt(dx * dx + dy * dy) || 1;
-      var ux = dx / len, uy = dy / len;
-      var head = Math.min(28, len * 0.28);      /* never longer than the shaft */
-      var lx = x1 - ux * head, ly = y1 - uy * head;
-      var px = -uy * head * 0.45, py = ux * head * 0.45;
-      return [P(x0, y0), P(x1, y1),
-              P(lx + px, ly + py), P(x1, y1),
-              P(lx - px, ly - py), P(x1, y1)];
-    }
-    if(kind === "rect"){
-      return [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1), P(x0, y0)];
-    }
-    /* An ellipse in the dragged box, so a circle is a drag held square. */
-    var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-    var rx = Math.abs(x1 - x0) / 2, ry = Math.abs(y1 - y0) / 2;
-    for(i = 0; i <= 48; i++){
-      var t = (i / 48) * Math.PI * 2;
-      out.push(P(cx + Math.cos(t) * rx, cy + Math.sin(t) * ry));
-    }
-    return out;
-  }
+  /* Found INSIDE this pane, never by id alone.
+     `el()` is getElementById, and the board can show the writing space in
+     two spaces at once — both then carried a #wCanvas, both closures looked
+     up the FIRST one, and every stroke was recorded twice while the second
+     board sat dead. Ids are unique per pane, not per document. */
+  /* Named wq, not w: `redraw` already uses `w` for the canvas width,
+     and a helper shadowed by a number is a TypeError at the moment
+     somebody draws. */
+  function wq(id){ return host.querySelector("#" + id); }
 
-  var cv = el("wCanvas"), surf = el("wSurf");
+  var cv = wq("wCanvas"), surf = wq("wSurf");
   var ctx = cv.getContext("2d");
   var pen = PENS[0].colour, size = 5, erasing = false;
 
@@ -1641,9 +1719,19 @@ function write(){
      phone screen. */
   var strokes = BOARD_INK.strokes, undone = BOARD_INK.undone, live = null;
 
-  /* Where the board sits inside the pane, and how big one board unit is.
-     Recomputed on every draw because the pane is dragged mid-lesson. */
-  var S = 1, OX = 0, OY = 0, DPR = 1, BH = BOARD_INK.h;
+  /* The window onto the plane.
+   *
+   * `k` is device pixels per world unit and `x`/`y` are the world point
+   * sitting at the top-left of the canvas. Everything else — drawing, the
+   * grid, hit testing, the export — goes through these three numbers, which
+   * is the whole reason an endless surface is not a rewrite of the board:
+   * `world → screen` is one function and it used to be a constant.
+   *
+   * Held on BOARD_INK so that splitting the screen brings a teacher back to
+   * the part of the board they were looking at, not to the origin. */
+  var DPR = 1;
+  var VIEW = BOARD_INK.view;
+
   function measure(){
     var r = surf.getBoundingClientRect();
     DPR = window.devicePixelRatio || 1;
@@ -1651,22 +1739,36 @@ function write(){
     var h = Math.max(1, Math.round(r.height * DPR));
     if(cv.width !== w) cv.width = w;
     if(cv.height !== h) cv.height = h;
-    /* Nothing written yet, and nothing to bring back with Redo: the board
-       is free to take the shape of the space it is in, and fill it exactly.
-       Bounded, so a sliver of a pane does not produce a board that is all
-       height and no width. */
-    if(!strokes.length && !undone.length && !live){
-      BOARD_INK.h = Math.max(BOARD_W / 4,
-                     Math.min(BOARD_W * 3, Math.round(BOARD_W * h / w)));
+    /* First time in: one screen-width is one board-width, and the origin is
+       the top-left of what you can see. So a teacher who never pans has
+       exactly the board they had before, and never learns any of this. */
+    if(!VIEW){
+      VIEW = { k: w / BOARD_UNIT, x: 0, y: 0 };
+      BOARD_INK.view = VIEW;
     }
-    BH = BOARD_INK.h;
-    S  = Math.min(w / BOARD_W, h / BH);
-    OX = (w - BOARD_W * S) / 2;
-    OY = (h - BH * S) / 2;
+  }
+
+  function sx(wx){ return (wx - VIEW.x) * VIEW.k; }
+  function sy(wy){ return (wy - VIEW.y) * VIEW.k; }
+
+  /* Zoom about a point on the screen, so pinching and the +/− buttons both
+     keep whatever is under the fingers under the fingers. */
+  function zoomAt(px, py, factor){
+    var k0 = VIEW.k;
+    var k1 = Math.max(k0 * 0.02, Math.min(k0 * 50, VIEW.k * factor));
+    /* Bounded against the FIRST scale rather than absolutely: a board on a
+       phone and a board on a wall start at very different k, and a fixed
+       limit would be wrong on one of them. */
+    var lo = (cv.width / BOARD_UNIT) / 40, hi = (cv.width / BOARD_UNIT) * 40;
+    k1 = Math.max(lo, Math.min(hi, k1));
+    VIEW.x += px / VIEW.k - px / k1;
+    VIEW.y += py / VIEW.k - py / k1;
+    VIEW.k = k1;
   }
 
   function penWidth(s, pressure){
-    return Math.max(0.5, (s.e ? s.w * 3 : s.w) * S * (0.6 + pressure * 0.8));
+    return Math.max(0.5, (s.e ? s.w * 3 : s.w) * VIEW.k
+                         * (0.6 + pressure * 0.8));
   }
 
   /* One stroke, in whatever size the board currently is. Segment by segment
@@ -1691,31 +1793,133 @@ function write(){
      go through the same function at different sizes, so what is saved is
      exactly what is shown. */
   var BOARD_BG = "#131c28";
-  function paintBoard(c, scale, ox, oy, w, h){
-    c.globalCompositeOperation = "source-over";
-    c.clearRect(0, 0, w, h);
-    /* The surface, drawn rather than assumed: when the pane is a different
-       shape to the board, the margin is pane and this is where writing
-       actually lands. */
-    c.fillStyle = BOARD_BG;
-    var bw = BOARD_W * scale, bh = BH * scale;
-    if(c.roundRect){
+
+  /* The grid exists so that panning an empty part of the board looks like
+     moving rather than like a board that has stopped responding. It steps by
+     powers of ten in WORLD units, so zooming out does not turn it into a
+     solid block — the spacing on screen always stays in the same range. */
+  function paintGrid(c, w, h){
+    /* Both loops below multiply until the spacing looks right, and a scale
+       of zero — or NaN, or infinity — makes that a loop with no way out. It
+       is not hypothetical: Fit computes a scale from the size of what is on
+       the board, and a pane dragged narrower than the margin, or a single
+       dot with no width, produces exactly those numbers. The renderer hangs
+       and the board is gone mid-lesson, so the guard is here rather than
+       only at the two call sites that can currently do it. */
+    if(!(VIEW.k > 0) || !isFinite(VIEW.k)) return;
+    var step = 100, n = 0;                // world units
+    while(step * VIEW.k < 34 && n++ < 40) step *= 5;
+    n = 0;
+    while(step * VIEW.k > 220 && n++ < 40) step /= 5;
+    if(!(step > 0) || !isFinite(step)) return;
+    var x0 = Math.floor(VIEW.x / step) * step;
+    var y0 = Math.floor(VIEW.y / step) * step;
+    c.save();
+    c.lineWidth = 1;
+    for(var wx = x0; sx(wx) <= w; wx += step){
+      /* Every fifth line a little stronger, which is what makes a grid
+         readable as distance rather than as texture. */
+      var major = Math.abs(Math.round(wx / step) % 5) === 0;
+      c.strokeStyle = major ? "rgba(255,255,255,.075)"
+                            : "rgba(255,255,255,.032)";
       c.beginPath();
-      c.roundRect(ox, oy, bw, bh, 12 * scale);
-      c.fill();
-    }else{
-      c.fillRect(ox, oy, bw, bh);
+      c.moveTo(Math.round(sx(wx)) + 0.5, 0);
+      c.lineTo(Math.round(sx(wx)) + 0.5, h);
+      c.stroke();
     }
-    var all = strokes.concat(live ? [live] : []);
-    for(var i = 0; i < all.length; i++) drawStroke(c, all[i], scale, ox, oy);
+    for(var wy = y0; sy(wy) <= h; wy += step){
+      var majy = Math.abs(Math.round(wy / step) % 5) === 0;
+      c.strokeStyle = majy ? "rgba(255,255,255,.075)"
+                           : "rgba(255,255,255,.032)";
+      c.beginPath();
+      c.moveTo(0, Math.round(sy(wy)) + 0.5);
+      c.lineTo(w, Math.round(sy(wy)) + 0.5);
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  /* Ink goes on its own layer, and that is not a refinement.
+     Rubbing out is `destination-out`, which removes whatever is underneath
+     it — on a single layer that is the background and the grid as well, so
+     the eraser would cut holes through the board. Strokes are drawn to their
+     own transparent canvas and composited on top, so the eraser can only
+     ever reach ink. */
+  var inkc = document.createElement("canvas");
+  var ink = inkc.getContext("2d");
+
+  function paintInk(c, list, scale, ox, oy, w, h){
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, w, h);
+    for(var i = 0; i < list.length; i++) drawStroke(c, list[i], scale, ox, oy);
     c.globalCompositeOperation = "source-over";
   }
 
   function redraw(){
     measure();
-    paintBoard(ctx, S, OX, OY, cv.width, cv.height);
-    var hint = el("wHint");
+    var w = cv.width, h = cv.height;
+    if(inkc.width !== w) inkc.width = w;
+    if(inkc.height !== h) inkc.height = h;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = BOARD_BG;
+    ctx.fillRect(0, 0, w, h);
+    paintGrid(ctx, w, h);
+    paintInk(ink, strokes.concat(live ? [live] : []),
+             VIEW.k, -VIEW.x * VIEW.k, -VIEW.y * VIEW.k, w, h);
+    ctx.drawImage(inkc, 0, 0);
+    var hint = wq("wHint");
     if(hint) hint.hidden = strokes.length > 0 || !!live;
+    var where = wq("wWhere");
+    if(where){
+      where.textContent = Math.round(VIEW.k / (w / BOARD_UNIT) * 100) + "%"
+        + (strokes.length ? "  ·  " + strokes.length + " mark"
+                            + (strokes.length === 1 ? "" : "s") : "");
+    }
+  }
+
+  /* Everything on the board, on the screen at once. The way back from
+     anywhere, which is what makes a surface with no edges safe to give
+     somebody mid-lesson. */
+  function bounds(){
+    var b = null;
+    strokes.forEach(function(s){
+      s.p.forEach(function(p){
+        if(!b) b = [p[0], p[1], p[0], p[1]];
+        else{
+          if(p[0] < b[0]) b[0] = p[0];
+          if(p[1] < b[1]) b[1] = p[1];
+          if(p[0] > b[2]) b[2] = p[0];
+          if(p[1] > b[3]) b[3] = p[1];
+        }
+      });
+    });
+    return b;
+  }
+
+  function fit(){
+    measure();
+    var b = bounds();
+    if(!b){                     /* nothing written: back to where it started */
+      VIEW.k = cv.width / BOARD_UNIT;
+      VIEW.x = 0;
+      VIEW.y = 0;
+      redraw();
+      return;
+    }
+    var pad = 40;
+    var bw = Math.max(1, b[2] - b[0]), bh = Math.max(1, b[3] - b[1]);
+    var base = cv.width / BOARD_UNIT;
+    var k = Math.min(Math.max(1, cv.width - pad * 2) / bw,
+                     Math.max(1, cv.height - pad * 2) / bh);
+    k = Math.min(k, base * 4);            // do not magnify a single dot
+    /* A pane narrower than the margin, or a mark with no width, produces
+       zero or infinity here — and every one of those reaches the grid, which
+       loops until the spacing looks right and would never stop. */
+    if(!(k > 0) || !isFinite(k)) k = base;
+    VIEW.k = k;
+    VIEW.x = b[0] - (cv.width / VIEW.k - bw) / 2;
+    VIEW.y = b[1] - (cv.height / VIEW.k - bh) / 2;
+    redraw();
   }
 
   /* The pane is dragged, the board is rotated, the browser zooms: all of
@@ -1728,16 +1932,21 @@ function write(){
   }
   redraw();
 
-  /* Screen position to board units. Clamped, so a stroke that runs off the
-     edge stops at the edge instead of being stored somewhere it can never
-     be seen again. */
+  /* Screen position to world units. NOT clamped any more — that clamp was
+     the edge of the board, and there is no edge. A stroke that runs off the
+     right of the screen is simply a stroke to the right of the screen, and
+     Fit brings it back. */
   function at(e){
     var r = cv.getBoundingClientRect();
-    var x = ((e.clientX - r.left) * DPR - OX) / S;
-    var y = ((e.clientY - r.top) * DPR - OY) / S;
     var p = (e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
-    return [Math.min(BOARD_W, Math.max(0, x)),
-            Math.min(BH, Math.max(0, y)), p];
+    return [VIEW.x + (e.clientX - r.left) * DPR / VIEW.k,
+            VIEW.y + (e.clientY - r.top) * DPR / VIEW.k, p];
+  }
+
+  /* Canvas pixels, for zooming about a point and for panning. */
+  function px(e){
+    var r = cv.getBoundingClientRect();
+    return [(e.clientX - r.left) * DPR, (e.clientY - r.top) * DPR];
   }
 
   /* Drawing paints only the new segment — redrawing every stroke on every
@@ -1748,22 +1957,59 @@ function write(){
     pts.push(pt);
     if(pts.length < 2) return;
     var a = pts[pts.length - 2], b = pt;
-    ctx.globalCompositeOperation = live.e ? "destination-out" : "source-over";
-    ctx.strokeStyle = live.c;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = penWidth(live, b[2]);
-    ctx.beginPath();
-    ctx.moveTo(OX + a[0] * S, OY + a[1] * S);
-    ctx.lineTo(OX + b[0] * S, OY + b[1] * S);
-    ctx.stroke();
+    /* Onto the ink layer, then one composite. Redrawing every stroke on
+       every pointer sample is what makes a board feel like it is lagging
+       behind the pen; compositing a whole canvas is a single blit. */
+    ink.globalCompositeOperation = live.e ? "destination-out" : "source-over";
+    ink.strokeStyle = live.c;
+    ink.lineCap = "round";
+    ink.lineJoin = "round";
+    ink.lineWidth = penWidth(live, b[2]);
+    ink.beginPath();
+    ink.moveTo(sx(a[0]), sy(a[1]));
+    ink.lineTo(sx(b[0]), sy(b[1]));
+    ink.stroke();
+    ink.globalCompositeOperation = "source-over";
     ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = BOARD_BG;
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    paintGrid(ctx, cv.width, cv.height);
+    ctx.drawImage(inkc, 0, 0);
   }
+
+  /* Moving over the plane. Three ways in, because the three devices this
+     runs on each have only one of them: a mouse has a wheel, a trackpad and
+     a touchscreen have two fingers, and a wall-mounted board with a stylus
+     has neither — which is why ✋ is a tool in the bar and not only a
+     gesture. */
+  var handing = false;          // the ✋ tool is held down
+  var panning = null;           // an active drag: [px, py]
+  var touches = {};             // live pointer ids, for the two-finger case
+  var pinch = null;
 
   cv.addEventListener("pointerdown", function(e){
     e.preventDefault();
     cv.setPointerCapture(e.pointerId);
-    var hint = el("wHint");
+    touches[e.pointerId] = px(e);
+    var ids = Object.keys(touches);
+
+    /* Two fingers down: that is the room saying "move", not "write". The
+       mark the first finger started is taken back, because a teacher who
+       meant to pan should not be left with a comma on the board. */
+    if(ids.length === 2){
+      if(live){ live = null; redraw(); }
+      var a = touches[ids[0]], b = touches[ids[1]];
+      pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]),
+                c: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] };
+      panning = null;
+      return;
+    }
+
+    if(handing || e.button === 1 || SPACE){
+      panning = px(e);
+      return;
+    }
+    var hint = wq("wHint");
     if(hint) hint.hidden = true;
     live = { c: pen, e: erasing, w: size, p: [] };
     var p0 = at(e);
@@ -1771,11 +2017,36 @@ function write(){
     if(shape){ live.from = p0; return; }    /* a shape grows from here */
     extend([p0[0] + 0.01, p0[1], p0[2]]);   // a dot is a mark too
   });
+
   cv.addEventListener("pointermove", function(e){
+    if(touches[e.pointerId]) touches[e.pointerId] = px(e);
+
+    if(pinch){
+      var ids = Object.keys(touches);
+      if(ids.length < 2) return;
+      var a = touches[ids[0]], b = touches[ids[1]];
+      var d = Math.hypot(a[0] - b[0], a[1] - b[1]) || 1;
+      var c = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      /* Pan and zoom in one gesture, which is how every map behaves and
+         therefore how everybody already expects this to behave. */
+      VIEW.x -= (c[0] - pinch.c[0]) / VIEW.k;
+      VIEW.y -= (c[1] - pinch.c[1]) / VIEW.k;
+      zoomAt(c[0], c[1], d / pinch.d);
+      pinch = { d: d, c: c };
+      redraw();
+      return;
+    }
+
+    if(panning){
+      var at2 = px(e);
+      VIEW.x -= (at2[0] - panning[0]) / VIEW.k;
+      VIEW.y -= (at2[1] - panning[1]) / VIEW.k;
+      panning = at2;
+      redraw();
+      return;
+    }
+
     if(!live) return;
-    /* A stylus reports far faster than the screen repaints. Reading the
-       samples the browser held back is the difference between handwriting
-       and a polygon. */
     if(live.from){
       /* Redrawn from the two corners every time, so dragging back and forth
          resizes it instead of leaving a trail behind. */
@@ -1783,11 +2054,23 @@ function write(){
       redraw();
       return;
     }
-    var pts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null) || [e];
+    /* A stylus reports far faster than the screen repaints. Reading the
+       samples the browser held back is the difference between handwriting
+       and a polygon. */
+    /* `|| [e]` is not enough: getCoalescedEvents returns an EMPTY ARRAY for
+       an event the browser did not itself generate, and an empty array is
+       truthy. The fallback never ran, the loop had nothing to iterate, and
+       the stroke came out as the single dot from pointerdown. */
+    var held = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    var pts = (held && held.length) ? held : [e];
     for(var i = 0; i < pts.length; i++) extend(at(pts[i]));
   });
+
   ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
-    cv.addEventListener(ev, function(){
+    cv.addEventListener(ev, function(e){
+      delete touches[e.pointerId];
+      if(Object.keys(touches).length < 2) pinch = null;
+      panning = null;
       if(!live) return;
       if(live.p.length > 1){
         delete live.from;
@@ -1795,15 +2078,70 @@ function write(){
         undone.length = 0;    // a new mark ends the redo trail
       }
       live = null;
+      /* The mark count and the hint live on the same repaint, so finishing a
+         stroke has to trigger one — otherwise the board says "0 marks" with
+         a lesson's working on it. */
+      redraw();
     });
   });
 
+  /* A wheel SCROLLS the board and ctrl-wheel zooms it, which is the pairing
+     every drawing tool and every map uses — and the one a trackpad's
+     pinch already sends as ctrl-wheel without being asked. */
+  cv.addEventListener("wheel", function(e){
+    e.preventDefault();
+    var p = px(e);
+    if(e.ctrlKey || e.metaKey){
+      zoomAt(p[0], p[1], Math.pow(0.999, e.deltaY));
+    }else{
+      VIEW.x += e.deltaX * DPR / VIEW.k;
+      VIEW.y += e.deltaY * DPR / VIEW.k;
+    }
+    redraw();
+  }, { passive: false });
+
+  /* Space to grab the board, the way every drawing tool has done for thirty
+     years. Only while the writing space is on screen: a listener left on the
+     document would eat the space bar in every text box on the board. */
+  var SPACE = false;
+  function spaceDown(e){
+    if(e.code !== "Space" || e.repeat) return;
+    var t = e.target;
+    if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    if(!document.getElementById("wCanvas")){
+      document.removeEventListener("keydown", spaceDown);
+      document.removeEventListener("keyup", spaceUp);
+      return;
+    }
+    e.preventDefault();
+    SPACE = true;
+    cv.style.cursor = "grab";
+  }
+  function spaceUp(e){
+    if(e.code !== "Space") return;
+    SPACE = false;
+    cv.style.cursor = "";
+  }
+  document.addEventListener("keydown", spaceDown);
+  document.addEventListener("keyup", spaceUp);
+
+  wq("wHand").onclick = function(){
+    handing = !handing;
+    wq("wHand").classList.toggle("on", handing);
+    cv.style.cursor = handing ? "grab" : "";
+  };
+  wq("wIn").onclick = function(){
+    zoomAt(cv.width / 2, cv.height / 2, 1.25); redraw(); };
+  wq("wOut").onclick = function(){
+    zoomAt(cv.width / 2, cv.height / 2, 1 / 1.25); redraw(); };
+  wq("wFit").onclick = fit;
+
   function markTool(){
-    el("wTools").querySelectorAll("[data-shape]").forEach(function(q){
+    wq("wTools").querySelectorAll("[data-shape]").forEach(function(q){
       q.classList.toggle("on", q.dataset.shape === shape);
     });
   }
-  el("wTools").querySelectorAll("[data-shape]").forEach(function(b){
+  wq("wTools").querySelectorAll("[data-shape]").forEach(function(b){
     b.onclick = function(){
       /* Tapping the tool you are holding puts the pen back, so there is
          always a way out without hunting for a pen button. */
@@ -1812,7 +2150,7 @@ function write(){
       markTool();
     };
   });
-  el("wTools").querySelectorAll("[data-pen]").forEach(function(b){
+  wq("wTools").querySelectorAll("[data-pen]").forEach(function(b){
     b.onclick = function(){
       shape = ""; markTool();
       if(b.dataset.pen === "erase"){ erasing = true; return; }
@@ -1820,20 +2158,20 @@ function write(){
       pen = PENS[+b.dataset.pen].colour;
     };
   });
-  el("wSize").oninput = function(){ size = +el("wSize").value; };
+  wq("wSize").oninput = function(){ size = +wq("wSize").value; };
   /* Undo, because Clear on its own is a lesson's worth of working thrown
      away by one mis-tap, and every board a teacher has used has this. */
-  el("wUndo").onclick = function(){
+  wq("wUndo").onclick = function(){
     if(!strokes.length) return;
     undone.push(strokes.pop());
     redraw();
   };
-  el("wRedo").onclick = function(){
+  wq("wRedo").onclick = function(){
     if(!undone.length) return;
     strokes.push(undone.pop());
     redraw();
   };
-  el("wClear").onclick = function(){
+  wq("wClear").onclick = function(){
     if(strokes.length && !confirm("Rub out everything on the board?")) return;
     /* Clear is undoable: it is one tap away from a lesson's working. */
     undone.unshift.apply(undone, strokes.slice().reverse());
@@ -1850,31 +2188,68 @@ function write(){
      so it says things on the hint line under the canvas, which is where a
      person writing on it is already looking. */
   function wSay(text){
-    var hint = el("wHint");
+    var hint = wq("wHint");
     if(hint){ hint.textContent = text; hint.style.display = ""; }
   }
 
-  /* The drawing, at print size, as a PNG blob. */
-  function boardPng(cb){
+  /* A picture of the WORKING, not of the window it was seen through.
+   *
+   * On a fixed board these were the same thing. On a plane they are not:
+   * saving what is on screen would save whatever the teacher happened to
+   * have panned to, and lose the half of the derivation that is off to the
+   * left. So the export is taken from the bounding box of every mark, at a
+   * fixed print scale, with a margin — and it is drawn from the points
+   * rather than copied off the screen, so it is sharp whether the board was
+   * full screen or a corner of a four-way split.
+   *
+   * Capped, because an endless board can hold an endless amount and a
+   * hundred-megapixel PNG is a save that silently fails on a school tablet.
+   */
+  var SHOT_MAX = 4200;             // pixels on the longer side
+  function shotCanvas(){
+    var b = bounds() || [0, 0, BOARD_UNIT, BOARD_UNIT * 0.56];
+    var pad = 40;
+    var bw = Math.max(1, b[2] - b[0]) + pad * 2;
+    var bh = Math.max(1, b[3] - b[1]) + pad * 2;
+    var scale = Math.min(2, SHOT_MAX / Math.max(bw, bh));
     var out = document.createElement("canvas");
-    out.width = BOARD_W * 2;
-    out.height = Math.round(BH * 2);
-    paintBoard(out.getContext("2d"), 2, 0, 0, out.width, out.height);
+    out.width = Math.max(1, Math.round(bw * scale));
+    out.height = Math.max(1, Math.round(bh * scale));
+    var c = out.getContext("2d");
+    c.fillStyle = BOARD_BG;
+    c.fillRect(0, 0, out.width, out.height);
+    /* Ink on its own layer here too, for the same reason as on screen: an
+       eraser stroke composited straight onto the background would punch a
+       transparent hole through the saved picture. */
+    var lay = document.createElement("canvas");
+    lay.width = out.width;
+    lay.height = out.height;
+    paintInk(lay.getContext("2d"), strokes, scale,
+             (-b[0] + pad) * scale, (-b[1] + pad) * scale,
+             out.width, out.height);
+    c.drawImage(lay, 0, 0);
+    return out;
+  }
+
+  function boardPng(cb){
+    var out = shotCanvas();
     if(out.toBlob) out.toBlob(cb, "image/png");
     else cb(null);
   }
 
-  el("wShot").onclick = function(){
-    var out = document.createElement("canvas");
-    out.width = BOARD_W * 2;
-    out.height = Math.round(BH * 2);
-    paintBoard(out.getContext("2d"), 2, 0, 0, out.width, out.height);
+  wq("wShot").onclick = function(){
     var a = document.createElement("a");
-    a.href = out.toDataURL("image/png");
+    a.href = shotCanvas().toDataURL("image/png");
     a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
                    .replace(/[:T]/g, "-") + ".png";
     a.click();
   };
+
+  /* Ask Axle without leaving the board. The teacher is mid-sentence with a
+     pen in their hand; making them go home, find a tile and come back is
+     how a tool stops being used during a lesson and starts being used
+     during the free period, which is not what it is for. */
+  wq("wAsk").onclick = function(){ go("board"); };
 
   /* Keep what was written by hand on the class's subject page.
    *
@@ -1889,7 +2264,7 @@ function write(){
    * board is open on, or the one subject this teacher holds in the class. If
    * that is genuinely ambiguous it asks rather than guessing, because filing
    * a page of algebra under History is worse than one more question. */
-  var keep = el("wKeep");
+  var keep = wq("wKeep");
   if(keep) keep.onclick = async function(){
     /* A board holding a subject code MAY keep this — that is the whole of
        what the code buys, and the reason a teacher typed it. Only a board
