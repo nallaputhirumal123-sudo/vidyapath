@@ -88,12 +88,28 @@ free2 = [n for n in kid2.post("/api/craxlearn/code", json={"code": code}).json()
 kid2.post("/api/craxlearn/claim",
           json={"code": code, "roster_id": free2[0]["id"]})
 
+# Material and the discussion belong to the TEACHER of a subject. `admin`
+# here runs the school: it makes the class, the subject and the register, and
+# the classroom itself is somebody else's.
+_slot = admin.post(f"/api/head/class/{CID}/slot",
+                   json={"subject": "Science", "teacher_id": 0}).json()
+_made = admin.post("/api/head/staff",
+                   json={"name": "Places Teacher", "role": "teacher"}).json()
+admin.post("/api/head/assign",
+           json={"class_id": CID, "subject": "Science",
+                 "user_id": _made["user_id"]})
+main._CODE_TRIES.clear()
+main._CODE_FAILS.clear()
+tch = TestClient(main.app)
+tch.post("/api/auth/code",
+         json={"code": db.get(main.SubjectSlot, _slot["id"]).code})
+
 print("\nstudy material, which is not homework")
-r = admin.post(f"/api/teacher/class/{CID}/material/link",
+r = tch.post(f"/api/teacher/class/{CID}/material/link",
                json={"title": "Chapter 4 — Light", "url": "https://ncert.nic.in/x",
                      "subject": "Science", "note": "Read before Friday"})
 check("a link can be shared", r.status_code == 200, r.text[:70])
-r = admin.post(f"/api/teacher/class/{CID}/material/file",
+r = tch.post(f"/api/teacher/class/{CID}/material/file",
                files={"file": ("slides.pdf", b"%PDF-1.4 slides",
                                "application/pdf")},
                data={"title": "Light slides", "subject": "Science", "note": ""})
@@ -113,8 +129,8 @@ r = kid.post(f"/api/class/{CID}/discussion",
              json={"body": "I did not follow the refraction bit."})
 check("a learner can ask a question", r.status_code == 200, r.text[:70])
 qid = r.json()["id"]
-r = admin.post(f"/api/class/{CID}/discussion",
-               json={"body": "Look at figure 4.3 first.", "parent_id": qid})
+r = tch.post(f"/api/class/{CID}/discussion",
+             json={"body": "Look at figure 4.3 first.", "parent_id": qid})
 check("a teacher can answer it", r.status_code == 200, r.text[:70])
 
 d = kid2.get(f"/api/class/{CID}/discussion").json()

@@ -154,9 +154,16 @@ ck("the teacher can now see that class",
    tch.get("/api/teacher/classes").text[:160])
 
 # ---------- 7. the register, and a child using the class code ----------
+# The OFFICE types the register, not the teacher. A register is the school's
+# list of children; a teacher who could add to it could add one the office
+# does not know exists. They still read it, which is what marking needs.
 r = tch.post(f"/api/teacher/class/{CID}/roster",
-             json={"names": "Ananya P, 801\nBittu K, 802\nChandra S, 803"})
-ck("the teacher puts the register in", r.status_code == 200, r.text[:140])
+             json={"names": "Ananya P, 801"})
+ck("a subject teacher may not type the register", r.status_code == 403,
+   f"got {r.status_code}")
+r = head.post(f"/api/teacher/class/{CID}/roster",
+              json={"names": "Ananya P, 801\nBittu K, 802\nChandra S, 803"})
+ck("the school admin puts the register in", r.status_code == 200, r.text[:140])
 
 main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 kid = TestClient(main.app)

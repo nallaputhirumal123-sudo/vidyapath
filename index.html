@@ -1396,6 +1396,33 @@ const api = {
 let AUTHED=false, USER=null, TRACKS=[], PATHS=[];
 let S={done:{},quiz:{},notes:{},code:{},path:null,view:{page:"home"}};
 
+/* ---------- who is looking, in three words ----------
+ *
+ * Three roles, and until now the screens only really knew two: `staff`,
+ * which was "teacher OR school admin", and everybody else. That is why an
+ * administrator and a teacher were looking at almost the same dashboard —
+ * and why the teacher's own class screen carried the class code to hand out,
+ * the staff list, and the register, none of which are a teacher's to touch.
+ *
+ * These three answer it properly, and they are named after what the person
+ * DOES rather than what row they have:
+ *
+ *   isOffice()   runs the school. Staff, classes, subjects, registers,
+ *                attendance, fees, notices. Does not teach.
+ *   teaches()    teaches a subject. The board, the material, the work, and
+ *                Ask Axle.
+ *   isStaff()    either of the above — for the few things both need.
+ *
+ * The server refuses all of it independently. Nothing here is a permission;
+ * it decides which door to draw, and the routes decide who goes through.
+ */
+function isOffice(){
+  return !!USER && !USER.is_admin
+      && (USER.role === "head" || USER.role === "schooladmin");
+}
+function isStaff(){ return !!USER && !!(USER.is_teacher || USER.is_admin); }
+function teaches(){ return isStaff() && !isOffice(); }
+
 const PATH_PRESETS=[
   {id:"school",name:"Absolute beginner only",icon:"🌱",months:"7 weeks",
    desc:"Class 8 to 12, or anyone starting from zero. Full notes, 71 exercises, printable worksheets.",
@@ -4433,10 +4460,17 @@ function sbToolsHTML(){
             <button class="btn ghost sm" data-sbpdf="1">⬇ Save as PDF</button>
             <button class="btn ghost sm" data-sbkeep="1">★ Keep this explanation</button>
             <button class="btn ghost sm" data-sblib="1">📚 My notes</button>
-            <button class="btn ghost sm" data-sbpdf-up="1">📄 Teach from a PDF</button>
             <button class="btn ghost sm" data-sbink="1">✏️ Draw on the screen</button>
+            <!-- Turning a chapter into a lesson, and filing one into a class,
+                 are a teacher's. They were offered to everybody: a learner
+                 saw "Teach from a PDF" and "Save to a class" on their own
+                 screen, pressed one, and got a refusal describing a job that
+                 is not theirs. The routes always refused them; only the
+                 buttons did not. -->
+            ${teaches() ? `
+            <button class="btn ghost sm" data-sbpdf-up="1">📄 Teach from a PDF</button>
             <button class="btn ghost sm" data-sbfile="1">🏫 Save to a class</button>
-            <input type="file" id="sbPdfFile" accept="application/pdf" style="display:none"/>
+            <input type="file" id="sbPdfFile" accept="application/pdf" style="display:none"/>` : ""}
       <!-- Explicit, because the alternative was ambiguous: typing into the
            follow-up box continues the same lesson, and there was nothing that
            plainly said "this is a different question now". -->
@@ -6740,13 +6774,21 @@ function rosterDraw(){
     return;
   }
 
-  const cols="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) auto";
+  /* Editing a register is the office's. A teacher reads it — marking is
+     impossible without it — and the buttons that change it are not drawn for
+     them, because the routes now refuse them and a button that always fails
+     is worse than no button. */
+  const EDITABLE = isOffice() || (USER && USER.is_admin);
+  const cols = EDITABLE
+    ? "grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) auto"
+    : "grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)";
   box.innerHTML=head+
     `<div style="display:grid;${cols};gap:10px;padding:0 0 6px;
       font-size:11px;color:var(--dim);letter-spacing:.4px">
-      <span>NAME</span><span>ROLL NUMBER</span><span></span></div>`+
+      <span>NAME</span><span>ROLL NUMBER</span>${
+        EDITABLE?"<span></span>":""}</div>`+
     rows.map(r=>{
-      if(ROSTER.editing===r.id){
+      if(ROSTER.editing===r.id && EDITABLE){
         return `<div style="display:grid;${cols};gap:10px;padding:7px 0;
           border-top:1px solid var(--line,#2a2a2a);align-items:center">
           <input class="ask-input" id="rosName${r.id}" value="${esc(r.name)}"/>
@@ -6778,7 +6820,7 @@ function rosterDraw(){
         <span style="font-size:13px;color:${r.student_code?"inherit":"var(--dim)"};
           font-variant-numeric:tabular-nums">${
           r.student_code?esc(r.student_code):"—"}</span>
-        <span style="display:flex;gap:5px">
+        ${EDITABLE?`<span style="display:flex;gap:5px">
           <button class="btn ghost sm" data-cls="rosedit" data-id="${r.id}">Edit</button>
           ${off
             ?`<button class="btn ghost sm" data-cls="rosback" data-id="${r.id}"
@@ -6788,7 +6830,7 @@ function rosterDraw(){
                 data-cid="${ROSTER.cid}">Take off</button>`
             :`<button class="btn ghost sm" data-cls="rosdel" data-id="${r.id}"
                 data-cid="${ROSTER.cid}">Remove</button>`}
-        </span></div>`;
+        </span>`:""}</div>`;
     }).join("");
   rosterWire();
 }
@@ -6929,8 +6971,17 @@ async function renderTeacherClass(cid){
      the person teaching it. An administrator was being shown all four
      composers for every subject in the school, which is both a lot of screen
      and an invitation to set work in somebody else's lesson. */
-  const TEACHES = !(USER.role === "head" || USER.role === "schooladmin"
-                    || USER.is_admin);
+  /* And the mirror of it, which was missing. The office's own work — the
+     code it hands out, the staff it puts on subjects, the register it types
+     — was on this screen for EVERYBODY, so a teacher opening their own class
+     was shown an administrator's controls: a form to put any colleague on
+     any subject, and a box to add children to the school's register. The
+     server refused the first and, until this commit, allowed the second.
+
+     `TEACHES` decides what only a teacher sees; `OFFICE` decides what only
+     the office sees. Neither is a permission — the routes are. */
+  const TEACHES = teaches();
+  const OFFICE = isOffice() || USER.is_admin;
   const head=asg.map(a=>`<th title="${esc(a.title)}" style="font-size:11px;padding:5px 4px">${esc((a.subject||a.title).slice(0,10))}</th>`).join("");
   const rrows=roster.length?roster.map(s=>`<tr>
       <td style="padding:6px">${esc(s.name)}</td>
@@ -6940,7 +6991,7 @@ async function renderTeacherClass(cid){
   $("#main").innerHTML=`
     <div class="crumb"><button data-cls="backteacher">← All classes</button></div>
     <div class="h1">${esc(d.name)}</div>
-    <p class="sub">One code: <b style="color:var(--accent);letter-spacing:2px">${esc(d.join_code)}</b> — share it with students (to join) and with other subject teachers (to co-teach).</p>
+    ${OFFICE ? `<p class="sub">One code: <b style="color:var(--accent);letter-spacing:2px">${esc(d.join_code)}</b> — share it with students so they can join.</p>` : ""}
     ${(d.teachers&&d.teachers.length)?`<div class="card" style="margin-bottom:14px;padding:12px"><div class="eyebrow" style="margin:0 0 6px">Teachers in this classroom</div>
       ${d.teachers.map(t=>`<span class="pill" style="margin:2px 4px 2px 0">${esc(t.name)} · ${esc(t.role)}</span>`).join("")}</div>`:""}
 
@@ -6949,6 +7000,7 @@ async function renderTeacherClass(cid){
       <table class="ctab" style="min-width:${180+asg.length*64}px"><thead><tr><th>Student</th>${head}<th>Done</th></tr></thead>
       <tbody>${rrows}</tbody></table></div>
 
+    ${OFFICE ? `
     <div class="eyebrow">Teachers</div>
     <p class="sub" style="margin:-2px 0 8px">Put somebody who already works
       here on a subject in this class. New staff are added once, on the
@@ -6984,7 +7036,14 @@ async function renderTeacherClass(cid){
         <button class="btn sm" data-cls="rosadd" data-id="${cid}">Add to
           register</button>
       </div>
-    </div>
+    </div>` : `
+    <div class="eyebrow">Class register</div>
+    <p class="sub" style="margin:-2px 0 8px">Who is in this class. The school
+      office types it — a register is the school's list of children, not a
+      subject's.</p>
+    <div class="card" style="padding:12px;margin-bottom:6px">
+      <div id="rosterList">Loading…</div>
+    </div>`}
 
     ${TEACHES ? `
     <div class="eyebrow">Study material</div>

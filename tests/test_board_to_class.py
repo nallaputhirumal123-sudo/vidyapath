@@ -20,6 +20,15 @@ u=db.query(main.User).filter(main.User.email==em).first(); u.dob=dt.date(1990,1,
 adm.post('/api/class/join',json={'code':hc})
 CID=adm.post('/api/teacher/class',json={'name':'6-B %d'%st}).json()['id']
 adm.post('/api/teacher/class/%d/roster'%CID,json={'names':'Nita S'})
+# The office creates the class and the subject; the TEACHER of that subject is
+# who files a lesson into it. The school admin used to do both, which is why
+# the two dashboards looked the same.
+_slot=adm.post('/api/head/class/%d/slot'%CID,json={'subject':'Science','teacher_id':0}).json()
+_made=adm.post('/api/head/staff',json={'name':'Board Teacher','role':'teacher'}).json()
+adm.post('/api/head/assign',json={'class_id':CID,'subject':'Science','user_id':_made['user_id']})
+main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
+tch=TestClient(main.app)
+tch.post('/api/auth/code',json={'code':db.get(main.SubjectSlot,_slot['id']).code})
 main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
 code=db.get(main.Klass,CID).join_code
 kid=TestClient(main.app)
@@ -31,7 +40,7 @@ lesson={'title':'Refraction of light','takeaway':'Light bends at a boundary.',
                   'sketch':{'kind':'plot','caption':'Angle in against angle out','series':[{'label':'glass','points':[[0,0],[10,6],[20,13],[30,19]]}]}},
                  {'t':'The angle depends on the two materials.','where':'','code':''}]}
 print("\nfiling what was taught")
-r=adm.post('/api/craxlearn/board/save',json={'class_id':CID,'topic':'refraction',
+r=tch.post('/api/craxlearn/board/save',json={'class_id':CID,'topic':'refraction',
     'title':'Refraction of light','subject':'Science','note':'What we did Tuesday','lesson':lesson})
 ck('a taught lesson files into the class', r.status_code==200, r.text[:70])
 mats=adm.get('/api/class/%d/materials'%CID).json()['materials']

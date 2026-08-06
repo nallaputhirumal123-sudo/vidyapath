@@ -210,6 +210,24 @@ for path in ("/api/curriculum", "/api/net", "/api/lab", "/api/sql/board",
           str(anon.get(path).status_code))
 
 # ---- study material ----------------------------------------------------
+# Put up by the TEACHER of the subject, not by the office. `teach` above holds
+# role 'head' — it runs the school, types the register and creates the
+# subjects, and it is now refused the classroom itself. So the person who
+# actually teaches Biology here is made, and does the teaching.
+subt = TestClient(main.app)
+_se = f"sub{stamp}@example.com"
+subt.post("/api/auth/signup", json={"name": "Subject T", "email": _se,
+                                    "password": "ClassCodePass123!"})
+_su = db.query(main.User).filter(main.User.email == _se).first()
+db.add(main.TeacherAccess(user_id=_su.id, school=school.name,
+                          school_id=school.id, role="teacher"))
+db.add(main.SubjectSlot(class_id=klass.id, subject="Biology",
+                        code=main._gen_slot_code(db), teacher_id=_su.id,
+                        status="claimed"))
+db.commit()
+office = teach              # the school admin, for the refusals further down
+teach = subt
+
 print("\nStudy material")
 r = teach.post(f"/api/teacher/class/{klass.id}/material/link",
                json={"title": "Osmosis notes", "url": "https://example.org/o",
@@ -253,7 +271,7 @@ check("the student sees both", len(d["materials"]) == 2, str(d)[:200])
 link = [m for m in d["materials"] if m["kind"] == "link"][0]
 check("with the subject it was filed under", link["subject"] == "Biology",
       str(link))
-check("and the name of whoever put it there", link["by"] == "Teacher T",
+check("and the name of whoever put it there", link["by"] == "Subject T",
       str(link))
 check("the link carries its address",
       any(m.get("url") == "https://example.org/o" for m in d["materials"]))
@@ -286,14 +304,18 @@ check("and it is gone",
 
 # ---- a claimed name is an account, not a line of text ------------------
 print("\nThe register after people have signed in")
+# A teacher READS the register — marking is impossible without it — and the
+# office is who adds to it and takes names off it.
 roster = teach.get(f"/api/teacher/class/{klass.id}/roster").json()
 taken = [x for x in roster["roster"] if x["claimed"]][0]
-r = teach.delete(f"/api/teacher/roster/{taken['id']}")
+check("a subject teacher may not remove a child",
+      teach.delete(f"/api/teacher/roster/{taken['id']}").status_code == 403)
+r = office.delete(f"/api/teacher/roster/{taken['id']}")
 check("a claimed name cannot be deleted from under its owner",
       r.status_code == 400, str(r.status_code))
 free = [x for x in roster["roster"] if not x["claimed"]][0]
 check("an unclaimed one can",
-      teach.delete(f"/api/teacher/roster/{free['id']}").status_code == 200)
+      office.delete(f"/api/teacher/roster/{free['id']}").status_code == 200)
 
 # ---- the reset, and every time it must do nothing ----------------------
 print("\nThe reset")

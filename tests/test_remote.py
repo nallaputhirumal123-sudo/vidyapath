@@ -201,6 +201,23 @@ r = phone.post("/api/craxlearn/remote/join", json={"code": code})
 check("and the code no longer pairs", r.status_code == 404, str(r.status_code))
 
 # ---- keeping a lesson on the subject page -------------------------------
+# Kept by the TEACHER of the subject. `head_c` runs the school — it makes the
+# class, the subject and the register — and the classroom itself belongs to
+# whoever the school put in front of it.
+bio_c, bio_u = account("bio")
+db.add(main.TeacherAccess(user_id=bio_u.id, school=school.name,
+                          school_id=school.id, role="teacher"))
+db.add(main.SubjectSlot(class_id=klass.id, subject="Biology",
+                        code=main._gen_slot_code(db), teacher_id=bio_u.id,
+                        status="claimed"))
+far_bio_c, far_bio_u = account("farbio")
+db.add(main.TeacherAccess(user_id=far_bio_u.id, school=other.name,
+                          school_id=other.id, role="teacher"))
+db.add(main.SubjectSlot(class_id=far_class.id, subject="Biology",
+                        code=main._gen_slot_code(db), teacher_id=far_bio_u.id,
+                        status="claimed"))
+db.commit()
+
 print("\nKeeping a lesson")
 LESSON = {
     "title": "Photosynthesis",
@@ -212,8 +229,8 @@ LESSON = {
     ],
     "takeaway": "Light is the energy source, not the raw material.",
 }
-r = head_c.post("/api/craxlearn/board/save",
-                json={"class_id": klass.id, "topic": "photosynthesis",
+r = bio_c.post("/api/craxlearn/board/save",
+               json={"class_id": klass.id, "topic": "photosynthesis",
                       "title": "Photosynthesis", "subject": "Biology",
                       "note": "What we did on Tuesday.", "lesson": LESSON})
 check("a teacher can keep what was taught", r.status_code == 200, r.text[:160])
@@ -232,17 +249,17 @@ check("the class can read it", r.status_code == 200, r.text[:120])
 kept = [m for m in r.json().get("materials", []) if m.get("kind") == "lesson"]
 check("it is on their subject page", len(kept) >= 1, str(len(kept)))
 check("and carries the teacher's name, so they know whose lesson it is",
-      kept and kept[0].get("by") == head_u.name, str(kept[0].get("by") if kept else None))
+      kept and kept[0].get("by") == bio_u.name, str(kept[0].get("by") if kept else None))
 
-r = far_c.post("/api/craxlearn/board/save",
+r = far_bio_c.post("/api/craxlearn/board/save",
                json={"class_id": klass.id, "topic": "photosynthesis",
                      "title": "Photosynthesis", "subject": "Biology",
                      "lesson": LESSON})
 check("a teacher cannot file a lesson into another school's class",
       r.status_code in (403, 404), str(r.status_code))
 
-r = head_c.post("/api/craxlearn/board/save",
-                json={"class_id": klass.id, "topic": "nothing",
+r = bio_c.post("/api/craxlearn/board/save",
+               json={"class_id": klass.id, "topic": "nothing",
                       "title": "Nothing", "subject": "", "lesson": {}})
 check("an empty lesson is refused rather than filed as a blank page",
       r.status_code == 400, str(r.status_code))

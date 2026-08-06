@@ -2624,6 +2624,78 @@ def school_admin_user(user: User = Depends(current_user),
     return user
 
 
+# --------------------------------------------------------------------------
+# The third wall: the office does not teach.
+#
+# Until now this ran one way only. A subject teacher was kept out of
+# attendance and fees, and that was called the separation of duties — but
+# nothing kept the office OUT OF THE CLASSROOM. A school admin held role
+# 'head', `is_head` answered True, `_my_subjects` answered None ("all of
+# them"), and so the person who runs the school could open any board, file
+# study material into any subject, and set work in a lesson they have never
+# taught.
+#
+# That is the wrong way round. A principal needs to know a class is being
+# taught; they do not need to be the one who taught it, and material
+# appearing in a subject under a name that does not teach it is worse than
+# no material. It also explains what the screens looked like: an
+# administrator and a teacher were shown almost the same dashboard, because
+# almost the same permissions sat behind it.
+#
+# So: three roles, three walls, and each wall refused server-side.
+#
+#   platform admin  everything — support cannot be done from behind a wall
+#   school admin    the school: staff, classes, subjects, registers,
+#                   attendance, fees, notices. No board, no material, no AI.
+#   teacher         their own assigned subjects in their own classes: the
+#                   board, the material, the work, and Ask Axle.
+def is_office_only(user: User, db: Session) -> bool:
+    """Runs a school and does not teach in it.
+
+    A platform admin is never office-only: they are not staff at any school
+    and shutting them out of teaching routes would make every support call
+    unanswerable.
+    """
+    if user.is_admin:
+        return False
+    t = teacher_row(user, db)
+    return t is not None and t.role in ("head", "schooladmin")
+
+
+def teaching_user(user: User = Depends(current_user),
+                  db: Session = Depends(get_db)) -> User:
+    """Somebody who actually teaches — the board, and what goes on a subject.
+
+    Deliberately not `teacher_user`. That one answers "is this staff", which
+    is the question that let the office into the classroom.
+    """
+    if is_office_only(user, db):
+        raise HTTPException(
+            403, "The board and study material belong to the teacher of each "
+                 "subject. You can see what they have put up on the subject "
+                 "pages; putting it there is theirs to do.")
+    if not teacher_row(user, db) and not user.is_admin:
+        raise HTTPException(403, "Teacher access required")
+    return user
+
+
+def axle_user(user: User = Depends(current_user),
+              db: Session = Depends(get_db)) -> User:
+    """Who may ask the AI: learners and teachers, and not the office.
+
+    Not the same gate as `teaching_user`, because a student asking a
+    question is the thing this was built for. The one account it turns away
+    is the school admin's, which has no teaching to do with an answer and
+    every school's records behind it — the account you least want holding a
+    general-purpose question box.
+    """
+    if is_office_only(user, db):
+        raise HTTPException(
+            403, "Ask Axle is for learners and for the teachers of a subject. "
+                 "A school admin account does not have it.")
+    return user
+
+
 def notice_author_user(user: User = Depends(current_user),
                        db: Session = Depends(get_db)) -> User:
     """Who may put a notice up: the office, or the head teacher.
@@ -7048,7 +7120,7 @@ class RosterIn(BaseModel):
 
 
 @app.post("/api/teacher/class/{cid}/roster")
-def set_roster(cid: int, body: RosterIn, user: User = Depends(teacher_user),
+def set_roster(cid: int, body: RosterIn, user: User = Depends(head_user),
                db: Session = Depends(get_db)):
     """Type the register once, so nobody has to invent a password.
 
@@ -7174,7 +7246,7 @@ def rename_roster_name(rid: int, body: RenameIn,
 
 
 @app.delete("/api/teacher/roster/{rid}")
-def drop_roster_name(rid: int, user: User = Depends(teacher_user),
+def drop_roster_name(rid: int, user: User = Depends(head_user),
                      db: Session = Depends(get_db)):
     """Remove a name nobody has claimed. A claimed one is an account."""
     r = db.get(RosterName, rid)
@@ -7833,17 +7905,22 @@ class LinkIn(BaseModel):
 
 @app.post("/api/teacher/class/{cid}/material/link")
 def add_material_link(cid: int, body: LinkIn,
-                      user: User = Depends(teacher_user),
+                      user: User = Depends(teaching_user),
                       db: Session = Depends(get_db)):
     """Put a reference link in front of a class."""
     _own_class(db, cid, user)
+    # Which subject, checked rather than typed. Filing a lesson through the
+    # board has always gone through this; material did not, so the Chemistry
+    # teacher could put a chapter on the Physics page — same class, somebody
+    # else's subject, and a role check alone will never catch it.
+    subject = _board_subject(db, cid, user, body.subject)
     url = body.url.strip()
     if not url.lower().startswith(("http://", "https://")):
         # A link that is not a link opens nothing and is reported by the
         # student as "it does not work", which costs a lesson to diagnose.
         raise HTTPException(400, "The link must start with http:// or https://")
     m = Material(class_id=cid, teacher_id=user.id,
-                 subject=body.subject.strip()[:80],
+                 subject=subject,
                  title=body.title.strip()[:240], url=url[:2000],
                  note=body.note.strip()[:2000])
     db.add(m)
@@ -7857,7 +7934,7 @@ async def add_material_file(cid: int, file: UploadFile = File(...),
                             title: str = Form(default=""),
                             note: str = Form(default=""),
                             subject: str = Form(default=""),
-                            user: User = Depends(teacher_user),
+                            user: User = Depends(teaching_user),
                             db: Session = Depends(get_db)):
     """Upload a PDF, a slide deck or a document for one class.
 
@@ -7866,6 +7943,7 @@ async def add_material_file(cid: int, file: UploadFile = File(...),
     ships is worse than no study pack.
     """
     _own_class(db, cid, user)
+    subject_name = _board_subject(db, cid, user, subject or "")
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "That file is empty")
@@ -7880,7 +7958,7 @@ async def add_material_file(cid: int, file: UploadFile = File(...),
             400, "Upload a PDF, a PowerPoint, a Word document, a text file "
                  "or an image.")
     m = Material(class_id=cid, teacher_id=user.id,
-                 subject=(subject or "").strip()[:80],
+                 subject=subject_name,
                  title=((title or "").strip()
                         or (file.filename or "Material"))[:240],
                  note=(note or "").strip()[:2000],
@@ -8382,7 +8460,7 @@ def board_or_teacher(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(
             401, "Sign in, or open this classroom with your subject code "
                  "first.")
-    return teacher_user(user, db), None
+    return teaching_user(user, db), None
 
 
 @app.post("/api/craxlearn/board/save")
@@ -9346,7 +9424,7 @@ class TalkIn(BaseModel):
 
 
 @app.post("/api/ask/talk")
-async def ask_talk(body: TalkIn, user: User = Depends(current_user),
+async def ask_talk(body: TalkIn, user: User = Depends(axle_user),
                    db: Session = Depends(get_db)):
     """One spoken turn of a conversation.
 
@@ -9427,7 +9505,7 @@ async def ask_with_image(image: UploadFile = File(...),
                          question: str = Form(default=""),
                          subject: str = Form(default="General"),
                          level: str = Form(default="Intermediate"),
-                         user: User = Depends(current_user),
+                         user: User = Depends(axle_user),
                          db: Session = Depends(get_db)):
     """Ask Axle a question about a picture.
 
@@ -10626,7 +10704,7 @@ async def ai_selftest(user: User = Depends(admin_user),
 
 
 @app.post("/api/ask")
-async def ask_vidya(body: AskIn, user: User = Depends(current_user),
+async def ask_vidya(body: AskIn, user: User = Depends(axle_user),
                     db: Session = Depends(get_db)):
     subject = (body.subject or "General").strip()[:60]
     # Default matches the picker's middle option. It was "School", left over
@@ -15172,7 +15250,7 @@ def _clean_board(d, topic):
 
 
 @app.post("/api/board/lesson")
-async def board_lesson(body: BoardIn, user: User = Depends(current_user),
+async def board_lesson(body: BoardIn, user: User = Depends(axle_user),
                        db: Session = Depends(get_db)):
     """A step-by-step lesson on any topic, for the smart board.
 

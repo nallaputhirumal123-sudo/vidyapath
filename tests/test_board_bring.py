@@ -140,10 +140,10 @@ ck("the document is on the list",
    str(d.get("materials"))[:140])
 
 # Another subject in the SAME class is a different teacher's shelf.
-head.post("/api/craxlearn/board/save",
-          json={"class_id": CID, "subject": "Maths",
-                "topic": f"Fractions {st}", "title": f"Fractions {st}",
-                "lesson": {"steps": [{"t": "A half is one over two."}]}})
+board.post("/api/craxlearn/board/save",
+           json={"topic": f"Fractions {st}", "title": f"Fractions {st}",
+                 "lesson": {"steps": [{"t": "A half is one over two."}]}},
+           headers=H2)
 r = board.get("/api/craxlearn/board/materials", headers=H)
 ck("another subject's material is not on it",
    not any(f"Fractions {st}" in (m.get("title") or "")

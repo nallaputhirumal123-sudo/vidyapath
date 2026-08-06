@@ -215,13 +215,18 @@ check("with one subject to her name, she need not say which",
       r.status_code == 200 and r.json()["material"]["subject"] == "Biology",
       r.text[:110])
 
+# The head teacher used to reach this and be asked WHICH subject, because
+# they counted as the teacher of all of them. They do not teach, so they no
+# longer reach it at all — which is a shorter answer to the same question,
+# and the reason an administrator's screen and a teacher's screen were
+# almost the same screen.
 r = head_c.post("/api/craxlearn/board/save",
                 json={"class_id": k9.id, "topic": "osmosis", "title": "Osmosis",
                       "subject": "", "lesson": LESSON})
-check("a head teacher with two must say which", r.status_code == 400,
+check("the office does not file a lesson at all", r.status_code == 403,
       f"{r.status_code} {r.text[:90]}")
-check("and is told what the choices are",
-      "Biology" in r.text and "Maths" in r.text, r.text[:110])
+check("and is told whose it is",
+      "teacher of each subject" in r.text, r.text[:110])
 
 # Setting work goes through the same gate as filing a lesson.
 r = bio_c.post("/api/craxlearn/board/assign",

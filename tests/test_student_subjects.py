@@ -110,10 +110,16 @@ teacher.post(f"/api/teacher/class/{CID}/assignment",
 teacher.post(f"/api/teacher/class/{CID}/material/link",
              json={"title": "Light notes", "url": "https://ncert.nic.in/x",
                    "subject": "Physics", "note": "Read first"})
-# A worksheet under a subject that has no slot at all.
-admin.post(f"/api/teacher/class/{CID}/material/link",
-           json={"title": "Maths worksheet", "url": "https://x.in/m",
-                 "subject": "Mathematics", "note": ""})
+# A worksheet under a subject that has no slot at all. Filed directly,
+# because no route will accept one any more: `_board_subject` refuses a
+# subject the class does not have, and the office — which used to be allowed
+# to file anything anywhere — no longer files material at all. The row is
+# what this is about: schools have these from before both rules, and a child
+# must still see the worksheet.
+db.add(main.Material(class_id=CID, teacher_id=made["user_id"],
+                     subject="Mathematics", title="Maths worksheet",
+                     url="https://x.in/m", note=""))
+db.commit()
 
 main._CODE_TRIES.clear()
 main._CODE_FAILS.clear()

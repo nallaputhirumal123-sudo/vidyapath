@@ -145,11 +145,14 @@ allowed("only the school admin puts a teacher on a subject",
                          json={"class_id": CID, "subject": "Science",
                                "user_id": made["user_id"]}).status_code,
         {"school admin"})
+# The register is the school's list of children, not a subject's. A teacher
+# who could add a name could add one to a class they teach one lesson of, and
+# the office would not know the child existed. They still READ it — marking
+# is impossible without it — and that is a separate route.
 allowed("only the school admin types the register",
         lambda c: c.post(f"/api/teacher/class/{CID}/roster",
                          json={"names": "Temp Name"}).status_code,
-        {"school admin", "teacher"},
-        "a subject teacher of the class may also add a name")
+        {"school admin"})
 
 print("\nmoney and attendance")
 allowed("only the school admin reads the fee book",
@@ -175,19 +178,35 @@ allowed("staff set work, learners do not",
                          json={"subject": "Science", "title": "T",
                                "body": "b", "due_date": ""}).status_code,
         {"school admin", "teacher"})
-allowed("staff share material, learners do not",
+# Study material is the TEACHER's, and the school admin is now refused it.
+# The office ran the school and also had every teaching permission in it,
+# which is why an administrator and a teacher were looking at almost the same
+# dashboard — almost the same permissions sat behind it. A principal needs to
+# know a subject is being taught; they do not need to be the name on it.
+allowed("only the subject's teacher shares material",
         lambda c: c.post(f"/api/teacher/class/{CID}/material/link",
                          json={"title": "Notes", "url": "https://x.in/a",
                                "subject": "Science", "note": ""}).status_code,
-        {"school admin", "teacher"})
-allowed("staff file a taught lesson, learners do not",
+        {"teacher"})
+allowed("only the subject's teacher files a taught lesson",
         lambda c: c.post("/api/craxlearn/board/save",
                          json={"class_id": CID, "topic": "refraction", "title": "Ray",
                                "subject": "Science", "note": "",
                                "lesson": {"title": "T", "steps": [
                                    {"t": "a line", "where": "", "code": ""}],
                                    "takeaway": ""}}).status_code,
-        {"school admin", "teacher"})
+        {"teacher"})
+
+# And the AI. A school admin account has no teaching to do with an answer and
+# every school's records behind it — the last account that should hold a
+# general-purpose question box. Learners keep it; that is what it is for.
+allowed("the office has no Ask Axle",
+        lambda c: c.post("/api/board/lesson",
+                         json={"topic": "refraction",
+                               "level": "Intermediate"}).status_code,
+        set(),
+        "nobody succeeds here without an AI key; what is pinned is that the "
+        "school admin is refused BEFORE the key is even looked at")
 
 print("\nspeaking to the school")
 allowed("only the school admin addresses everybody",
