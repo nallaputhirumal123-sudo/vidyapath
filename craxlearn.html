@@ -47,9 +47,15 @@ h1{font-size:1.5rem}h2{font-size:1.2rem}h3{font-size:1rem}
   background:var(--panel2); position:sticky; top:0; z-index:50;
 }
 #brand{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:1.05rem}
+/* The mark itself, not a coloured circle standing in for one.
+   The gradient was a placeholder from before there was an icon; the icon has
+   existed since the board became installable, at every size, and a plain
+   orange dot on a screen at the front of a room is the one place a product
+   should not look unfinished. object-fit so a non-square asset is never
+   squashed, and the rounded corner because the icon is drawn with one. */
 #brand .dot{
-  width:1.5rem;height:1.5rem;border-radius:50%;flex:0 0 auto;
-  background:linear-gradient(150deg,var(--accent),var(--accent2));
+  width:1.6rem;height:1.6rem;border-radius:.42rem;flex:0 0 auto;
+  object-fit:cover;display:block;
 }
 #brand small{display:block;font-size:.5rem;font-weight:500;color:var(--muted);
   letter-spacing:.14em;text-transform:uppercase}
@@ -345,7 +351,7 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 <body>
 
 <div id="top">
-  <div id="brand"><span class="dot"></span>
+  <div id="brand"><img class="dot" src="/icon-192.png" alt="Craxle" width="192" height="192">
     <!-- The clock lives here, under the name, where the market segments
          used to be. That line named who the product is sold to, on a
          screen only people who already have it ever look at. -->
