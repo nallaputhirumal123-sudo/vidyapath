@@ -1305,7 +1305,6 @@ function home(){
          '<span class="muted">Anything you keep goes here.</span>' +
          "</div>";
   }
-  }
   /* Remote stays on an open board even though it needs an account: it is
      where "use your phone" lives, and a teacher looking for it must find
      the answer rather than find nothing. */
@@ -1363,6 +1362,7 @@ function home(){
             "</div>") +
         "</div>";
     }).join("");
+  }
   if(OPEN){
     h += signInPrompt("teach a topic, keep a lesson, or use your phone");
   }
