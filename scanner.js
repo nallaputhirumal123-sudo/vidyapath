@@ -659,16 +659,71 @@
      a proper export sitting there unused. */
   function pdf() {
     var s = SC.scan;
-    if (!s || typeof askPDF !== "function") return download();
+    if (!s) return;
     var steps = s.steps.map(function (st, i) {
       return (i + 1) + ". " + (st.heading ? st.heading + " — " : "") +
         (st.teach || "") + (st.working ? "\n" + st.working : "");
     });
     if (s.answer) steps.push("Answer: " + s.answer);
     if (s.next) steps.push("Next: " + s.next);
-    askPDF({ q: s.read, subject: s.subject || "Scan", level: s.kind,
-             title: s.subject || "Scanned problem", steps: steps,
-             takeaway: s.answer || "" });
+    if (typeof askPDF === "function") {
+      askPDF({ q: s.read, subject: s.subject || "Scan", level: s.kind,
+               title: s.subject || "Scanned problem", steps: steps,
+               takeaway: s.answer || "" });
+      return;
+    }
+    /* This module runs on the board as well, and the board has no askPDF —
+       it is defined in index.html and nothing loads it there. So "Download
+       PDF" quietly fell through to the plain-text export, and a teacher who
+       pressed it got a .txt with no explanation. That reads as a broken
+       button, which is exactly what it was.
+       A print view is the honest fallback: every browser turns one into a
+       PDF, and it needs nothing this page does not already have. */
+    printable(s, steps);
+  }
+
+  /* Opened as a document rather than built as a file. The one thing to get
+     right is that the window is opened SYNCHRONOUSLY inside the click —
+     opening it after an await is a pop-up the browser blocks, silently. */
+  function printable(s, steps) {
+    var esc = function (t) {
+      return String(t == null ? "" : t).replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    };
+    var w = window.open("", "_blank");
+    if (!w) {
+      alert("Your browser blocked the print window. Allow pop-ups for this "
+        + "site, or use Plain text.");
+      return;
+    }
+    var title = s.subject || "Scanned problem";
+    w.document.write(
+      "<!doctype html><meta charset=\"utf-8\"><title>" + esc(title) +
+      "</title><style>" +
+      "body{font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;" +
+      "max-width:44rem;margin:2.5rem auto;padding:0 1.5rem;color:#111}" +
+      "h1{font-size:1.5rem;margin:0 0 .2rem}" +
+      ".sub{color:#666;font-size:.8rem;margin-bottom:1.6rem}" +
+      "h2{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;" +
+      "color:#666;margin:1.6rem 0 .4rem}" +
+      "pre{white-space:pre-wrap;font:inherit;margin:0 0 1rem}" +
+      ".ans{border:1px solid #cbd5c0;background:#f4f8f0;border-radius:8px;" +
+      "padding:.8rem 1rem;margin-top:1rem}" +
+      "footer{margin-top:2.5rem;color:#888;font-size:.72rem;" +
+      "border-top:1px solid #eee;padding-top:.8rem}" +
+      "@media print{body{margin:0}}</style>" +
+      "<h1>" + esc(title) + "</h1>" +
+      "<div class=\"sub\">Craxle — craxle.com</div>" +
+      "<h2>What you asked</h2><pre>" + esc(s.read || "") + "</pre>" +
+      "<h2>Worked through</h2>" +
+      steps.map(function (t) { return "<pre>" + esc(t) + "</pre>"; }).join("") +
+      (s.answer ? "<div class=\"ans\"><b>Answer</b><br>" + esc(s.answer) +
+                  "</div>" : "") +
+      "<footer>Saved from Craxle — craxle.com</footer>");
+    w.document.close();
+    w.focus();
+    /* After the document has laid out, or the first page prints blank. */
+    setTimeout(function () { try { w.print(); } catch (e) {} }, 250);
   }
 
   function download() {
@@ -689,8 +744,16 @@
     a.href = URL.createObjectURL(b);
     a.download = "craxle-" + (s.subject || "scan")
       .replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 40) + ".txt";
+    /* In the document before it is clicked. A detached anchor works in
+       Chrome and does nothing at all in Firefox, which is a download button
+       that silently fails on somebody else's browser and works on yours. */
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    setTimeout(function () {
+      URL.revokeObjectURL(a.href);
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 4000);
   }
 
   function wire() {
