@@ -2253,7 +2253,14 @@ def _grant_teacher(db, user, school, school_id, role):
     # anything, and it catches accounts made before that mark existed — the
     # moment they are granted access here, which is the only way to become
     # staff at all.
-    if not (getattr(user, "kind", "") or ""):
+    # Anything that is not already a school kind. It used to be "only if the
+    # kind is empty", which stepped over somebody who signed up to Craxle as
+    # a learner and was given a subject code by a school a year later: they
+    # kept the learner kind, `plan_of` reads kind, and so the board offered
+    # a teacher a personal subscription for a tool their school had already
+    # bought — in front of the class. 'classcode' is excluded above and stays
+    # excluded; a child's sign-in is never staff.
+    if (getattr(user, "kind", "") or "") not in SCHOOL_KINDS:
         user.kind = "schoolstaff"
     ta = db.query(TeacherAccess).filter(TeacherAccess.user_id == user.id).first()
     if ta:
@@ -3190,16 +3197,31 @@ def my_classes(user: User = Depends(teacher_user), db: Session = Depends(get_db)
         classes = db.query(Klass).filter(Klass.id.in_(ids)).order_by(Klass.created_at.desc()).all() if ids else []
         my_ids = set()
     out = []
+    # Every class+subject this person actually holds, each with the code that
+    # binds the three together. One teacher, several of these — 9-A Maths,
+    # 9-A Science, 9-B Maths — and the code is SHOWN rather than hidden,
+    # because it is not a password: it is how a board is told which room and
+    # which subject it is standing in, and a teacher who cannot read it off
+    # their own screen has to go and ask the office for it.
+    posts = []
     for k in classes:
         n = db.query(func.count(ClassMember.id)).filter(ClassMember.class_id == k.id).scalar()
         a = db.query(func.count(Assignment.id)).filter(Assignment.class_id == k.id).scalar()
-        subs = {s.subject for s in db.query(SubjectSlot).filter(
-            SubjectSlot.class_id == k.id, SubjectSlot.teacher_id == user.id).all()}
+        slots = db.query(SubjectSlot).filter(
+            SubjectSlot.class_id == k.id,
+            SubjectSlot.teacher_id == user.id).all()
+        subs = {s.subject for s in slots}
+        mine = [{"class_id": k.id, "class_name": k.name,
+                 "subject": s.subject or "", "code": s.code,
+                 "slot_id": s.id, "students": n}
+                for s in sorted(slots, key=lambda x: (x.subject or ""))]
+        posts.extend(mine)
         out.append({"id": k.id, "name": k.name, "join_code": k.join_code,
                     "students": n, "assignments": a,
                     "role": "school admin" if head else "subject teacher",
-                    "my_subjects": sorted(subs)})
-    return {"classes": out, "is_head": head}
+                    "my_subjects": sorted(subs),
+                    "my_posts": mine})
+    return {"classes": out, "is_head": head, "posts": posts}
 
 
 @app.get("/api/teacher/class/{cid}")

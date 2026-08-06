@@ -34,6 +34,7 @@ def ck(n, c, d=""):
 
 IDX = io.open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
 MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+CRX = io.open(os.path.join(ROOT, "craxlearn.html"), encoding="utf-8").read()
 
 print("\nthe three roles have three names, not two")
 ck("there is a word for the office", "function isOffice()" in IDX)
@@ -78,6 +79,39 @@ ck("a teacher still SEES the register",
    "marking is impossible without knowing who is in the class")
 ck("but is drawn none of the buttons that change it",
    "const EDITABLE = isOffice() || (USER && USER.is_admin);" in IDX)
+
+print("\na teacher's posts are separate jobs, each with its code")
+ck("the dashboard lists class+subject, not class",
+   "const posts=data.posts||[];" in IDX,
+   "9-A Maths and 9-A Science are two jobs with two registers")
+ck("and the API answers with them", '"posts": posts' in MAIN)
+ck("the code is SHOWN, never hidden",
+   'title="The code for this subject in this class"' in IDX,
+   "it is how a board is told which room it is in, not a password")
+ck("each post opens the board already on it",
+   'href="/craxlearn#code=' in IDX)
+ck("carried in the fragment, which is never sent to a server",
+   "async function roomFromLink()" in CRX
+   and "location.pathname + location.search" in CRX)
+
+print("\npreparing is at a desk; the board is for putting up")
+ck("the teacher's own screen has the upload", "async function prepDo(" in IDX)
+ck("with both choices on it",
+   'data-how="asis"' in IDX and 'data-how="lesson"' in IDX)
+ck("and it files against ONE class and ONE subject",
+   'fd.append("class_id", String(cid));' in IDX
+   and 'fd.append("subject", subject);' in IDX)
+ck("the board no longer uploads anything",
+   "bringAsIs" not in CRX and "bringLesson" not in CRX,
+   "a board mid-lesson is for putting something up, not making it")
+ck("it is a shelf", '"<h1>Saved for this subject</h1>"' in CRX)
+
+print("\nand a conversation stays in its subject")
+ck("the class screen reads one subject's thread",
+   'api.get("/api/class/"+cid+"/discussion?subject="' in IDX)
+ck("and posts into it",
+   "parent_id:parentId||0, subject:discSubject()" in IDX,
+   "a class's Physics questions are not the Maths teacher's to read")
 
 print("\nand every gate above has a wall behind it")
 # A drawn door and an open door are different questions, and this file only

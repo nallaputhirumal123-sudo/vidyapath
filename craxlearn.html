@@ -644,7 +644,7 @@ var TOOL_NAMES = {
   materials:"Study material", roster:"Class register", roll:"Your classes",
   inbox:"To review", activity:"What the class is asking",
   sources:"Where answers come from", remote:"Remote",
-  bring:"Bring in a document",
+  bring:"Saved for this subject",
   assignment:"Assignment",
   student:"A student", review:"Reviewing"
 };
@@ -1211,8 +1211,8 @@ var TILES = [
     sub:"Mix real reagents and run real experiments. Every reaction from a table, never guessed." },
   { page:"sqlboard", ic:"🗄️", name:"SQL board",
     sub:"Write queries against a real database and see what comes back." },
-  { page:"bring",  ic:"📄", name:"Bring in a document",
-    sub:"Put a chapter, a worksheet or a past paper on the board — as it is, or written up as a lesson." },
+  { page:"bring",  ic:"📄", name:"Saved for this subject",
+    sub:"The lessons, documents and pictures kept for this class. Put one up." },
   { page:"remote", ic:"📱", name:"Remote",
     sub:"Drive this board from your phone, so you can teach facing the room." }
 ];
@@ -4289,52 +4289,37 @@ async function bring(arg){
   var where = bringWhere();
   var m = main();
   if(!where){
-    m.innerHTML = '<h1>Bring in a document</h1>' +
+    m.innerHTML = "<h1>Saved for this subject</h1>" +
       '<div class="note">Open a classroom first — enter the class or ' +
-      'subject code your school gave you. A document has to be filed ' +
-      'somewhere, and this board does not yet know where it is standing.</div>';
+      'subject code your school gave you. This board does not yet know ' +
+      "where it is standing, so it cannot say what has been kept here.</div>";
     return;
   }
 
-  m.innerHTML = '<h1>Bring in a document</h1>' +
-    '<div class="note"><b>' + esc(where.class_name) + '</b>' +
-      (where.subject ? ' · <b>' + esc(where.subject) + "</b>" : "") +
-      '<div class="muted">Whatever you bring in is kept here, and is on the ' +
-      'class’s Study material page straight away.</div></div>' +
-    '<div class="card">' +
-      '<input type="file" id="brFile" ' +
-        'accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp">' +
-      (where.fixed ? "" :
-        '<div style="margin:.6rem 0">' +
-          subjectPicker("brSubject", where.class_id) + "</div>") +
-      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.7rem">' +
-        '<button class="btn" id="brAsIs">Show it as it is</button>' +
-        '<button class="btn ghost" id="brLesson">Write it up as a lesson</button>' +
-      "</div>" +
-      '<div class="muted" id="brMsg" style="margin-top:.6rem">' +
-        "<b>As it is</b> keeps the document unchanged — right for a " +
-        "worksheet, a past paper or a diagram, and the only one that works " +
-        "on a scan. <b>Written up</b> reads a PDF and turns it into steps " +
-        "the back of the room can read." +
-      "</div>" +
-    "</div>" +
+  /* A shelf, not a workshop.
+   *
+   * Uploading a chapter and having it written up as a lesson used to be
+   * here, and it is the wrong place for it. Preparing a lesson is done at a
+   * desk, with a keyboard and a file browser, before the class arrives — it
+   * belongs on the teacher's own screen and that is where it now lives, one
+   * panel per class and subject they teach. A board at the front of a room
+   * is for PUTTING SOMETHING UP: the teacher is mid-sentence, thirty people
+   * are waiting, and the only thing they want from this screen is the thing
+   * they already made.
+   *
+   * So what is here is what has been kept for this class and this subject,
+   * and one button against each of them.
+   */
+  m.innerHTML = "<h1>Saved for this subject</h1>" +
+    '<div class="note"><b>' + esc(where.class_name) + "</b>" +
+      (where.subject ? " · <b>" + esc(where.subject) + "</b>" : "") +
+      '<div class="muted">Everything your school has kept here — lessons, ' +
+      "documents and pictures. Prepared on your own screen, put up from " +
+      "this one.</div></div>" +
     '<div id="brOut"></div>' +
     '<div id="bOut"></div>' +
     '<div id="brSaved"><div class="muted">Looking for what is already ' +
       "saved…</div></div>";
-
-  function subjectNow(){
-    return where.fixed ? where.subject
-                       : ((el("brSubject") || {}).value || "").trim();
-  }
-  function chosen(){
-    var f = (el("brFile") || {}).files;
-    return f && f.length ? f[0] : null;
-  }
-
-  el("brAsIs").onclick = function(){ bringAsIs(where, subjectNow(), chosen()); };
-  el("brLesson").onclick = function(){
-    bringLesson(where, subjectNow(), chosen()); };
 
   await bringSaved(where);
 
@@ -4343,7 +4328,7 @@ async function bring(arg){
   var want = arg && arg.put;
   if(want){
     var hit = (BROUGHT || []).filter(function(x){ return x.id === +want; })[0];
-    if(hit) await bringOpen(where, subjectNow(), hit);
+    if(hit) await bringOpen(where, where.subject, hit);
   }
 }
 
@@ -4352,101 +4337,11 @@ function bringQuery(where, subject){
          "&subject=" + encodeURIComponent(subject || "");
 }
 
-async function bringAsIs(where, subject, file){
-  var msg = el("brMsg");
-  if(!file){ msg.textContent = "Choose a file first."; return; }
-  if(!where.fixed && !subject){
-    msg.textContent = "Say which subject this belongs to."; return;
-  }
-  msg.textContent = "Keeping it…";
-  try{
-    var fd = new FormData();
-    fd.append("file", file, file.name || "document");
-    fd.append("class_id", String(where.class_id || 0));
-    fd.append("subject", subject || "");
-    var d = await window.bapi.send("/api/craxlearn/board/file", fd);
-    msg.textContent = "Kept. It is on the class’s Study material page now.";
-    await bringSaved(where);
-    if(d && d.material) bringOpen(where, subject, d.material);
-  }catch(e){
-    msg.textContent = e.message;
-  }
-}
 
-async function bringLesson(where, subject, file){
-  var msg = el("brMsg");
-  if(!file){ msg.textContent = "Choose a file first."; return; }
-  if(!where.fixed && !subject){
-    msg.textContent = "Say which subject this belongs to."; return;
-  }
-  if(!/\.pdf$/i.test(file.name || "")){
-    msg.textContent = "Writing one up reads a PDF. For anything else, show " +
-                      "it as it is.";
-    return;
-  }
-  msg.textContent = "Reading it and writing the lesson… this takes a moment.";
-  var d;
-  try{
-    var fd = new FormData();
-    fd.append("file", file, file.name || "document.pdf");
-    d = await window.bapi.send("/api/teach/pdf", fd);
-  }catch(e){
-    msg.textContent = e.message;
-    return;
-  }
-  var L = d.lesson || {};
-  var topic = L.title || (file.name || "Document").replace(/\.pdf$/i, "");
-  msg.textContent = d.cached
-    ? "Written up already — this document had been read before."
-    : "Written up. Keep it and the class can read it again.";
-
-  /* Keeping it is a separate press, because a lesson a teacher has not
-     looked at yet is not one they have decided to file. */
-  var tail =
-    '<div class="eyebrow">Keep it on this subject</div><div class="card">' +
-    '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
-      '<input id="brNote" style="flex:1 1 12rem" ' +
-        'placeholder="A line about it (optional)">' +
-      '<button class="btn" id="brKeep">Keep it</button>' +
-    "</div>" +
-    '<div class="muted" id="brKeepMsg" style="margin-top:.5rem">' +
-      "It goes to " + esc(where.class_name) +
-      (subject ? " · " + esc(subject) : "") +
-      ", where the class can open it any time." +
-    "</div></div>";
-
-  LESSON = { raw: L, topic: topic, title: L.title || topic,
-             pages: lessonPages(L, topic), at: 0,
-             view: lessonView(), tail: tail };
-  paintLesson();
-
-  var keep = el("brKeep");
-  if(keep) keep.onclick = async function(){
-    var k = el("brKeepMsg");
-    k.textContent = "Keeping…";
-    try{
-      await window.bapi.post("/api/craxlearn/board/save", {
-        class_id: where.class_id, subject: subject,
-        topic: topic, title: LESSON.title,
-        note: ((el("brNote") || {}).value || "").trim(),
-        lesson: L
-      });
-      k.textContent = "Kept. It is under Saved on this subject now.";
-      await bringSaved(where);
-    }catch(e){ k.textContent = e.message; }
-  };
-}
-
-/* What is already here, ready to put straight back up.
- *
- * The point of keeping a lesson is opening it again, and until now the only
- * way back to one was the class page on somebody's laptop — which is not
- * where the teacher is standing when they want it. */
 async function bringSaved(where){
   var host = el("brSaved");
   if(!host) return;
-  var subject = where.fixed ? where.subject
-                            : ((el("brSubject") || {}).value || "").trim();
+  var subject = where.subject || "";
   var d;
   try{
     d = await window.bapi.get("/api/craxlearn/board/materials" +
@@ -4661,6 +4556,28 @@ async function refreshMe(){
   }catch(e){ ME.assignments = []; }
 }
 
+/* A code carried in from the teacher's own dashboard.
+ *
+ * A teacher's screen on craxle.com lists every class and subject they hold,
+ * each with its code. Pressing "Teach on the board" there opens this page
+ * with the code in the fragment, so the room is already open and the
+ * document tool and the saved shelf are already pointed at that class and
+ * that subject.
+ *
+ * The FRAGMENT, not the query string. What follows # is never sent to the
+ * server and does not go in a server log; it is also stripped from the
+ * address bar the moment it has been used, so a code does not sit on a
+ * screen at the front of a room for the rest of the day.
+ */
+async function roomFromLink(){
+  var m = /(?:^|[#&])code=([A-Za-z0-9-]{3,16})/.exec(location.hash || "");
+  if(!m) return false;
+  try{ history.replaceState(null, "", location.pathname + location.search); }
+  catch(e){ location.hash = ""; }
+  var room = await openRoom(m[1]);
+  return !!(room && room.kind);
+}
+
 async function boot(){
   try{
     ME = await api.get("/api/craxlearn/me");
@@ -4668,6 +4585,14 @@ async function boot(){
     ME = null;
   }
   if(ME) await refreshMe();
+  /* Before the gate is drawn, so a teacher arriving from their dashboard
+     never sees a code box they have already answered. */
+  var linked = await roomFromLink();
+  if(linked && !ME){
+    openBoard();
+    go("bring");
+    return;
+  }
   var signedIn = !!ME;
   el("gate").hidden = signedIn;
   el("app").hidden = !signedIn;
@@ -4686,7 +4611,10 @@ async function boot(){
   }
   el("who").innerHTML = "<b>" + esc(ME.user.name) + "</b>" +
     esc(ME.institution ? ME.institution.name : (ME.role || "learner"));
-  PANES = [{ page:"home", arg:null }];
+  /* Arrived from a subject card: open on the documents and the saved shelf
+     for that subject, which is what the teacher pressed the button for. A
+     signed-in teacher lands here too, not only a bare board. */
+  PANES = [{ page: linked ? "bring" : "home", arg:null }];
   LIVE = 0;
   paintPanes();
 }
