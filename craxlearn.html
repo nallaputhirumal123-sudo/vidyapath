@@ -508,7 +508,9 @@ function _detailText(detail, status, statusText){
 }
 
 async function req(method, path, body){
-  var opt = { method:method, credentials:"same-origin",
+  /* "omit", not "same-origin". The board must not become whoever last
+     signed in to craxle.com on this machine — see boot(). */
+  var opt = { method:method, credentials:"omit",
               headers:{ "Content-Type":"application/json" } };
   if(body !== undefined) opt.body = JSON.stringify(body);
   var r = await fetch(path, opt);
@@ -579,7 +581,7 @@ window.bapi = {
 };
 
 async function _bfetch(method, path, body, headers){
-  var opt = { method:method, credentials:"same-origin",
+  var opt = { method:method, credentials:"omit",
               headers: bhdr(headers) };
   if(body !== null && body !== undefined) opt.body = body;
   var r = await fetch(path, opt);
@@ -1458,7 +1460,7 @@ function home(){
     }).join("");
   }
   if(OPEN){
-    h += signInPrompt("teach a topic, keep a lesson, or use your phone");
+    h += signInPrompt("keep what you teach on a class page");
   }
   if(!teacher && (ME.classes || []).length){
     h += '<div class="eyebrow">From your teacher</div><div class="tiles">' +
@@ -2406,7 +2408,11 @@ function openBoard(){
   el("gate").hidden = true;
   el("app").hidden = false;
   el("who").innerHTML = "<b>This board</b>not signed in";
-  PANES = [{ page:"write", arg:null }];
+  /* A board with no code opens straight onto the writing space, because
+     there is nothing else it can do. A board that knows its subject opens on
+     the home screen, where the teaching tiles are AND everything already
+     saved for that subject is one press from the screen. */
+  PANES = [{ page: boarded() ? "home" : "write", arg:null }];
   LIVE = 0;
   paintPanes();
 }
@@ -2414,13 +2420,19 @@ function openBoard(){
 /* The one thing an open board says about itself: what signing in would add.
    Shown where the Keep and Remote blocks would be, so the answer is in the
    place the question is asked rather than in a menu. */
+/* There is no sign-in on this board, so this offers the only thing there is:
+   a subject code. It said "Sign in" and pointed at a form that no longer
+   exists — a button that takes somebody to a place they cannot get to is
+   worse than no button, and worse still on a screen a class is watching. */
 function signInPrompt(what){
+  if(boarded()) return "";
   return '<div class="note">' +
-    "<b>Sign in to " + esc(what) + ".</b> This board is open — anybody can " +
-    "teach on it, and nothing is kept. Signing in puts what you teach on " +
-    "your own subject's page and lets your phone drive the board." +
+    "<b>Enter your subject code to " + esc(what) + ".</b> This board is open " +
+    "— anybody can write on it, and nothing is kept. The code your school " +
+    "gave you for a subject opens that class here, and whatever you teach is " +
+    "saved to it." +
     ' <button class="btn" data-signin="1" style="margin-top:.6rem">' +
-    "Sign in</button></div>";
+    "Enter a code</button></div>";
 }
 
 function wireSignIn(host){
@@ -3512,7 +3524,8 @@ async function materials(){
        browser generates, which the server then cannot parse. */
     try{
       var r = await fetch("/api/teacher/class/" + cid + "/material/file",
-                          { method:"POST", credentials:"same-origin", body:fd });
+                          { method:"POST", credentials:"omit",
+                            headers: bhdr(), body:fd });
       var data = null;
       try{ data = await r.json(); }catch(err){}
       if(!r.ok) throw new Error((data && data.detail) || "Upload failed");
@@ -4431,7 +4444,7 @@ async function bringOpen(where, subject, mat){
   try{
     var r = await fetch("/api/craxlearn/board/material/" + mat.id + "/file" +
                         bringQuery(where, subject),
-                        { credentials:"same-origin", headers: bhdr() });
+                        { credentials:"omit", headers: bhdr() });
     if(!r.ok) throw new Error("That document could not be opened.");
     var blob = await r.blob();
     var url = URL.createObjectURL(blob);
@@ -4578,22 +4591,37 @@ async function roomFromLink(){
   return !!(room && room.kind);
 }
 
+/* The board is not signed in, and cannot be.
+ *
+ * It used to read the craxle.com session: whatever account happened to be
+ * signed in on that browser became the board. On a machine in a classroom
+ * that is whoever last used it — a child on the shared computer, a member of
+ * office staff checking a fee, a teacher who signed in on Monday — and the
+ * board would come up as them, with their classes and their subjects on a
+ * screen the whole room can see.
+ *
+ * A board is a screen on a wall. It has no user. It knows which room it is
+ * standing in because somebody typed a subject code, and that code buys one
+ * capability — file a lesson into THIS class and THIS subject — and reads
+ * nothing at all: no register, no mark, no discussion, no fee.
+ *
+ * So craxlearn does not send the cookie, on any request, ever. What reaches
+ * this screen from craxle.com is exactly what a teacher put on that
+ * subject's shelf, and it reaches it through the code rather than through an
+ * account. That is the whole seam between the two halves of the product, and
+ * it is one line: credentials "omit".
+ */
 async function boot(){
-  try{
-    ME = await api.get("/api/craxlearn/me");
-  }catch(err){
-    ME = null;
-  }
-  if(ME) await refreshMe();
+  ME = null;
   /* Before the gate is drawn, so a teacher arriving from their dashboard
      never sees a code box they have already answered. */
   var linked = await roomFromLink();
-  if(linked && !ME){
+  if(linked){
     openBoard();
-    go("bring");
+    go("home");
     return;
   }
-  var signedIn = !!ME;
+  var signedIn = false;
   el("gate").hidden = signedIn;
   el("app").hidden = !signedIn;
   if(!signedIn){
@@ -4609,14 +4637,6 @@ async function boot(){
     tab("Code");
     return;
   }
-  el("who").innerHTML = "<b>" + esc(ME.user.name) + "</b>" +
-    esc(ME.institution ? ME.institution.name : (ME.role || "learner"));
-  /* Arrived from a subject card: open on the documents and the saved shelf
-     for that subject, which is what the teacher pressed the button for. A
-     signed-in teacher lands here too, not only a bare board. */
-  PANES = [{ page: linked ? "bring" : "home", arg:null }];
-  LIVE = 0;
-  paintPanes();
 }
 
 function tab(which){

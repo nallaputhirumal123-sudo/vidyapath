@@ -403,7 +403,12 @@ TEACHING = ("/api/ask", "/api/board", "/api/class", "/api/course",
             # into a lesson. All three are teaching and none of them touch
             # the job half — which is the thing this test exists to keep
             # true for a school that bought only the teaching product.
-            "/api/my/notices", "/api/report", "/api/teach")
+            "/api/my/notices", "/api/report", "/api/teach",
+            # A child's private line to the teacher of a subject, and the
+            # teacher's line back. Teaching: it is anchored to a class and a
+            # subject and cannot exist without one, and a school that bought
+            # only the teaching product must have it.
+            "/api/messages")
 unfiled = []
 for r_ in main.app.routes:
     p = getattr(r_, "path", "")

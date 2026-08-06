@@ -1050,6 +1050,46 @@ class AssignmentMessage(Base):
     created_at = Column(DateTime(timezone=True), default=now)
 
 
+class DirectMessage(Base):
+    """A private line between one child and the teacher of one subject.
+
+    The shape is the rule, and the rule is not symmetric: **a child may write
+    to the teacher of a subject their class is taught, and to nobody else.**
+    Not to another child, not to a teacher who does not teach them, not to the
+    office. A teacher may write to any child on the register of a class and
+    subject they hold.
+
+    That asymmetry is the whole point of building this rather than a general
+    messaging system. A school that gives thirty children a private channel to
+    each other has taken on moderating it, at night, in a product with no
+    moderators — and the thing children actually cannot do today is ask their
+    teacher a question they do not want to ask in front of the class.
+
+    Anchored to (class, subject) rather than to two people, because that is
+    what makes the permission answerable: the same two accounts may be
+    teacher-and-pupil in Physics and nothing to each other in Maths, and a
+    thread that forgot which one it belonged to could not tell.
+
+    Every column that could be null is, because the legacy migration path
+    adds columns without a default. Nothing here is required for the app to
+    boot on an older row.
+    """
+    __tablename__ = "direct_messages"
+    id = Column(Integer, primary_key=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    subject = Column(String(80), default="")
+    student_id = Column(Integer, nullable=False, index=True)
+    teacher_id = Column(Integer, nullable=False, index=True)
+    # Who wrote it, rather than a sender id to be compared against the two
+    # above: the sender is always one of them, and a boolean cannot drift out
+    # of step with the pair the way a third id can.
+    from_teacher = Column(Boolean, default=False)
+    body = Column(Text, default="")
+    read_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+
+
 class TeacherRequest(Base):
     """A subject teacher asking the head teacher for something (a new subject,
     a change). Subject teachers cannot create classes/subjects themselves."""
@@ -8270,6 +8310,185 @@ def drop_material(mid: int, user: User = Depends(teacher_user),
     db.delete(m)
     db.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# A private line to the teacher, and only to the teacher.
+#
+# The group thread — the classroom discussion, one per subject — already
+# exists and is where a class talks in front of its teacher. What did not
+# exist is the quiet question: a child who will not put their hand up, and
+# will not type it under their own name in front of thirty classmates.
+#
+# The rule is deliberately not symmetric, and that is why this is a feature
+# rather than a messaging system:
+#
+#   a child   may write to the teacher of a subject their class is taught,
+#             and to nobody else. Not to another child.
+#   a teacher may write to any child on the register of a class and subject
+#             they hold.
+#
+# A school that hands thirty children a private channel to each other has
+# taken on moderating it, in the evenings, in a product with no moderators.
+# The thing children actually cannot do today is ask their teacher something
+# without an audience, and that is what this is.
+
+class DMIn(BaseModel):
+    class_id: int
+    subject: str = Field(default="", max_length=80)
+    to_id: int = 0            # a teacher naming which child; ignored for a child
+    body: str = Field(min_length=1, max_length=4000)
+
+
+def _dm_pair(db, cid, subject, user, to_id=0):
+    """Resolve one conversation, or refuse.
+
+    Returns (student_id, teacher_id, subject, i_am_teacher). Every refusal in
+    the rule above happens here, and nothing downstream re-checks — so nothing
+    downstream can disagree with it.
+    """
+    k = db.get(Klass, cid)
+    if not k:
+        raise HTTPException(404, "Class not found")
+    want = (subject or "").strip()[:80]
+    slots = db.query(SubjectSlot).filter(SubjectSlot.class_id == cid).all()
+    match = [x for x in slots if (x.subject or "").lower() == want.lower()]
+    if not match:
+        raise HTTPException(404, "That class has no such subject")
+    slot = match[0]
+
+    mine = db.query(SubjectSlot).filter(
+        SubjectSlot.class_id == cid,
+        SubjectSlot.teacher_id == user.id).all()
+    teaching_here = any((x.subject or "").lower() == want.lower() for x in mine)
+
+    if teaching_here or user.is_admin:
+        # A teacher writing to one child. The child has to be ON the register
+        # of this class: an id typed into a URL must not reach somebody
+        # else's pupil.
+        if not to_id:
+            raise HTTPException(400, "Say which student.")
+        member = (db.query(ClassMember)
+                    .filter(ClassMember.class_id == cid,
+                            ClassMember.user_id == to_id).first())
+        if not member:
+            raise HTTPException(404, "No student of this class has that id")
+        return to_id, (slot.teacher_id or user.id), slot.subject or want, True
+
+    member = (db.query(ClassMember)
+                .filter(ClassMember.class_id == cid,
+                        ClassMember.user_id == user.id).first())
+    if not member:
+        raise HTTPException(403, "You are not in this class")
+    if not slot.teacher_id:
+        raise HTTPException(
+            409, "No teacher is on that subject yet, so there is nobody to "
+                 "write to. Ask the school office.")
+    # A child does not choose who they are writing to. Whatever to_id says is
+    # thrown away here: the recipient is the teacher of the subject, and that
+    # is the only person a child can reach.
+    return user.id, slot.teacher_id, slot.subject or want, False
+
+
+@app.get("/api/messages")
+def my_messages(user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Every private conversation this account is part of, newest first.
+
+    The home screen's inbox. A teacher sees one row per child who has written
+    to them; a child sees one row per subject.
+    """
+    rows = (db.query(DirectMessage)
+              .filter(or_(DirectMessage.student_id == user.id,
+                          DirectMessage.teacher_id == user.id))
+              .order_by(DirectMessage.created_at.desc()).limit(400).all())
+
+    threads, order = {}, []
+    for m in rows:
+        key = (m.class_id, (m.subject or "").lower(),
+               m.student_id, m.teacher_id)
+        if key not in threads:
+            threads[key] = {"class_id": m.class_id, "subject": m.subject or "",
+                            "student_id": m.student_id,
+                            "teacher_id": m.teacher_id,
+                            "last": (m.body or "")[:160], "unread": 0,
+                            "at": m.created_at.isoformat() if m.created_at else ""}
+            order.append(key)
+        mine = bool(m.from_teacher) == (m.teacher_id == user.id)
+        if not mine and m.read_at is None:
+            threads[key]["unread"] += 1
+
+    ids, cids = set(), set()
+    for t in threads.values():
+        ids.add(t["student_id"])
+        ids.add(t["teacher_id"])
+        cids.add(t["class_id"])
+    names = {u.id: u.name for u in
+             db.query(User).filter(User.id.in_(ids)).all()} if ids else {}
+    classes = {k.id: k.name for k in
+               db.query(Klass).filter(Klass.id.in_(cids)).all()} if cids else {}
+
+    out = []
+    for key in order:
+        t = threads[key]
+        other = t["teacher_id"] if t["student_id"] == user.id else t["student_id"]
+        t["with_id"] = other
+        # The name, always. A message from an id is a message from nobody.
+        t["with"] = names.get(other, "")
+        t["class_name"] = classes.get(t["class_id"], "")
+        t["i_am_teacher"] = t["teacher_id"] == user.id
+        out.append(t)
+    return {"threads": out, "unread": sum(t["unread"] for t in out)}
+
+
+@app.get("/api/messages/thread")
+def message_thread(class_id: int, subject: str = "", with_id: int = 0,
+                   user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    """One conversation. Reading it marks the other side's messages read."""
+    sid, tid, subj, am_teacher = _dm_pair(db, class_id, subject, user, with_id)
+    rows = (db.query(DirectMessage)
+              .filter(DirectMessage.class_id == class_id,
+                      func.lower(func.coalesce(DirectMessage.subject, ""))
+                      == (subj or "").lower(),
+                      DirectMessage.student_id == sid,
+                      DirectMessage.teacher_id == tid)
+              .order_by(DirectMessage.created_at.asc()).limit(500).all())
+    names = {u.id: u.name for u in
+             db.query(User).filter(User.id.in_({sid, tid})).all()}
+    changed = False
+    for m in rows:
+        if bool(m.from_teacher) != am_teacher and m.read_at is None:
+            m.read_at = now()
+            changed = True
+    if changed:
+        db.commit()
+    return {"class_id": class_id, "subject": subj,
+            "student": names.get(sid, ""), "teacher": names.get(tid, ""),
+            "i_am_teacher": am_teacher, "with_id": sid if am_teacher else tid,
+            "messages": [{"id": m.id, "body": m.body or "",
+                          "from_teacher": bool(m.from_teacher),
+                          "from": names.get(tid if m.from_teacher else sid, ""),
+                          "mine": bool(m.from_teacher) == am_teacher,
+                          "at": m.created_at.isoformat() if m.created_at else ""}
+                         for m in rows]}
+
+
+@app.post("/api/messages")
+def send_message(body: DMIn, user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    """Write to your teacher, or to one of your students."""
+    sid, tid, subj, am_teacher = _dm_pair(db, body.class_id, body.subject,
+                                          user, body.to_id)
+    m = DirectMessage(class_id=body.class_id, subject=subj,
+                      student_id=sid, teacher_id=tid,
+                      from_teacher=am_teacher,
+                      body=body.body.strip()[:4000])
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return {"ok": True, "id": m.id,
+            "at": m.created_at.isoformat() if m.created_at else ""}
 
 
 def _discussion_scope(db, cid, user):

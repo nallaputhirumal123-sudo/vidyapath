@@ -2284,6 +2284,9 @@ function renderNav(){
   const head = isOffice() || USER.is_admin;
   const teaching = teaches();
   h+=nav("home","🏠","Home")
+   /* Everybody, staff and learners alike. A private line only one side can
+      find is a private line nobody uses. */
+   + nav("messages","✉️","Messages")
    + (staff ? "" : nav("class","🎓","My class"))
    + (staff ? "" : nav("paths","🧭","Choose a path"))
    + (staff ? "" : nav("projects","🛠️","Projects"))
@@ -5848,6 +5851,203 @@ async function tcJoin(){
   catch(e){ if(m)m.textContent=e.message; }
 }
 
+
+/* ---------- the quiet question ----------
+ *
+ * The classroom discussion is the group, one thread per subject, in front of
+ * everybody. This is the other half: a child who will not put their hand up,
+ * and will not type the question under their own name in front of thirty
+ * classmates.
+ *
+ * The rule is not symmetric and the screen says so rather than hiding it. A
+ * child picks a SUBJECT, not a person — the recipient is the teacher of that
+ * subject and there is nobody else to choose. A teacher picks a child, from
+ * the register of a class they teach. There is no path from one child to
+ * another anywhere on this screen, and none on the server either.
+ */
+let DM = {threads: [], open: null, busy: false};
+
+function dmUnread(){
+  return (DM.threads || []).reduce((n, t) => n + (t.unread || 0), 0);
+}
+
+async function dmLoad(){
+  try{ const d = await api.get("/api/messages");
+       DM.threads = d.threads || []; }
+  catch(e){ DM.threads = []; }
+}
+
+/* One line on the home screen, and only when there is something on it. A
+   permanent empty inbox is a row of furniture everybody learns to skip. */
+function dmHomeBlock(){
+  const n = dmUnread();
+  const t = DM.threads || [];
+  if(!t.length) return "";
+  return `<div class="card" style="margin-bottom:14px;border-color:${
+      n ? "var(--accent)" : "var(--line,#2a2a2a)"}">
+    <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+      <div><b>✉️ Messages</b>
+        <div style="font-size:12.5px;color:var(--dim);margin-top:2px">${
+          n ? n + " unread" : "nothing new"} · ${t.length} conversation${
+          t.length === 1 ? "" : "s"}</div></div>
+      <button class="btn sm ${n ? "" : "ghost"}" data-nav="messages">Open →</button>
+    </div>
+    ${t.slice(0, 3).map(x => `<div style="font-size:12.5px;color:var(--dim);
+        margin-top:7px;border-top:1px solid var(--line,#2a2a2a);padding-top:7px">
+        <b style="color:var(--body)">${esc(x.with || "—")}</b>
+        · ${esc(x.class_name || "")}${x.subject ? " · " + esc(x.subject) : ""}
+        ${x.unread ? `<span style="color:var(--accent)"> · ${x.unread} new</span>` : ""}
+        <div style="margin-top:2px">${esc((x.last || "").slice(0, 90))}</div>
+      </div>`).join("")}
+  </div>`;
+}
+
+async function renderMessages(){
+  $("#main").innerHTML = `<div class="h1">✉️ Messages</div><p class="sub">Loading…</p>`;
+  await dmLoad();
+  const mine = DM.threads || [];
+  const teacher = teaches();
+
+  /* A child starts one by choosing a SUBJECT. There is no person to pick:
+     the recipient is whoever teaches it, and that is the whole rule. */
+  let starter = "";
+  if(!teacher){
+    /* Their own classes, and the subjects each is taught. Fetched here
+       rather than read off a global, because the only screen that had this
+       was the class page and a message screen that depended on having
+       visited it first would be empty for exactly the child who needs it. */
+    let cls = [];
+    try{ cls = (await api.get("/api/class/mine")).classes || []; }
+    catch(e){ cls = []; }
+    const opts = [];
+    for(const c of cls){
+      let subs = [];
+      try{ subs = ((await api.get("/api/class/" + c.id + "/subjects"))
+                    .subjects) || []; }
+      catch(e){ subs = []; }
+      subs.forEach(s => {
+        const nm = s.subject || s.name;
+        if(nm) opts.push({cid: c.id, cname: c.name || "", subject: nm,
+                          teacher: s.teacher || ""});
+      });
+    }
+    if(opts.length){
+      starter = `<div class="card" style="margin-bottom:16px">
+        <b>Ask a teacher something</b>
+        <div style="font-size:12.5px;color:var(--dim);margin:3px 0 9px">
+          It goes to the teacher of that subject and to nobody else. Your
+          classmates cannot see it.</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="flex:1 1 12rem;margin:0">
+            <label>Subject</label>
+            <select id="dmSubject" class="ask-input">${opts.map((o, i) =>
+              `<option value="${i}">${esc(o.cname)} · ${esc(o.subject)}${
+                o.teacher ? " — " + esc(o.teacher) : ""}</option>`).join("")}</select>
+          </div>
+        </div>
+        <div class="field" style="margin-top:8px"><label>Your message</label>
+          <textarea id="dmNew" class="pj-note" style="width:100%;min-height:66px"
+            placeholder="Ask anything you did not want to ask in front of the class…"></textarea></div>
+        <button class="btn sm" data-cls="dmsend">Send</button>
+        <span id="dmMsg" style="font-size:12.5px;color:var(--dim);margin-left:8px"></span>
+      </div>`;
+      DM.opts = opts;
+    }
+  }
+
+  $("#main").innerHTML = `<div class="h1">✉️ Messages</div>
+    <p class="sub">${teacher
+      ? "What your students have asked you, one conversation each. They can write to you; they cannot write to each other."
+      : "Your teachers. Each subject is its own conversation, private between you and whoever teaches it."}</p>
+    ${starter}
+    ${mine.length ? mine.map((x, i) => `<div class="card" style="margin-bottom:10px;
+        border-color:${x.unread ? "var(--accent)" : "var(--line,#2a2a2a)"}">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="min-width:0">
+          <b>${esc(x.with || "—")}</b>
+          <div style="font-size:12.5px;color:var(--dim);margin-top:2px">${
+            esc(x.class_name || "")}${x.subject ? " · " + esc(x.subject) : ""}${
+            x.unread ? ` · <span style="color:var(--accent)">${x.unread} new</span>` : ""}</div>
+          <div style="font-size:13px;margin-top:5px">${esc((x.last || "").slice(0, 140))}</div>
+        </div>
+        <button class="btn sm ghost" data-cls="dmopen" data-i="${i}">Open →</button>
+      </div>
+      <div id="dmThread${i}"></div>
+    </div>`).join("")
+      : `<div class="card" style="color:var(--dim)">${teacher
+          ? "Nothing yet. A student can write to you from their own Messages screen."
+          : "Nothing yet."}</div>`}`;
+}
+
+async function dmOpen(i){
+  const t = (DM.threads || [])[i];
+  const host = document.getElementById("dmThread" + i);
+  if(!t || !host) return;
+  host.innerHTML = `<div style="font-size:12.5px;color:var(--dim);margin-top:8px">Loading…</div>`;
+  let d;
+  try{
+    d = await api.get("/api/messages/thread?class_id=" + t.class_id
+      + "&subject=" + encodeURIComponent(t.subject || "")
+      + "&with_id=" + (t.with_id || 0));
+  }catch(e){
+    host.innerHTML = `<div style="font-size:12.5px;color:var(--dim);margin-top:8px">${esc(e.message)}</div>`;
+    return;
+  }
+  host.innerHTML = `<div style="margin-top:10px;border-top:1px solid var(--line,#2a2a2a);padding-top:10px">
+    ${(d.messages || []).map(m => `<div style="display:flex;justify-content:${
+        m.mine ? "flex-end" : "flex-start"};margin-bottom:7px">
+      <div style="max-width:80%;padding:8px 11px;border-radius:12px;font-size:13.5px;
+        white-space:pre-wrap;word-break:break-word;
+        background:${m.mine ? "rgba(255,153,51,.14)" : "var(--panel2)"};
+        border:1px solid ${m.mine ? "rgba(255,153,51,.3)" : "var(--line,#2a2a2a)"}">
+        <div style="font-size:11px;color:var(--dim);margin-bottom:3px">${esc(m.from || "")}</div>
+        ${esc(m.body || "")}</div>
+    </div>`).join("") || `<div style="font-size:12.5px;color:var(--dim)">No messages yet.</div>`}
+    <div class="row" style="gap:6px;margin-top:8px;align-items:flex-end">
+      <textarea id="dmReply${i}" class="pj-note" style="flex:1;min-height:52px;width:auto"
+        placeholder="Write a reply…"></textarea>
+      <button class="btn sm" data-cls="dmreply" data-i="${i}">Send</button>
+    </div>
+    <div id="dmReplyMsg${i}" style="font-size:12px;color:var(--dim);margin-top:5px"></div>
+  </div>`;
+  /* Reading it marked it read on the server, so the badge has to follow or
+     the home screen keeps claiming there is something new. */
+  t.unread = 0;
+}
+
+async function dmReply(i){
+  const t = (DM.threads || [])[i];
+  const box = document.getElementById("dmReply" + i);
+  const msg = document.getElementById("dmReplyMsg" + i);
+  if(!t || !box) return;
+  const body = (box.value || "").trim();
+  if(!body){ if(msg) msg.textContent = "Type something first."; return; }
+  if(msg) msg.textContent = "Sending…";
+  try{
+    await api.post("/api/messages", {class_id: t.class_id,
+      subject: t.subject || "", to_id: t.with_id || 0, body: body});
+  }catch(e){ if(msg) msg.textContent = e.message; return; }
+  box.value = "";
+  await dmOpen(i);
+}
+
+async function dmSend(){
+  const sel = document.getElementById("dmSubject");
+  const box = document.getElementById("dmNew");
+  const msg = document.getElementById("dmMsg");
+  const o = (DM.opts || [])[+((sel && sel.value) || 0)];
+  const body = ((box && box.value) || "").trim();
+  if(!o){ if(msg) msg.textContent = "No subject to write about yet."; return; }
+  if(!body){ if(msg) msg.textContent = "Type your message."; return; }
+  if(msg) msg.textContent = "Sending…";
+  try{
+    await api.post("/api/messages", {class_id: o.cid, subject: o.subject,
+                                     body: body});
+  }catch(e){ if(msg) msg.textContent = e.message; return; }
+  if(box) box.value = "";
+  await renderMessages();
+}
+
 /* ---------- HEAD TEACHER: runs the whole school ---------- */
 /* Saying something to the school.
  *
@@ -7504,6 +7704,9 @@ document.addEventListener("click",e=>{
   else if(k==="harchclass") archClass(id, b.dataset.on!=="0");
   else if(k==="reqdone"){ api.post("/api/head/request/"+id+"/done",{}).then(()=>renderHead()).catch(()=>{}); }
   else if(k==="reqnew"){ const msg=prompt("What do you need from your school admin? (e.g. add me to Maths in 6-B)"); if(msg) api.post("/api/teacher/request",{message:msg}).then(()=>alert("Request sent to your school admin.")).catch(e=>alert(e.message)); }
+  else if(k==="dmopen") dmOpen(+(b.dataset.i||0));
+  else if(k==="dmreply") dmReply(+(b.dataset.i||0));
+  else if(k==="dmsend") dmSend();
   else if(k==="prep") prepToggle(id, b.dataset.subject||"");
   else if(k==="prepdo") prepDo(b.dataset.cid, b.dataset.subject||"", b.dataset.how);
   else if(k==="copycode"){
@@ -10497,6 +10700,7 @@ function render(){
   else if(v.page==="teacher")   renderTeacher(v.cid);
   else if(v.page==="tassign")   renderTeacherAssignment(v.cid,v.aid);
   else if(v.page==="track")     renderTrack(v.track);
+  else if(v.page==="messages")  renderMessages();
   else if(v.page==="lesson")    renderLesson(v.track,v.lesson);
   else if(v.page==="quiz")      renderQuiz(v.track);
   // A page name with no branch used to leave whatever was already on screen,
@@ -10582,6 +10786,7 @@ document.addEventListener("click",e=>{
   else if(n==="attend")    S.view={page:"attend"};
   else if(n==="learners")  S.view={page:"learners"};
   else if(n==="track")     S.view={page:"track",track:b.dataset.id};
+  else if(n==="messages")  S.view={page:"messages"};
   else if(n==="lesson")    S.view={page:"lesson",track:b.dataset.track,lesson:b.dataset.id};
   else if(n==="quiz")      S.view={page:"quiz",track:b.dataset.id};
   else if(n==="setpath"){  S.path=S.path===b.dataset.id?null:b.dataset.id;

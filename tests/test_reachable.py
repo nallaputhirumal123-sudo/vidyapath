@@ -76,6 +76,13 @@ ALLOWED = {
     "/api/lab/photo": "not wired into the lab yet",
     "/api/resume/parse": "the upload path parses inline instead",
     "/api/skills/unlocked": "not surfaced anywhere yet",
+    "/api/craxlearn/me": "the board stopped asking who is signed in. It used "
+                         "to read the craxle.com session, so whatever account "
+                         "was signed in on a classroom machine became the "
+                         "board — with their classes on a screen the whole "
+                         "room can see. The route still answers 'what am I' "
+                         "for anything that needs it; the board is not one of "
+                         "them any more, and that is the point",
 }
 
 main = io.open("main.py", encoding="utf-8").read()

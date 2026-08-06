@@ -88,6 +88,20 @@ ck("and a pupil can still sign in on their own device",
    "craxlearn/code" in INDEX and "craxlearn/claim" in INDEX,
    "the register sign-in must survive somewhere")
 
+print("")
+print("the board is not signed in, and cannot be")
+# It used to read the craxle.com session, so whatever account was signed in
+# on that browser became the board — on a classroom machine that is whoever
+# last used it, with their classes on a screen the whole room can see.
+ck("no request from this page carries a cookie",
+   'credentials:"same-origin"' not in SRC,
+   "one omitted credential is the whole seam between the two halves")
+ck("and it never asks who is signed in",
+   'api.get("/api/craxlearn/me")' not in SRC,
+   "a board is a screen on a wall; it has no user")
+ck("what it knows comes from a code",
+   "async function roomFromLink()" in SRC and "function boarded()" in SRC)
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\n{len(P)} passed, {len(F)} failed")
 sys.exit(1 if F else 0)
