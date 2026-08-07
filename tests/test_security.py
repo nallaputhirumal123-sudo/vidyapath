@@ -27,6 +27,33 @@ _u = _db.query(m.User).filter(m.func.lower(m.User.email) == EA.lower()).first()
 _u.plan = "pro"; _u.plan_expires = m.now() + m.dt.timedelta(days=30)
 _db.commit(); _db.close()
 
+# ---- the age gate, which these accounts have to be past ----------------
+#
+# The job board, the resume builder and being visible to employers are for
+# learners aged 18 and over, and it is enforced at the data layer: an account
+# with no date of birth is treated as a minor and refused. Missing is not
+# "unknown, so allow" — it is "we do not know, so no".
+#
+# This file tests what the job board DOES, not who may open it, and it was
+# written before the gate existed: it signed two accounts up with no date of
+# birth and then read ["jobs"] off a 403, so it died at its first line with a
+# KeyError and stayed red.
+#
+# The gate is asserted here rather than merely stepped around, because a file
+# that quietly gives itself a birthday is a file that would not notice the
+# gate being removed.
+check("no date of birth means no job board",
+      A.get("/api/jobs?limit=2").status_code == 403,
+      "missing is treated as a minor, not as unknown")
+
+_db = m.SessionLocal()
+for _e in (EA, EB):
+    _row = _db.query(m.User).filter(
+        m.func.lower(m.User.email) == _e.lower()).first()
+    if _row is not None:
+        _row.dob = m.dt.date(1995, 6, 15)
+_db.commit(); _db.close()
+
 # ---- one user must not see or touch another's data ----
 job = A.get("/api/jobs?limit=2").json()["jobs"]
 A.post("/api/jobs/track", json={"job_id": job[0]["id"], "status": "applied"})

@@ -29,6 +29,22 @@ _u = _db.query(m.User).filter(m.func.lower(m.User.email) == E.lower()).first()
 _u.plan = "pro"; _u.plan_until = m.now() + m.dt.timedelta(days=30)
 _db.commit(); _db.close()
 
+# And past the age gate. The job board is for learners aged 18 and over, and
+# an account with no date of birth is treated as a minor — missing is not
+# "unknown, so allow", it is "we do not know, so no". This file was written
+# before that rule and read ["jobs"] off a 403, so it died at its first job
+# board line with a KeyError. The rule is asserted before it is satisfied,
+# because a file that quietly gives itself a birthday would not notice the
+# gate being removed.
+ck("no date of birth means no job board",
+   A.get("/api/jobs?limit=2").status_code == 403,
+   "missing is treated as a minor, not as unknown")
+_db = m.SessionLocal()
+_u = _db.query(m.User).filter(m.func.lower(m.User.email) == E.lower()).first()
+if _u is not None:
+    _u.dob = m.dt.date(1995, 6, 15)
+_db.commit(); _db.close()
+
 # === previously flagged bugs, re-checked ===
 
 # 1. matching scored unrelated roles 100 (generic skill words)

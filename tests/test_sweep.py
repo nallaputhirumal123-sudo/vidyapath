@@ -56,6 +56,20 @@ r2 = A.post("/api/auth/forgot", json={"email": E})
 check("forgot: no account enumeration", r1.json() == r2.json())
 
 # ---------- jobs ----------
+# The board is for learners aged 18 and over, and an account with no date of
+# birth is treated as a minor: missing is not "unknown, so allow", it is "we
+# do not know, so no". This file predates that rule and read ["jobs"] off a
+# 403, which is where it died. Asserted before it is satisfied, so a suite
+# that gives itself a birthday still notices if the gate goes away.
+check("no date of birth means no job board",
+      A.get("/api/jobs?limit=5").status_code == 403,
+      "missing is treated as a minor, not as unknown")
+_db = m.SessionLocal()
+_u = _db.query(m.User).filter(m.func.lower(m.User.email) == E.lower()).first()
+if _u is not None:
+    _u.dob = m.dt.date(1995, 6, 15)
+_db.commit(); _db.close()
+
 j = A.get("/api/jobs?limit=5&status=open").json()
 check("job search returns rows", len(j.get("jobs", [])) > 0, f"{j.get('total')} total")
 check("job search paginates", "has_more" in j and "offset" in j)
