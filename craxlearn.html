@@ -263,6 +263,39 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   color:var(--muted);background:rgba(0,0,0,.35);border-radius:8px;
   padding:.15rem .4rem;pointer-events:none;font-variant-numeric:tabular-nums}
 
+/* ---- writing on top of whatever is on the board ------------------------
+ *
+ * The writing space is a tool you open, and that is the wrong shape for
+ * most of what a teacher does with a pen. The moment worth annotating is a
+ * lesson already on the screen, a diagram out of a chapter, a simulation
+ * mid-run — and reaching those meant leaving them.
+ *
+ * So the ink is a sheet OVER the board rather than a page inside it. It
+ * covers everything, it passes every click straight through until it is
+ * switched on, and its bar is pinned to the bottom of the screen where a
+ * hand already is.
+ */
+#inkLayer{position:fixed;inset:0;z-index:70;pointer-events:none;
+  touch-action:none}
+#inkLayer.on{pointer-events:auto;cursor:crosshair}
+#inkBar{position:fixed;left:0;right:0;bottom:0;z-index:71;display:none;
+  gap:.35rem;align-items:center;flex-wrap:wrap;justify-content:center;
+  padding:.5rem .6rem;background:#101823f2;border-top:1px solid #2a3444;
+  backdrop-filter:blur(6px)}
+#inkBar.on{display:flex}
+#inkBar .btn{padding:.3rem .6rem;font-size:.72rem;min-height:2rem}
+#inkBar .iconbtn{width:2rem;min-height:2rem;padding:0}
+#inkBar .sep{width:1px;align-self:stretch;background:#2a3444;margin:0 .15rem}
+/* The bar sits over the page, so the page needs somewhere to end. */
+body.inking{padding-bottom:4.2rem}
+/* Before a code is entered there is nothing to annotate — the screen is a
+   clock and a text box. The pen, its sheet and its bar are all withdrawn,
+   rather than merely inert, because a control that does nothing is worse
+   than one that is not there. */
+body.gated #inkBtn,
+body.gated #inkLayer,
+body.gated #inkBar{display:none}
+
 /* A viewer takes whatever is left after the controls above it, and follows
    the space when it is dragged. A fixed height is wrong in both directions
    at once on a board: a small picture on a wall, or a picture taller than
@@ -394,12 +427,16 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
        that is always on the screen, in the accent, like the ⚡ card on
        craxle.com's own home. -->
   <button class="iconbtn askbtn" id="askBtn" title="Ask Axle">⚡</button>
+  <button class="iconbtn" id="inkBtn" title="Write on the screen">✏️</button>
   <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
   <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
 </div>
+
+<canvas id="inkLayer"></canvas>
+<div id="inkBar"></div>
 
 <div id="gate" hidden>
   <div class="card">
@@ -950,8 +987,10 @@ function cropPick(src){
   bar.style.cssText = "color:#fff;font:600 15px system-ui;display:flex;" +
     "gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:center";
   bar.innerHTML = '<span>Drag over the part you want.</span>' +
-    '<button class="btn ghost" id="shotAll">Whole screen</button>' +
-    '<button class="btn ghost" id="shotNo">Cancel</button>';
+    '<button class="btn ghost" id="shotAll">Download</button>' +
+    '<button class="btn" id="shotKeep">Keep on the class page</button>' +
+    '<button class="btn ghost" id="shotNo">Cancel</button>' +
+    '<span class="muted" id="shotMsg" style="font-size:.7rem"></span>';
   var holder = document.createElement("div");
   holder.style.cssText = "position:relative;max-width:96vw;max-height:80vh;" +
     "box-shadow:0 0 0 1px #fff3";
@@ -975,12 +1014,44 @@ function cropPick(src){
     a.click();
     close();
   }
+  /* A picture of the board is usually wanted BY THE CLASS, not in a
+     Downloads folder. When the board knows which room it is in, that is one
+     press away — the same route the writing space and the document shelf
+     use, so it lands on the same subject page. */
+  async function keep(cnv){
+    var msg = document.getElementById("shotMsg");
+    if(!boarded()){
+      if(msg) msg.textContent = "Enter a subject code to keep this on a "
+        + "class page.";
+      return;
+    }
+    if(msg) msg.textContent = "Saving…";
+    cnv.toBlob(async function(blob){
+      if(!blob){ if(msg) msg.textContent = "This browser cannot save that."; return; }
+      try{
+        var fd = new FormData();
+        fd.append("file", blob, "board.png");
+        fd.append("title", "Board — " + new Date().toLocaleString());
+        fd.append("class_id", String((ROOM && ROOM.class_id) || 0));
+        fd.append("subject", (ROOM && ROOM.subject) || "");
+        await window.bapi.send("/api/craxlearn/board/file", fd);
+        close();
+      }catch(e){
+        if(msg) msg.textContent = e.message || "It could not be saved.";
+      }
+    }, "image/png");
+  }
   el("shotNo").onclick = close;
-  el("shotAll").onclick = function(){ save(src); };
+  /* Whole screen downloads it; Keep files whatever is selected, which is the
+     dragged rectangle if there is one and the whole frame if there is not. */
+  el("shotAll").onclick = function(){ save(picked || src); };
+  el("shotKeep").onclick = function(){ keep(picked || src); };
   back.addEventListener("keydown", function(e){
     if(e.key === "Escape") close(); });
 
   var a0 = null;
+  /* The rectangle somebody dragged, once they have dragged one. */
+  var picked = null;
   function spot(e){
     var r = img.getBoundingClientRect();
     var t = (e.touches && e.touches[0]) || e;
@@ -1022,7 +1093,13 @@ function cropPick(src){
     var out = document.createElement("canvas");
     out.width = Math.round(w); out.height = Math.round(h);
     out.getContext("2d").drawImage(src, x, y, w, h, 0, 0, out.width, out.height);
-    save(out);
+    /* Remembered rather than saved on the spot, because there are two things
+       somebody may want to do with it now — download it, or put it on the
+       class page — and dragging a rectangle should not have chosen. */
+    picked = out;
+    var m = document.getElementById("shotMsg");
+    if(m) m.textContent = "That part is selected. Download it, or keep it on "
+      + "the class page.";
   });
 }
 
@@ -1620,6 +1697,186 @@ function figureHTML(f, id){
     (f.how === "scene" ? ' data-fill="1"' : "") +
     ' id="' + id + '"></div>';
 }
+
+/* ---------- writing on top of the whole board ----------
+ *
+ * Screen coordinates, not world ones. This sheet annotates what is on the
+ * screen right now: scroll the page and the marks stay where they were put,
+ * because they were put on the screen and not on the thing underneath.
+ * Pretending otherwise would need every pane to report a transform, and a
+ * teacher circling a word does not expect the circle to follow it.
+ *
+ * Saving therefore goes through the SCREEN capture, not through this canvas.
+ * The ink is part of the page, so one frame of the page has both the lesson
+ * and the marks on it — which is what somebody means by "save this".
+ */
+var Ink = (function(){
+  var cv, ctx, bar, on = false;
+  var strokes = [], undone = [], live = null;
+  var colour = "#ff9933", size = 4, erasing = false;
+
+  function fit(){
+    if(!cv) return;
+    var d = window.devicePixelRatio || 1;
+    var w = Math.round(innerWidth * d), h = Math.round(innerHeight * d);
+    if(cv.width === w && cv.height === h) return;
+    cv.width = w; cv.height = h;
+    cv.style.width = innerWidth + "px";
+    cv.style.height = innerHeight + "px";
+    redraw();
+  }
+
+  function one(c, st){
+    c.globalCompositeOperation = st.e ? "destination-out" : "source-over";
+    c.strokeStyle = st.c;
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    var p = st.p;
+    for(var i = 1; i < p.length; i++){
+      c.lineWidth = st.e ? st.w * 4 : st.w;
+      c.beginPath();
+      c.moveTo(p[i-1][0], p[i-1][1]);
+      c.lineTo(p[i][0], p[i][1]);
+      c.stroke();
+    }
+    c.globalCompositeOperation = "source-over";
+  }
+
+  function redraw(){
+    if(!ctx) return;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    strokes.concat(live ? [live] : []).forEach(function(st){ one(ctx, st); });
+    say();
+  }
+
+  function say(){
+    var n = document.getElementById("inkCount");
+    if(n) n.textContent = strokes.length
+      ? strokes.length + " mark" + (strokes.length === 1 ? "" : "s") : "";
+  }
+
+  function at(e){
+    var d = window.devicePixelRatio || 1;
+    return [e.clientX * d, e.clientY * d];
+  }
+
+  function bind(){
+    cv.addEventListener("pointerdown", function(e){
+      if(!on) return;
+      e.preventDefault();
+      try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+      live = { c: colour, e: erasing, w: (erasing ? size : size) *
+               (window.devicePixelRatio || 1), p: [at(e)] };
+      /* A tap is a dot, and a dot is a mark somebody meant to make. */
+      live.p.push([live.p[0][0] + 0.01, live.p[0][1]]);
+      redraw();
+    });
+    cv.addEventListener("pointermove", function(e){
+      if(!on || !live) return;
+      var held = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+      var pts = (held && held.length) ? held : [e];
+      for(var i = 0; i < pts.length; i++) live.p.push(at(pts[i]));
+      redraw();
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
+      cv.addEventListener(ev, function(){
+        if(!live) return;
+        strokes.push(live);
+        undone.length = 0;
+        live = null;
+        redraw();
+      });
+    });
+    window.addEventListener("resize", fit);
+  }
+
+  var PENS = ["#ff9933", "#e8eef6", "#3fae6a", "#e05a5a", "#5aa9e0"];
+
+  function paintBar(){
+    bar.innerHTML =
+      PENS.map(function(c, i){
+        return '<button class="iconbtn" data-inkpen="' + i + '" title="Pen" ' +
+          'style="background:' + c + ';border-color:' + c + '"></button>';
+      }).join("") +
+      '<button class="iconbtn" data-inkpen="erase" title="Rub out">⌫</button>' +
+      '<input type="range" id="inkSize" min="2" max="24" value="' + size +
+        '" title="Thickness" style="width:5rem">' +
+      '<span class="sep"></span>' +
+      '<button class="iconbtn" data-ink="undo" title="Undo">↶</button>' +
+      '<button class="iconbtn" data-ink="redo" title="Redo">↷</button>' +
+      '<button class="btn ghost" data-ink="clear">Clear</button>' +
+      '<span class="sep"></span>' +
+      '<button class="btn" data-ink="save">Save the screen</button>' +
+      '<button class="btn ghost" data-ink="off">Done</button>' +
+      '<span class="muted" id="inkCount" style="font-size:.62rem"></span>';
+    mark();
+    say();
+  }
+
+  function mark(){
+    bar.querySelectorAll("[data-inkpen]").forEach(function(b){
+      var isPen = b.dataset.inkpen !== "erase";
+      var sel = erasing ? !isPen : (isPen && PENS[+b.dataset.inkpen] === colour);
+      b.classList.toggle("on", sel);
+    });
+  }
+
+  function open(){
+    on = true;
+    cv.classList.add("on");
+    bar.classList.add("on");
+    document.body.classList.add("inking");
+    paintBar();
+    fit();
+  }
+
+  function close(){
+    on = false;
+    cv.classList.remove("on");
+    bar.classList.remove("on");
+    document.body.classList.remove("inking");
+  }
+
+  function start(){
+    cv = document.getElementById("inkLayer");
+    bar = document.getElementById("inkBar");
+    if(!cv || !bar) return;
+    ctx = cv.getContext("2d");
+    fit();
+    bind();
+
+    bar.addEventListener("click", function(e){
+      var pen = e.target.closest("[data-inkpen]");
+      if(pen){
+        if(pen.dataset.inkpen === "erase") erasing = true;
+        else { erasing = false; colour = PENS[+pen.dataset.inkpen]; }
+        mark();
+        return;
+      }
+      var b = e.target.closest("[data-ink]");
+      if(!b) return;
+      var k = b.dataset.ink;
+      if(k === "undo"){ if(strokes.length) undone.push(strokes.pop()); redraw(); }
+      else if(k === "redo"){ if(undone.length) strokes.push(undone.pop()); redraw(); }
+      else if(k === "clear"){
+        /* Undoable, like the writing space's Clear: it is one tap away from
+           a lesson's worth of annotation. */
+        undone.unshift.apply(undone, strokes.slice().reverse());
+        strokes.length = 0;
+        redraw();
+      }
+      else if(k === "off"){ close(); }
+      else if(k === "save"){ shoot(); }
+    });
+    bar.addEventListener("input", function(e){
+      if(e.target && e.target.id === "inkSize") size = +e.target.value;
+    });
+  }
+
+  return { start: start, open: open, close: close,
+           toggle: function(){ on ? close() : open(); },
+           isOn: function(){ return on; } };
+})();
 
 /* ---------- a surface to write on ----------
  *
@@ -2519,6 +2776,7 @@ function openBoard(){
          institution:null, open:true };
   el("gate").hidden = true;
   el("app").hidden = false;
+  document.body.classList.remove("gated");
   el("who").innerHTML = "<b>This board</b>not signed in";
   /* A board with no code opens straight onto the writing space, because
      there is nothing else it can do. A board that knows its subject opens on
@@ -2555,6 +2813,8 @@ function wireSignIn(host){
       OPEN = false;
       el("app").hidden = true;
       el("gate").hidden = false;
+      document.body.classList.add("gated");
+      Ink.close();
       tab("Code");
     };
   });
@@ -4896,6 +5156,11 @@ async function boot(){
   var signedIn = false;
   el("gate").hidden = signedIn;
   el("app").hidden = !signedIn;
+  document.body.classList.toggle("gated", !signedIn);
+  /* Hidden by CSS either way, but the pen must not still be ARMED when a
+     board comes back: signing out and back in would otherwise return to a
+     screen that swallows every tap and shows no bar explaining why. */
+  if(!signedIn) Ink.close();
   if(!signedIn){
     el("who").innerHTML = "";
     /* Sign in first. The school admin turns the board on; until somebody
@@ -4936,6 +5201,9 @@ el("tabOpen").onclick = function(){ tab("Open"); };
 el("homeBtn").onclick = function(){ go("home"); };
 /* Straight to the board, from wherever the lesson has got to. */
 el("askBtn").onclick = function(){ go("board"); };
+/* The pen works over whatever is on the screen, including the gate. */
+Ink.start();
+el("inkBtn").onclick = function(){ Ink.toggle(); };
 el("shotBtn").onclick = function(){ shoot(); };
 /* One press adds a space, up to four; the fifth press goes back to one.
    A cycle rather than separate add and remove buttons, because a board is
