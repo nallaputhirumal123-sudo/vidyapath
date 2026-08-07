@@ -4976,6 +4976,7 @@ import orbits as _orbits                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402
 import images as _images                                            # noqa: E402
+import reference as _reference                                      # noqa: E402
 import maths as _maths                                              # noqa: E402
 
 
@@ -15786,9 +15787,30 @@ async def board_lesson(body: BoardIn, user: User = Depends(axle_user),
             # and never onto the screen: what a learner sees is the lesson, not
             # the material it was built from.
             sources = _rag_hits(db, topic)
+            # And a wider base for everything the corpus does not hold.
+            #
+            # corpus.db is this site's own coding and CS tracks and nothing
+            # else, so a B.Tech thermodynamics question, a question about the
+            # nephron and a question about titration all retrieve nothing and
+            # get answered from the model's memory with no source behind
+            # them. NCERT is the plan and is a long data job; an
+            # encyclopaedia article about the thing being asked is a better
+            # source than none in the meantime, and it is free.
+            #
+            # Asked only when our own material came up empty. Where we have a
+            # lesson it wins, because a learner who reads it and then asks
+            # the board must not be told something different by the same
+            # site.
+            refs = []
+            if not sources:
+                try:
+                    refs = await _reference.find(_pic_client, topic)
+                except Exception as e:
+                    print(f"Reference lookup skipped: {type(e).__name__}: {e}")
             text, photo = await asyncio.gather(
                 _ai_text(_board_prompt(topic, level)
                          + _rag.as_source(sources)
+                         + _reference.as_source(refs)
                          + _wolfram.note(topic, computed),
                          _depth.tokens(topic),
                         json_mode=True),
@@ -15798,6 +15820,12 @@ async def board_lesson(body: BoardIn, user: User = Depends(axle_user),
             lesson = _trim_to_depth(_clean_board(_ai_json(text), topic), topic)
             if photo:
                 lesson["photo"] = photo
+            # Where the facts came from, for the reader. Wikipedia is
+            # CC BY-SA: a lesson built from an article and shown with no
+            # indication of that is not one we are entitled to show, and
+            # somebody who wants to check a number has nowhere to go.
+            if refs:
+                lesson["references"] = _reference.credits(refs)
             # Inside the same client, because the molecule can only be looked
             # up once the lesson says which one it wants.
             swapped = await _real_molecules(_pic_client, lesson, topic)

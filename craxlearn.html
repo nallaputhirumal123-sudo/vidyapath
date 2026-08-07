@@ -4196,6 +4196,15 @@ function lessonPages(L, topic){
      teacher would otherwise have to think of while thirty people watch. */
   var last = "";
   if(L.takeaway) last += '<div class="note"><b>Remember:</b> ' + esc(L.takeaway) + "</div>";
+  /* Where the facts came from. CC BY-SA is conditional on saying so, and a
+     class that wants to check a number needs somewhere to go. */
+  if((L.references || []).length){
+    last += '<div class="muted" style="margin-top:.8rem;font-size:.62rem">' +
+      "Facts from " + L.references.map(function(r){
+        return '<a href="' + esc(r.url) + '" target="_blank" ' +
+               'rel="noopener nofollow">' + esc(r.title) + "</a>";
+      }).join(", ") + " · CC BY-SA</div>";
+  }
   if((L.deeper || []).length){
     last += '<div class="eyebrow">Go further</div><div class="card">' +
       L.deeper.map(function(x){

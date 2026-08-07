@@ -918,6 +918,9 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 .ask-frame:fullscreen .sb-scene{min-height:min(62vh,720px)}
 @media(max-width:640px){ .sb-scene{min-height:clamp(200px,34vh,340px)} }
 .sb-scene-cap{font-size:11.5px;color:#8fe3b0;margin:10px 0 4px}
+.sb-refs{font-size:11px;color:var(--dim);margin-top:14px;padding-top:8px;
+  border-top:1px solid rgba(234,255,242,.10)}
+.sb-refs a{color:var(--dim);text-decoration:underline}
 
 /* Prose, so a lesson reads as something written rather than as a list of
    assertions. The lead is the sentence somebody reads if they read one. */
@@ -4631,6 +4634,15 @@ function sbBoardHTML(){
       <div class="sb-scene" id="sbScene"><button class="fig-btn" data-figfull="1" title="Full screen">⤢</button></div>`:""}
     ${SB.i===l.steps.length-1&&l.takeaway
       ?`<div class="ask-take">${esc(l.takeaway)}</div>`:""}
+    <!-- Where the facts came from, on the last page, quietly. Wikipedia is
+         CC BY-SA: a lesson built from an article and shown with no
+         indication of it is not one we are entitled to show, and somebody
+         who wants to check a number has nowhere to go. Not a citation list
+         and not a way out of the lesson — one line, at the end. -->
+    ${(SB.i===l.steps.length-1&&(l.references||[]).length)
+      ?`<div class="sb-refs">Facts from ${(l.references||[]).map(r=>
+          `<a href="${esc(r.url)}" target="_blank" rel="noopener nofollow">${
+            esc(r.title)}</a>`).join(", ")} · CC BY-SA</div>`:""}
     <!-- On the board itself, not below it. Full screen hides everything
          outside this element, and on a phone the controls under the board
          were a scroll away — including Stop, which is the one control
