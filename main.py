@@ -8969,6 +8969,21 @@ PICS_PATH = env("PICS_PATH") or str(BASE_DIR / "corpus-pics.db")
 PICS_GZ = str(BASE_DIR / "corpus-pics.db.gz")
 
 
+def _rag_index_only():
+    """The corpus index if there is one, without building a fallback.
+
+    `_rag_ready` builds an index out of the site's own lessons when there is
+    no corpus, which is right for answering a question and wrong here: a
+    coding lesson is not a chapter of a school book and must not be offered
+    as one.
+    """
+    try:
+        _unpack_corpus()
+        return _rag.open_fts(CORPUS_PATH)
+    except Exception:
+        return None
+
+
 def _book_pics_local(code):
     """One chapter's diagrams out of the shipped archive, or None.
 
@@ -9774,13 +9789,19 @@ async def craxlearn_structure(name: str, user: User = Depends(current_user)):
 
 
 @app.get("/api/craxlearn/search")
-async def craxlearn_search(q: str, user: User = Depends(current_user)):
+async def craxlearn_search(q: str, user: User = Depends(board_or_reader)):
     """Search the open sources for something to show the room.
 
     A photograph where one exists, a measured structure where one exists,
-    and the licence beside each. Nothing here is generated: it is a search
-    over the same public catalogues listed at /api/craxlearn/sources, which
-    is why the result can carry a credit line that means something.
+    the diagrams from the school books where the topic is in them, and the
+    licence beside each. Nothing here is generated: it is a search over the
+    same public catalogues listed at /api/craxlearn/sources, which is why the
+    result can carry a credit line that means something.
+
+    Open to a board holding a subject code. It required a session, so the
+    "Search the sources" tool was in the board's menu, drew its box, and
+    answered 401 to the first thing anybody typed into it — the same fault as
+    the simulations and the course list, in the third place.
     """
     q = _cl.redact(q)[:120]
     if len(q) < 2:
@@ -9796,8 +9817,27 @@ async def craxlearn_search(q: str, user: User = Depends(current_user)):
         except Exception as e:
             print(f"Source search structure failed: {type(e).__name__}: {e}")
             scene = None
+    # And the chapters of the school books this is actually in.
+    #
+    # The catalogues above are the open internet; this is the shelf the class
+    # is examined on. A teacher searching "refraction" wants the NCERT figure
+    # from their own chapter at least as much as a photograph of a pencil in
+    # a glass — and until now the books' diagrams had an API and nothing that
+    # led anybody to it.
+    chapters = []
+    try:
+        idx = _rag_index_only()
+        for h in (idx.search(q, 4) if idx else []):
+            code = (h.get("slug") or "").strip()
+            title = (h.get("title") or "").strip()
+            if code and title.startswith("Class ") and not any(
+                    c["code"] == code for c in chapters):
+                chapters.append({"code": code, "title": title})
+    except Exception as e:
+        print(f"Source search chapters failed: {type(e).__name__}: {e}")
     return {"query": q, "photo": photo or None, "scene": scene,
-            "found": bool(photo or scene),
+            "chapters": chapters[:3],
+            "found": bool(photo or scene or chapters),
             "sources": [s["name"] for s in _cl.sourcing()]}
 
 

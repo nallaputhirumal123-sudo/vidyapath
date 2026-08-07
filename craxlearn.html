@@ -3701,6 +3701,17 @@ async function find(term){
       : "Nothing in the open catalogues for that. Try the plain name of the " +
         "thing rather than a question about it.";
     var h = "";
+    /* The chapters of the class's own books this is in, and their figures.
+       A teacher searching "refraction" wants the NCERT diagram from the
+       chapter they are teaching at least as much as a photograph of a pencil
+       in a glass — and the books' pictures had an API with nothing leading
+       anybody to it. */
+    (d.chapters || []).forEach(function(c){
+      h += '<div class="card"><b>' + esc(c.title) + "</b> " +
+        '<button class="btn ghost" data-bookpics="' + esc(c.code) + '">' +
+        "Diagrams from this chapter</button>" +
+        '<div id="bp_' + esc(c.code) + '"></div></div>';
+    });
     if(d.photo){
       h += '<div class="card"><img src="' + esc(d.photo.url || "") +
         '" alt="" style="max-width:100%;border-radius:12px;display:block">' +
@@ -5413,6 +5424,44 @@ async function paint(page, arg){
 }
 window.render = function(){ paint(VIEW.page, null); };
 
+/* The figures out of one chapter of the class's own book.
+ *
+ * Asked for on a press rather than loaded with the search: a chapter is up
+ * to six pictures and most searches want none of them. The server ships
+ * them, so this is a local read and not a trip to ncert.nic.in — which is
+ * the whole reason they are shipped, because that trip took 33 seconds. */
+async function bookPics(btn){
+  var code = btn.dataset.bookpics;
+  var box = el("bp_" + code);
+  if(!box) return;
+  if(box.dataset.open === "1"){       // a second press puts them away
+    box.innerHTML = ""; box.dataset.open = "0"; return;
+  }
+  btn.disabled = true;
+  var was = btn.textContent;
+  btn.textContent = "Opening…";
+  try{
+    var d = await api.get("/api/craxlearn/book-pictures?code=" +
+                          encodeURIComponent(code));
+    var pics = (d && d.pictures) || [];
+    box.dataset.open = "1";
+    box.innerHTML = pics.length
+      ? '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">' +
+        pics.map(function(p){
+          return '<img src="' + esc(p.src) + '" alt="" style="max-width:' +
+            'min(100%,22rem);border-radius:10px;background:#fff">';
+        }).join("") + "</div>" +
+        '<div class="muted" style="font-size:.62rem;margin-top:.4rem">' +
+        "NCERT · reproduced for teaching</div>"
+      : '<div class="muted" style="margin-top:.5rem">That chapter has no ' +
+        "diagrams in it.</div>";
+  }catch(err){
+    box.innerHTML = '<div class="note bad">' + esc(err.message) + "</div>";
+  }finally{
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
 document.addEventListener("click", function(e){
   var t = e.target;
   if(!t.closest) return;
@@ -5421,6 +5470,7 @@ document.addEventListener("click", function(e){
   if((b = t.closest("[data-review]"))) return go("review",
       { aid:b.dataset.review, sid:b.dataset.student });
   if((b = t.closest("[data-teach]")))  return go("board", b.dataset.teach);
+  if((b = t.closest("[data-bookpics]"))) return bookPics(b);
   if((b = t.closest("[data-go]")))     return go(b.dataset.go);
 });
 
