@@ -15589,6 +15589,93 @@ async def _review_lesson(question, lesson):
 # second to index, and it changes on deploy rather than on request.
 _RAG_INDEX = None
 
+# The corpus ships COMPRESSED, and is unpacked here on the way to being read.
+#
+# It is a 15.7 MB SQLite file holding eighteen NCERT books and seven thousand
+# passages, and it was gitignored as a build artefact. That is ordinary
+# hygiene and it had a consequence nobody had costed: a deployment made from
+# the repository had no NCERT in it at all. Production has been answering
+# science questions from the model's memory, with no book behind them, on a
+# product sold as "answers from the syllabus".
+#
+# Rebuilding it on the server is not an option — the builder fetches a few
+# hundred PDFs from a government site and takes about three hours, which is
+# not a deploy step in any universe. So the file has to travel with the code.
+#
+# Gzipped it is 6.7 MB and unpacks in 0.04 seconds, both measured. That is
+# small enough to commit and fast enough to do at boot, and it buys the thing
+# that matters most: the corpus and the code that expects it ship as one
+# artefact. No volume to provision, no download that can fail at three in the
+# morning, no window where the app is up and the books are not.
+CORPUS_GZ = str(BASE_DIR / "corpus.db.gz")
+
+
+def _unpack_corpus():
+    """Put corpus.db in place from the shipped archive, if it is not already.
+
+    Cheap to call and safe to call twice: it does nothing when a corpus is
+    already there, which is the laptop case and every boot after the first on
+    a mounted volume.
+    """
+    if not os.path.exists(CORPUS_GZ):
+        return
+    import gzip
+    import shutil
+
+    # Which archive the corpus on disk was unpacked FROM.
+    #
+    # CORPUS_PATH points at a mounted volume in production, and a volume
+    # survives the deploy that replaces the archive. Without this, rebuilding
+    # the corpus and shipping it would change nothing on the server: the file
+    # is already there, so the unpack is skipped, and the old books are served
+    # for ever by a deployment that looks entirely healthy. Size and mtime
+    # together are enough to notice a different archive without reading 6.7 MB
+    # on every boot.
+    stamp_path = CORPUS_PATH + ".from"
+    try:
+        s = os.stat(CORPUS_GZ)
+        stamp = f"{s.st_size}:{int(s.st_mtime)}"
+    except OSError:
+        return
+    if os.path.exists(CORPUS_PATH):
+        try:
+            with open(stamp_path, encoding="utf-8") as fh:
+                if fh.read().strip() == stamp:
+                    return
+        except OSError:
+            # No stamp beside an existing corpus means it was put there by
+            # hand or by an older build. Left alone: overwriting somebody's
+            # own corpus because we cannot prove where it came from would be
+            # worse than serving it.
+            return
+        print("corpus: the shipped archive has changed — unpacking it again")
+    # Written beside the target and moved into place, so a boot that is killed
+    # mid-write cannot leave half a database that opens and answers wrongly.
+    tmp = CORPUS_PATH + ".unpacking"
+    try:
+        os.makedirs(os.path.dirname(CORPUS_PATH) or ".", exist_ok=True)
+        with gzip.open(CORPUS_GZ, "rb") as src, open(tmp, "wb") as dst:
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+        os.replace(tmp, CORPUS_PATH)
+        # Written only after the corpus is in place, so a boot killed
+        # mid-unpack leaves no stamp and the next one does the work again.
+        try:
+            with open(stamp_path, "w", encoding="utf-8") as fh:
+                fh.write(stamp)
+        except OSError:
+            pass
+        print(f"corpus: unpacked {CORPUS_GZ} -> {CORPUS_PATH}")
+    except Exception as e:
+        # Never fatal. A server that will not boot because it could not write
+        # a cache file is worse than one that boots without NCERT and says so
+        # loudly a few lines below.
+        print(f"WARNING: could not unpack the corpus: {type(e).__name__}: {e}")
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
 
 def _rag_ready(db):
     """The curriculum index, built on first use.
@@ -15607,6 +15694,7 @@ def _rag_ready(db):
     #
     # Opened read-only and never rebuilt here: building it fetches a few
     # hundred PDFs and takes hours, which is a batch job, not a startup step.
+    _unpack_corpus()
     built = _rag.open_fts(CORPUS_PATH)
     if built is not None:
         _RAG_INDEX = built

@@ -32,6 +32,20 @@ deckshots/
 *.db-journal
 *.sqlite
 corpus.db*
+# ...except the shipped archive, which is the one exception and is deliberate.
+#
+# corpus.db is a build artefact and stays ignored. But the rule above meant a
+# deployment made from this repository had NO NCERT in it — eighteen books and
+# seven thousand passages missing, retrieval quietly falling back to the
+# site's own coding lessons, and every science question answered from the
+# model's memory on a product sold as "answers from the syllabus".
+#
+# Rebuilding on the server is not possible: the builder fetches a few hundred
+# PDFs and takes about three hours. So the corpus travels with the code,
+# gzipped to 6.7 MB, and is unpacked at boot in 0.04 seconds. Committing a
+# binary is a real cost; shipping a product that cannot do the thing it is
+# sold for is a larger one.
+!corpus.db.gz
 *.bak
 
 # Any .env variant, not just the exact name. A credential in
