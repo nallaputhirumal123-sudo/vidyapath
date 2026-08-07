@@ -5101,13 +5101,14 @@ def _fallback_lesson(subject: str, level: str) -> dict:
 def _ask_prompt(question: str, subject: str, level: str) -> str:
     return (
         f"You are Axle, a warm, patient teacher in India explaining on a "
-        f"blackboard. The subject is: {subject}. The learner's level is: "
+        f"blackboard. The learner's level is: "
         f"{level}. A learner asked: \"{question}\"\n\n"
         'NO GREETING, NO PREAMBLE. The first line is the first real thing you have to say. Never open with "Welcome", "Dear students", "Let us look at this together", "Great question" or any other pleasantry, and never spend a line restating the question back — the learner has it in front of them and the board only shows a few lines at a time, so a line that carries nothing is a line of the lesson thrown away. Begin with the substance and keep going.\n\nANSWER THE QUESTION THAT WAS ASKED. Read it closely enough to notice what it is really asking, then answer that. If it is a problem to solve, solve it and reach the actual answer — do not restate the setup, describe an approach, and stop. Work each step so the reader can follow the arithmetic or the argument, and finish. If the question has no clean answer, or the answer is that no solution exists, say so and show what rules the others out. Every claimed answer gets substituted back into the original problem and checked before you state it.\n\nINDIA FIRST, WHEN AN EXAMPLE IS NEEDED. Set examples here: rupees rather than dollars, Indian cities, Indian firms, the exams and boards people here actually sit, Indian regulations and Indian case law. Use a foreign example only when the subject genuinely is foreign — a US statute in a lesson on US law, a landmark experiment done where it was done. Never reach for another country\'s setting when a local one would serve.\n\n'
         f"Explain it the way a good teacher writes on the board: short lines, "
         f"one idea per line, language matched to the stated level, with a "
-        f"small real-life Indian example where natural. Be accurate. If the "
-        f"question is not about {subject}, still answer it helpfully. If it "
+        f"small real-life Indian example where natural. Be accurate. The "
+        f"question says what it is about; answer THAT, whatever field it "
+        f"turns out to belong to. If it "
         f"asks for something unsafe or inappropriate for a student, gently "
         f"redirect to safe learning instead.\n\n"
         f"Respond with ONLY valid JSON, no markdown, no backticks, in exactly "
@@ -11000,6 +11001,21 @@ async def ai_selftest(user: User = Depends(admin_user),
 @app.post("/api/ask")
 async def ask_vidya(body: AskIn, user: User = Depends(axle_user),
                     db: Session = Depends(get_db)):
+    # The subject is still accepted and still recorded — the dashboards count
+    # by it — but it is NOT part of the cache key any more, and it is not put
+    # to the model.
+    #
+    # It never earned either. The prompt named it and then said "if the
+    # question is not about {subject}, still answer it helpfully", so the
+    # answer was the same whichever chip was lit: "What is inflation?" under
+    # Physics and under Business is one question with one answer. In the
+    # cache key that sameness cost real money — ten subjects meant the same
+    # question could be paid for ten times, on a product whose economics rest
+    # on calling a model once per question and keeping the answer forever.
+    #
+    # A question carries its own subject in its words. The chooser was asking
+    # a learner to classify their question before they were allowed to ask
+    # it, which is a thing nobody wants to do and nobody was any good at.
     subject = (body.subject or "General").strip()[:60]
     # Default matches the picker's middle option. It was "School", left over
     # from the class-based levels, so a request without one was prompted for
@@ -11007,8 +11023,7 @@ async def ask_vidya(body: AskIn, user: User = Depends(axle_user),
     level = (body.level or "Intermediate").strip()[:60]
     question = body.question.strip()
     scope = _scope_of(db, user)
-    qkey = _cl.key(scope, "ask", _norm_q(subject), _norm_q(level),
-                   _norm_q(question))[:500]
+    qkey = _cl.key(scope, "ask", _norm_q(level), _norm_q(question))[:500]
     _record_learning(db, user, scope, "ask", question, subject, level)
 
     # 1) Cache hit — free and instant, and counts a hit for the stats.

@@ -3252,6 +3252,26 @@ const ASK_SAMPLES={
   "Physics":["What is Newton's first law?","Why do objects fall?","What is voltage?"],
   "Chemistry":["What is an atom?","What is an acid?","Why does iron rust?"],
 };
+/* Example questions, spread across the subjects.
+
+   They used to be `ASK_SAMPLES[chosen subject]`. With no chooser that is
+   always the General three, which is a poor advertisement for a tutor that
+   answers anything — so one is taken from each of six fields instead, and
+   which six rotates with the date. Nothing is random: the same day gives the
+   same list, so a screenshot in a support conversation matches what the
+   person is looking at. */
+function askSamples(){
+  const keys = Object.keys(ASK_SAMPLES);
+  const day = Math.floor(Date.now() / 86400000);
+  const out = [];
+  for(let i = 0; i < keys.length && out.length < 6; i++){
+    const k = keys[(day + i) % keys.length];
+    const list = ASK_SAMPLES[k] || [];
+    if(list.length) out.push(list[(day + i) % list.length]);
+  }
+  return out;
+}
+
 const ASK={subject:"General",level:"Class 6–8",question:"",lesson:null,
   page:0,spoken:-1,slides:[[]],
   loading:false,speaking:false,listening:false,voiceOn:true,fromCache:false,
@@ -5479,7 +5499,13 @@ function renderAskInner(){
      so landing on the board cost a request before the visitor had done
      anything at all. Nothing is fetched until someone asks a question or
      presses a button; the notice appears from the answer to that request. */
-  const samples=ASK_SAMPLES[a.subject]||ASK_SAMPLES["General"];
+  /* A spread across the subjects, not one subject's three.
+     They keyed off the chooser, and with the chooser gone they would all
+     have come from "General" forever — three questions about the sky, the
+     internet and inflation, shown to somebody who came to ask about
+     titration. Six, from six different fields, rotated by the day so the
+     screen is not identical every morning. */
+  const samples=askSamples();
   const disabledNote = a.enabled===false
     ? `<div class="ask-note">The AI teacher is not switched on yet. Ask the site owner to add a free <b>GEMINI_API_KEY</b> in the server settings — everything else keeps working.</div>` : "";
   const saved=askSavedList();
@@ -5490,15 +5516,22 @@ function renderAskInner(){
   const sbOn=!!(SB.lesson||SB.busy||SB.error);
   $("#main").innerHTML=`
   <div class="h1">💬 Ask Axle anything</div>
-  <p class="sub">Choose a subject and level, then ask any question — by voice or by typing. The whole answer appears on the board and Axle reads it aloud, line by line. Long answers become slides. Save any answer or download it as a PDF.</p>
+  <p class="sub">Ask any question — by voice or by typing. The whole answer appears on the board and Axle reads it aloud, line by line. Long answers become slides. Save any answer or download it as a PDF.</p>
   ${disabledNote}
 
+  <!-- The subject chooser is gone, and it was not a cosmetic cut.
+       It named the subject in the prompt and then told the model "if the
+       question is not about it, still answer helpfully", so the answer was
+       the same whichever chip was lit — and it was part of the CACHE KEY, so
+       the same question under ten subjects could be paid for ten times, on a
+       product whose economics rest on calling a model once per question and
+       keeping the answer forever.
+       A question carries its own subject in its words. Asking a learner to
+       classify their question before they are allowed to ask it is a thing
+       nobody wants to do and nobody was any good at. The LEVEL stays: it
+       genuinely changes the answer, and nothing in the question says it. -->
   <div class="ask-picker">
-    <div class="ask-plabel">Subject</div>
-    <div class="ask-chips">
-      ${ASK_SUBJECTS.map(s=>`<button class="ask-chip ${a.subject===s.k?"on":""}" data-ask="subject" data-val="${esc(s.k)}">${s.icon} ${esc(s.k)}</button>`).join("")}
-    </div>
-    <div class="ask-plabel" style="margin-top:12px">Level</div>
+    <div class="ask-plabel">Level</div>
     <div class="ask-chips">
       ${ASK_LEVELS.map(lv=>`<button class="ask-chip ${(ASK_LEVELS.includes(a.level)?a.level:"Intermediate")===lv?"on":""}" data-ask="level" data-val="${esc(lv)}">${esc(lv)}</button>`).join("")}
     </div>
@@ -5618,8 +5651,7 @@ function renderAskInner(){
 document.addEventListener("click",e=>{
   const b=e.target.closest("[data-ask]"); if(!b)return;
   const kind=b.dataset.ask, val=b.dataset.val, key=b.dataset.key;
-  if(kind==="subject"){ ASK.subject=val; renderAsk(); }
-  else if(kind==="level"){ ASK.level=val; renderAsk(); }
+  if(kind==="level"){ ASK.level=val; renderAsk(); }
   else if(kind==="sample"){ ASK.question=val; renderAsk(); askSubmit(val); }
   else if(kind==="send"){ askSubmit(); }
   else if(kind==="stop"){ askStop(); }
