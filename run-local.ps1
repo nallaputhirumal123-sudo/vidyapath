@@ -35,6 +35,40 @@ if ($Fresh -and (Test-Path ".\vidyapath.db")) {
     Write-Host "Old database kept as vidyapath.$stamp.db" -ForegroundColor DarkGray
 }
 
+# Is the port free, and if not, say WHY.
+#
+# uvicorn reports a taken port as "[WinError 10013] An attempt was made to
+# access a socket in a way forbidden by its access permissions", which reads
+# like a firewall or an admin-rights problem and is usually neither — it is
+# another copy of this already running, or a preview server, on the same
+# port. Naming the process that holds it turns a five-minute hunt into one
+# line, and moving to the next free port means the common case does not stop
+# at all.
+function Test-PortFree([int]$p) {
+    -not (Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue)
+}
+
+if (-not (Test-PortFree $Port)) {
+    $held = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    $who = "another program"
+    if ($held) {
+        $proc = Get-Process -Id $held.OwningProcess -ErrorAction SilentlyContinue
+        if ($proc) { $who = "$($proc.ProcessName) (pid $($proc.Id))" }
+    }
+    Write-Host "Port $Port is already in use by $who." -ForegroundColor Yellow
+
+    $next = $Port
+    while ($next -lt ($Port + 20) -and -not (Test-PortFree $next)) { $next++ }
+    if ($next -ge ($Port + 20)) {
+        Write-Host "No free port between $Port and $($Port + 19). Stop the " `
+                   "other program, or pass -Port." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Using $next instead." -ForegroundColor Yellow
+    $Port = $next
+}
+
 # The local database, and nothing from .env.
 #
 # DOTENV_PATH points at a file that does not exist, which is how db.py is told
