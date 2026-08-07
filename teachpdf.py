@@ -214,9 +214,12 @@ def pictures(raw):
     out, total, seen = [], 0, set()
     for pno, page in enumerate(reader.pages[:MAX_PAGES], 1):
         try:
-            imgs = list(page.images)
+            imgs = _drawn_on(page)
         except Exception:
-            continue
+            try:
+                imgs = list(page.images)
+            except Exception:
+                continue
         for item in imgs:
             if len(out) >= PIC_MAX or total >= PIC_TOTAL_BYTES:
                 return out
@@ -267,3 +270,82 @@ def pictures(raw):
                 "w": im.size[0], "h": im.size[1],
             })
     return out
+
+
+# Which pictures a page actually DRAWS.
+#
+# `page.images` walks the page's /Resources, and a resource dictionary is
+# very often shared between every page of a chapter — so a two-page document
+# with one diagram reports that diagram on both pages, and a forty-page
+# textbook reports every figure on all forty. Hashing caught the duplicates,
+# but the page number attached to the survivor was then whichever page
+# happened to be enumerated first, which is not where the picture is.
+#
+# The page number is not decoration: it is what decides where in the lesson a
+# picture appears. Getting it from the wrong place put every figure of a
+# chapter on the same step.
+#
+# A page's content stream says what it draws: `/Im1 Do`. Reading those names,
+# in the order they occur, gives both the right page and the right order
+# within it. If the stream cannot be read — it is compressed with something
+# unusual, or the page has none — the caller falls back to /Resources, which
+# is what this did before and is wrong less often than showing nothing.
+_XOBJ_DO = re.compile(rb"/([A-Za-z0-9_.#-]+)\s+Do\b")
+
+
+def _drawn_on(page):
+    """The page's image XObjects, in the order the page paints them."""
+    res = page.get("/Resources")
+    res = res.get_object() if hasattr(res, "get_object") else res
+    xo = (res or {}).get("/XObject")
+    xo = xo.get_object() if hasattr(xo, "get_object") else xo
+    if not xo:
+        return []
+
+    data = page.get_contents()
+    raw = data.get_data() if data is not None else b""
+    if not raw:
+        raise ValueError("no content stream")
+
+    seen_names, order = set(), []
+    for m in _XOBJ_DO.finditer(raw):
+        name = "/" + m.group(1).decode("latin-1")
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+        order.append(name)
+
+    out = []
+    for name in order:
+        try:
+            obj = xo[name].get_object()
+            if obj.get("/Subtype") != "/Image":
+                continue
+            out.append(_ImageOnPage(obj))
+        except Exception:
+            continue
+    return out
+
+
+class _ImageOnPage:
+    """Just enough of pypdf's ImageFile to stand in for it here.
+
+    `.data` is the decoded image bytes. pypdf's own decoder handles the
+    filters and the colour spaces, which is a great deal of work not worth
+    repeating for the sake of a page number.
+    """
+
+    __slots__ = ("_obj", "_data")
+
+    def __init__(self, obj):
+        self._obj = obj
+        self._data = None
+
+    @property
+    def data(self):
+        if self._data is None:
+            img = self._obj.decode_as_image()
+            buf = io.BytesIO()
+            img.save(buf, "PNG")
+            self._data = buf.getvalue()
+        return self._data

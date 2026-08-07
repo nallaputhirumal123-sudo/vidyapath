@@ -4176,6 +4176,16 @@ function lessonPages(L, topic){
            '<div class="fig fig3d" data-fill="1" id="bScene' + i + '"></div>';
       figs.push({ how:"scene", id:"bScene" + i, spec:st.scene });
     }
+    if(st && st.photo && st.photo.url){
+      /* A photograph looked up for this step, credited. Other people's
+         pictures under CC BY-SA: the author and the licence are the
+         condition they are used under, not decoration. */
+      var cr = [st.photo.caption, st.photo.author, st.photo.license]
+                 .filter(Boolean).map(esc).join(" · ");
+      h += '<figure class="lpic"><img src="' + esc(st.photo.url) +
+           '" alt="' + esc(st.photo.caption || "") + '">' +
+           (cr ? "<figcaption>" + cr + "</figcaption>" : "") + "</figure>";
+    }
     h += lessonPics(L, i, (L.steps || []).length || 1);
     h += "</div>";
     pages.push({ title: L.title || topic, html: h, figures: figs });

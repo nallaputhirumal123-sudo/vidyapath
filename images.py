@@ -154,6 +154,104 @@ def relevant(query: str, title: str) -> bool:
     return False
 
 
+# Words that end a phrase without being what it is about. "Plant cell
+# structure" is about a plant cell; "refraction diagram" is about refraction.
+# Taking the last word as the head made the article on Structure beat the
+# article on Plant cell, which is the wrong picture by a wide margin.
+_GENERIC_TAIL = {
+    "structure", "structures", "diagram", "diagrams", "example", "examples",
+    "type", "types", "kind", "kinds", "property", "properties", "process",
+    "processes", "method", "methods", "definition", "meaning", "overview",
+    "introduction", "basics", "concept", "concepts", "principle",
+    "principles", "explanation", "summary", "notes", "formula", "formulas",
+    "equation", "equations", "problem", "problems", "question", "questions",
+}
+
+
+def head_noun(query: str) -> str:
+    """The word a phrase is ABOUT.
+
+    English usually puts it last — an "aircraft gearbox" is a gearbox — and
+    that rule alone was the whole test. It fails in two ordinary ways, and
+    both of them are how a teacher writes a topic:
+
+      "refraction of light"  a prepositional phrase qualifies what came
+                             BEFORE it. This is about refraction, and taking
+                             the last word chose the article on Light.
+      "plant cell structure" a generic tail noun is not the subject either.
+                             This chose Structure.
+
+    So the phrase is cut at the first preposition and generic tails are
+    dropped, and what is left ends in the actual head.
+    """
+    t = " " + " ".join(str(query or "").lower().split()) + " "
+    for sep in (" of ", " in ", " for ", " with ", " from ", " about ",
+                " between ", " during ", " under "):
+        if sep in t:
+            t = t.split(sep)[0]
+            break
+    words = [w for w in re.findall(r"[a-z0-9]+", t)
+             if len(w) > 2 and w not in _STOP]
+    while len(words) > 1 and words[-1] in _GENERIC_TAIL:
+        words.pop()
+    return words[-1] if words else ""
+
+
+def score(query: str, title: str) -> float:
+    """How well an article title answers a query. 0 means not at all.
+
+    `relevant()` answers yes or no, and taking Wikimedia's own first result
+    and then asking that question was throwing away the case this is for: a
+    query of several words where the best article is third in the list. For
+    "total internal reflection" Wikimedia's own ranking is fine; for
+    "refractive index of crown glass" it is a lottery, and the lottery was
+    being played with one ticket.
+
+    So every candidate is scored and the best one wins. The scale is not
+    important — only the ordering, and the floor below which nothing is good
+    enough to show.
+
+    What earns points:
+      the head noun matching        the single strongest signal in English,
+                                    since a compound's head is its last word
+      each other query word matched a query of five words matching four of
+                                    them is a better answer than one matching
+                                    two, which is the whole of what "match
+                                    more than a few words" means
+      the title being short         "Refraction" beats "Refraction in
+                                    nonlinear optical media" for a lesson
+                                    about refraction; a long title is a
+                                    narrower subject
+    """
+    q_words = [w for w in re.findall(r"[a-z0-9]+", str(query or "").lower())
+               if len(w) > 2 and w not in _STOP]
+    if not q_words:
+        return 0.0
+    t_words = _words(title)
+    if not t_words:
+        return 0.0
+
+    head = head_noun(query)
+    if head and not _matches(head, t_words):
+        # Without the head noun it is a different object, however many other
+        # words it shares. "Nimitz-class aircraft carrier" for "aircraft
+        # gearbox" is the case this exists to refuse.
+        return 0.0
+
+    hit = sum(1 for w in q_words if _matches(w, t_words))
+    covered = hit / float(len(q_words))
+    # A title made almost entirely of the query's own words is the article
+    # about exactly that thing.
+    focus = hit / float(len(t_words))
+    return 1.0 + covered * 2.0 + focus
+
+
+# Below this a candidate is not worth showing. The head noun alone scores
+# 1 + 1/len(q) + focus, so a one-word query that matches scores well over it
+# and a five-word query matching only its head does not.
+SCORE_FLOOR = 1.9
+
+
 def wanted(topic: str) -> bool:
     """Is this a topic where a photograph would actually help?
 
@@ -208,22 +306,31 @@ def clean(raw) -> dict:
     }
 
 
-def _parse(search_body, meta_body) -> dict:
+def _parse(search_body, meta_body, query="") -> dict:
     """The two Wikimedia responses into one picture, or nothing."""
     pages = ((search_body or {}).get("query") or {}).get("pages") or {}
-    best = None
+    best, best_score = None, -1.0
     for page in pages.values():
         thumb = page.get("thumbnail") or {}
         url = _safe_url(thumb.get("source"))
         if not url or int(thumb.get("width") or 0) < MIN_WIDTH:
             continue
-        # Lowest index is Wikimedia's own best match for the search.
-        if best is None or page.get("index", 99) < best.get("index", 99):
-            best = {"index": page.get("index", 99), "url": url,
-                    "width": int(thumb.get("width") or 0),
-                    "caption": str(page.get("title") or ""),
-                    "page": _safe_url(page.get("fullurl"))}
-    if not best:
+        title = str(page.get("title") or "")
+        # Scored against the query, not taken on Wikimedia's own ranking.
+        # Its first result is the best ARTICLE for the words; we want the
+        # best article for the SUBJECT, and for a query of several words
+        # those are regularly not the same one. Wikimedia's order breaks
+        # ties, which is the right thing for it to do.
+        sc = score(query, title) if query else 0.0
+        sc -= page.get("index", 99) * 1e-4
+        if sc > best_score:
+            best, best_score = {
+                "url": url,
+                "width": int(thumb.get("width") or 0),
+                "caption": title,
+                "page": _safe_url(page.get("fullurl")),
+            }, sc
+    if not best or best_score < SCORE_FLOOR:
         return {}
 
     author = license_ = ""
@@ -234,7 +341,6 @@ def _parse(search_body, meta_body) -> dict:
             author = author or _clean((ext.get("Artist") or {}).get("value"))
             license_ = license_ or str(
                 (ext.get("LicenseShortName") or {}).get("value") or "")[:60]
-    best.pop("index", None)
     best["author"] = author
     best["license"] = license_
     return clean(best)
@@ -477,7 +583,12 @@ async def find(client, topic: str) -> dict:
                                  "action": "query", "format": "json",
                                  "formatversion": "1",
                                  "generator": "search",
-                                 "gsrsearch": q, "gsrlimit": "3",
+                                 # Eight, not three. The best article for a
+                                 # multi-word query is regularly not the
+                                 # first one, and the cost of looking at
+                                 # five more titles is nothing — they arrive
+                                 # in the same response.
+                                 "gsrsearch": q, "gsrlimit": "8",
                                  "gsrnamespace": "0",
                                  "prop": "pageimages|info",
                                  # "name" as well as "thumbnail": the licence
@@ -520,10 +631,12 @@ async def find(client, topic: str) -> dict:
         except Exception:
             meta = {}
 
-    pic = _parse(body, meta)
-    # The article Wikimedia liked best may have nothing to do with the
-    # question. A lesson with no photograph is ordinary; a lesson illustrated
-    # with the wrong machine teaches the wrong machine.
+    pic = _parse(body, meta, q)
+    # The scorer has already refused anything below the floor, and the floor
+    # is what "has nothing to do with the question" means in numbers. This
+    # stays as the second gate because the two disagree at the margin and the
+    # stricter of them should win: a lesson with no photograph is ordinary,
+    # a lesson illustrated with the wrong machine teaches the wrong machine.
     if pic and not relevant(q, pic.get("caption")):
         print(f"Picture for {q!r} discarded: "
               f"{pic.get('caption')!r} is not about it")

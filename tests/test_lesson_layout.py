@@ -137,6 +137,72 @@ ck("it wraps instead of being clipped to one line",
 ck("and it is taken from the step's own first line",
    "function sbStepName(st)" in IDX)
 
+TPDF = io.open(os.path.join(ROOT, "teachpdf.py"), encoding="utf-8").read()
+IMG = io.open(os.path.join(ROOT, "images.py"), encoding="utf-8").read()
+MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+
+print("\nthe page a picture came from is the page that DREW it")
+# `page.images` walks /Resources, and a resource dictionary is very often
+# shared by every page of a chapter — so a forty-page textbook reported every
+# figure on all forty, and the survivor of the de-duplication kept whichever
+# page was enumerated first. The page number decides where in the lesson a
+# picture appears, so taking it from the wrong place put a whole chapter's
+# figures on one step.
+ck("the content stream is read, not the resource list",
+   "def _drawn_on(page)" in TPDF,
+   "a page's content stream says what it paints: /Im1 Do")
+ck("and /Resources is still the fallback", "imgs = list(page.images)" in TPDF,
+   "an unreadable stream should cost the page number, not the picture")
+
+print("\nthe picture search matches more than a few words")
+import images as _im                                # noqa: E402
+CASES = [
+    ("refraction of light", ["Light", "Refraction"], "Refraction",
+     "a prepositional phrase qualifies what came BEFORE it"),
+    ("plant cell structure", ["Structure", "Plant cell"], "Plant cell",
+     "a generic tail noun is not the subject"),
+    ("aircraft gearbox", ["Nimitz-class aircraft carrier", "Gearbox"],
+     "Gearbox", "sharing a word is not being the same object"),
+    ("total internal reflection",
+     ["Reflection (physics)", "Total internal reflection"],
+     "Total internal reflection", "more words matched is a better answer"),
+]
+for _q, _titles, _want, _why in CASES:
+    _ranked = sorted(((_im.score(_q, t), t) for t in _titles), reverse=True)
+    _top = [t for sc, t in _ranked if sc >= _im.SCORE_FLOOR]
+    ck(f"{_q!r} finds {_want!r}", bool(_top) and _top[0] == _want,
+       f"{[t for _, t in _ranked]} — {_why}")
+ck("and a picture of something else is refused outright",
+   _im.score("aircraft gearbox", "Crane (machine)") == 0.0,
+   "no picture is ordinary; the wrong machine teaches the wrong machine")
+ck("the search asks for several candidates, not one",
+   '"gsrlimit": "8"' in IMG)
+
+print("\nevery step gets something to look at, or keeps its words")
+ck("there is a pass that looks at every step", "async def _illustrate(" in MAIN)
+ck("it skips a step that already has a drawing or a 3D scene",
+   "def _has_visual(st)" in MAIN,
+   "a drawn diagram beats a photograph and should not be replaced by one")
+ck("and it widens the search rather than asking once",
+   'tries.append(f"{head} {_images.subject_of(topic)}"[:120])' in MAIN,
+   "asking once and giving up is what left a lesson with one picture")
+ck("the same photograph is never used twice in one lesson",
+   "if not url or url in have:" in MAIN)
+
+print("\nand what leaves the building carries its licence")
+ck("the print sheet shows the photographs", "const photoFig=(p)=>{" in IDX)
+ck("and the document's own pictures", "const docPics=(k)=>allPics" in IDX)
+ck("with author and licence on each",
+   "[p.caption,p.author,p.license].filter(Boolean)" in IDX,
+   "CC BY-SA is conditional on naming the author; a sheet without it is an "
+   "unlicensed copy")
+ck("the downloaded PDF embeds them too",
+   "async function pdfImageData(src)" in IDX)
+ck("and is built from one description of a lesson",
+   "function pdfRecordOf(l, meta)" in IDX,
+   "two copies of which fields go in is how one of them stops including "
+   "the pictures")
+
 print("\nthe mark is on both halves of the product")
 ck("the board", 'class="dot" src="/icon-192.png"' in CRX)
 ck("and craxle.com", 'class="brand-mark" src="/icon-192.png"' in IDX)

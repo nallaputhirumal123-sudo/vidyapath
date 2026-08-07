@@ -4231,6 +4231,37 @@ async function sbPrint(opts){
   /* A photographed figure if there is one, and the caption on its own if
      the drawing failed — a caption still says what was meant to be here,
      which is what the bracketed placeholder was doing badly. */
+  /* A photograph, and a picture out of the teacher's own document.
+   *
+   * This printed the DRAWN figures and nothing else, so a lesson taught with
+   * a photograph of a mitochondrion and two diagrams out of the chapter came
+   * off the printer as a description of them. For a chapter whose point is
+   * the picture that is the wrong document, not a shorter one.
+   *
+   * The credit goes with it. These are other people's photographs under
+   * CC BY-SA, and a sheet that leaves the classroom without the author and
+   * the licence on it is an unlicensed copy. */
+  const photoFig=(p)=>{
+    if(!p||!p.url) return "";
+    const cap=[p.caption,p.author,p.license].filter(Boolean).map(esc)
+      .join(" · ");
+    return `<figure><img class="fig" src="${esc(p.url)}" alt="${esc(p.caption||"")}"/>`+
+      (cap?`<figcaption>${cap}</figcaption>`:"")+`</figure>`;
+  };
+  /* Spread the same way the screen spreads them, so the sheet and the board
+     put a picture in the same place. */
+  const nSteps=Math.max(1,(l.steps||[]).length);
+  const allPics=(l.pictures||[]);
+  const lastPage=Math.max(1,...allPics.map(p=>+p.page||1));
+  const docPics=(k)=>allPics.filter((p,i)=>{
+      const at=lastPage>1
+        ? Math.round(((+p.page||1)-1)/(lastPage-1)*(nSteps-1))
+        : Math.round(i/Math.max(1,allPics.length)*(nSteps-1));
+      return Math.max(0,Math.min(nSteps-1,at))===k;
+    }).map(p=>`<figure><img class="fig" src="${esc(p.src)}" alt=""/>`+
+      `<figcaption>From the document${p.page?" · page "+(+p.page):""}</figcaption>`+
+      `</figure>`).join("");
+
   const fig=(k,kind,spec)=>{
     if(!spec) return "";
     const cap=esc(spec.caption||spec.kind||"");
@@ -4243,7 +4274,8 @@ async function sbPrint(opts){
     `<h3>Step ${k+1}</h3>${bullets(st.t)}`+
     (st.where?`<div class="wh">🖥 ${esc(st.where)}</div>`:"")+
     (st.code?`<pre>${esc(st.code)}</pre>`:"")+
-    fig(k,"draw",st.draw)+fig(k,"sketch",st.sketch)+fig(k,"scene",st.scene)
+    fig(k,"draw",st.draw)+fig(k,"sketch",st.sketch)+fig(k,"scene",st.scene)+
+    photoFig(st.photo)+docPics(k)
   ).join(nl);
   const when=new Date().toLocaleDateString(undefined,
     {year:"numeric",month:"long",day:"numeric"});
@@ -4541,7 +4573,13 @@ function sbBoardHTML(){
       Step ${SB.i+1} of ${l.steps.length}</div>
     ${st.t?stepLinesHTML(st.t):""}
     ${sbPicsFor(l,SB.i)}
+    <!-- The topic's own photograph on step one, and each later step's on
+         its own step. One picture at the start and words for the rest is
+         why this read as a wall — the steps of a lesson are not the same
+         subject repeated, and the open catalogues have a picture of most
+         of them. -->
     ${(SB.i===0&&l.photo&&l.photo.url)?sbPhotoHTML(l.photo):""}
+    ${(st.photo&&st.photo.url)?sbPhotoHTML(st.photo):""}
     <!-- The checker's findings are not shown here any more. They were
          printed as a red band in the middle of the lesson, between the
          explanation and the diagram it referred to, and most of what
@@ -5059,6 +5097,75 @@ function pdfSafe(s){
   return s;
 }
 
+/* A lesson, in the shape the PDF writer takes.
+ *
+ * Written once because the board and the sidebar both download the same
+ * lesson, and a second copy of "which fields go in" is how one of them
+ * quietly stops including the pictures. `steps` is flattened to text here;
+ * everything that is not text is passed through for the writer to place. */
+function pdfRecordOf(l, meta){
+  l = l || {};
+  return Object.assign({
+    title: l.title || "",
+    steps: (l.steps||[]).map(st => typeof st === "string" ? st : (st.t||""))
+             .filter(Boolean),
+    takeaway: l.takeaway || "",
+    photo: l.photo || null,
+    stepPhotos: (l.steps||[]).map(st => (st && st.photo) || null)
+                  .filter(Boolean),
+    pictures: l.pictures || []
+  }, meta || {});
+}
+
+/* A picture, as bytes this browser already holds.
+ *
+ * jsPDF will not fetch a URL for you, so a Wikimedia photograph has to be
+ * pulled down and turned into a data URL first. Wikimedia serves its uploads
+ * with CORS open, which is why this works at all; anything that refuses is
+ * skipped rather than allowed to fail the download, because a PDF with one
+ * picture missing is a PDF and a PDF that would not save is nothing.
+ */
+async function pdfImageData(src){
+  if(!src) return null;
+  if(/^data:image\//i.test(src)) return src;
+  try{
+    const r = await fetch(src, {mode:"cors", credentials:"omit"});
+    if(!r.ok) return null;
+    const blob = await r.blob();
+    if(!/^image\//.test(blob.type||"")) return null;
+    if(blob.size > 4_000_000) return null;
+    return await new Promise((res,rej)=>{
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result||""));
+      fr.onerror = rej;
+      fr.readAsDataURL(blob);
+    });
+  }catch(e){ return null; }
+}
+
+/* Every picture in a lesson, in the order it is taught, with the credit each
+   one is used under. The credit is not decoration: these are other people's
+   photographs under CC BY-SA, and a PDF that leaves the classroom without
+   the author and the licence on it is an unlicensed copy. */
+function pdfPicturesOf(rec){
+  const out = [];
+  const seen = new Set();
+  const add = (src, caption, author, license) => {
+    if(!src || seen.has(src)) return;
+    seen.add(src);
+    out.push({src, caption: caption||"", author: author||"",
+              license: license||""});
+  };
+  if(rec.photo) add(rec.photo.url, rec.photo.caption, rec.photo.author,
+                    rec.photo.license);
+  (rec.stepPhotos||[]).forEach(p => p && add(p.url, p.caption, p.author,
+                                             p.license));
+  (rec.pictures||[]).forEach(p => p && add(p.src,
+    p.page ? "From the document, page " + p.page : "From the document",
+    "", ""));
+  return out;
+}
+
 async function askPDF(rec){
   try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool. Check your connection."); return; }
   const {jsPDF}=window.jspdf;
@@ -5103,6 +5210,37 @@ async function askPDF(rec){
   if(rec.q) line("Question: "+rec.q,11,false,"#555",10);
   (rec.steps||[]).forEach(s=>line("-  "+s.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4));
   if(rec.takeaway){ y+=6; line("Remember: "+rec.takeaway,12,true,"#8a5a00",0); }
+
+  /* The pictures.
+   *
+   * This wrote text and nothing else, so a lesson taught with a diagram
+   * downloaded as a description of a diagram — and for a chapter whose
+   * point IS the picture, that is the wrong document rather than a shorter
+   * one. Anything that will not load is skipped: one missing picture is a
+   * PDF, and a download that fails is nothing.
+   */
+  const pics = pdfPicturesOf(rec);
+  for(const pic of pics){
+    const data = await pdfImageData(pic.src);
+    if(!data) continue;
+    let props;
+    try{ props = doc.getImageProperties(data); }catch(e){ continue; }
+    if(!props || !props.width || !props.height) continue;
+    const w = Math.min(W, 420);
+    const h = Math.max(1, Math.round(props.height * (w / props.width)));
+    const capH = 26;
+    /* A picture is not split across a page break. Half a diagram at the
+       bottom and half at the top is worse than a page with space on it. */
+    if(y + h + capH > H - 60){ doc.addPage(); y = 72; stamp(); }
+    try{
+      doc.addImage(data, props.fileType || "PNG", M, y, w, h);
+    }catch(e){ continue; }
+    y += h + 4;
+    const credit = [pic.caption, pic.author, pic.license]
+      .filter(Boolean).join("  ·  ");
+    if(credit) line(credit, 8.5, false, "#8a8f99", 8);
+    else y += 8;
+  }
   const name=(rec.title||"vidya-answer").replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,40);
   doc.save(name+".pdf");
 }
@@ -5522,7 +5660,8 @@ document.addEventListener("click",e=>{
   else if(kind==="report"){ askReport(); }
   else if(kind==="quiz"){ QuizUI.make(); }
   else if(kind==="toclass"){ askToClass(); }
-  else if(kind==="pdf"){ if(ASK.lesson)askPDF({q:ASK.question,subject:ASK.subject,level:ASK.level,title:ASK.lesson.title,steps:ASK.lesson.steps,takeaway:ASK.lesson.takeaway}); }
+  else if(kind==="pdf"){ if(ASK.lesson)askPDF(pdfRecordOf(ASK.lesson,
+    {q:ASK.question,subject:ASK.subject,level:ASK.level})); }
   else if(kind==="opensaved"){ askOpenSaved(key); }
   else if(kind==="pdfsaved"){ try{ askPDF(JSON.parse(S.notes[key])); }catch(err){} }
   else if(kind==="delsaved"){ askDeleteSaved(key); }

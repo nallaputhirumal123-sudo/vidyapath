@@ -14875,6 +14875,163 @@ _BOARD_LANGS = {
 }
 
 
+# A picture on more than the first page of a lesson.
+#
+# One photograph was fetched, for the topic, and shown on step one. Every
+# step after it was words — which is why a student's board reads as a wall,
+# and why "there are no images" is a fair description of a lesson that
+# technically has one.
+#
+# The steps of a good lesson are not the same subject repeated: "refraction",
+# "refractive index", "total internal reflection" are three things, and each
+# of them is something the open catalogues have a picture of. So each step's
+# own heading is searched, not the topic again.
+#
+# It is free. These are NASA and Wikimedia lookups, not model calls, and the
+# whole lesson is cached against its topic — so a class of thirty opening the
+# same lesson pays for none of it. They run concurrently and inside the
+# model's shadow is not available here (the lesson has to exist before its
+# headings do), so the number is capped: three extra pictures is a lesson
+# with pictures, and eight is a lesson waiting on eight HTTP requests.
+# How far down a lesson to look. Past this a lesson is long
+# enough that the reader is scrolling, not being taught from a
+# board, and twelve concurrent lookups is a lesson waiting on
+# the network.
+ILLUSTRATE_MAX = 8
+
+
+def _step_heading(st):
+    """The first line of a step, which is how these are written."""
+    if not isinstance(st, dict):
+        return ""
+    first = ""
+    for ln in str(st.get("t") or "").split("\n"):
+        ln = ln.strip()
+        if ln:
+            first = ln
+            break
+    # A heading, not a sentence: short, and words rather than symbols.
+    if not (3 <= len(first) <= 70):
+        return ""
+    if any(ch in first for ch in "=<>"):
+        return ""
+    letters = sum(ch.isalpha() for ch in first)
+    if letters < len(first.replace(" ", "")) * 0.6:
+        return ""
+    return first.rstrip(":")
+
+
+def _has_visual(st):
+    """Does this step already show something, rather than only say it?"""
+    if not isinstance(st, dict):
+        return False
+    return bool(st.get("draw") or st.get("sketch") or st.get("scene")
+                or (st.get("photo") or {}).get("url"))
+
+
+async def _illustrate(client, lesson, topic, asked=""):
+    """Give every step of a lesson something to look at, if one exists.
+
+    A lesson used to get ONE photograph, for the topic, on step one. Every
+    step after it was words — which is why a board reads as a wall, and why
+    "there are no images" is a fair description of a lesson that technically
+    has one.
+
+    Three queries per step, widening, and it stops at the first that finds
+    something:
+
+      1. the step's own heading      "total internal reflection" — the most
+                                     specific thing there is, and the one
+                                     most likely to find the exact article
+      2. the heading and the topic   for a heading too generic to search on
+                                     its own: "the apparatus" finds nothing,
+                                     "the apparatus refraction" finds optics
+      3. the topic, or what the      the backstop. A picture of the subject
+         learner actually asked      is better than no picture at all, and
+                                     the learner's own words are often the
+                                     most concrete thing available
+
+    Widening is the whole point. Searching once and giving up is what left a
+    lesson with a single picture, and the open catalogues do have something
+    for nearly every school subject — it is a matter of asking with enough
+    words.
+
+    What it will NOT do is show a picture that is not of the thing. The
+    scorer refuses anything below its floor, and a step keeps its words
+    rather than gaining a photograph of something else: a lesson with no
+    picture is ordinary, a lesson illustrated with the wrong machine teaches
+    the wrong machine.
+
+    Free. These are NASA and Wikimedia lookups, not model calls, and the
+    lesson is cached against its topic — so a class of thirty opening it pays
+    for none of this. The lookups for all the steps run at once.
+    """
+    steps = lesson.get("steps") or []
+    if not steps:
+        return 0
+    have = {(lesson.get("photo") or {}).get("url", "")}
+    have.discard("")
+
+    plans = []
+    for i, st in enumerate(steps[:ILLUSTRATE_MAX]):
+        if _has_visual(st):
+            continue
+        if i == 0 and (lesson.get("photo") or {}).get("url"):
+            continue
+        head = _step_heading(st)
+        tries = []
+        if head:
+            tries.append(head)
+            if topic and head.lower() not in topic.lower():
+                tries.append(f"{head} {_images.subject_of(topic)}"[:120])
+        if topic:
+            tries.append(_images.subject_of(topic)[:120])
+        if asked and asked != topic:
+            tries.append(_images.subject_of(asked)[:120])
+        seen, ordered = set(), []
+        for t in tries:
+            t = (t or "").strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                ordered.append(t)
+        if ordered:
+            plans.append((i, ordered))
+    if not plans:
+        return 0
+
+    async def one(queries):
+        for q in queries:
+            try:
+                pic = await _images.find(client, q)
+            except Exception:
+                pic = None
+            if pic and pic.get("url"):
+                return pic
+        return None
+
+    try:
+        found = await asyncio.gather(*[one(q) for _, q in plans],
+                                     return_exceptions=True)
+    except Exception as e:
+        print(f"Step pictures skipped: {type(e).__name__}: {e}")
+        return 0
+
+    n = 0
+    for (i, _q), pic in zip(plans, found):
+        if not isinstance(pic, dict) or not pic:
+            continue
+        url = pic.get("url", "")
+        # The same photograph twice in one lesson reads as a mistake, and is
+        # one. Better a step with words than a step with a repeat.
+        if not url or url in have:
+            continue
+        have.add(url)
+        if isinstance(steps[i], dict):
+            steps[i]["photo"] = pic
+            n += 1
+    return n
+
+
 async def _offer_scene(client, lesson, topic):
     """Attach a 3D scene when a measured one exists and the lesson has none.
 
@@ -15634,6 +15791,20 @@ async def board_lesson(body: BoardIn, user: User = Depends(axle_user),
                     swapped += 1
             except Exception as e:
                 print(f"Scene offer skipped: {type(e).__name__}: {e}")
+            # Something to LOOK at on every step that has nothing, not
+            # only on the first one. Free lookups against the open
+            # catalogues, widening from the step's own heading to the topic
+            # to what the learner actually asked, and cached with the lesson.
+            #
+            # Last, deliberately: the drawn diagrams and the real molecules
+            # above are better than a photograph, and a step that got one of
+            # those is left alone.
+            try:
+                more = await _illustrate(_pic_client, lesson, topic, topic)
+                if more:
+                    print(f"Pictures on {topic!r}: {more} more steps")
+            except Exception as e:
+                print(f"Step pictures skipped: {type(e).__name__}: {e}")
             if swapped:
                 print(f"Molecules on {topic!r}: {swapped} given real "
                       f"coordinates from PubChem")
