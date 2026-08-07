@@ -78,9 +78,17 @@ ck("it is unpacked before the corpus is opened",
    "_unpack_corpus()\n    built = _rag.open_fts(CORPUS_PATH)" in src,
    "the order is the whole point — a fresh process unpacks, then reads")
 ck("and a failure to unpack is never fatal",
-   "could not unpack the corpus" in src,
+   "could not unpack the" in src,
    "a server that will not boot because it could not write a cache file is "
    "worse than one that boots without NCERT and says so")
+# One unpacker, two archives. The books and their pictures have different
+# lives — the text is rebuilt when a book changes, the pictures when the
+# extraction improves — but the mechanics of getting either into place are
+# the same, and two copies of this logic is how one of them loses its stamp.
+ck("the books and the pictures share one unpacker",
+   "def _unpack_gz(gz, target, label):" in src)
+ck("and both are unpacked at startup",
+   "_unpack_corpus()\n        _unpack_pictures()" in src)
 ck("the warning about a missing corpus is still there",
    "NCERT is NOT loaded" in src)
 
@@ -176,7 +184,7 @@ print("\nit is unpacked at STARTUP, not on the first question")
 ck("startup unpacks it", "    try:\n        _unpack_corpus()" in src,
    "a page that reads the corpus can be served before any question is asked")
 ck("and it is not left to the background thread",
-   src.index("_unpack_corpus()\n    except Exception")
+   src.index("_unpack_pictures()\n    except Exception")
    < src.index("asyncio.create_task(asyncio.to_thread(_seed_with_retries))"),
    "a request can arrive before that thread finishes")
 ck("the coverage route still reports honestly when there is none",

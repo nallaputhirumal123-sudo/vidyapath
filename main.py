@@ -2015,8 +2015,9 @@ async def _startup():
     # thread finishes, and then we are back where we started.
     try:
         _unpack_corpus()
+        _unpack_pictures()
     except Exception as e:
-        print(f"WARNING: unpacking the corpus failed: {type(e).__name__}: {e}")
+        print(f"WARNING: unpacking the books failed: {type(e).__name__}: {e}")
     import asyncio
     asyncio.create_task(asyncio.to_thread(_seed_with_retries))
 
@@ -8964,6 +8965,109 @@ def _board_where(who, db, class_id=0, subject=""):
     return class_id, _board_subject(db, class_id, user, subject), user.id
 
 
+PICS_PATH = env("PICS_PATH") or str(BASE_DIR / "corpus-pics.db")
+PICS_GZ = str(BASE_DIR / "corpus-pics.db.gz")
+
+
+def _book_pics_local(code):
+    """One chapter's diagrams out of the shipped archive, or None.
+
+    None means "this archive does not know about that chapter", which is
+    different from "that chapter has no diagrams" — the first is a reason to
+    go and fetch it, the second is an answer. An empty list is the answer.
+    """
+    import sqlite3
+    if not os.path.exists(PICS_PATH):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{PICS_PATH}?mode=ro", uri=True)
+    except Exception:
+        return None
+    try:
+        seen = con.execute("SELECT 1 FROM done WHERE code = ?",
+                           (code,)).fetchone()
+        if not seen:
+            return None
+        rows = con.execute(
+            "SELECT page, w, h, jpeg FROM pictures WHERE code = ? "
+            "ORDER BY page", (code,)).fetchall()
+    except Exception:
+        return None
+    finally:
+        con.close()
+    return [{"src": "data:image/jpeg;base64,"
+                    + base64.b64encode(j).decode(),
+             "page": p, "w": w, "h": h} for p, w, h, j in rows]
+
+
+@app.get("/api/craxlearn/book-pictures")
+def craxlearn_book_pictures(code: str = "",
+                            user: User = Depends(board_or_reader),
+                            db: Session = Depends(get_db)):
+    """The diagrams from one NCERT chapter.
+
+    The corpus holds the text of eighteen books and none of their pictures,
+    and for most of what a class asks that is the right trade — the numbers
+    are in the passage and the board draws its own diagram. It is the wrong
+    trade for the chapters whose whole point IS the figure: a ray diagram, a
+    labelled cell, a circuit, a balance sheet's layout.
+
+    Fetched on demand rather than shipped. The pictures in these chapters are
+    118 MB raw and 28 MB re-encoded, against 10 MB for the entire text of the
+    same books — quadrupling the artefact to carry diagrams for hundreds of
+    chapters nobody opens this term is the wrong way round. One download per
+    chapter, once, for the chapters actually taught.
+
+    Cached against the chapter code, so the second class to reach that
+    chapter pays nothing, and so does the same class next year.
+    """
+    import corpus as _corpus
+    code = re.sub(r"[^a-z0-9]", "", (code or "").lower())[:16]
+    if not code:
+        raise HTTPException(400, "Which chapter?")
+    # It must be a chapter this corpus actually holds. Without this the route
+    # is a way to make the server fetch arbitrary files from ncert.nic.in on
+    # request, which is somebody else's bandwidth and our IP address.
+    known = False
+    try:
+        for prefix, _k, _s, n in _corpus.BOOKS:
+            for i in range(1, n + 1):
+                if _corpus.code_for(prefix, i) == code:
+                    known = True
+                    break
+            if known:
+                break
+    except Exception:
+        known = False
+    if not known:
+        raise HTTPException(404, "That is not a chapter in the books here.")
+
+    qkey = f"bookpics|{code}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    got = _cached_json(db, row, need=None)
+    if got is not None:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"pictures": got.get("pictures", []), "cached": True}
+
+    # The shipped archive first.
+    #
+    # These were fetched on demand at first and the measurement killed it: a
+    # chapter's first request took THIRTY-THREE SECONDS, because ncert.nic.in
+    # throttles and the fetch retries through it. Fine in a script, unusable
+    # standing in front of a class. So they travel with the books, and the
+    # download below is only the fallback for a chapter the archive missed.
+    pics = _book_pics_local(code)
+    if pics is None:
+        pics = _corpus.chapter_pictures(code)
+    # An empty result is cached too, and deliberately. A chapter with no
+    # diagrams in it will still have none next week, and re-downloading four
+    # megabytes to find that out again is the mistake this cache exists to
+    # stop.
+    _ai_cache_put(db, qkey, {"pictures": pics})
+    return {"pictures": pics, "cached": False}
+
+
 @app.post("/api/craxlearn/handwriting")
 async def craxlearn_handwriting(file: UploadFile = File(...),
                                 who=Depends(board_or_teacher),
@@ -15643,71 +15747,87 @@ _RAG_INDEX = None
 CORPUS_GZ = str(BASE_DIR / "corpus.db.gz")
 
 
-def _unpack_corpus():
-    """Put corpus.db in place from the shipped archive, if it is not already.
+def _unpack_gz(gz, target, label):
+    """Put `target` in place from its shipped .gz, if it is not already.
 
-    Cheap to call and safe to call twice: it does nothing when a corpus is
-    already there, which is the laptop case and every boot after the first on
-    a mounted volume.
+    Cheap to call and safe to call twice: it does nothing when the file is
+    already there and came from this same archive — the laptop case, and
+    every boot after the first on a mounted volume.
+
+    A STAMP records which archive the file on disk was unpacked from.
+    CORPUS_PATH points at a mounted volume in production, and a volume
+    survives the deploy that replaces the archive. Without this, rebuilding
+    and shipping would change nothing on the server: the file is already
+    there, so the unpack is skipped, and the old books are served for ever by
+    a deployment that looks entirely healthy. Size and mtime together notice a
+    different archive without reading megabytes on every boot.
     """
-    if not os.path.exists(CORPUS_GZ):
+    if not os.path.exists(gz):
         return
     import gzip
     import shutil
 
-    # Which archive the corpus on disk was unpacked FROM.
-    #
-    # CORPUS_PATH points at a mounted volume in production, and a volume
-    # survives the deploy that replaces the archive. Without this, rebuilding
-    # the corpus and shipping it would change nothing on the server: the file
-    # is already there, so the unpack is skipped, and the old books are served
-    # for ever by a deployment that looks entirely healthy. Size and mtime
-    # together are enough to notice a different archive without reading 6.7 MB
-    # on every boot.
-    stamp_path = CORPUS_PATH + ".from"
+    stamp_path = target + ".from"
     try:
-        s = os.stat(CORPUS_GZ)
-        stamp = f"{s.st_size}:{int(s.st_mtime)}"
+        st = os.stat(gz)
+        stamp = f"{st.st_size}:{int(st.st_mtime)}"
     except OSError:
         return
-    if os.path.exists(CORPUS_PATH):
+    if os.path.exists(target):
         try:
             with open(stamp_path, encoding="utf-8") as fh:
                 if fh.read().strip() == stamp:
                     return
         except OSError:
-            # No stamp beside an existing corpus means it was put there by
-            # hand or by an older build. Left alone: overwriting somebody's
-            # own corpus because we cannot prove where it came from would be
+            # No stamp beside an existing file means it was put there by hand
+            # or by an older build. Left alone: overwriting somebody's own
+            # corpus because we cannot prove where it came from would be
             # worse than serving it.
             return
-        print("corpus: the shipped archive has changed — unpacking it again")
+        print(f"{label}: the shipped archive has changed — unpacking again")
     # Written beside the target and moved into place, so a boot that is killed
     # mid-write cannot leave half a database that opens and answers wrongly.
-    tmp = CORPUS_PATH + ".unpacking"
+    tmp = target + ".unpacking"
     try:
-        os.makedirs(os.path.dirname(CORPUS_PATH) or ".", exist_ok=True)
-        with gzip.open(CORPUS_GZ, "rb") as src, open(tmp, "wb") as dst:
+        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+        with gzip.open(gz, "rb") as src, open(tmp, "wb") as dst:
             shutil.copyfileobj(src, dst, 1024 * 1024)
-        os.replace(tmp, CORPUS_PATH)
-        # Written only after the corpus is in place, so a boot killed
-        # mid-unpack leaves no stamp and the next one does the work again.
+        os.replace(tmp, target)
+        # Written only after the file is in place, so a boot killed mid-unpack
+        # leaves no stamp and the next one does the work again.
         try:
             with open(stamp_path, "w", encoding="utf-8") as fh:
                 fh.write(stamp)
         except OSError:
             pass
-        print(f"corpus: unpacked {CORPUS_GZ} -> {CORPUS_PATH}")
+        print(f"{label}: unpacked {gz} -> {target}")
     except Exception as e:
         # Never fatal. A server that will not boot because it could not write
-        # a cache file is worse than one that boots without NCERT and says so
-        # loudly a few lines below.
-        print(f"WARNING: could not unpack the corpus: {type(e).__name__}: {e}")
+        # a cache file is worse than one that boots without the books and says
+        # so loudly.
+        print(f"WARNING: could not unpack the {label}: "
+              f"{type(e).__name__}: {e}")
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
         except Exception:
             pass
+
+
+def _unpack_pictures():
+    """The chapter diagrams, from their own shipped archive.
+
+    A second file rather than more rows in corpus.db, because they have
+    different lives: the text is rebuilt when a book changes, the pictures
+    when the extraction improves, and a blob store of this size has no
+    business being reopened every time somebody searches for a passage.
+    """
+    _unpack_gz(PICS_GZ, PICS_PATH, "pictures")
+
+
+def _unpack_corpus():
+    """The books themselves, from the shipped archive."""
+    _unpack_gz(CORPUS_GZ, CORPUS_PATH, "corpus")
 
 
 def _rag_ready(db):

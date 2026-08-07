@@ -51,3 +51,8 @@ corpus.db*
 # Any .env variant, not just the exact name. A credential in
 # .env.local or .env.backup is the same credential.
 .env*
+# The picture archive is a build artefact like corpus.db; its .gz ships.
+corpus-pics.db
+corpus-pics.db.from
+corpus-pics.db.unpacking
+!corpus-pics.db.gz

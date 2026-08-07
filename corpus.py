@@ -290,6 +290,68 @@ def title_of(text, fallback=""):
     return fallback
 
 
+PIC_MAX_SIDE = 900       # a board is 1080 tall; nothing needs more
+PIC_QUALITY = 72
+PIC_PER_CHAPTER = 6
+
+
+def chapter_pictures(code, limit=PIC_PER_CHAPTER):
+    """The diagrams from one NCERT chapter, fetched when somebody asks.
+
+    NOT stored in the corpus, and the number is why. The pictures in 316
+    chapters are 118 MB as they come out of the PDFs and 28 MB re-encoded —
+    against 10 MB for the entire text of the same books. Shipping them would
+    quadruple an artefact that travels in the repository, to carry diagrams
+    for hundreds of chapters no class will open this term.
+
+    So they are fetched from the chapter's own PDF the first time anybody
+    wants them and cached by the caller. One three-second download per
+    chapter, once, for the chapters actually taught — and nothing at all for
+    the rest.
+
+    Re-encoded to JPEG at 900px because these are print images: a Class 11
+    Biology chapter carries 800 KB of them at a resolution meant for paper,
+    and a projector shows 1080 lines.
+
+    Returns [] rather than raising. A chapter whose diagrams cannot be got is
+    a lesson without diagrams, which is how every lesson worked until now.
+    """
+    try:
+        import base64
+        import io as _io
+        import teachpdf
+        from PIL import Image
+    except Exception:
+        return []
+    raw = fetch(code)
+    if not raw:
+        return []
+    try:
+        found = teachpdf.pictures(raw)
+    except Exception as e:
+        print(f"corpus: no pictures from {code} ({type(e).__name__})")
+        return []
+    out = []
+    for p in found[:limit]:
+        try:
+            src = p.get("src") or ""
+            blob = base64.b64decode(src.split(",", 1)[1])
+            im = Image.open(_io.BytesIO(blob))
+            im = im.convert("RGB")
+            im.thumbnail((PIC_MAX_SIDE, PIC_MAX_SIDE))
+            buf = _io.BytesIO()
+            im.save(buf, "JPEG", quality=PIC_QUALITY, optimize=True)
+            out.append({
+                "src": "data:image/jpeg;base64,"
+                       + base64.b64encode(buf.getvalue()).decode(),
+                "page": p.get("page", 0),
+                "w": im.width, "h": im.height,
+            })
+        except Exception:
+            continue
+    return out
+
+
 def already_in(index):
     """Chapter codes this index already holds.
 

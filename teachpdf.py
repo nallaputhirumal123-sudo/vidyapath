@@ -398,7 +398,23 @@ class _ImageOnPage:
     def data(self):
         if self._data is None:
             img = self._obj.decode_as_image()
+            # PNG cannot hold CMYK, and a book is a PRINT document — NCERT's
+            # PDFs are full of CMYK images. `img.save(buf, "PNG")` raised
+            # OSError on the first one, the exception left pictures()
+            # entirely, and the caller recorded "no pictures in this
+            # document". One print-origin diagram cost every picture in the
+            # chapter, on the feature whose whole point is the diagram.
+            #
+            # Paletted and 16-bit greyscale go the same way for the same
+            # reason: convert to something PNG can actually write.
+            if img.mode not in ("RGB", "RGBA", "L", "P", "1"):
+                img = img.convert("RGBA" if "A" in img.mode else "RGB")
             buf = io.BytesIO()
-            img.save(buf, "PNG")
+            try:
+                img.save(buf, "PNG")
+            except OSError:
+                # Whatever it was, RGB can hold it.
+                buf = io.BytesIO()
+                img.convert("RGB").save(buf, "PNG")
             self._data = buf.getvalue()
         return self._data
