@@ -196,6 +196,23 @@ ck("the coverage route still reports honestly when there is none",
    "No corpus is built on this deployment." in src,
    "a hard-coded yes is a promise the product breaks in front of a class")
 
+print("\nand a running server says what it actually has")
+# Both the books and their figures travel in the repository, and both have
+# been missing from a running server before — the corpus for months, in
+# silence, on a product sold as "answers from the syllabus". A number on the
+# status page is how anybody checks without a subject code, and without
+# guessing from whether an answer "looks grounded".
+ck("the passage count is reported",
+   '"corpus_passages": _corpus_count()' in src)
+ck("and the diagram count with it",
+   '"book_diagrams": _diagram_count()' in src)
+ck("both read the file rather than remembering a number",
+   "def _corpus_count():" in src and "def _diagram_count():" in src)
+ck("and neither can take the status page down",
+   src.count("    except Exception:\n        return 0") >= 2,
+   "a status page that falls over is one nobody can use at the moment they "
+   "most need it")
+
 print("\nand the real corpus is still what it should be")
 if os.path.exists(real_path):
     live = rag.open_fts(real_path)

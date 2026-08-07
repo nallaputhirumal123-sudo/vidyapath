@@ -2138,6 +2138,41 @@ def version():
     return {"version": VERSION, "commit": GIT_SHA, "started": BUILT_AT}
 
 
+def _corpus_count():
+    """Passages in the corpus on this deployment, or 0.
+
+    Read from the file rather than remembered, and never raises: a status
+    page that falls over is a status page nobody can use at the moment they
+    most need it.
+    """
+    import sqlite3
+    try:
+        if not os.path.exists(CORPUS_PATH):
+            return 0
+        con = sqlite3.connect(f"file:{CORPUS_PATH}?mode=ro", uri=True)
+        try:
+            return con.execute("SELECT count(*) FROM passages").fetchone()[0]
+        finally:
+            con.close()
+    except Exception:
+        return 0
+
+
+def _diagram_count():
+    """Figures from the school books on this deployment, or 0."""
+    import sqlite3
+    try:
+        if not os.path.exists(PICS_PATH):
+            return 0
+        con = sqlite3.connect(f"file:{PICS_PATH}?mode=ro", uri=True)
+        try:
+            return con.execute("SELECT count(*) FROM pictures").fetchone()[0]
+        finally:
+            con.close()
+    except Exception:
+        return 0
+
+
 @app.get("/api/status")
 def status(request: Request, db: Session = Depends(get_db)):
     """Public diagnostic — what is actually configured and loaded right now.
@@ -2155,6 +2190,15 @@ def status(request: Request, db: Session = Depends(get_db)):
         "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
+        # The books, and their figures, as this deployment actually has them.
+        #
+        # Both travel in the repository and both have been missing from a
+        # running server before — the corpus for months, silently, on a
+        # product sold as "answers from the syllabus". A number here is how
+        # anybody checks without a subject code and without guessing from
+        # whether an answer "looks grounded".
+        "corpus_passages": _corpus_count(),
+        "book_diagrams": _diagram_count(),
         "google_signin_enabled": GOOGLE_ENABLED,
         # Whether password reset can actually deliver. Shows configuration
         # only — never the credentials themselves.
