@@ -140,6 +140,8 @@ ck("and it is taken from the step's own first line",
 TPDF = io.open(os.path.join(ROOT, "teachpdf.py"), encoding="utf-8").read()
 IMG = io.open(os.path.join(ROOT, "images.py"), encoding="utf-8").read()
 MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+_i = MAIN.index("async def teach_from_pdf")
+_PDFROUTE = MAIN[_i:_i + 6000]
 
 print("\nthe page a picture came from is the page that DREW it")
 # `page.images` walks /Resources, and a resource dictionary is very often
@@ -202,6 +204,22 @@ ck("and is built from one description of a lesson",
    "function pdfRecordOf(l, meta)" in IDX,
    "two copies of which fields go in is how one of them stops including "
    "the pictures")
+
+print("\nthe same chapter gives the same lesson twice")
+# Everywhere else a doubtful lesson is deliberately NOT cached: caching turns
+# one wrong answer into everybody's wrong answer. That is the wrong trade for
+# a teacher's own document. The key is a hash of the FILE, so not caching
+# meant the same PDF produced a different write-up on every upload — and a
+# teacher prepares against what they saw yesterday. A chapter that will not
+# sit still cannot be prepared with.
+ck("a PDF lesson is stored whatever the checker thought",
+   'if verdict["cache"]:' not in _PDFROUTE,
+   "re-rolling the dice is not a safety property")
+ck("keyed on the file itself", 'qkey = f"teachpdf|{digest}"' in MAIN,
+   "one chapter, one lesson, however many people upload it")
+ck("and the doubt rides along instead of being discarded",
+   'lesson["confidence"] = verdict["confidence"]' in _PDFROUTE,
+   "marked on the screen rather than silently regenerated behind it")
 
 print("\nthe mark is on both halves of the product")
 ck("the board", 'class="dot" src="/icon-192.png"' in CRX)

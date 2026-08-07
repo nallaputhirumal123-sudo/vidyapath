@@ -1443,10 +1443,30 @@ function home(){
      but it names one class and one subject, and bringing a document into
      THAT is exactly what the code is for. So the document tile is offered
      alongside the two that need no server. */
+  /* A board holding a subject code gets the TEACHING surfaces.
+   *
+   * It used to get four tiles: something to write on, a calculator, the
+   * shelf, and the phone remote. Everything that makes this a teaching board
+   * — ask it a topic, turn a molecule round, run a simulation, photograph a
+   * question out of a book — needed an account, and the entire point of the
+   * code is that a teacher standing at the front of a room does not have one
+   * to hand. So the board was empty in the only way that matters: empty of
+   * the reason to use it.
+   *
+   * The code buys these because the server now charges them to whoever the
+   * school put on that subject. It still buys nothing that READS — no
+   * register, no marks, no discussion, no fees — which is the line that
+   * matters on a screen a whole room can see.
+   *
+   * Practice surfaces stay off, for the same reason they are off for a
+   * signed-in teacher: working through a course at your own pace is what a
+   * pupil does at their own desk. */
   var offer = OPEN
     ? TILES.filter(function(t){
-        return OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote" ||
-               (t.page === "bring" && boarded()); })
+        if(OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote") return true;
+        if(!boarded()) return false;
+        return PRACTICE_TILES.indexOf(t.page) < 0;
+      })
     : TILES.filter(function(t){
         return !(teacher && PRACTICE_TILES.indexOf(t.page) >= 0); });
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
@@ -3396,7 +3416,8 @@ function calc(){
     if(!expr) return;
     el("cErr").textContent = "";
     try{
-      var d = await api.post("/api/craxlearn/calc", { expression: expr });
+      var d = await window.bapi.post("/api/craxlearn/calc",
+                                     { expression: expr });
       el("cOut").textContent = d.result;
     }catch(e){
       el("cOut").textContent = "";
@@ -4424,7 +4445,12 @@ async function teach(){
   out.innerHTML = '<div class="card muted">Building the lesson…</div>';
   var d;
   try{
-    d = await api.post("/api/board/lesson", { topic:topic, level:level });
+    /* Through bapi, so the subject code's token goes with it. A board is
+       not signed in and never will be; the token is what says which room is
+       asking, and the server charges the teacher the school put on that
+       subject. */
+    d = await window.bapi.post("/api/board/lesson",
+                               { topic:topic, level:level });
   }catch(e){
     out.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
     return;

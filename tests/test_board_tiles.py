@@ -89,6 +89,27 @@ ck("and a pupil can still sign in on their own device",
    "the register sign-in must survive somewhere")
 
 print("")
+print("a code buys a BOARD, not four tiles")
+# It bought a writing space, a calculator, the shelf and the phone remote.
+# Everything that makes this a teaching board — ask it a topic, turn a
+# molecule round, run a simulation, photograph a question out of a book —
+# needed an account, and the whole point of the code is that a teacher at
+# the front of a room has not got one. The board was empty in the only way
+# that matters: empty of the reason to use it.
+ck("a coded board is not held to the no-server tools",
+   "if(!boarded()) return false;" in SRC,
+   "OPEN_TOOLS is the list for a board with NO code")
+ck("it gets the teaching surfaces", "return PRACTICE_TILES.indexOf(t.page) < 0;" in SRC)
+ck("but not the practice ones",
+   "PRACTICE_TILES = [\"tracks\", \"net\", \"lab\", \"sqlboard\"]" in SRC,
+   "working through a course at your own pace is a pupil at their own desk")
+ck("and the lesson request carries the code's token",
+   'window.bapi.post("/api/board/lesson"' in SRC,
+   "a board is not signed in; the token says which room is asking")
+ck("so does the calculator",
+   'window.bapi.post("/api/craxlearn/calc"' in SRC)
+
+print("")
 print("the board is not signed in, and cannot be")
 # It used to read the craxle.com session, so whatever account was signed in
 # on that browser became the board — on a classroom machine that is whoever

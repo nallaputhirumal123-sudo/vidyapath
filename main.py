@@ -3093,14 +3093,31 @@ async def teach_from_pdf(file: UploadFile = File(...),
         lesson["confidence"] = verdict["confidence"]
 
     _ai_bump(db, user)
-    if verdict["cache"]:
-        db.add(AskCache(qkey=qkey, subject="teachpdf", level="teacher",
-                        question=(file.filename or "document")[:2000],
-                        lesson=json.dumps(lesson), hits=0))
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
+    # Always cached, unlike a lesson about a TOPIC.
+    #
+    # Everywhere else a doubtful lesson is deliberately not kept: caching is
+    # what turns one wrong answer into everybody's wrong answer, so a lesson
+    # the checker is unhappy with is thrown away and asked for again.
+    #
+    # That is the wrong trade for a teacher's own document. The key here is a
+    # hash of the FILE — one chapter, uploaded by the person who wrote the
+    # lesson plan around it — and not caching meant the same PDF produced a
+    # different lesson every time it was uploaded. A teacher prepares against
+    # what they saw yesterday; a chapter that will not sit still cannot be
+    # prepared with, and re-rolling the dice is not a safety property.
+    #
+    # The doubt is not discarded, it is attached: `findings` and `confidence`
+    # ride on the lesson, so a low-confidence write-up is marked on the
+    # screen rather than silently regenerated behind it.
+    db.add(AskCache(qkey=qkey, subject="teachpdf", level="teacher",
+                    question=(file.filename or "document")[:2000],
+                    lesson=json.dumps(lesson), hits=0))
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two teachers in a department uploading the same worksheet within a
+        # second of each other. One row wins; the other reads it next time.
+        db.rollback()
     return {"lesson": lesson, "cached": False, "key": digest[:16]}
 
 
@@ -9560,7 +9577,7 @@ class CalcIn(BaseModel):
 
 
 @app.post("/api/craxlearn/calc")
-def craxlearn_calc(body: CalcIn, user: User = Depends(current_user)):
+def craxlearn_calc(body: CalcIn, who=Depends(_teacher_or_board)):
     """A calculator, worked by the same evaluator that checks the lessons.
 
     Not eval, and not a model. `maths.evaluate` parses to a syntax tree and
@@ -15761,13 +15778,40 @@ def _clean_board(d, topic):
 
 
 @app.post("/api/board/lesson")
-async def board_lesson(body: BoardIn, user: User = Depends(axle_user),
+async def board_lesson(body: BoardIn,
+                       who=Depends(_teacher_or_board),
                        db: Session = Depends(get_db)):
     """A step-by-step lesson on any topic, for the smart board.
+
+    Reachable with a SUBJECT CODE as well as a session, and that is the
+    difference between a board and a whiteboard.
+
+    A teacher who typed their code got four tiles: something to write on, a
+    calculator, the shelf of what was saved earlier, and the phone remote.
+    Everything that makes this a teaching board — ask it a topic, turn a
+    molecule round, run a simulation — needed an account, and the whole point
+    of the code is that a teacher at the front of a room does not have one to
+    hand. So the board was empty in the only way that matters: empty of the
+    reason to use it.
+
+    The model call is charged to whoever the school put on that subject, the
+    same as /api/teach/pdf, so an AI bill always has a name against it. A
+    subject with nobody assigned cannot spend: there would be nobody to
+    charge, and the code would be an open tap.
 
     Paid: it is a per-request model call on an arbitrary topic, which is
     exactly the kind of cost that cannot be given away.
     """
+    user, grant = who
+    if grant is not None:
+        # Charged to whoever the school put on that subject. The board itself
+        # is nobody, and a model call with nobody behind it is a bill with no
+        # name on it.
+        user = db.get(User, grant["teacher_id"]) if grant["teacher_id"] else None
+        if user is None:
+            raise HTTPException(
+                403, "No teacher is on this subject yet, so there is nobody "
+                     "to teach as. Ask the office to assign one.")
     require_paid(user, "The smart board")
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
