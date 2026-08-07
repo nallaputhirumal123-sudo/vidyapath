@@ -166,6 +166,23 @@ finally:
     main.CORPUS_PATH, main.CORPUS_GZ = real_path, real_gz
     shutil.rmtree(tmp, ignore_errors=True)
 
+print("\nit is unpacked at STARTUP, not on the first question")
+# It used to happen lazily, inside the retrieval index's first build, which
+# meant it had not happened yet for anything that opens the corpus FILE
+# directly. The syllabus-coverage page does exactly that, so a fresh
+# container told every coaching centre that looked "No corpus is built on
+# this deployment" until somebody happened to ask a question first. It said
+# it in production, on the deploy that shipped the corpus.
+ck("startup unpacks it", "    try:\n        _unpack_corpus()" in src,
+   "a page that reads the corpus can be served before any question is asked")
+ck("and it is not left to the background thread",
+   src.index("_unpack_corpus()\n    except Exception")
+   < src.index("asyncio.create_task(asyncio.to_thread(_seed_with_retries))"),
+   "a request can arrive before that thread finishes")
+ck("the coverage route still reports honestly when there is none",
+   "No corpus is built on this deployment." in src,
+   "a hard-coded yes is a promise the product breaks in front of a class")
+
 print("\nand the real corpus is still what it should be")
 if os.path.exists(real_path):
     live = rag.open_fts(real_path)

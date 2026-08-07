@@ -2000,6 +2000,23 @@ async def _startup():
     print(f"  Craxle  v{VERSION}  (commit {GIT_SHA})")
     print(f"  started {BUILT_AT}")
     print("=" * 56)
+    # The books, before anything can ask for them.
+    #
+    # This used to happen lazily, inside the retrieval index's first build —
+    # which meant it had not happened yet for anything that opens the corpus
+    # FILE directly. The syllabus-coverage page does exactly that, so a fresh
+    # container told every coaching centre that looked "No corpus is built on
+    # this deployment" until somebody happened to ask a question first. It
+    # said it in production, and it is what sent me looking.
+    #
+    # Cheap enough to do here: a tenth of a second on the first boot after a
+    # deploy and nothing at all afterwards. It is deliberately NOT in the
+    # thread below — a page that reads the corpus can be served before that
+    # thread finishes, and then we are back where we started.
+    try:
+        _unpack_corpus()
+    except Exception as e:
+        print(f"WARNING: unpacking the corpus failed: {type(e).__name__}: {e}")
     import asyncio
     asyncio.create_task(asyncio.to_thread(_seed_with_retries))
 
