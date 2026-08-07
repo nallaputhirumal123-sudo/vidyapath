@@ -15464,6 +15464,24 @@ def _rag_ready(db):
         _RAG_INDEX = built
         print(f"corpus: {built.n} passages from corpus.db")
         return _RAG_INDEX
+
+    # No corpus file, and that is worth SAYING.
+    #
+    # corpus.db holds the NCERT books — eighteen of them, seven thousand
+    # passages — and it is gitignored, because it is a fifteen-megabyte build
+    # artefact that takes hours to produce. Which means a deployment made
+    # from the repository has no NCERT in it at all, and nothing anywhere
+    # said so: the fallback below quietly builds an index from the site's own
+    # coding lessons, retrieval keeps working, and every science question is
+    # answered from the model's memory with no source behind it.
+    #
+    # A product whose selling point is "answers from the syllabus" failing
+    # silently back to "answers from somewhere" is the kind of thing that
+    # should be shouted at boot, not discovered by a coaching centre.
+    if not os.path.exists(CORPUS_PATH):
+        print(f"WARNING: no corpus at {CORPUS_PATH} — NCERT is NOT loaded. "
+              f"Lessons will not be grounded in the school books. "
+              f"Ship corpus.db, or point CORPUS_PATH at it.")
     try:
         rows = []
         for ls, tr in (db.query(Lesson, Track)

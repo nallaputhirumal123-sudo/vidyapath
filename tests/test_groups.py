@@ -118,6 +118,24 @@ ck("one group can be asked for on its own",
    [g["id"] for g in r.json().get("groups", [])] == ["neet"],
    str([g["id"] for g in r.json().get("groups", [])]))
 
+print("\nand a deployment without the books says so")
+# corpus.db is gitignored — a fifteen-megabyte build artefact that takes
+# hours to make — so a deployment built from the repository has no NCERT in
+# it at all. Nothing said so: retrieval fell back to the site's own coding
+# lessons, kept working, and every science question was answered from the
+# model's memory with no source behind it. A product selling "answers from
+# the syllabus" must not fail silently back to "answers from somewhere".
+MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+ck("a missing corpus is a warning, not a shrug",
+   "WARNING: no corpus at" in MAIN,
+   "shouted at boot rather than discovered by a coaching centre")
+ck("and it says what to do about it",
+   "Ship corpus.db, or point CORPUS_PATH at it." in MAIN)
+ck("the coverage route reports what is really there",
+   '"corpus": total' in MAIN,
+   "a centre reading a 'ready' table on a server with no books is the worst "
+   "possible version of this")
+
 print("\nthe chapter titles a source is labelled with")
 # These go in front of the model as [Class 7 Science: ...] and in front of a
 # reader who wants to check something. NCERT sets its headings in a font
