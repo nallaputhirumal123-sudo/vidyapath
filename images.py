@@ -133,9 +133,16 @@ def relevant(query: str, title: str) -> bool:
     # while being an entirely different object. Requiring the head means a
     # gearbox lesson gets a gearbox or nothing, which is the right trade —
     # no picture is ordinary, the wrong machine teaches the wrong machine.
-    ordered = [w for w in re.findall(r"[a-z0-9]+", str(query or "").lower())
-               if len(w) > 2 and w not in _STOP]
-    head = ordered[-1] if ordered else ""
+    # ONE definition of the head, and it is head_noun() below.
+    #
+    # This used to take the raw last word, which is the rule head_noun()
+    # exists to correct — and the two disagreed exactly where it mattered.
+    # "Plant cell structure" gave head "structure", so the article on Plant
+    # cell was thrown out as not being about it; "refraction of light" gave
+    # "light" and threw out Refraction. Both are the right article, both were
+    # discarded, and the log said so in a sentence that read as if the
+    # search had gone wrong.
+    head = head_noun(query)
     if head and not _matches(head, t):
         return False
     if q & t:
@@ -165,6 +172,14 @@ _GENERIC_TAIL = {
     "introduction", "basics", "concept", "concepts", "principle",
     "principles", "explanation", "summary", "notes", "formula", "formulas",
     "equation", "equations", "problem", "problems", "question", "questions",
+    # All of these are how a teacher writes a topic and none of them is ever
+    # the thing a picture should be of. "The parts of a flower" searched for
+    # "parts". Deliberately NOT here: "law", "laws" — "Newton's laws of
+    # motion" would reduce to "newton" and return a portrait of the man,
+    # which is the exact failure this list exists to prevent.
+    "part", "parts", "function", "functions", "feature", "features",
+    "component", "components", "stage", "stages", "step", "steps",
+    "use", "uses", "application", "applications", "importance", "role",
 }
 
 
@@ -184,14 +199,30 @@ def head_noun(query: str) -> str:
     So the phrase is cut at the first preposition and generic tails are
     dropped, and what is left ends in the actual head.
     """
+    def keep(s):
+        return [w for w in re.findall(r"[a-z0-9]+", s)
+                if len(w) > 2 and w not in _STOP]
+
     t = " " + " ".join(str(query or "").lower().split()) + " "
+    before, after = t, ""
     for sep in (" of ", " in ", " for ", " with ", " from ", " about ",
                 " between ", " during ", " under "):
         if sep in t:
-            t = t.split(sep)[0]
+            before, after = t.split(sep)[0], t.split(sep, 1)[1]
             break
-    words = [w for w in re.findall(r"[a-z0-9]+", t)
-             if len(w) > 2 and w not in _STOP]
+
+    words = keep(before)
+    # "the structure of the human heart" is about the HEART.
+    #
+    # Cutting at the preposition is right for "refraction of light", because
+    # refraction is a real subject. It is wrong when everything before the
+    # preposition is a generic — there the qualifier IS the subject, and the
+    # old rule returned "structure", searched for that, and found nothing a
+    # biology class could use. A heart, a flower and a cell all failed this
+    # way, which is most of what a school actually asks for a picture of.
+    if after and all(w in _GENERIC_TAIL for w in words):
+        words = keep(after)
+
     while len(words) > 1 and words[-1] in _GENERIC_TAIL:
         words.pop()
     return words[-1] if words else ""
@@ -556,27 +587,33 @@ async def find(client, topic: str) -> dict:
         if pic:
             return pic
 
-    # And nothing else.
+    # Then Wikimedia, for everything NASA does not cover — which is nearly
+    # everything a school teaches.
     #
-    # Wikimedia used to catch everything these two do not. It was dropped
-    # after "aircraft engine" returned a photograph of an aeroplane — which
-    # was not a failure of the search. "Aircraft engine" is the right
-    # article; its lead image is an aeroplane because an editor chose the
-    # picture that best introduces the article, and introducing an article
-    # is not the same job as showing the subject.
+    # This was switched off after "aircraft engine" returned a photograph of
+    # an aeroplane. That reasoning was sound and the conclusion was too
+    # strong. "Aircraft engine" IS the right article; its lead image is an
+    # aeroplane because an editor picked the picture that best introduces the
+    # article, and introducing an article is not the same job as showing the
+    # subject. But NASA covers astronomy and earth observation and nothing
+    # else, so switching Wikimedia off did not trade some wrong pictures for
+    # fewer wrong pictures — it traded them for almost NO pictures, on a
+    # board whose whole job is showing a class what a thing looks like.
+    # Photosynthesis, the human heart and a benzene ring all returned
+    # nothing, and a biology lesson with no picture of a heart is not a
+    # cautious lesson, it is a worse one.
     #
-    # No filter fixes that. A title check can stop the search landing on the
-    # wrong subject, and one was added for exactly that — it is why a crane
-    # no longer appears for a gearbox. It cannot turn a general
-    # encyclopaedia's lead images into subject photographs.
+    # What makes it acceptable is what the picture arrives WITH. Every one
+    # carries the article title as its caption and its author and licence
+    # underneath, both shown. A reader who sees an aeroplane captioned
+    # "Aircraft engine" can tell what happened; the failure is visible rather
+    # than silent, which is the most that can honestly be claimed for a
+    # general encyclopaedia's lead images.
     #
-    # So there are fewer pictures now. A lesson with none is ordinary; a
-    # lesson illustrated with the wrong machine teaches the wrong machine,
-    # because a reader believes a picture over a paragraph.
-    return {}
-
-    # Unreachable, and kept on purpose: this is the working shape for a
-    # source that does index subject photographs, if one is ever added.
+    # The guards that survived all of this still run: the query is cut to its
+    # head noun, eight titles are scored rather than three, anything under
+    # the floor is refused, and a file with no author or licence is dropped
+    # rather than shown bare.
     try:
         r = await client.get(API, timeout=TIMEOUT, headers={"User-Agent": UA},
                              params={

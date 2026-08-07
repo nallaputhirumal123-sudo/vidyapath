@@ -1016,7 +1016,15 @@ function cropPick(src){
   var bar = document.createElement("div");
   bar.style.cssText = "color:#fff;font:600 15px system-ui;display:flex;" +
     "gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:center";
-  bar.innerHTML = '<span>Drag over the part you want.</span>' +
+  bar.innerHTML = '<span id="shotHow">Drag over the part you want.</span>' +
+    /* A rectangle is right for a worked equation and wrong for a diagram in
+       the middle of a page with writing all round it. Drawing round the
+       thing is how somebody would point at it with their hand. */
+    '<button class="btn ghost on" id="shotRect" title="Select a rectangle">' +
+      '▭ Box</button>' +
+    '<button class="btn ghost" id="shotFree" title="Draw round the part you ' +
+      'want">✎ Free hand</button>' +
+    '<span class="sep" style="width:1px;height:1.4rem;background:#fff3"></span>' +
     '<button class="btn ghost" id="shotAll">Download</button>' +
     '<button class="btn" id="shotKeep">Keep on the class page</button>' +
     '<button class="btn ghost" id="shotNo">Cancel</button>' +
@@ -1031,12 +1039,29 @@ function cropPick(src){
   var box = document.createElement("div");
   box.style.cssText = "position:absolute;border:2px solid #ff9933;" +
     "background:#ff993322;display:none;pointer-events:none";
-  holder.appendChild(img); holder.appendChild(box);
+  /* The lasso is drawn on its own layer over the image rather than as a
+     border on a div, because a free-hand outline is not a rectangle and
+     cannot be expressed as one. */
+  var lasso = document.createElement("canvas");
+  lasso.style.cssText = "position:absolute;left:0;top:0;width:100%;" +
+    "height:100%;display:none;pointer-events:none";
+  holder.appendChild(img); holder.appendChild(box); holder.appendChild(lasso);
   back.appendChild(bar); back.appendChild(holder);
   document.body.appendChild(back);
 
   function close(){ if(back.parentNode) back.parentNode.removeChild(back); }
+  /* Downloading, on the machine this usually runs on, is a dead end.
+   *
+   * A smart board is a shared screen bolted to a wall at the front of a
+   * room. A file in ITS Downloads folder is on a computer nobody takes home
+   * and most people cannot even sign in to — the teacher who pressed the
+   * button does not get the picture, and neither does the class.
+   *
+   * So on a board holding a subject code the file goes to the subject page,
+   * where both the teacher and the class can open it. On somebody's own
+   * laptop or phone a download is exactly right, and still happens. */
   function save(cnv){
+    if(boarded()){ keep(cnv, true); return; }
     var a = document.createElement("a");
     a.href = cnv.toDataURL("image/png");
     a.download = "craxlearn-" + new Date().toISOString().slice(0,16)
@@ -1048,7 +1073,7 @@ function cropPick(src){
      Downloads folder. When the board knows which room it is in, that is one
      press away — the same route the writing space and the document shelf
      use, so it lands on the same subject page. */
-  async function keep(cnv){
+  async function keep(cnv, viaDownload){
     var msg = document.getElementById("shotMsg");
     if(!boarded()){
       if(msg) msg.textContent = "Enter a subject code to keep this on a "
@@ -1065,23 +1090,100 @@ function cropPick(src){
         fd.append("class_id", String((ROOM && ROOM.class_id) || 0));
         fd.append("subject", (ROOM && ROOM.subject) || "");
         await window.bapi.send("/api/craxlearn/board/file", fd);
-        close();
+        /* Saying where it went, rather than just vanishing. A dialog that
+           closes on success and on some failures looks the same either way,
+           and the next question is always "did that work?". */
+        var where = (ROOM && ROOM.subject) ? ROOM.subject : "the class page";
+        if(msg) msg.textContent = viaDownload
+          ? "Saved to " + where + " — this board's own Downloads folder is "
+            + "not somewhere anybody can reach it."
+          : "Saved to " + where + ". Your class can open it any time.";
+        setTimeout(close, viaDownload ? 2200 : 900);
       }catch(e){
         if(msg) msg.textContent = e.message || "It could not be saved.";
       }
     }, "image/png");
   }
   el("shotNo").onclick = close;
-  /* Whole screen downloads it; Keep files whatever is selected, which is the
-     dragged rectangle if there is one and the whole frame if there is not. */
+  /* Both act on whatever is selected — the shape drawn if there is one and
+     the whole frame if there is not. */
   el("shotAll").onclick = function(){ save(picked || src); };
   el("shotKeep").onclick = function(){ keep(picked || src); };
   back.addEventListener("keydown", function(e){
     if(e.key === "Escape") close(); });
 
+  var MODE = "rect";
+  function setMode(m){
+    MODE = m;
+    el("shotRect").classList.toggle("on", m === "rect");
+    el("shotFree").classList.toggle("on", m === "free");
+    el("shotHow").textContent = m === "free"
+      ? "Draw round the part you want." : "Drag over the part you want.";
+    box.style.display = "none";
+    lasso.style.display = "none";
+    path = [];
+    picked = null;
+    var m2 = document.getElementById("shotMsg");
+    if(m2) m2.textContent = "";
+  }
+  el("shotRect").onclick = function(){ setMode("rect"); };
+  el("shotFree").onclick = function(){ setMode("free"); };
+
   var a0 = null;
-  /* The rectangle somebody dragged, once they have dragged one. */
+  /* The outline being drawn, in the coordinates of the image AS SHOWN. */
+  var path = [];
+  /* Whatever shape somebody drew, once they have drawn one. */
   var picked = null;
+
+  /* The lasso canvas is sized in device pixels to the image's displayed box,
+     so the outline is crisp on a board at any scaling. */
+  function fitLasso(){
+    var r = img.getBoundingClientRect();
+    var d = window.devicePixelRatio || 1;
+    lasso.width = Math.max(1, Math.round(r.width * d));
+    lasso.height = Math.max(1, Math.round(r.height * d));
+  }
+  function drawLasso(closed){
+    var c = lasso.getContext("2d"), d = window.devicePixelRatio || 1;
+    c.clearRect(0, 0, lasso.width, lasso.height);
+    if(path.length < 2) return;
+    c.beginPath();
+    c.moveTo(path[0][0] * d, path[0][1] * d);
+    for(var i = 1; i < path.length; i++) c.lineTo(path[i][0] * d, path[i][1] * d);
+    if(closed) c.closePath();
+    c.fillStyle = "#ff993322";
+    if(closed) c.fill();
+    c.strokeStyle = "#ff9933";
+    c.lineWidth = 2 * d;
+    c.lineJoin = "round";
+    c.lineCap = "round";
+    c.stroke();
+  }
+  /* Everything outside the outline is cut away, and the result is cropped to
+     the outline's own bounding box — so what comes out is the shape that was
+     drawn, on transparency, rather than a rectangle around it. */
+  function fromPath(){
+    var r = img.getBoundingClientRect();
+    var kx = src.width / r.width, ky = src.height / r.height;
+    var xs = path.map(function(p){ return p[0] * kx; });
+    var ys = path.map(function(p){ return p[1] * ky; });
+    var x0 = Math.max(0, Math.min.apply(null, xs));
+    var y0 = Math.max(0, Math.min.apply(null, ys));
+    var x1 = Math.min(src.width, Math.max.apply(null, xs));
+    var y1 = Math.min(src.height, Math.max.apply(null, ys));
+    var w = x1 - x0, h = y1 - y0;
+    if(w < 8 || h < 8) return null;
+    var out = document.createElement("canvas");
+    out.width = Math.round(w); out.height = Math.round(h);
+    var c = out.getContext("2d");
+    c.beginPath();
+    c.moveTo(xs[0] - x0, ys[0] - y0);
+    for(var i = 1; i < xs.length; i++) c.lineTo(xs[i] - x0, ys[i] - y0);
+    c.closePath();
+    c.clip();
+    c.drawImage(src, x0, y0, w, h, 0, 0, out.width, out.height);
+    return out;
+  }
   function spot(e){
     var r = img.getBoundingClientRect();
     var t = (e.touches && e.touches[0]) || e;
@@ -1091,12 +1193,25 @@ function cropPick(src){
   img.addEventListener("pointerdown", function(e){
     e.preventDefault();
     img.setPointerCapture(e.pointerId);
+    if(MODE === "free"){
+      fitLasso();
+      path = [spot(e)];
+      lasso.style.display = "block";
+      box.style.display = "none";
+      return;
+    }
     a0 = spot(e);
     box.style.display = "block";
     box.style.left = a0[0] + "px"; box.style.top = a0[1] + "px";
     box.style.width = "0px"; box.style.height = "0px";
   });
   img.addEventListener("pointermove", function(e){
+    if(MODE === "free"){
+      if(!path.length) return;
+      path.push(spot(e));
+      drawLasso(false);
+      return;
+    }
     if(!a0) return;
     var b = spot(e);
     box.style.left = Math.min(a0[0], b[0]) + "px";
@@ -1105,6 +1220,22 @@ function cropPick(src){
     box.style.height = Math.abs(b[1] - a0[1]) + "px";
   });
   img.addEventListener("pointerup", function(e){
+    if(MODE === "free"){
+      if(!path.length) return;
+      drawLasso(true);
+      var m3 = document.getElementById("shotMsg");
+      var got = fromPath();
+      path = [];
+      if(!got){
+        /* A tap, not an outline. Nothing was meant by it. */
+        lasso.style.display = "none";
+        return;
+      }
+      picked = got;
+      if(m3) m3.textContent = "That shape is selected. Keep it on the class "
+        + "page, or start again.";
+      return;
+    }
     if(!a0) return;
     var b = spot(e), start = a0; a0 = null;
     var r = img.getBoundingClientRect();
@@ -2638,7 +2769,16 @@ function write(){
     else cb(null);
   }
 
+  /* On a board, this used to write a PNG into the Downloads folder of a
+     computer bolted to a wall — a place the teacher who pressed it cannot
+     reach and the class certainly cannot. When the board knows its room the
+     picture goes to the subject page instead, and says so. On somebody's
+     own device a download is right and still happens. */
   wq("wShot").onclick = function(){
+    /* `keep` is assigned further down; this handler runs long after, so the
+       name is bound by the time anybody presses anything. Guarded anyway —
+       trading one dead button for another would be no improvement. */
+    if(boarded() && keep && keep.onclick){ keep.onclick(); return; }
     var a = document.createElement("a");
     a.href = shotCanvas().toDataURL("image/png");
     a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
