@@ -1,0 +1,678 @@
+{
+  "tracks": [
+    {
+      "id": "s6-nlp",
+      "icon": "💬",
+      "name": "Natural Language Processing",
+      "level": "Stage 6 · after Deep Learning",
+      "color": "#0891b2",
+      "weeks": 5,
+      "lang": "Python",
+      "desc": "Turning text into something a model can use — tokens, counts, embeddings — and the four jobs that pay for themselves: classification, extraction, similarity and search.",
+      "outcomes": [
+        "Clean and tokenise real text without destroying what it means",
+        "Explain TF-IDF and build it by hand",
+        "Say what an embedding is and use cosine similarity correctly",
+        "Build a classifier and judge it on the metric that matters",
+        "Extract entities and know when a regular expression beats a model"
+      ],
+      "position": 0,
+      "audience": "stage4",
+      "quiz": [],
+      "lessons": [
+        {
+          "id": "nlp1",
+          "title": "Text is not data until you make it so",
+          "mins": 40,
+          "lang": "py",
+          "position": 0,
+          "content": "\n<h3>The gap nobody warns you about</h3>\n<p>A model takes numbers. You have a column of customer complaints. Everything in this lesson is the bridge, and getting it wrong quietly ruins everything built on top.</p>\n\n<h3>Tokenising: harder than split()</h3>\n<pre><code>\"Don't split on spaces.\".split()\n['Don't', 'split', 'on', 'spaces.']</code></pre>\n<p>Two problems in four words. <code>spaces.</code> carries a full stop, so it will never match <code>spaces</code> anywhere else in your data. And <code>Don't</code> is really two tokens.</p>\n<p>Splitting on <b>runs of letters</b> instead is a better default:</p>\n<pre><code>import re\nre.findall(r\"[a-z0-9']+\", text.lower())</code></pre>\n<div class=\"callout\"><b>Lowercasing is not free.</b> It merges <code>US</code> with <code>us</code> and <code>Apple</code> with <code>apple</code>. For topic classification that is fine and helps. For named-entity work it destroys the main signal you had. Decide per task, not by habit.</div>\n\n<h3>Stop words, and when removing them is wrong</h3>\n<p>\"the\", \"is\", \"and\" carry little topic signal, so counting-based methods usually drop them.</p>\n<p>But they carry a great deal of <i>other</i> signal. \"not\" is a stop word in several standard lists — remove it and \"this is not good\" becomes \"good\". Sentiment work has been ruined by exactly that line of code.</p>\n\n<h3>Stemming and lemmatising</h3>\n<pre><code>running, runs, ran        ->  run\n\nstemming     chops endings by rule. Fast, crude.\n             \"studies\" -> \"studi\"   (not a word, and that is fine)\nlemmatising  uses a dictionary. Slower, correct.\n             \"studies\" -> \"study\",  \"ran\" -> \"run\"</code></pre>\n<p>Stemming is enough for search and counting. Lemmatising is worth the cost when a human will read the output.</p>\n\n<h3>The Indian-language problem, stated plainly</h3>\n<p>Most of what you will read assumes English. Real text here is not.</p>\n<ul>\n<li><b>Code-mixing.</b> \"Bhai order kab aayega\" is one sentence in two languages. An English tokeniser handles it; an English stop-word list and lemmatiser do nothing useful.</li>\n<li><b>Transliteration.</b> The same word arrives as <code>bhai</code>, <code>bhaai</code>, <code>bhi</code>. Exact matching fails; character n-grams and embeddings survive.</li>\n<li><b>Script.</b> Devanagari has no capital letters, so any rule keyed on capitalisation silently does nothing.</li>\n</ul>\n<div class=\"callout\"><b>Test on your own data early.</b> A pipeline that scores 94% on an English benchmark and 61% on your support inbox is not a surprise, it is the normal result of skipping this paragraph.</div>\n\n<h3>The order that matters</h3>\n<pre><code>1. lower-case      (if the task allows it)\n2. tokenise        letters and digits\n3. remove stop words   (if counting; NOT for sentiment)\n4. stem or lemmatise   (if counting)\n5. count or embed</code></pre>\n<p>Steps 1 to 4 are optional and each one throws information away. Every one of them should be a decision you can defend, not a line copied from a tutorial.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "spaCy 101", "url": "https://spacy.io/usage/spacy-101" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Tokenise with a regular expression. Print the number of tokens in <code>\"Don't split on spaces.\"</code> using <code>[a-z0-9']+</code> on the lower-cased text.",
+              "starter": "import re\ntext = \"Don't split on spaces.\"\ntoks = []   # fix this\nprint(len(toks))",
+              "solution": "import re\ntext = \"Don't split on spaces.\"\ntoks = re.findall(r\"[a-z0-9']+\", text.lower())\nprint(len(toks))",
+              "hint": "re.findall on text.lower()",
+              "answer": "",
+              "check": { "lines": ["4"] }
+            },
+            {
+              "q": "Show the full stop problem. Print whether <code>'spaces.' == 'spaces'</code>.",
+              "starter": "print(True)   # fix this",
+              "solution": "print('spaces.' == 'spaces')",
+              "hint": "Punctuation makes a different token.",
+              "answer": "",
+              "check": { "lines": ["False"] }
+            },
+            {
+              "q": "The sentiment trap. Remove 'not' from <code>['this','is','not','good']</code> and print the remaining words joined by spaces.",
+              "starter": "words = ['this','is','not','good']\nkept = words   # fix this\nprint(' '.join(kept))",
+              "solution": "words = ['this','is','not','good']\nkept = [w for w in words if w != 'not']\nprint(' '.join(kept))",
+              "hint": "Look at the meaning of what is left.",
+              "answer": "",
+              "check": { "lines": ["this is good"] }
+            },
+            {
+              "q": "Crude stemming. Strip a trailing 's' from 'runs' and print the result.",
+              "starter": "w = 'runs'\nprint(w)   # fix this",
+              "solution": "w = 'runs'\nprint(w[:-1] if w.endswith('s') else w)",
+              "hint": "Slice off the last character.",
+              "answer": "",
+              "check": { "lines": ["run"] }
+            },
+            {
+              "q": "Transliteration. Print how many DISTINCT spellings are in <code>['bhai','bhaai','bhai','bhi']</code>.",
+              "starter": "spellings = ['bhai','bhaai','bhai','bhi']\nprint(0)   # fix this",
+              "solution": "spellings = ['bhai','bhaai','bhai','bhi']\nprint(len(set(spellings)))",
+              "hint": "A set drops duplicates.",
+              "answer": "",
+              "check": { "lines": ["3"] }
+            },
+            {
+              "q": "Character n-grams survive spelling variation. Print the 3-grams of 'bhai' as a list.",
+              "starter": "w = 'bhai'\ngrams = []   # fix this\nprint(grams)",
+              "solution": "w = 'bhai'\ngrams = [w[i:i+3] for i in range(len(w)-2)]\nprint(grams)",
+              "hint": "Slide a window of three characters.",
+              "answer": "",
+              "check": { "lines": ["['bha', 'hai']"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Why is split() a poor tokeniser?", "a": "It leaves punctuation attached, so 'spaces.' never matches 'spaces', and it keeps contractions as single tokens." },
+            { "q": "When should you NOT lowercase?", "a": "When capitalisation is the signal — named-entity recognition especially, where 'Apple' and 'apple' are different things." },
+            { "q": "Give a concrete case where removing stop words is harmful.", "a": "Sentiment analysis. 'not' appears in many stop-word lists, and removing it turns 'this is not good' into 'this is good'." },
+            { "q": "Stemming or lemmatising — how do you choose?", "a": "Stemming is fast and crude and is enough for counting and search. Lemmatising uses a dictionary and is worth the cost when a person will read the output." },
+            { "q": "Name two ways Indian text breaks an English pipeline.", "a": "Code-mixing, where one sentence uses two languages so English stop-word lists and lemmatisers do nothing; and transliteration, where the same word is spelled several ways so exact matching fails." }
+          ]
+        },
+        {
+          "id": "nlp2",
+          "title": "Counting words well: TF-IDF",
+          "mins": 40,
+          "lang": "py",
+          "position": 1,
+          "content": "\n<h3>Start with the simplest thing that works</h3>\n<p>A <b>bag of words</b> is a count of each word, order thrown away.</p>\n<pre><code>\"the fee is late\"   ->  {the:1, fee:1, is:1, late:1}</code></pre>\n<p>It sounds far too crude to be useful. It is the backbone of a great deal of working software, because for \"which of these six categories is this complaint\" the words present matter far more than their order.</p>\n\n<h3>Raw counts have one bad habit</h3>\n<p>The commonest words dominate. Every document contains \"the\", so \"the\" tells you nothing and still gets the highest count.</p>\n<p><b>TF-IDF</b> fixes it with two numbers multiplied together.</p>\n<pre><code>TF   how often the word is in THIS document\nIDF  how rare the word is across ALL documents\n\nidf = log(total_docs / docs_containing_word)</code></pre>\n<p>A word in every document gets <code>log(1) = 0</code> and disappears. A word in one document out of a thousand gets a large number and dominates — which is exactly right, because that is what makes the document distinctive.</p>\n\n<h4>Worked example — by hand</h4>\n<pre><code>3 documents. \"fee\" appears in 1. \"the\" appears in all 3.\n\nidf(fee) = log(3/1) = 1.0986\nidf(the) = log(3/3) = 0.0\n\nIn a document with fee twice and the four times:\ntfidf(fee) = 2 * 1.0986 = 2.197\ntfidf(the) = 4 * 0.0    = 0.0</code></pre>\n<p>\"the\" appeared twice as often and scores nothing. That is the whole idea.</p>\n\n<h3>N-grams put a little order back</h3>\n<pre><code>unigrams  \"not\", \"good\"          two separate signals\nbigrams   \"not good\"            one signal, the right one</code></pre>\n<p>Adding bigrams often lifts a sentiment classifier by several points for one keyword argument. It also multiplies the size of your vocabulary, so it is a trade rather than a free win.</p>\n\n<h3>In scikit-learn</h3>\n<pre><code>from sklearn.feature_extraction.text import TfidfVectorizer\n\nvec = TfidfVectorizer(ngram_range=(1, 2), min_df=2, max_df=0.9)\nX = vec.fit_transform(train_texts)      fit AND transform\nXtest = vec.transform(test_texts)       transform ONLY</code></pre>\n<div class=\"callout\"><b>The line that leaks.</b> Calling <code>fit_transform</code> on the test set too means the vocabulary and the IDF numbers were computed using data you are about to be scored on. The score comes out higher and means nothing. Fit on train, transform everything else — every time.</div>\n<ul>\n<li><b>min_df=2</b> — ignore words appearing in fewer than 2 documents. Kills typos and noise.</li>\n<li><b>max_df=0.9</b> — ignore words in over 90% of documents. A stop-word list learned from your own data.</li>\n</ul>\n\n<h3>Where this runs out</h3>\n<p>TF-IDF has no idea that \"doctor\" and \"physician\" are related. Two documents about the same thing in different words score zero similarity. That is the problem embeddings exist to solve, and it is the next lesson.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "scikit-learn: text feature extraction", "url": "https://scikit-learn.org/stable/modules/feature_extraction.html#text-feature-extraction" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Bag of words. Print the count of distinct words in <code>'the fee is the fee'</code>.",
+              "starter": "s = 'the fee is the fee'\nprint(0)   # fix this",
+              "solution": "s = 'the fee is the fee'\nprint(len(set(s.split())))",
+              "hint": "A set of the split words.",
+              "answer": "",
+              "check": { "lines": ["3"] }
+            },
+            {
+              "q": "IDF of a word in every document. Print <code>log(3/3)</code> rounded to 1 place.",
+              "starter": "import math\nprint(0)   # fix this",
+              "solution": "import math\nprint(round(math.log(3/3), 1))",
+              "hint": "log of 1.",
+              "answer": "",
+              "check": { "lines": ["0.0"] }
+            },
+            {
+              "q": "IDF of a rare word: in 1 document out of 3. Print it rounded to 4 places.",
+              "starter": "import math\nprint(0)   # fix this",
+              "solution": "import math\nprint(round(math.log(3/1), 4))",
+              "hint": "math.log(3)",
+              "answer": "",
+              "check": { "lines": ["1.0986"] }
+            },
+            {
+              "q": "TF-IDF. The word appears 2 times and its idf is 1.0986. Print the score rounded to 3 places.",
+              "starter": "tf, idf = 2, 1.0986\nprint(0)   # fix this",
+              "solution": "tf, idf = 2, 1.0986\nprint(round(tf * idf, 3))",
+              "hint": "Multiply.",
+              "answer": "",
+              "check": { "lines": ["2.197"] }
+            },
+            {
+              "q": "Bigrams. Print the bigrams of <code>['this','is','not','good']</code> as a list of strings joined by spaces.",
+              "starter": "w = ['this','is','not','good']\nbg = []   # fix this\nprint(bg)",
+              "solution": "w = ['this','is','not','good']\nbg = [w[i] + ' ' + w[i+1] for i in range(len(w)-1)]\nprint(bg)",
+              "hint": "Pair each word with the next.",
+              "answer": "",
+              "check": { "lines": ["['this is', 'is not', 'not good']"] }
+            },
+            {
+              "q": "Print the method you must NOT call on the test set.",
+              "starter": "print('')   # fix this",
+              "solution": "print('fit_transform')",
+              "hint": "Fit on train, transform everything else.",
+              "answer": "",
+              "check": { "lines": ["fit_transform"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "What does IDF do to a word that appears in every document?", "a": "log(N/N) is log(1), which is zero, so the whole TF-IDF score is zero and the word is effectively ignored." },
+            { "q": "Why do bigrams help sentiment classification?", "a": "'not' and 'good' as separate tokens lose the negation. 'not good' as one token carries the actual meaning." },
+            { "q": "What goes wrong if you call fit_transform on the test set?", "a": "The vocabulary and IDF values are computed using the test data, so information leaks from the set you are being scored on. The score is inflated and meaningless." },
+            { "q": "What do min_df and max_df each remove?", "a": "min_df removes words that are too rare — typos and noise. max_df removes words that are too common, which is a stop-word list learned from your own data." },
+            { "q": "Give the limitation that motivates embeddings.", "a": "TF-IDF has no notion of meaning, so 'doctor' and 'physician' score zero similarity even though the documents are about the same thing." }
+          ]
+        },
+        {
+          "id": "nlp3",
+          "title": "Embeddings and similarity",
+          "mins": 40,
+          "lang": "py",
+          "position": 2,
+          "content": "\n<h3>A word as a direction, not a slot</h3>\n<p>In a bag of words every word is its own column and no two are related. An embedding puts each word at a point in a few hundred dimensions, placed so that words used in similar contexts land near each other.</p>\n<pre><code>doctor    [0.21, -0.44, 0.88, ...]\nphysician [0.19, -0.41, 0.85, ...]     nearby\nbanana    [-0.72, 0.30, -0.11, ...]    far away</code></pre>\n<p>Nobody wrote those numbers. They come from a model trained to predict a word from its neighbours, which turns out to be enough to arrange meaning geometrically.</p>\n\n<h3>Cosine similarity is the measure</h3>\n<pre><code>cos = (a . b) / (|a| * |b|)\n\n 1  pointing the same way   — same meaning\n 0  at right angles         — unrelated\n-1  opposite</code></pre>\n<div class=\"callout\"><b>Why cosine and not distance.</b> A long document has larger numbers than a short one about the same subject, so straight-line distance mostly measures LENGTH. Cosine looks only at direction, which is what \"about the same thing\" means.</div>\n\n<h4>Worked example — by hand</h4>\n<pre><code>a = [1, 0]\nb = [1, 1]\n\ndot   = 1*1 + 0*1 = 1\n|a|   = 1\n|b|   = sqrt(2) = 1.414\ncos   = 1 / 1.414 = 0.707     45 degrees apart</code></pre>\n\n<h3>Word vectors to sentence vectors</h3>\n<p>Averaging a sentence's word vectors works, in the sense that it beats nothing. It also throws away order, so \"dog bites man\" and \"man bites dog\" come out identical.</p>\n<p>Sentence-transformer models are trained to embed a whole sentence directly, and are what you should reach for. One line, and it runs locally with no API cost:</p>\n<pre><code>from sentence_transformers import SentenceTransformer\nm = SentenceTransformer(\"all-MiniLM-L6-v2\")\nvecs = m.encode([\"fee not paid\", \"payment outstanding\"])\n</code></pre>\n<p>Those two sentences share no word at all and sit close together. That is the thing TF-IDF could not do.</p>\n\n<h3>What this is actually for</h3>\n<ul>\n<li><b>Search that understands.</b> \"my payment did not go through\" finds the article titled \"failed transactions\".</li>\n<li><b>Deduplication.</b> Two complaints written differently about one problem.</li>\n<li><b>Clustering.</b> What are people writing in about this week, without deciding the categories first.</li>\n<li><b>RAG.</b> Embed the question, find the nearest passages, hand them to a model. The whole of retrieval-augmented generation is this plus a prompt.</li>\n</ul>\n\n<h3>Two things that catch people out</h3>\n<p><b>Bias is in the geometry.</b> Embeddings learn from human text and reproduce its associations, including the ones you would not choose. If an embedding decides who gets shortlisted, that is a decision you have to be able to defend.</p>\n<p><b>Similar is not the same as relevant.</b> \"How do I cancel?\" and \"How do I renew?\" are close in embedding space and are opposite requests. Nearest-neighbour search finds neighbours, and near is not always right.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "Sentence-Transformers documentation", "url": "https://www.sbert.net/" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Dot product of <code>[1,0]</code> and <code>[1,1]</code>. Print it.",
+              "starter": "a, b = [1,0], [1,1]\nprint(0)   # fix this",
+              "solution": "a, b = [1,0], [1,1]\nprint(sum(x*y for x, y in zip(a, b)))",
+              "hint": "Multiply pairwise and add.",
+              "answer": "",
+              "check": { "lines": ["1"] }
+            },
+            {
+              "q": "Magnitude of <code>[1,1]</code>, rounded to 3 places.",
+              "starter": "import math\nb = [1,1]\nprint(0)   # fix this",
+              "solution": "import math\nb = [1,1]\nprint(round(math.sqrt(sum(x*x for x in b)), 3))",
+              "hint": "Square, add, square-root.",
+              "answer": "",
+              "check": { "lines": ["1.414"] }
+            },
+            {
+              "q": "Cosine similarity of <code>[1,0]</code> and <code>[1,1]</code>, rounded to 3 places.",
+              "starter": "import math\na, b = [1,0], [1,1]\nprint(0)   # fix this",
+              "solution": "import math\na, b = [1,0], [1,1]\ndot = sum(x*y for x, y in zip(a, b))\nna = math.sqrt(sum(x*x for x in a))\nnb = math.sqrt(sum(x*x for x in b))\nprint(round(dot/(na*nb), 3))",
+              "hint": "dot divided by the two magnitudes.",
+              "answer": "",
+              "check": { "lines": ["0.707"] }
+            },
+            {
+              "q": "Identical direction. Print the cosine of <code>[2,2]</code> with <code>[4,4]</code>, rounded to 1 place.",
+              "starter": "import math\na, b = [2,2], [4,4]\nprint(0)   # fix this",
+              "solution": "import math\na, b = [2,2], [4,4]\ndot = sum(x*y for x, y in zip(a, b))\nna = math.sqrt(sum(x*x for x in a))\nnb = math.sqrt(sum(x*x for x in b))\nprint(round(dot/(na*nb), 1))",
+              "hint": "Length does not matter, only direction.",
+              "answer": "",
+              "check": { "lines": ["1.0"] }
+            },
+            {
+              "q": "Averaging loses order. Print whether the average of <code>[1,2]</code> and <code>[3,4]</code> equals the average of <code>[3,4]</code> and <code>[1,2]</code>.",
+              "starter": "a, b = [1,2], [3,4]\nx = [(p+q)/2 for p, q in zip(a, b)]\ny = [(p+q)/2 for p, q in zip(b, a)]\nprint(False)   # fix this",
+              "solution": "a, b = [1,2], [3,4]\nx = [(p+q)/2 for p, q in zip(a, b)]\ny = [(p+q)/2 for p, q in zip(b, a)]\nprint(x == y)",
+              "hint": "This is why 'dog bites man' equals 'man bites dog'.",
+              "answer": "",
+              "check": { "lines": ["True"] }
+            },
+            {
+              "q": "Nearest neighbour. Given scores <code>[0.2, 0.9, 0.5]</code>, print the index of the closest match.",
+              "starter": "s = [0.2, 0.9, 0.5]\nprint(0)   # fix this",
+              "solution": "s = [0.2, 0.9, 0.5]\nprint(s.index(max(s)))",
+              "hint": "The highest cosine wins.",
+              "answer": "",
+              "check": { "lines": ["1"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "What does an embedding give you that a bag of words cannot?", "a": "A notion of meaning. Words used in similar contexts sit near each other, so 'doctor' and 'physician' are close even though they share no characters." },
+            { "q": "Why cosine similarity rather than straight-line distance?", "a": "A longer document has larger values, so distance mostly measures length. Cosine measures direction only, which is what being about the same subject means." },
+            { "q": "What does averaging word vectors throw away?", "a": "Order. 'dog bites man' and 'man bites dog' produce the same average." },
+            { "q": "Give an example where the nearest neighbour is the wrong answer.", "a": "'How do I cancel?' and 'How do I renew?' are close in embedding space and are opposite requests." },
+            { "q": "Why is bias a practical concern with embeddings?", "a": "They learn associations from human text and reproduce them. If an embedding decides who is shortlisted, those associations become a decision you have to justify." }
+          ]
+        },
+        {
+          "id": "nlp4",
+          "title": "Classifying text, and judging it honestly",
+          "mins": 40,
+          "lang": "py",
+          "position": 3,
+          "content": "\n<h3>The most common paid NLP job</h3>\n<p>Route this complaint. Is this review positive. Is this transaction description a refund. Nearly all of it is classification, and a plain TF-IDF plus logistic regression is a serious baseline you should always build first.</p>\n<pre><code>from sklearn.pipeline import make_pipeline\nfrom sklearn.feature_extraction.text import TfidfVectorizer\nfrom sklearn.linear_model import LogisticRegression\n\nclf = make_pipeline(TfidfVectorizer(ngram_range=(1,2), min_df=2),\n                    LogisticRegression(max_iter=1000, class_weight=\"balanced\"))\nclf.fit(train_x, train_y)</code></pre>\n<p>A pipeline is not a convenience. It makes the leak from the previous lesson <i>impossible</i>: the vectoriser is fitted inside each fold, on that fold's training data only.</p>\n\n<h3>Accuracy is the wrong number, usually</h3>\n<p>Fraud is 1% of transactions. A model that answers \"not fraud\" every time is 99% accurate and worthless.</p>\n<pre><code>precision  of those I flagged, how many were right\nrecall     of all the real ones, how many did I catch\nF1         the harmonic mean, when you want one number</code></pre>\n<div class=\"callout\"><b>Which one you want is a business question, not a technical one.</b> Screening for a disease: recall — a miss is far worse than a false alarm. Auto-blocking payments: precision — a false alarm is a furious customer. Nobody can answer this from the data; ask the person who owns the process.</div>\n\n<h4>Worked example — the confusion matrix</h4>\n<pre><code>                 predicted yes   predicted no\nactually yes        TP = 40         FN = 10\nactually no         FP = 20        TN = 930\n\nprecision = 40/(40+20) = 0.667\nrecall    = 40/(40+10) = 0.800\nF1        = 2*0.667*0.8/(0.667+0.8) = 0.727\naccuracy  = (40+930)/1000 = 0.970    flattering and useless</code></pre>\n\n<h3>Imbalance, and the honest fixes</h3>\n<ul>\n<li><b>class_weight=\"balanced\"</b> — tell the model rare mistakes cost more. One argument, usually enough.</li>\n<li><b>Move the threshold.</b> A classifier outputs a probability; 0.5 is a default, not a law. Drop it to 0.3 and recall rises, precision falls. Choose it on the validation set.</li>\n<li><b>Resample</b> — only if the above fail, and never on the test set.</li>\n</ul>\n\n<h3>Splitting, for text specifically</h3>\n<p>Two rules that are broken constantly:</p>\n<p><b>Deduplicate before splitting.</b> Support inboxes are full of near-identical messages. The same complaint in train and test means you are testing memorisation.</p>\n<p><b>Split by time if the data has time.</b> Language moves. Train on last year, test on this year, because that is what deployment will be.</p>\n\n<h3>When to reach for a transformer</h3>\n<p>Build the TF-IDF baseline first. Always. Then a fine-tuned small transformer usually adds a few points — worth it if those points matter, not worth it if the baseline already meets the need.</p>\n<div class=\"callout\"><b>Say the baseline number out loud.</b> \"BERT got 91%\" means nothing on its own. \"TF-IDF got 88% and BERT got 91% for fifty times the inference cost\" is a decision somebody can actually make.</div>\n",
+          "videos": [],
+          "refs": [
+            { "title": "scikit-learn: model evaluation", "url": "https://scikit-learn.org/stable/modules/model_evaluation.html" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Precision from TP=40 and FP=20. Print it rounded to 3 places.",
+              "starter": "tp, fp = 40, 20\nprint(0)   # fix this",
+              "solution": "tp, fp = 40, 20\nprint(round(tp/(tp+fp), 3))",
+              "hint": "Of those flagged, how many were right.",
+              "answer": "",
+              "check": { "lines": ["0.667"] }
+            },
+            {
+              "q": "Recall from TP=40 and FN=10. Print it rounded to 1 place.",
+              "starter": "tp, fn = 40, 10\nprint(0)   # fix this",
+              "solution": "tp, fn = 40, 10\nprint(round(tp/(tp+fn), 1))",
+              "hint": "Of all the real ones, how many were caught.",
+              "answer": "",
+              "check": { "lines": ["0.8"] }
+            },
+            {
+              "q": "F1 from precision 0.667 and recall 0.8. Print it rounded to 3 places.",
+              "starter": "p, r = 0.667, 0.8\nprint(0)   # fix this",
+              "solution": "p, r = 0.667, 0.8\nprint(round(2*p*r/(p+r), 3))",
+              "hint": "The harmonic mean.",
+              "answer": "",
+              "check": { "lines": ["0.727"] }
+            },
+            {
+              "q": "The useless baseline. In 1000 rows with 10 positives, print the accuracy of always answering 'no', rounded to 2 places.",
+              "starter": "n, pos = 1000, 10\nprint(0)   # fix this",
+              "solution": "n, pos = 1000, 10\nprint(round((n-pos)/n, 2))",
+              "hint": "It gets every negative right.",
+              "answer": "",
+              "check": { "lines": ["0.99"] }
+            },
+            {
+              "q": "Thresholding. With probabilities <code>[0.2,0.45,0.7]</code> and a cut of 0.4, print how many are flagged.",
+              "starter": "p, cut = [0.2,0.45,0.7], 0.4\nprint(0)   # fix this",
+              "solution": "p, cut = [0.2,0.45,0.7], 0.4\nprint(sum(1 for x in p if x >= cut))",
+              "hint": "0.5 is a default, not a law.",
+              "answer": "",
+              "check": { "lines": ["2"] }
+            },
+            {
+              "q": "Deduplicate before splitting. Print the number of unique messages in <code>['late fee','late fee','refund']</code>.",
+              "starter": "msgs = ['late fee','late fee','refund']\nprint(0)   # fix this",
+              "solution": "msgs = ['late fee','late fee','refund']\nprint(len(set(msgs)))",
+              "hint": "The duplicate would otherwise land in both train and test.",
+              "answer": "",
+              "check": { "lines": ["2"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Why is accuracy misleading on imbalanced data?", "a": "Answering with the majority class every time scores very high. With 1% fraud, always saying 'not fraud' is 99% accurate and catches nothing." },
+            { "q": "When do you optimise for recall, and when for precision?", "a": "Recall when a miss is worse than a false alarm — disease screening. Precision when a false alarm is expensive — automatically blocking a customer's payment." },
+            { "q": "What does a scikit-learn pipeline prevent?", "a": "Leakage. The vectoriser is fitted inside each fold on that fold's training data only, so test data never influences the vocabulary or the IDF values." },
+            { "q": "Why deduplicate before splitting text?", "a": "Near-identical messages are common in real inboxes, and the same message in train and test means the score measures memorisation." },
+            { "q": "What should you always report alongside a transformer's score?", "a": "The simple baseline's score and the cost difference, so somebody can judge whether the extra points are worth the inference bill." }
+          ]
+        },
+        {
+          "id": "nlp5",
+          "title": "Pulling facts out of text",
+          "mins": 40,
+          "lang": "py",
+          "position": 4,
+          "content": "\n<h3>The job: turn a sentence into fields</h3>\n<pre><code>\"Ravi Kumar paid Rs 4,500 on 12 March for invoice INV-2231\"\n\n{ person: \"Ravi Kumar\", amount: 4500, date: \"2026-03-12\",\n  invoice: \"INV-2231\" }</code></pre>\n<p>Invoices, prescriptions, resumes, bank statements, court orders. This is where most document-processing money is.</p>\n\n<h3>Use a regular expression when the thing has a shape</h3>\n<p>An invoice number, a PAN, a GSTIN, an IFSC code and a pin code all have a defined format. A model that guesses at them is worse than a pattern that knows them.</p>\n<pre><code>PAN     [A-Z]{5}[0-9]{4}[A-Z]      ABCDE1234F\npincode [1-9][0-9]{5}              500081\ninvoice INV-[0-9]{4}               INV-2231</code></pre>\n<div class=\"callout\"><b>The rule.</b> If it has a format, match the format. If it needs judgement — is this a person or a company, is this the invoice date or the due date — use a model. Most real pipelines are both, and the ones that work usually run the pattern first.</div>\n\n<h3>Named entity recognition for the rest</h3>\n<pre><code>import spacy\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"Ravi Kumar paid Infosys on Tuesday\")\n\nfor e in doc.ents:\n    print(e.text, e.label_)\n\nRavi Kumar   PERSON\nInfosys      ORG\nTuesday      DATE</code></pre>\n<p>Off-the-shelf models are trained largely on Western news. They will find <i>Infosys</i> and miss half your local company names, and they routinely mislabel Indian personal names. Measure on your own documents before believing anything.</p>\n\n<h3>Dates are the hardest field, and it is not close</h3>\n<pre><code>03/04/2026     3 April or 4 March, depending on the writer\n12 March       which year\nnext Tuesday   from when</code></pre>\n<p>Always store the ISO form <code>YYYY-MM-DD</code>, always record which format you assumed, and never let a date go through unparsed as a string that looks fine.</p>\n\n<h3>Money too</h3>\n<pre><code>Rs 4,500      4500\nRs 4,500.00   4500.00\n₹4.5L         450000        a lakh is not a hundred thousand to a parser\n4500/-        4500</code></pre>\n<p>Strip the symbol, strip the separators, then convert — and store minor units as integers if this is money anybody will be billed for. Floating point and rupees do not mix.</p>\n\n<h3>Using an LLM for extraction, sensibly</h3>\n<p>Modern practice for messy documents is to ask a model for JSON in a fixed shape. It is genuinely good at the judgement parts. Two rules keep it honest:</p>\n<ul>\n<li><b>Validate the output against a schema</b> — a model can return a date that does not exist and a total that does not match the lines. Check both.</li>\n<li><b>Re-run the pattern afterwards.</b> If the regular expression found <code>INV-2231</code> and the model said <code>INV-2213</code>, trust the pattern.</li>\n</ul>\n<div class=\"callout\"><b>And check the arithmetic.</b> An extracted invoice whose line items do not add up to its stated total is not an extraction, it is a guess. That check costs nothing and catches the errors that matter most.</div>\n",
+          "videos": [],
+          "refs": [
+            { "title": "spaCy: named entities", "url": "https://spacy.io/usage/linguistic-features#named-entities" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Match an invoice number. Print the match for <code>INV-[0-9]{4}</code> in the text.",
+              "starter": "import re\nt = 'paid for invoice INV-2231 today'\nm = None   # fix this\nprint(m)",
+              "solution": "import re\nt = 'paid for invoice INV-2231 today'\nm = re.search(r'INV-[0-9]{4}', t).group()\nprint(m)",
+              "hint": "re.search(...).group()",
+              "answer": "",
+              "check": { "lines": ["INV-2231"] }
+            },
+            {
+              "q": "Validate a PAN. Print whether <code>ABCDE1234F</code> matches <code>[A-Z]{5}[0-9]{4}[A-Z]</code>.",
+              "starter": "import re\nprint(False)   # fix this",
+              "solution": "import re\nprint(bool(re.fullmatch(r'[A-Z]{5}[0-9]{4}[A-Z]', 'ABCDE1234F')))",
+              "hint": "re.fullmatch, wrapped in bool.",
+              "answer": "",
+              "check": { "lines": ["True"] }
+            },
+            {
+              "q": "Clean money. Turn <code>'Rs 4,500'</code> into the integer 4500 and print it.",
+              "starter": "s = 'Rs 4,500'\nprint(0)   # fix this",
+              "solution": "s = 'Rs 4,500'\nprint(int(s.replace('Rs', '').replace(',', '').strip()))",
+              "hint": "Strip the symbol and the separators, then convert.",
+              "answer": "",
+              "check": { "lines": ["4500"] }
+            },
+            {
+              "q": "A lakh is 100000. Print the value of 4.5 lakh as a whole number.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(int(4.5 * 100000))",
+              "hint": "Not a hundred thousand by default in any parser.",
+              "answer": "",
+              "check": { "lines": ["450000"] }
+            },
+            {
+              "q": "Store money as minor units. Print 4500 rupees in paise.",
+              "starter": "rupees = 4500\nprint(0)   # fix this",
+              "solution": "rupees = 4500\nprint(rupees * 100)",
+              "hint": "Integers, because floats and money do not mix.",
+              "answer": "",
+              "check": { "lines": ["450000"] }
+            },
+            {
+              "q": "Check the arithmetic. Lines are <code>[1200, 3300]</code> and the stated total is 4500. Print whether they agree.",
+              "starter": "lines, total = [1200, 3300], 4500\nprint(False)   # fix this",
+              "solution": "lines, total = [1200, 3300], 4500\nprint(sum(lines) == total)",
+              "hint": "An extraction that does not add up is a guess.",
+              "answer": "",
+              "check": { "lines": ["True"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "When do you use a regular expression rather than a model?", "a": "When the thing has a defined format — PAN, GSTIN, pin code, invoice number. A model that guesses at a fixed format is worse than a pattern that knows it." },
+            { "q": "Why measure an off-the-shelf NER model on your own documents?", "a": "They are trained largely on Western news, so they miss many local company names and mislabel Indian personal names." },
+            { "q": "Why are dates the hardest field?", "a": "03/04/2026 is two different dates depending on who wrote it, partial dates have no year, and relative dates need a reference point. Store ISO and record the assumed format." },
+            { "q": "Give two rules for using an LLM to extract fields.", "a": "Validate the output against a schema, since a model can return an impossible date; and re-run the regular expressions afterwards, trusting the pattern where they disagree." },
+            { "q": "What arithmetic check should every extracted invoice pass?", "a": "The line items must add up to the stated total. It costs nothing and catches the errors that matter most." }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s6-cv",
+      "icon": "👁️",
+      "name": "Computer Vision & Audio",
+      "level": "Stage 6 · after Deep Learning",
+      "color": "#ea580c",
+      "weeks": 4,
+      "lang": "Python",
+      "desc": "Pictures and sound as arrays of numbers — reading them, cleaning them, and the four vision jobs plus speech. What OpenCV does better than a model, and where a model is the only answer.",
+      "outcomes": [
+        "Read, resize and colour-convert an image without corrupting it",
+        "Tell classification, detection and segmentation apart and pick the right one",
+        "Read an IoU and a confidence threshold and set both deliberately",
+        "Explain what a spectrogram is and why audio becomes a picture",
+        "Judge a speech-to-text system on the metric that matters"
+      ],
+      "position": 5,
+      "audience": "stage4",
+      "quiz": [],
+      "lessons": [
+        {
+          "id": "cv1",
+          "title": "An image is a grid of numbers",
+          "mins": 40,
+          "lang": "py",
+          "position": 0,
+          "content": "\n<h3>Shape first, always</h3>\n<pre><code>grayscale   (height, width)\ncolour      (height, width, 3)\na batch     (n, height, width, 3)</code></pre>\n<p>Height comes first. Almost every bug in this area is somebody assuming width does.</p>\n<pre><code>img.shape   (1080, 1920, 3)     1080 tall, 1920 wide</code></pre>\n\n<h3>The BGR trap</h3>\n<p>OpenCV reads images as <b>BGR</b>. Everything else on earth — PIL, matplotlib, PyTorch, every model you will download — uses <b>RGB</b>.</p>\n<pre><code>import cv2\nimg = cv2.imread(\"photo.jpg\")            BGR\nrgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)</code></pre>\n<div class=\"callout\"><b>What it looks like when you forget.</b> Skies come out orange, skin comes out blue, and a model's accuracy drops several points for no visible reason. It does not crash. It is the single most common mistake in this field and it costs people days.</div>\n\n<h3>Pixel values and normalisation</h3>\n<pre><code>uint8    0 to 255      what a file holds\nfloat    0.0 to 1.0    what a model wants\n\nx = img.astype(\"float32\") / 255.0</code></pre>\n<p>Most pretrained models then subtract a mean and divide by a standard deviation — the ImageNet numbers. Use the ones the model was trained with, not any others, or every feature it learned is measured against the wrong zero.</p>\n\n<h3>Resizing, and the thing it quietly breaks</h3>\n<pre><code>cv2.resize(img, (224, 224))    (width, height) — the other way round!</code></pre>\n<p>Forcing a 1920x1080 photo into a square stretches everything. Faces get wide, circles become ovals, and the model learns from distortions that are not in the world.</p>\n<p>Resize the long side and pad the rest instead — letterboxing — so the geometry survives:</p>\n<pre><code>scale = 224 / max(h, w)\nnew   = (int(w*scale), int(h*scale))\nthen pad to 224x224 with a constant colour</code></pre>\n\n<h3>What OpenCV still does better than a network</h3>\n<p>Not everything needs learning. These are exact, instant and free:</p>\n<ul>\n<li><b>Threshold</b> — turn a scan into black and white before OCR.</li>\n<li><b>Blur</b> — remove sensor noise before edge detection.</li>\n<li><b>Canny</b> — find edges. Still the right answer for finding the border of a document.</li>\n<li><b>Warp</b> — a photograph of a page taken at an angle, flattened into a rectangle. This is how every document scanner app works.</li>\n</ul>\n<div class=\"callout\"><b>Reach for these first.</b> Detecting a page corner with a neural network is a research project. Detecting it with Canny and a contour is an afternoon and it works on a phone with no GPU.</div>\n\n<h3>Augmentation, and the flips you must not do</h3>\n<p>Flip, rotate, crop and jitter the brightness — free extra data, and the single best defence against overfitting on images.</p>\n<p>But augmentation must preserve the label. A horizontal flip is fine for cats. It is <b>wrong</b> for reading text, for road signs with arrows, and for anything where left and right mean different things. A flipped 'b' is a 'd'.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "OpenCV: basic image operations", "url": "https://docs.opencv.org/4.x/db/deb/tutorial_display_image.html" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Shape order. Given <code>shape = (1080, 1920, 3)</code>, print the width.",
+              "starter": "shape = (1080, 1920, 3)\nprint(0)   # fix this",
+              "solution": "shape = (1080, 1920, 3)\nprint(shape[1])",
+              "hint": "Height comes first.",
+              "answer": "",
+              "check": { "lines": ["1920"] }
+            },
+            {
+              "q": "Normalise a pixel. Print <code>255/255.0</code> rounded to 1 place.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(round(255/255.0, 1))",
+              "hint": "uint8 to float.",
+              "answer": "",
+              "check": { "lines": ["1.0"] }
+            },
+            {
+              "q": "Swap BGR to RGB. Reverse <code>[12, 88, 200]</code> and print it.",
+              "starter": "bgr = [12, 88, 200]\nprint([])   # fix this",
+              "solution": "bgr = [12, 88, 200]\nprint(bgr[::-1])",
+              "hint": "Reverse the list.",
+              "answer": "",
+              "check": { "lines": ["[200, 88, 12]"] }
+            },
+            {
+              "q": "Letterbox scale. For a 1920x1080 image into 224, print the scale rounded to 4 places.",
+              "starter": "h, w, target = 1080, 1920, 224\nprint(0)   # fix this",
+              "solution": "h, w, target = 1080, 1920, 224\nprint(round(target / max(h, w), 4))",
+              "hint": "Divide by the LONG side.",
+              "answer": "",
+              "check": { "lines": ["0.1167"] }
+            },
+            {
+              "q": "Print the new width after that scale, as a whole number.",
+              "starter": "w, scale = 1920, 0.1167\nprint(0)   # fix this",
+              "solution": "w, scale = 1920, 0.1167\nprint(int(w * scale))",
+              "hint": "Multiply and drop the decimals.",
+              "answer": "",
+              "check": { "lines": ["224"] }
+            },
+            {
+              "q": "A flipped 'b' is a 'd'. Print the reverse of the string 'bd'.",
+              "starter": "print('')   # fix this",
+              "solution": "print('bd'[::-1])",
+              "hint": "Augmentation must preserve the label.",
+              "answer": "",
+              "check": { "lines": ["db"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "What order are the numbers in an image's shape?", "a": "Height, then width, then channels. Assuming width first is the most common bug in this area." },
+            { "q": "What is the BGR trap and how does it show?", "a": "OpenCV reads BGR while everything else uses RGB. Forgetting to convert makes skies orange and skin blue, and quietly costs a model several points of accuracy without crashing." },
+            { "q": "Why letterbox rather than resize straight to a square?", "a": "Forcing a wide photo into a square stretches everything, so the model learns from distortions that do not exist in the world. Scaling the long side and padding preserves the geometry." },
+            { "q": "Name two things classic OpenCV still does better than a network.", "a": "Finding the edges of a document with Canny and a contour, and warping a photographed page flat. Both are exact, instant and run on a phone with no GPU." },
+            { "q": "When is a horizontal flip the wrong augmentation?", "a": "Whenever left and right carry meaning — text, road signs with arrows, digits and letters. A flipped 'b' is a 'd', so the label is no longer true." }
+          ]
+        },
+        {
+          "id": "cv2",
+          "title": "The four vision jobs",
+          "mins": 40,
+          "lang": "py",
+          "position": 1,
+          "content": "\n<h3>Pick the right one and the project halves</h3>\n<pre><code>classification   what IS this?             one label per image\ndetection        what, and WHERE?          boxes + labels\nsegmentation     which PIXELS are it?      a mask\nkeypoints        where are its PARTS?      points on a body or a face</code></pre>\n<p>They cost very different amounts to label, and labelling is where the money goes.</p>\n<pre><code>classification   seconds per image\ndetection        a minute per image\nsegmentation     five to fifteen minutes per image</code></pre>\n<div class=\"callout\"><b>Ask what the answer is for.</b> \"Is there a helmet in this photo\" is classification and cheap. \"How many riders are without helmets\" is detection. \"What percentage of the road surface is damaged\" is segmentation. People routinely pay for segmentation when a classifier would have answered the question.</div>\n\n<h3>Detection, and the two numbers that run it</h3>\n<p>A detector returns boxes, each with a class and a confidence.</p>\n<p><b>IoU</b> — intersection over union — measures how well a predicted box matches a real one.</p>\n<pre><code>IoU = overlap area / combined area\n\n1.0   perfect\n0.5   the usual bar for \"correct\"\n0.0   no overlap at all</code></pre>\n\n<h4>Worked example — IoU by hand</h4>\n<pre><code>truth      x 0..10, y 0..10     area 100\npredicted  x 5..15, y 0..10     area 100\n\noverlap  = 5 wide * 10 tall = 50\nunion    = 100 + 100 - 50   = 150\nIoU      = 50/150 = 0.333    -> counted as a MISS at 0.5</code></pre>\n\n<h3>Confidence, and non-maximum suppression</h3>\n<p>A detector proposes many overlapping boxes for the same object. <b>NMS</b> keeps the most confident and removes any box overlapping it above an IoU threshold.</p>\n<pre><code>confidence threshold   lower  -> more detections, more false alarms\n                       higher -> fewer, and you miss things\nNMS IoU threshold      lower  -> more aggressive merging</code></pre>\n<p>Both are yours to set, both should be chosen on validation data, and neither has a correct default.</p>\n\n<h3>mAP, and why it is quoted everywhere</h3>\n<p><b>mAP</b> averages precision across recall levels and across classes. mAP@0.5 uses an IoU bar of 0.5; mAP@0.5:0.95 averages over stricter bars and is the harder, more honest number.</p>\n<p>When a paper says \"53.2 mAP\", ask which one. The two differ by ten points or more on the same model.</p>\n\n<h3>What to actually use</h3>\n<ul>\n<li><b>Classification</b> — fine-tune a ResNet or an EfficientNet. Solved.</li>\n<li><b>Detection</b> — YOLO for speed on a real box, DETR-family if you want fewer knobs.</li>\n<li><b>Segmentation</b> — U-Net for medical and industrial work, SAM when you want masks without training.</li>\n<li><b>Faces and pose</b> — MediaPipe. It runs on a phone in real time.</li>\n</ul>\n<div class=\"callout\"><b>Do not train a detector from scratch.</b> Start from COCO weights and fine-tune. A few hundred labelled images of your own classes is usually enough, and training from nothing needs tens of thousands.</div>\n",
+          "videos": [],
+          "refs": [
+            { "title": "Ultralytics YOLO docs", "url": "https://docs.ultralytics.com/" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Overlap width. Boxes span x 0..10 and x 5..15. Print the width they share.",
+              "starter": "a0, a1, b0, b1 = 0, 10, 5, 15\nprint(0)   # fix this",
+              "solution": "a0, a1, b0, b1 = 0, 10, 5, 15\nprint(min(a1, b1) - max(a0, b0))",
+              "hint": "The smaller right edge minus the larger left edge.",
+              "answer": "",
+              "check": { "lines": ["5"] }
+            },
+            {
+              "q": "Overlap area, with a shared height of 10. Print it.",
+              "starter": "w, h = 5, 10\nprint(0)   # fix this",
+              "solution": "w, h = 5, 10\nprint(w * h)",
+              "hint": "Width times height.",
+              "answer": "",
+              "check": { "lines": ["50"] }
+            },
+            {
+              "q": "Union of two boxes of area 100 sharing 50. Print it.",
+              "starter": "a, b, inter = 100, 100, 50\nprint(0)   # fix this",
+              "solution": "a, b, inter = 100, 100, 50\nprint(a + b - inter)",
+              "hint": "Do not count the overlap twice.",
+              "answer": "",
+              "check": { "lines": ["150"] }
+            },
+            {
+              "q": "IoU from 50 over 150. Print it rounded to 3 places.",
+              "starter": "inter, union = 50, 150\nprint(0)   # fix this",
+              "solution": "inter, union = 50, 150\nprint(round(inter/union, 3))",
+              "hint": "Intersection over union.",
+              "answer": "",
+              "check": { "lines": ["0.333"] }
+            },
+            {
+              "q": "At a bar of 0.5, print whether an IoU of 0.333 counts as correct.",
+              "starter": "iou, bar = 0.333, 0.5\nprint(True)   # fix this",
+              "solution": "iou, bar = 0.333, 0.5\nprint(iou >= bar)",
+              "hint": "It is below the bar.",
+              "answer": "",
+              "check": { "lines": ["False"] }
+            },
+            {
+              "q": "Labelling cost. Segmentation at 10 minutes each, 500 images. Print the hours.",
+              "starter": "mins, n = 10, 500\nprint(0)   # fix this",
+              "solution": "mins, n = 10, 500\nprint(mins * n // 60)",
+              "hint": "Total minutes divided by 60.",
+              "answer": "",
+              "check": { "lines": ["83"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Name the four vision tasks and what each returns.", "a": "Classification returns one label per image; detection returns boxes with labels; segmentation returns a per-pixel mask; keypoints return points on parts of a body or face." },
+            { "q": "Why does the choice of task matter commercially?", "a": "Labelling cost differs by orders of magnitude — seconds per image for classification against ten minutes or more for segmentation — and labelling is where the budget goes." },
+            { "q": "Define IoU and state the usual bar.", "a": "Intersection over union: the shared area divided by the combined area. 0.5 is the usual threshold for counting a detection as correct." },
+            { "q": "What does non-maximum suppression do?", "a": "A detector proposes many overlapping boxes for one object. NMS keeps the most confident and discards boxes overlapping it above an IoU threshold." },
+            { "q": "Why ask which mAP a number refers to?", "a": "mAP@0.5 and mAP@0.5:0.95 can differ by ten points or more on the same model, so the figure is meaningless without the threshold." }
+          ]
+        },
+        {
+          "id": "cv3",
+          "title": "Sound, and why it becomes a picture",
+          "mins": 40,
+          "lang": "py",
+          "position": 2,
+          "content": "\n<h3>Audio is a very long list of numbers</h3>\n<pre><code>sample rate   samples per second\n              16000  speech\n              44100  music\n\n10 seconds of speech at 16 kHz = 160,000 numbers</code></pre>\n<p>Each number is the position of a speaker cone at one instant. That is all a wav file is.</p>\n<pre><code>samples = seconds * sample_rate</code></pre>\n\n<h3>The waveform is nearly useless to look at</h3>\n<p>What matters in sound is which <b>frequencies</b> are present and how they change. A waveform hides that; a spectrogram shows it.</p>\n<pre><code>1. cut the audio into short overlapping windows (about 25 ms)\n2. for each window, work out how much of each frequency is present  (FFT)\n3. stack the results side by side\n\nresult: a picture — time across, frequency up, loudness as brightness</code></pre>\n<div class=\"callout\"><b>And now it is a computer-vision problem.</b> This is why audio and vision are in one track. A spectrogram is an image, so the convolutions from the Deep Learning track apply unchanged — most speech and sound-classification models are looking at pictures.</div>\n\n<h3>Mel, because ears are not linear</h3>\n<p>Humans hear the gap from 100 Hz to 200 Hz as much larger than 10,000 Hz to 10,100 Hz, although both are 100 Hz. The <b>mel scale</b> squashes the axis to match, and a mel spectrogram is the standard input for speech.</p>\n<pre><code>import librosa\ny, sr = librosa.load(\"clip.wav\", sr=16000)\nmel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=80)\ndb  = librosa.power_to_db(mel)</code></pre>\n<p><code>sr=16000</code> is not decoration. A model trained at 16 kHz fed 44.1 kHz audio sees every frequency in the wrong place and its output is nonsense.</p>\n\n<h3>Speech to text, and the metric</h3>\n<p><b>WER</b> — word error rate — is the number that matters.</p>\n<pre><code>WER = (substitutions + insertions + deletions) / words_in_truth\n\n0.05   excellent\n0.15   usable with review\n0.40   unusable for anything automatic</code></pre>\n<p>It can exceed 1.0, when a system invents more words than were said.</p>\n<div class=\"callout\"><b>WER on WHOSE speech.</b> A published 5% is on clean read English. On Indian-accented English over a phone line with background noise, the same system is often three or four times worse. Measure on recordings from where it will actually run, or the number you quote is somebody else's.</div>\n\n<h3>The practical stack</h3>\n<ul>\n<li><b>Whisper</b> — transcription, many languages, runs locally, strong on accents.</li>\n<li><b>librosa</b> — loading, resampling, spectrograms, features.</li>\n<li><b>pydub</b> — cutting, joining and format conversion. The plumbing.</li>\n<li><b>VAD</b> — voice activity detection, to cut silence before you pay to process it.</li>\n</ul>\n<p>That last one is the cheapest optimisation in audio. A call recording is often more than half silence, and every silent second costs the same as a spoken one.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "librosa documentation", "url": "https://librosa.org/doc/latest/index.html" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Samples in a clip. 10 seconds at 16000 Hz — print the count.",
+              "starter": "secs, sr = 10, 16000\nprint(0)   # fix this",
+              "solution": "secs, sr = 10, 16000\nprint(secs * sr)",
+              "hint": "Multiply.",
+              "answer": "",
+              "check": { "lines": ["160000"] }
+            },
+            {
+              "q": "Window length. 25 ms at 16000 Hz — print the samples per window.",
+              "starter": "ms, sr = 25, 16000\nprint(0)   # fix this",
+              "solution": "ms, sr = 25, 16000\nprint(int(ms/1000 * sr))",
+              "hint": "Convert milliseconds to seconds first.",
+              "answer": "",
+              "check": { "lines": ["400"] }
+            },
+            {
+              "q": "WER. 3 substitutions, 1 insertion, 1 deletion, 50 words of truth. Print it rounded to 2 places.",
+              "starter": "s, i, d, n = 3, 1, 1, 50\nprint(0)   # fix this",
+              "solution": "s, i, d, n = 3, 1, 1, 50\nprint(round((s+i+d)/n, 2))",
+              "hint": "All three errors over the true word count.",
+              "answer": "",
+              "check": { "lines": ["0.1"] }
+            },
+            {
+              "q": "WER can exceed 1. With 60 errors over 50 true words, print it rounded to 1 place.",
+              "starter": "e, n = 60, 50\nprint(0)   # fix this",
+              "solution": "e, n = 60, 50\nprint(round(e/n, 1))",
+              "hint": "A system can invent more words than were said.",
+              "answer": "",
+              "check": { "lines": ["1.2"] }
+            },
+            {
+              "q": "Silence costs money. A 600-second call is 55% silence. Print the seconds worth processing.",
+              "starter": "secs, silence = 600, 0.55\nprint(0)   # fix this",
+              "solution": "secs, silence = 600, 0.55\nprint(int(secs * (1 - silence)))",
+              "hint": "Keep the part that is not silence.",
+              "answer": "",
+              "check": { "lines": ["270"] }
+            },
+            {
+              "q": "Resampling matters. Print the ratio of 44100 to 16000, rounded to 3 places.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(round(44100/16000, 3))",
+              "hint": "Feed this to a 16 kHz model and every frequency lands wrong.",
+              "answer": "",
+              "check": { "lines": ["2.756"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "What is a spectrogram and how is it built?", "a": "The audio is cut into short overlapping windows, each is analysed for how much of each frequency it contains, and the results are stacked side by side — giving a picture with time across, frequency up and loudness as brightness." },
+            { "q": "Why does audio work borrow computer-vision models?", "a": "A spectrogram is an image, so convolutional models apply to it directly." },
+            { "q": "What is the mel scale for?", "a": "Human hearing is not linear in frequency — a 100 Hz gap is large at the low end and negligible at the high end. The mel scale squashes the axis to match perception." },
+            { "q": "Define WER and give a usable threshold.", "a": "Substitutions plus insertions plus deletions, divided by the number of words actually spoken. Around 0.15 is usable with human review; 0.40 is unusable for anything automatic." },
+            { "q": "Why is a published WER usually optimistic for your use?", "a": "It is measured on clean read English. On accented speech over a phone line with background noise the same system is often three or four times worse." }
+          ]
+        },
+        {
+          "id": "cv4",
+          "title": "Shipping vision that survives the real world",
+          "mins": 40,
+          "lang": "py",
+          "position": 3,
+          "content": "\n<h3>The gap between the notebook and the camera</h3>\n<p>A model at 97% on a held-out test set routinely collapses in the field, and the cause is almost never the model.</p>\n<pre><code>trained on   clean photos, good light, phone held straight\ndeployed on  a CCTV feed at dusk, wet lens, extreme angle</code></pre>\n<p>This is <b>domain shift</b>, and no amount of training on the wrong data fixes it. The fix is to collect data from where it will run — even a few hundred images from the real camera is worth more than ten thousand from the internet.</p>\n\n<h3>Frame rate is a budget</h3>\n<pre><code>30 fps  =  33 ms per frame, for everything\n\ndecode        5 ms\npreprocess    3 ms\nmodel        20 ms\npost-process  2 ms\n              -----\n              30 ms   just fits, on this machine, today</code></pre>\n<p>If it does not fit, you have four honest options, in this order:</p>\n<ul>\n<li><b>Process fewer frames.</b> Most things do not move much in 200 ms. Running at 5 fps is often indistinguishable to the user and six times cheaper.</li>\n<li><b>Smaller input.</b> 640px instead of 1280 is four times less work.</li>\n<li><b>Smaller model.</b> YOLO-nano rather than YOLO-large.</li>\n<li><b>Quantise.</b> int8 instead of float32 — two to four times faster, usually under a point of accuracy.</li>\n</ul>\n<div class=\"callout\"><b>Try them in that order.</b> The first one is free and reversible; the last one needs measurement and can surprise you. Most teams reach for a bigger GPU before trying any of the four.</div>\n\n<h3>Edge or server</h3>\n<pre><code>on the device   no network cost, private, works when the line drops,\n                but you now maintain software on a hundred boxes\non a server     one deployment, easy to update,\n                but bandwidth for every frame, and latency</code></pre>\n<p>For anything with a camera watching people, on-device has a further argument that usually settles it: the images never leave the building.</p>\n\n<h3>What to log, and what not to</h3>\n<p>Log the decision, the confidence and a hash of the frame. Do <b>not</b> log the frames themselves by default — a folder of faces is a liability that grows every day and that somebody will eventually have to answer for.</p>\n<p>When you must keep images for retraining, decide the retention period before the first one is written, and put a deletion job in at the same time.</p>\n\n<h3>Watch for the drift</h3>\n<p>A vision system degrades quietly: a camera is nudged, a lens fogs, the lighting is replaced, the season changes.</p>\n<pre><code>track weekly   mean confidence\n               detections per hour\n               rate of images with no detection at all</code></pre>\n<p>None of those need a label. They will show you a problem weeks before a person reports one.</p>\n<div class=\"callout\"><b>The honest deployment checklist.</b> Data from the real camera; a latency budget you have measured rather than guessed; a decision about where images live and for how long; and one number tracked weekly that would move if the thing broke.</div>\n",
+          "videos": [],
+          "refs": [
+            { "title": "ONNX Runtime: quantization", "url": "https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Frame budget. Print the milliseconds available per frame at 30 fps, as a whole number.",
+              "starter": "fps = 30\nprint(0)   # fix this",
+              "solution": "fps = 30\nprint(1000 // fps)",
+              "hint": "A second divided by the frame rate.",
+              "answer": "",
+              "check": { "lines": ["33"] }
+            },
+            {
+              "q": "Add the stages: 5 + 3 + 20 + 2. Print the total.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(5 + 3 + 20 + 2)",
+              "hint": "Does it fit in the budget?",
+              "answer": "",
+              "check": { "lines": ["30"] }
+            },
+            {
+              "q": "Halving the input side quarters the work. Print 1280 halved.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(1280 // 2)",
+              "hint": "Area scales with the square of the side.",
+              "answer": "",
+              "check": { "lines": ["640"] }
+            },
+            {
+              "q": "Sampling frames. Print how many frames a 30 fps stream keeps per second at 5 fps.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(5)",
+              "hint": "The target rate is the answer.",
+              "answer": "",
+              "check": { "lines": ["5"] }
+            },
+            {
+              "q": "Saving. Print how many times cheaper 5 fps is than 30 fps.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(30 // 5)",
+              "hint": "Divide.",
+              "answer": "",
+              "check": { "lines": ["6"] }
+            },
+            {
+              "q": "Storage liability. 500 frames a day at 200 KB, for 90 days. Print the gigabytes, rounded to 1 place.",
+              "starter": "n, kb, days = 500, 200, 90\nprint(0)   # fix this",
+              "solution": "n, kb, days = 500, 200, 90\nprint(round(n * kb * days / 1_000_000, 1))",
+              "hint": "KB to GB is a million.",
+              "answer": "",
+              "check": { "lines": ["9.0"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "What is domain shift and what actually fixes it?", "a": "The deployed images differ from the training ones — worse light, odd angles, a dirty lens. The fix is data collected from where the system will run; more internet images do not help." },
+            { "q": "List the four ways to fit a latency budget, in order.", "a": "Process fewer frames, shrink the input, use a smaller model, then quantise. The first is free and reversible; the last needs measurement." },
+            { "q": "Give the argument for running on the device rather than a server.", "a": "No bandwidth per frame, it works when the connection drops, and for cameras watching people the images never leave the building." },
+            { "q": "What should a vision system log, and what should it not?", "a": "Log the decision, the confidence and a hash of the frame. Do not store the frames themselves by default — a growing folder of faces is a liability." },
+            { "q": "Name three unlabelled signals that reveal drift.", "a": "Mean confidence, detections per hour, and the share of images with no detection at all. All three move before anybody files a complaint." }
+          ]
+        }
+      ]
+    }
+  ]
+}

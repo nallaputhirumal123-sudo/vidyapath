@@ -234,7 +234,8 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
    pane, is the toolbar and nothing else. Anything sharing the column (the
    sign-in prompt on an open board) then takes the rest, and the surface is
    left with no height at all: a writing space you cannot write on. */
-.wboard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;gap:.5rem}
+.wboard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
+  gap:.5rem;overflow-y:auto}
 /* The tools take one row in a full pane and are allowed to wrap in a
    quarter of one rather than overflow. They are kept small so wrapping is
    rare: every row they take is a row off the surface. */
@@ -252,7 +253,15 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 /* A floor under the surface. A board that has been squeezed to nothing is
    indistinguishable from one that is broken, and the pane can always scroll
    the last row of tools out of sight instead. */
-.wsurf{flex:1 1 auto;min-height:9rem;position:relative}
+/* The surface takes what is LEFT after the tools, and no more.
+   flex-basis:auto with a 9rem floor meant the surface refused to shrink,
+   so in a split pane the wrapped toolbar was pushed out of the bottom of
+   a pane that clips — 'Save to the class' rendered 211px below the visible
+   area and could not be pressed. The button was never broken; it was off
+   the screen, which looks identical to a dead button and is worse, because
+   there is nothing to report. Controls win over canvas: a surface you
+   cannotcontrol is worth less than a smaller one you can. */
+.wsurf{flex:1 1 0;min-height:0;position:relative}
 .wsurf canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
   touch-action:none}
 .whint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
@@ -722,7 +731,7 @@ var TOOL_NAMES = {
   lesson:"A lesson", track:"A course", exam:"An exam",
   net:"Trace a packet", lab:"The lab", sqlboard:"SQL board",
   materials:"Study material", roster:"Class register", roll:"Your classes",
-  inbox:"To review", activity:"What the class is asking",
+  inbox:"To review",
   sources:"Where answers come from", remote:"Remote",
   bring:"Saved for this subject",
   assignment:"Assignment",
@@ -774,6 +783,11 @@ function layout(){
   if(v){
     v.hidden = n < 2;
     v.style.left = (SPLIT * 100) + "%";
+    /* The vertical divider separates the TOP ROW. With three spaces the
+       third is full width underneath, and a handle pinned top-to-bottom
+       drew a line straight down through it — a line dividing nothing, over
+       a space that is not divided. It stops where the row divider is. */
+    v.style.bottom = (n === 3) ? ((1 - ROWS) * 100) + "%" : "0";
   }
   if(h){
     h.hidden = n < 3;
@@ -4225,46 +4239,20 @@ async function review(aid, sid){
   });
 }
 
-async function activity(){
-  main().innerHTML = '<div class="muted">Loading…</div>';
-  var d;
-  try{ d = await api.get("/api/craxlearn/activity"); }
-  catch(e){ main().innerHTML = '<div class="note bad">' + esc(e.message) + "</div>"; return; }
-
-  var school = d.view === "school";
-  var rows = (d.topics || []);
-  var h = '<div class="eyebrow">' +
-    (school ? "What " + esc(d.school || "your school") + " has been asking"
-            : "What you have been asking") + "</div>";
-  if(school){
-    h += '<div class="card"><span class="big">' + (d.learners || 0) +
-         '</span> <span class="muted">learner' +
-         ((d.learners === 1) ? "" : "s") + " active</span></div>";
-  }
-  if(!rows.length){
-    h += '<div class="card muted">Nothing yet. It fills as questions are asked.</div>';
-  }else{
-    h += '<div class="card wrap"><table><tr><th>Topic</th><th>Where</th>' +
-         (school ? "<th>Asked</th>" : "<th>When</th>") + "</tr>" +
-      rows.map(function(r){
-        return "<tr><td>" + esc(r.text) + "</td><td>" + esc(r.kind) + "</td><td>" +
-          (school ? (r.asked || 1) : esc((r.at || "").slice(0,10))) + "</td></tr>";
-      }).join("") + "</table></div>";
-  }
-  if(school){
-    h += '<p class="muted">Counts only. No learner is named on any row — a ' +
-         "school needs to know what its class is stuck on, not a transcript " +
-         "of each child's questions.</p>";
-  }else{
-    h += '<button class="btn ghost" id="clearMine">Delete my history</button>';
-  }
-  main().innerHTML = h;
-  var c = el("clearMine");
-  if(c) c.onclick = async function(){
-    await api.del("/api/craxlearn/activity");
-    activity();
-  };
-}
+/* What a class has been asking is NOT a board tool.
+ *
+ * It lived here and it was the one screen on this board that read a
+ * craxle.com session rather than a subject code — `api.get`, not
+ * `bapi`. Two things wrong with that, and the second is the one that
+ * matters. It crossed the line this whole file exists to hold: the
+ * board knows a room, never a person. And it put a list of what
+ * children have been struggling with onto a screen thirty of them are
+ * looking at, which is the opposite of who it is for.
+ *
+ * It is a teacher's page, so it is on the teacher's own account now,
+ * beside their classes. The route is unchanged and still aggregates
+ * with no learner named — it was only ever in the wrong place.
+ */
 
 /* The syllabus coverage table, counted rather than claimed.
 
@@ -5027,7 +5015,6 @@ async function paint(page, arg){
   /* Every branch RETURNS, so an async page's promise reaches drawPane and
      DRAW keeps pointing at this space until it has finished writing. */
   if(page === "home")           return home();
-  else if(page === "activity")  return activity();
   else if(page === "sources")   return sources();
   else if(page === "inbox")     return inbox();
   else if(page === "materials") return materials();

@@ -55,9 +55,23 @@ for p in ("roll", "roster", "inbox", "activity"):
           "it lives on the teacher dashboard now")
 
 print("\nbut the pages themselves still work")
-for p in ("roster", "roll", "inbox", "activity"):
+for p in ("roster", "roll", "inbox"):
     check(f"{p!r} still routes", f'page === "{p}"' in page or f'{p}()' in page,
           "a bookmark from last term must not break")
+
+print("\nexcept what the class is asking, which left the board entirely")
+# Untiling a page and REMOVING it are different decisions, and this one is
+# the second. It was the only screen on this board that read a craxle.com
+# session rather than a subject code, and it put a list of what children are
+# struggling with onto a screen thirty of them are looking at. A bookmark to
+# it cannot be honoured by showing it anyway.
+check("no route to it on the board", 'page === "activity"' not in page,
+      "the board knows a room, never a person")
+check("and no code left behind either", "activity" not in page,
+      "a function nobody calls is the next person's tile")
+check("an old bookmark lands on Home rather than a blank screen",
+      "  return home();\n}" in page,
+      "every unknown page falls through, so removing one is safe")
 
 print("\nand craxle.com carries them properly")
 idx = io.open("index.html", encoding="utf-8").read()
@@ -67,6 +81,14 @@ check("with search over name or number", 'id="rosFind"' in idx)
 check("attendance too", "renderAttend" in idx)
 check("and every learner in the school", "renderLearners" in idx,
       "none of which the board tiles ever had")
+check("what the class is asking has a screen here", "renderAsking" in idx)
+check("with a way in", 'nav("asking"' in idx,
+      "a route with no menu entry is how a page goes unread for a term")
+check("only for somebody who actually takes a class",
+      "async function renderAsking(){\n  if(!teaches()){" in idx,
+      "a school office account does not have a class to be curious about")
+check("and it still names nobody", "no student is named on any row" in idx,
+      "the limit is deliberate, so the page says so before anyone asks")
 
 print("\nnothing server-side moved")
 main = io.open("main.py", encoding="utf-8").read()

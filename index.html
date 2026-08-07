@@ -2082,7 +2082,7 @@ async function logout(){
  */
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
   "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
-  "notices", "fees", "attend", "learners", "tmsgs",
+  "notices", "fees", "attend", "learners", "tmsgs", "asking",
   "resume", "plans", "hiring", "studio"]);
 
 function restoreView(){
@@ -2387,6 +2387,12 @@ function renderNav(){
        no screen, so a child's question sat unread because their teacher had
        no page on which to see it. */
     if(USER.is_teacher) h+=nav("tmsgs","✉️","Student messages");
+    /* What the class has been asking. This was a tool on the classroom
+       board — a screen thirty students look at — which is both the wrong
+       audience and the one place on that board that read a craxle.com
+       session instead of a subject code. It belongs to the teacher, beside
+       their classes, on the account that is actually theirs. */
+    if(USER.is_teacher) h+=nav("asking","📊","What the class is asking");
     /* Anybody who teaches can send an update; only whoever runs the
        school keeps the fees. Both screens existed and neither had a way
        in, which is the third time this session. */
@@ -6781,6 +6787,54 @@ async function feeMarkPaid(fid, amt){
  * thought to look at that particular worksheet — which is not a teacher
  * ignoring a child, it is a product hiding one.
  */
+/* What the class has been asking — topics, counted, with nobody named.
+ *
+ * This screen used to be a tool on the classroom board. It is a teacher's
+ * page: it answers "what is my class stuck on", which is a question you act
+ * on while planning, not while teaching, and it is not something to put on
+ * a projector in front of the children it is about.
+ *
+ * The route aggregates and attaches no learner to any row. That is a
+ * deliberate limit rather than a missing feature, and the page says so —
+ * otherwise the first request will be to add the names back. */
+async function renderAsking(){
+  if(!teaches()){
+    $("#main").innerHTML=`<div class="h1">📊 What the class is asking</div>
+      <p class="sub">This is for the teacher of a subject. Your school office
+        account does not take a class.</p>`;
+    return;
+  }
+  $("#main").innerHTML=`<div class="h1">📊 What the class is asking</div>
+    <p class="sub">The topics your students have been putting to Axle, most
+      asked first. Useful the evening before you plan a lesson.</p>
+    <div id="askingBody">Loading…</div>`;
+  let d;
+  try{ d=await api.get("/api/craxlearn/activity"); }
+  catch(e){ document.getElementById("askingBody").innerHTML=
+    `<div class="card" style="color:var(--dim)">${esc(e.message)}</div>`; return; }
+  const rows=(d&&d.topics)||[];
+  const box=document.getElementById("askingBody");
+  if(!rows.length){
+    box.innerHTML=`<div class="card" style="color:var(--dim);font-size:13px">`+
+      `Nothing yet. This fills as your students ask questions.</div>`;
+    return;
+  }
+  box.innerHTML=
+    `<div class="card"><span class="big">${d.learners||0}</span> `+
+    `<span style="color:var(--dim)">learner${d.learners===1?"":"s"} active`+
+    `</span></div>`+
+    `<div class="card" style="overflow-x:auto"><table style="width:100%">`+
+    `<tr><th style="text-align:left">Topic</th>`+
+    `<th style="text-align:left">Where</th>`+
+    `<th style="text-align:right">Asked</th></tr>`+
+    rows.map(r=>`<tr><td>${esc(r.text)}</td><td>${esc(r.kind)}</td>`+
+      `<td style="text-align:right">${r.asked||1}</td></tr>`).join("")+
+    `</table></div>`+
+    `<p class="sub">Counts only — no student is named on any row. You need to
+      know the class is stuck on stoichiometry; you do not need a transcript
+      of each child's questions to know that.</p>`;
+}
+
 async function renderTeacherMessages(){
   $("#main").innerHTML=`<div class="h1">✉️ Student messages</div>
     <p class="sub">Everything your students have asked, across every class you
@@ -11081,6 +11135,7 @@ function render(){
   else if(v.page==="net")       renderNet();
   else if(v.page==="notices")   renderNotices();
   else if(v.page==="tmsgs")     renderTeacherMessages();
+  else if(v.page==="asking")    renderAsking();
   else if(v.page==="fees")      renderFees();
   else if(v.page==="attend")    renderAttend();
   else if(v.page==="learners")  renderLearners();
@@ -11176,6 +11231,7 @@ document.addEventListener("click",e=>{
   else if(n==="teacher")   S.view={page:"teacher"};
   else if(n==="notices")   S.view={page:"notices"};
   else if(n==="tmsgs")     S.view={page:"tmsgs"};
+  else if(n==="asking")    S.view={page:"asking"};
   else if(n==="fees")      S.view={page:"fees"};
   else if(n==="attend")    S.view={page:"attend"};
   else if(n==="learners")  S.view={page:"learners"};

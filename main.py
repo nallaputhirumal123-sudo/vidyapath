@@ -1750,6 +1750,8 @@ CURRICULUM_FILES = [
     ("stage3b.json",    "stage3b",  90),     # Stage 4
     ("stage4.json",     "stage4",   95),     # Stage 5
     ("stage5.json",     "stage4",   100),    # Stage 5 continued — deep learning
+    ("stage6.json",     "stage4",   105),    # Stage 6 — NLP, vision and audio
+    ("stage7.json",     "stage4",   110),    # Stage 7 — generative, cloud, capstone
     ("curriculum.json", "graduate", 120),    # Stage 6
     ("placement.json",  "graduate", 150),    # DSA + aptitude
     ("gamedev.json",    "graduate", 160),    # Game development

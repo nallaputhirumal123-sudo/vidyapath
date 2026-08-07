@@ -134,10 +134,32 @@ ck("but the grid itself is kept, not deleted",
    "function paintGrid(c, w, h)" in SRC,
    "it genuinely helps for plotting axes and drawing to scale")
 
+print("\nthe controls are reachable, which beats a bigger surface")
+# "Save to the class is not working" — it was working, and it was 211 pixels
+# below the bottom of a pane that clips. The surface was flex:1 1 auto with a
+# 9rem floor, so it refused to shrink; in a split pane the wrapped toolbar was
+# pushed straight out of view. A button off the screen looks exactly like a
+# dead button and is worse, because there is nothing for anyone to report.
+ck("the surface takes what is LEFT, rather than claiming a floor first",
+   ".wsurf{flex:1 1 0;min-height:0;position:relative}" in SRC,
+   "flex-basis:auto with a 9rem floor pushed the toolbar out of the pane")
+ck("and the tools are never the thing that shrinks",
+   "flex-wrap:wrap;align-items:center;flex:0 0 auto;" in SRC)
+ck("with a scroll as the last resort, so nothing is ever unreachable",
+   "gap:.5rem;overflow-y:auto}" in SRC,
+   "clipping loses the control; scrolling only moves it")
+
+print("\nthe vertical divider divides something")
+# Three spaces put the third across the whole bottom, and a handle pinned
+# top-to-bottom drew a line straight down through it — a divider drawn over a
+# pane that is not divided.
+ck("it stops at the row divider when the bottom pane is full width",
+   'v.style.bottom = (n === 3) ? ((1 - ROWS) * 100) + "%" : "0";' in SRC,
+   "and it tracks ROWS, because layout() reruns on every drag")
+
 print("\nthe writing space cannot be squeezed to nothing")
 ck("the board takes the space rather than its own content height",
    ".wboard{flex:1 1 0;" in SRC)
-ck("the surface has a floor", ".wsurf{flex:1 1 auto;min-height:9rem" in SRC)
 ck("and nothing else competes with it in the pane",
    "signInPrompt(\"keep this on your subject's page\")" not in SRC,
    "the pane cannot scroll, so anything below the board takes its height")
