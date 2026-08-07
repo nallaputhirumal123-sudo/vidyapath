@@ -58,5 +58,28 @@ r = third.post('/api/class/join', json={'code': slot2.code})
 ck('but a stranger still is', r.status_code == 400, f'got {r.status_code}')
 ck('and is told who holds it', 'Physics is already taught by' in r.text,
    r.json().get('detail', '')[:70])
+
+# There is ONE email sign-in, and it is on the tab called Sign in.
+#
+# The Join with code tab carried its own copy of the email and password
+# boxes for staff, so the same two fields appeared on two tabs and the one
+# actually labelled "Sign in" read as the wrong door. This tab takes a code:
+# a class code for a pupil, and the ten digits the office was issued for
+# whoever becomes the school administrator.
+import io as _io                                            # noqa: E402
+import os as _os                                            # noqa: E402
+_idx = _io.open(_os.path.join(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__))), "index.html"), encoding="utf-8").read()
+ck("the join tab has no email box", 'id="jn_email"' not in _idx,
+   "two tabs asking for the same two things is one tab too many")
+ck("nor a password box", 'id="jn_pw"' not in _idx)
+ck("and nothing is left reading them", "jn_staff" not in _idx,
+   "a handler for fields that no longer exist is the next dead branch")
+ck("the sign-in form still has both", 'id="li_email"' in _idx
+   and 'id="li_pw"' in _idx, "this is the one that signs people in")
+ck("and the join tab points staff at it",
+   "use the Sign in tab instead" in _idx,
+   "a teacher with a password needs telling where it goes")
+
 print(f"\nPASSED {P}   FAILED {F}")
 sys.exit(1 if F else 0)

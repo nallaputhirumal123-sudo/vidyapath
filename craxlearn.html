@@ -27,6 +27,22 @@
 }
 :root[data-scale="board"]{ font-size:26px }
 :root[data-scale="desk"]{ font-size:18px }
+/* A phone is not a wall.
+ *
+ * Board size is 26px because a wall-mounted screen is read from the back of
+ * a room. Every measurement here is in rem, so on a 390px phone that same
+ * setting made the top bar, the pane heads and the tool rows eat the screen
+ * and left nothing for the board itself — and "board" is the DEFAULT, so a
+ * phone that had never chosen got it.
+ *
+ * Guessing the size from width is wrong in general and that reasoning still
+ * stands: a smart board reports a perfectly ordinary 1920 and would be given
+ * laptop type. It does not stand at 600px. Nothing that narrow is on a wall,
+ * so the choice is kept and the sizes it means are brought back to a phone. */
+@media (max-width:600px){
+  :root[data-scale="board"]{ font-size:19px }
+  :root[data-scale="desk"]{ font-size:16px }
+}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
@@ -2660,7 +2676,13 @@ function write(){
     }
     var cid = 0, subject = "";
     if(ROOM && ROOM.class_id){ cid = ROOM.class_id; subject = ROOM.subject || ""; }
-    if(!cid){
+    /* ME is null on a board — always, deliberately: this screen knows a room
+       and never a person. Reading ME.classes threw a TypeError here, and a
+       handler that throws leaves a button that does nothing at all, with
+       nothing on the screen and nothing in a support call to go on. It is
+       only reachable when a code named no class, which is a case that ends
+       in the message below anyway. */
+    if(!cid && ME){
       var mine = (ME.classes || []).filter(function(c){ return c.mine !== false; });
       if(mine.length === 1){
         cid = mine[0].id;

@@ -1069,16 +1069,12 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
               <button type="button" class="rolebtn" data-jrole="teacher">Teacher</button>
             </div>
           </div>
-          <!-- A teacher signs in; a student does not. A staff code opens a
-               school's registers and marks, so it attaches to an account with
-               a password. A class code claims one name off one register. -->
-          <div id="jn_staff" style="display:none">
-            <div class="field"><label>Email</label>
-              <input type="email" id="jn_email" autocomplete="email"/></div>
-            <div class="field"><label>Password</label>
-              <input type="password" id="jn_pw"
-                autocomplete="current-password"/></div>
-          </div>
+          <!-- No email and password here.
+               This tab is for a code. It carried a second copy of the email
+               sign-in for staff, which meant the same two boxes appeared on
+               two tabs and the one that is actually called "Sign in" looked
+               like the wrong door. Anybody with an address and a password
+               uses that tab; this one takes the code and nothing else. -->
           <div class="field"><label>Your code</label>
             <input type="text" id="jn_code" required placeholder="VP-7K3Q" autocapitalize="characters"/>
             <small id="jn_hint" style="font-size:11.5px;color:var(--dim);display:block;margin-top:5px">The code your teacher gave you. You will tap your name next — there is no password.</small></div>
@@ -1859,13 +1855,11 @@ function setJoinRole(role){
      whole class, so it opens one subject on one board and the server refuses
      it here — which the box now says, rather than leaving somebody typing it
      again. */
-  const staff=$("#jn_staff");
-  if(staff) staff.style.display = teacher ? "" : "none";
   const hint=$("#jn_hint");
   if(hint) hint.textContent = teacher
-    ? "Teachers sign in with their email and password — your school office "+
-      "issues it. The ten-digit code below is for a school administrator; a "+
-      "subject code (T-…) is for a classroom board, not for signing in."
+    ? "The ten-digit code your school office was issued. If you already have "+
+      "an email and password, use the Sign in tab instead — a subject code "+
+      "(T-…) is for a classroom board and will not sign you in here."
     : "The code your teacher gave you. You will tap your name next — there is "+
       "no password.";
   $("#jn_names").innerHTML="";
@@ -1881,38 +1875,13 @@ $("#joinForm").onsubmit=async e=>{
   const code=$("#jn_code").value.trim();
   const b=$("#jn_btn");
 
-  /* A teacher signs in with their address and their password.
+  /* Email and password are not read here any more.
    *
-   * Both fields are on this form for staff and the code is optional for
-   * them, because a teacher may have neither a code nor a reason for one:
-   * the office lists them on their subjects and they are simply in. Somebody
-   * who fills the code box instead gets the path below, which is right for
-   * the ten digits of a school administrator and refused for a subject code.
-   *
-   * Without this, showing the email and password fields would have been a
-   * dead end — two boxes that nothing reads. */
-  if(JOIN_ROLE==="teacher"){
-    const em=(($("#jn_email")||{}).value||"").trim();
-    const pw=(($("#jn_pw")||{}).value||"");
-    if(em && pw){
-      b.disabled=true; authMsg(""); b.textContent="Signing in…";
-      try{ await api.post("/api/auth/login",{email:em,password:pw}); }
-      catch(err){ authMsg(err.message); b.disabled=false;
-                  b.textContent="Continue →"; return; }
-      /* A code as well is somebody claiming a subject they are not yet
-         listed on. Best effort: they are signed in either way, and being
-         told "that code is already yours" would be noise. */
-      if(code.length>=3){
-        try{ await api.post("/api/class/join",{code:code}); }catch(e2){}
-      }
-      await boot();
-      S.view={page:"teacher"};
-      render();
-      toast("Signed in.");
-      return;
-    }
-  }
-
+   * This form carried its own copy of the email sign-in for staff, so the
+   * same two boxes sat on two tabs and the one actually labelled "Sign in"
+   * read as the wrong door. There is one email login and it is on that tab.
+   * This tab takes a code: a class code for a pupil, and the ten digits the
+   * office was issued for whoever becomes the school administrator. */
   if(code.length<3){ authMsg("Type the code you were given."); return; }
   b.disabled=true; authMsg("");
 

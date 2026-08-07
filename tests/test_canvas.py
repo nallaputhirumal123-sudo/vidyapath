@@ -149,6 +149,22 @@ ck("with a scroll as the last resort, so nothing is ever unreachable",
    "gap:.5rem;overflow-y:auto}" in SRC,
    "clipping loses the control; scrolling only moves it")
 
+print("\na phone is not a wall")
+# Board size is 26px because a wall-mounted screen is read from the back of a
+# room, every measurement here is in rem, and "board" is the DEFAULT. On a
+# 375px phone that left the writing surface 38% of its pane — measured — with
+# the top bar, pane head and tool rows taking the rest. It is 61% now.
+ck("board size is brought back on a small screen",
+   '@media (max-width:600px){\n  :root[data-scale="board"]{ font-size:19px }'
+   in SRC,
+   "26px on a 390px phone spends the screen on chrome")
+ck("and desk size with it", ':root[data-scale="desk"]{ font-size:16px }\n}'
+   in SRC)
+ck("but the choice itself is still the teacher's, not guessed from width",
+   'localStorage.getItem("cl_scale") || "board"' in SRC,
+   "a smart board reports a perfectly ordinary 1920 and must not get "
+   "laptop type")
+
 print("\nthe vertical divider divides something")
 # Three spaces put the third across the whole bottom, and a handle pinned
 # top-to-bottom drew a line straight down through it — a divider drawn over a
