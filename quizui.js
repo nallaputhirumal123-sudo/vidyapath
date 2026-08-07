@@ -43,6 +43,19 @@
     "  background:rgba(255,176,32,.10)}",
     ".qzopt.right{border-color:#3fae6a;background:rgba(63,174,106,.14)}",
     ".qzopt.wrong{border-color:#d9534f;background:rgba(217,83,79,.12)}",
+    // Steps to put in order. Numbered as they are chosen, so the sequence
+    // being built is visible without a second list to read.
+    ".qzorder{display:flex;flex-direction:column;gap:6px}",
+    ".qzstep{text-align:left;font-size:15.5px;padding:9px 12px;",
+    "  border-radius:9px;cursor:pointer;border:1px dashed var(--line,#2a2a2a);",
+    "  background:transparent;color:inherit;line-height:1.5}",
+    ".qzstep:hover{border-color:var(--accent,#ffb020)}",
+    ".qzstep.on{border-style:solid;border-color:var(--accent,#ffb020);",
+    "  background:rgba(255,176,32,.10)}",
+    ".qzstep.right{border-style:solid;border-color:#3fae6a;",
+    "  background:rgba(63,174,106,.14)}",
+    ".qzstep.wrong{border-style:solid;border-color:#d9534f;",
+    "  background:rgba(217,83,79,.12)}",
     ".qzgap{font-size:16px;padding:8px 11px;border-radius:9px;",
     "  border:1px solid var(--line,#2a2a2a);background:var(--bg,#0b0d10);",
     "  color:inherit;min-width:150px}",
@@ -106,12 +119,27 @@
     paint();
   }
 
+  /* Deterministic, so a shuffled list does not change under somebody's
+     hand between renders. Not security, just a spread. */
+  function hash(str) {
+    var h = 2166136261;
+    for (var k = 0; k < str.length; k++) {
+      h ^= str.charCodeAt(k);
+      h = (h * 16777619) >>> 0;
+    }
+    return h;
+  }
+
   function qHTML(q, i) {
     var m = QZ.marked && QZ.marked.detail && QZ.marked.detail[i];
     var h = '<div class="qzq"><div class="ask">' + (i + 1) + ". " +
             esc(q.q || q.text || "") + "</div>";
 
-    if (q.kind === "choice") {
+    /* An "apply" question is a choice underneath and is drawn as one.
+       It is kept as its own kind so the model can be held to writing a
+       fixed number of them — a test of five recognition questions wearing
+       different labels is the thing being fixed here. */
+    if (q.kind === "choice" || q.kind === "apply") {
       (q.options || []).forEach(function (o, k) {
         var cls = "qzopt";
         if (QZ.marked) {
@@ -131,6 +159,43 @@
       if (QZ.marked && m && !m.correct) {
         h += '<div class="qzwhy">The answer was <b>' + esc(q.answer) +
              "</b>.</div>";
+      }
+    } else if (q.kind === "order") {
+      /* Steps to put back in sequence.
+       *
+       * The stored order IS the answer, so the display order has to differ
+       * from it — but it must not change while somebody is working, or the
+       * list reshuffles under their hand on every click. So it is shuffled
+       * ONCE, deterministically, from the question's own position: the same
+       * question always shows the same wrong order, and reloading does not
+       * hand out a different puzzle.
+       */
+      var steps = (q.steps || []).slice();
+      var shownOrder = steps.slice().sort(function (a, b) {
+        return hash(a + i) - hash(b + i);
+      });
+      var picked = QZ.answers[i] || [];
+      h += '<div class="qzorder">';
+      shownOrder.forEach(function (st) {
+        var at = picked.indexOf(st);
+        var cls = "qzstep" + (at >= 0 ? " on" : "");
+        if (QZ.marked) {
+          // Right if the learner put it where it actually belongs.
+          cls += (picked.indexOf(st) === steps.indexOf(st)) ? " right" : " wrong";
+        }
+        h += '<button class="' + cls + '" data-qzstep="' + i + '" data-step="' +
+             esc(st) + '"' + (QZ.marked ? " disabled" : "") + ">" +
+             (at >= 0 ? '<b>' + (at + 1) + ".</b> " : "") + esc(st) +
+             "</button>";
+      });
+      h += "</div>";
+      if (!QZ.marked) {
+        h += '<div class="qzsub">Tap them in order. Tap again to take one ' +
+             'back.</div>';
+      } else if (m && !m.correct) {
+        h += '<div class="qzwhy">The order was: ' +
+             steps.map(function (x, k) { return (k + 1) + ". " + esc(x); })
+                  .join("  ") + "</div>";
       }
     } else if (q.kind === "match") {
       var rights = (q.pairs || []).map(function (p) { return p.right; });
@@ -220,6 +285,20 @@
     var opt = t.closest("[data-opt]");
     if (opt) {
       QZ.answers[+opt.dataset.qz] = +opt.dataset.opt;
+      paint();
+      return;
+    }
+    /* Tapping a step adds it to the sequence; tapping it again takes it
+       back out, along with nothing else — removing one from the middle
+       renumbers the rest, which is what somebody expects when they realise
+       step two is wrong. */
+    var sp = t.closest("[data-qzstep]");
+    if (sp) {
+      var qi = +sp.dataset.qzstep, val = sp.dataset.step;
+      var cur = (QZ.answers[qi] || []).slice();
+      var at = cur.indexOf(val);
+      if (at >= 0) cur.splice(at, 1); else cur.push(val);
+      QZ.answers[qi] = cur;
       paint();
       return;
     }

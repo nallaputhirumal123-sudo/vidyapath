@@ -5,7 +5,7 @@ has a multiple-choice validator, but it is nested inside the course cleaner and
 reachable from nowhere else, so every other explanation on the site — the
 board, a scan, a PDF — finishes and stops.
 
-Three kinds, because they fail differently and that is the point:
+Five kinds, because they fail differently and that is the point:
 
   choice    four options, one right. Tests recognition. Cheap to answer and
             cheap to guess: one in four is right by accident.
@@ -14,6 +14,22 @@ Three kinds, because they fail differently and that is the point:
   match     pairs to join. Tests whether the relationships were understood
             rather than the words memorised — somebody can recognise every
             term on the list and still not know which goes with which.
+  order     steps put back into sequence. Tests whether the PROCESS was
+            followed or only its vocabulary collected: gradient descent has
+            an order, and knowing all five words in the wrong order is not
+            knowing gradient descent.
+  apply     a situation the lesson did not literally describe, with four
+            outcomes. Tests transfer, which is the only one of these that
+            distinguishes having learnt something from having read it.
+
+The first three were the whole test, and a test made of them is passable by
+somebody who has read the page carefully and understood none of it. That is
+what "the quizzes are basic" means and it is a fair description: recognition,
+recall and pairing are all retrieval. Nothing asked the learner to DO
+anything with what they had just been told.
+
+The mix is enforced rather than suggested, because a model asked for "a
+variety" returns four multiple-choice questions and one gap-fill every time.
 
 The rule that matters is the same one that fixed the CSS course: the correct
 answer is given as TEXT and the index is worked out here. Asked for a
@@ -27,11 +43,17 @@ test is worse than one fewer question.
 """
 import re
 
-MAX_QUESTIONS = 8
+# Eight was the cap and five was what came back. A lesson worth
+# twenty minutes deserves more than five questions, and the floor
+# matters more than the ceiling: a two-question test tells the
+# learner nothing and tells us less.
+MAX_QUESTIONS = 12
+MIN_QUESTIONS = 6
+MAX_STEPS = 6
 MAX_OPTIONS = 4
 MAX_PAIRS = 6
 
-KINDS = ("choice", "blank", "match")
+KINDS = ("choice", "blank", "match", "order", "apply")
 
 
 def _txt(v, n):
@@ -127,6 +149,44 @@ def _match(q):
             "pairs": pairs, "why": _txt(q.get("why"), 300)}
 
 
+def _order(q):
+    """Steps to put back into sequence.
+
+    The right answer is the order they are GIVEN in, and the page shuffles
+    them for display — so the model never has to number anything, which is
+    the same rule that fixed `choice`. Asked for positions, a model produces
+    a list that contradicts its own explanation often enough to mark a right
+    answer wrong.
+    """
+    steps = [_txt(x, 120) for x in (q.get("steps") or [])]
+    steps = [x for x in steps if x]
+    # Fewer than three is not a sequence, it is a pair.
+    if len(steps) < 3 or len(steps) > MAX_STEPS:
+        return None
+    if len({_norm(x) for x in steps}) != len(steps):
+        return None
+    return {"kind": "order", "q": _txt(q.get("q"), 240) or "Put these in order",
+            "steps": steps, "why": _txt(q.get("why"), 240)}
+
+
+def _apply(q):
+    """A situation the lesson did not literally describe.
+
+    Structurally a `choice`, and kept apart from it on purpose: the two are
+    scored the same and are not the same question. Merging them is how a test
+    ends up as five recognition questions wearing different labels — the
+    model is told how many of each to write, and it can only be held to that
+    if the two are distinguishable.
+    """
+    built = _choice(q)
+    if not built:
+        return None
+    if not built.get("q"):
+        return None
+    built["kind"] = "apply"
+    return built
+
+
 def clean(raw):
     """Rebuild a quiz from what a model returned, dropping what will not work.
 
@@ -143,7 +203,8 @@ def clean(raw):
         if not isinstance(q, dict):
             continue
         kind = str(q.get("kind") or "choice").strip().lower()
-        built = {"choice": _choice, "blank": _blank,
+        built = {"choice": _choice, "blank": _blank, "order": _order,
+                 "apply": _apply,
                  "match": _match}.get(kind, _choice)(q)
         if built:
             out.append(built)
@@ -167,6 +228,18 @@ def mark(questions, answers):
                 ok = False
         elif q.get("kind") == "blank":
             ok = _norm(given) == _norm(q.get("answer"))
+        elif q.get("kind") == "apply":
+            # Scored as a choice, because that is what it is underneath.
+            try:
+                ok = int(given) == int(q.get("answer"))
+            except (TypeError, ValueError):
+                ok = False
+        elif q.get("kind") == "order":
+            # The stored order IS the answer; the page shuffles for display
+            # and sends back the sequence the learner built.
+            want = [_norm(x) for x in (q.get("steps") or [])]
+            got = [_norm(x) for x in given] if isinstance(given, list) else []
+            ok = bool(want) and got == want
         elif q.get("kind") == "match":
             want = {_norm(p["left"]): _norm(p["right"]) for p in q["pairs"]}
             got = {_norm(k): _norm(v) for k, v in (given or {}).items()} \
@@ -178,15 +251,31 @@ def mark(questions, answers):
             "passed": total > 0 and right == total}
 
 
-PROMPT = """Write a short test on what this lesson just taught.
+PROMPT = """Write a test on what this lesson just taught. Not a quick check —
+a test somebody could not pass by having skimmed the page.
 
-Use all three kinds, because they check different things:
+WRITE EIGHT TO TEN QUESTIONS, and use this mix. It is a requirement, not a
+suggestion: a test of five recognition questions is passable by somebody who
+understood none of it.
 
-  "choice"  four options, exactly one right. Tests recognition.
-  "blank"   a sentence with one word removed, written with _____ where the
-            word was. Tests recall, which is harder and cannot be guessed.
-  "match"   terms and what each one goes with. Tests whether the
-            relationships were understood rather than the words memorised.
+  2-3  "apply"   THE MOST IMPORTANT ONES. A situation the lesson did NOT
+                 literally describe, and four outcomes. The learner has to
+                 take what they were told and use it somewhere new. Same
+                 shape as "choice": four options, one right, given as text.
+  1-2  "order"   steps of a process, GIVEN IN THE RIGHT ORDER — the page
+                 shuffles them. Use it where the lesson taught a procedure.
+                 Three to six steps.
+  2-3  "choice"  four options, exactly one right. Recognition.
+  1-2  "blank"   a sentence with one word removed, written with _____ where
+                 the word was. Recall, and cannot be guessed.
+  1-2  "match"   terms and what each goes with. Relationships.
+
+WRITE FOR SOMEBODY WHO WILL BE EXAMINED ON THIS. Ask about the thing the
+lesson was FOR, not the sentence it happened to open with. If the lesson gave
+a formula, ask them to use it. If it gave a procedure, ask what breaks when a
+step is skipped. If it warned about a mistake, build a question where somebody
+has made it. A question whose answer is a word lifted from the page is a
+question that has tested reading, not learning.
 
 Rules that matter:
 - Give "correct" as the option's TEXT, copied out in full. Never a number,
@@ -199,8 +288,18 @@ Rules that matter:
   two answers may repeat.
 - One short sentence in "why" saying why the answer is right.
 
+- In "order", give the steps in the CORRECT order. Do not number them and do
+  not shuffle them; the page does that.
+- In "why", say why the answer is right in one sentence — and for "apply",
+  say which idea from the lesson it rests on.
+
 Reply with ONLY this JSON:
 {"questions":[
+  {"kind":"apply","q":"A situation the lesson did not describe...",
+   "options":["...","...","...","..."],
+   "correct":"the winning option copied out in full","why":"..."},
+  {"kind":"order","q":"Put these in the order they happen",
+   "steps":["first","second","third"],"why":"..."},
   {"kind":"choice","q":"...","options":["...","...","...","..."],
    "correct":"the winning option copied out in full","why":"..."},
   {"kind":"blank","text":"A sentence with _____ removed.",

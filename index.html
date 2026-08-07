@@ -1213,7 +1213,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
      keeps running the previous build's tutor.js against the new page. -->
 <script src="sqlboard.js?v=eece7ffc7b"></script>
 <script src="net.js?v=4381cbbb1f"></script>
-<script src="quizui.js?v=db22a5df88"></script>
+<script src="quizui.js?v=fc745ee388"></script>
 <script src="marker.js?v=7660307525"></script>
 <script src="ink.js?v=98527cfc34"></script>
 <script src="scanner.js?v=f62f1b0eb8"></script>
@@ -3275,6 +3275,18 @@ function askSamples(){
   return out;
 }
 
+/* On `window` as well as in scope.
+ *
+ * quizui.js is a separate <script>, and it reached for `window.ASK` and
+ * `window.SB` — which are undefined, because a top-level `const` in a
+ * classic script creates a scope binding and NOT a property of window. So
+ * "Test me on this" found no lesson, said "Ask something first", and
+ * returned. The feature has been doing nothing at all.
+ *
+ * Published here rather than rewritten in quizui.js, because the module is
+ * right to look somewhere explicit: a second file reaching into another
+ * file's lexical scope is the arrangement that broke, and it broke silently.
+ */
 const ASK={subject:"General",level:"Class 6–8",question:"",lesson:null,
   page:0,spoken:-1,slides:[[]],
   loading:false,speaking:false,listening:false,voiceOn:true,fromCache:false,
@@ -3397,6 +3409,9 @@ const SB_LENS_TAG = {
   "practice exercises": "practice",
   "specifically": ""
 };
+
+window.ASK = ASK;
+window.SB = SB;
 
 function sbSubject(topic){
   const full = String(topic || "");
