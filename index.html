@@ -5640,7 +5640,17 @@ function renderAskInner(){
     <!-- The test draws here, under the lesson it is about. -->
     <div id="qzBox"></div>`:""}
 
-  <div class="ask-box" style="${sbOn?"display:none":""}">
+  <!-- The ask box stays, WITH a lesson on the board.
+       It was display:none the moment a lesson appeared, so the primary
+       control of the page vanished at exactly the point somebody has their
+       next question. What was left was "Still stuck? Ask in your own words",
+       which drills INTO the lesson on the board — same topic, narrower — so
+       a genuinely new question either went in there and came back as more of
+       the old one, or needed "Start a new topic" first, which does not look
+       like a text box because it is not one.
+       Safe to show now that asking clears the board: type, and the old
+       lesson comes down as the new one goes up. -->
+  <div class="ask-box">
     <div class="ask-inrow">
       <button class="ask-btn ask-mic ${a.listening?"on":""}" data-ask="voice" ${a.loading||a.speaking?"disabled":""} title="${a.listening?"Listening — tap to stop":"Ask by voice"}">${a.listening?"⏹":"🎤"}</button>
       <!-- Two ways in beyond typing: hold a conversation, or show it
@@ -5651,7 +5661,7 @@ function renderAskInner(){
       <button class="ask-btn ask-mic" data-ask="photo" title="Ask about a photo"
         ${a.loading?"disabled":""}>📎</button>
       <input type="file" id="askPhoto" accept="image/*" hidden>
-      <input class="ask-input" id="askInput" placeholder="Type your question about ${esc(a.subject)}…" value="${esc(a.question)}" ${a.loading?"disabled":""}>
+      <input class="ask-input" id="askInput" placeholder="${sbOn?"Ask something else…":"Type your question…"}" value="${esc(a.question)}" ${a.loading?"disabled":""}>
       ${a.speaking
         ? `<button class="ask-btn ask-stop" data-ask="stop">Stop</button>`
         : `<button class="ask-btn ask-go" data-ask="send" ${a.loading?"disabled":""}>Ask Axle →</button>`}

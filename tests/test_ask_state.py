@@ -82,6 +82,29 @@ ck("the question is the fallback before that",
 ck("and saving with no key is refused rather than silently merged",
    "if(!key){ toast(" in IDX)
 
+print("\nthe ask box stays when a lesson is on the board")
+# It was display:none the moment a lesson appeared, so the primary control of
+# the page vanished at exactly the point somebody has their next question.
+# What was left was the follow-up box, which drills INTO the lesson — same
+# topic, narrower — so a genuinely new question came back as more of the old
+# one, and the only real way out was a button that does not look like a text
+# box because it is not one.
+ck("the box is no longer hidden behind sbOn",
+   '<div class="ask-box" style="${sbOn?"display:none":""}">' not in IDX,
+   "hiding the way to ask is not a way to ask")
+ck("and it says what it now does", 'sbOn?"Ask something else…"' in IDX)
+ck("the follow-up box survives alongside it", 'id="sbFollow"' in IDX,
+   "drilling into a lesson and replacing it are two different acts")
+
+print("\nand the board has ⚡ wherever the lesson has got to")
+CRX = io.open(os.path.join(ROOT, "craxlearn.html"), encoding="utf-8").read()
+ck("there is a permanent Ask button", 'id="askBtn"' in CRX,
+   "a tile on the home screen is two screens away mid-sentence, with a room "
+   "waiting")
+ck("it is in the accent, not one more grey icon", ".iconbtn.askbtn{" in CRX)
+ck("and it opens the board",
+   'el("askBtn").onclick = function(){ go("board"); };' in CRX)
+
 print("\nwhat must NOT have been broken")
 # The Pro board and the plain answer are separate on purpose: exiting the
 # board should leave the plain answer you already had.

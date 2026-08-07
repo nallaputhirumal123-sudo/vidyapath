@@ -68,6 +68,10 @@ h1{font-size:1.5rem}h2{font-size:1.2rem}h3{font-size:1rem}
   border:1px solid var(--line);background:transparent;cursor:pointer;
   font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;
 }
+/* The one control that is always on screen and is not housekeeping. */
+.iconbtn.askbtn{border-color:var(--accent);color:var(--accent);
+  font-size:1.05rem;font-weight:700}
+.iconbtn.askbtn:hover{background:var(--accent);color:#1a1205}
 .iconbtn:active{border-color:var(--accent)}
 /* The tool currently held. Without it a teacher who has picked the rectangle
    has no way to tell, and finds out by drawing one. */
@@ -382,6 +386,14 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   <span class="grow"></span>
   <div class="who" id="who"></div>
   <button class="iconbtn" id="splitBtn" title="Open another space beside this one">▥</button>
+  <!-- Ask Axle, always reachable.
+       It is a tile on the home screen, which is fine until a teacher is two
+       screens deep in a lesson and wants to ask something — at which point
+       the way to it is Home, then find the tile, mid-sentence, with the room
+       waiting. It is the thing this board is for, so it gets the one button
+       that is always on the screen, in the accent, like the ⚡ card on
+       craxle.com's own home. -->
+  <button class="iconbtn askbtn" id="askBtn" title="Ask Axle">⚡</button>
   <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
@@ -4896,6 +4908,8 @@ el("tabCode").onclick = function(){ tab("Code"); };
 el("tabRemote").onclick = function(){ tab("Remote"); };
 el("tabOpen").onclick = function(){ tab("Open"); };
 el("homeBtn").onclick = function(){ go("home"); };
+/* Straight to the board, from wherever the lesson has got to. */
+el("askBtn").onclick = function(){ go("board"); };
 el("shotBtn").onclick = function(){ shoot(); };
 /* One press adds a space, up to four; the fifth press goes back to one.
    A cycle rather than separate add and remove buttons, because a board is
