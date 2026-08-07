@@ -106,8 +106,23 @@ check("and the header names the room instead of denying it",
       and 'esc(ROOM.class_name || "This class")' in page)
 
 print("\nbut a board still has no person, so some tools cannot be there")
-check("the register, your classes and the queue are named",
-      'var ACCOUNT_TOOLS = ["roster", "roll", "inbox"];' in page)
+check("the ones needing a person are named",
+      'var ACCOUNT_TOOLS = ["roster", "roll", "inbox", "materials", '
+      '"sqlboard"];' in page)
+# Three different reasons, and only the first is "it reads a session".
+#
+# Study material spans every subject the class is taught, which is more than
+# a one-subject code is entitled to — and it read ME.classes, empty on a
+# board, so it told a teacher standing in 12-D they were not in a class yet.
+# The SQL board is a PROGRESS screen: one learner's history, the skills they
+# have shown, how many free explanations are left. There is no such person at
+# a classroom board, and it said "Not signed in".
+check("study material is left to an account", '"materials"' in page)
+check("and the SQL board with it", '"sqlboard"' in page)
+check("but the lab and the packet walkthrough stay",
+      '"lab"' not in page.split("var ACCOUNT_TOOLS")[1].split("]")[0]
+      and '"net"' not in page.split("var ACCOUNT_TOOLS")[1].split("]")[0],
+      "they run entirely in the page and need nobody")
 check("and kept out of the menu",
       "if(ACCOUNT_TOOLS.indexOf(k) >= 0) return false;" in page,
       "a code names a room and nobody in it")

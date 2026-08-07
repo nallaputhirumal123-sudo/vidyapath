@@ -2,23 +2,53 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "//": "LOCAL database. Use this one for everyday work: 'vidyapath' below reads .env, and .env points at the live Railway Postgres — so running it locally means every click lands on the school's real data.",
+      "//": "LOCAL database. Use this one for everyday work: 'vidyapath' below reads .env, and .env points at the live Railway Postgres \u2014 so running it locally means every click lands on the school's real data.",
       "name": "vidyapath-local",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-c", "import os; os.environ['DATABASE_URL']='sqlite:///./vidyapath.db'; os.environ['ALLOW_SQLITE']='1'; os.environ.setdefault('JWT_SECRET','d'*40); os.environ['DOTENV_PATH']='nonexistent.env'; import uvicorn; uvicorn.run('main:app', host='127.0.0.1', port=8012)"],
+      "runtimeArgs": [
+        "-c",
+        "import os; os.environ['DATABASE_URL']='sqlite:///./vidyapath.db'; os.environ['ALLOW_SQLITE']='1'; os.environ.setdefault('JWT_SECRET','d'*40); os.environ['DOTENV_PATH']='nonexistent.env'; import uvicorn; uvicorn.run('main:app', host='127.0.0.1', port=8012)"
+      ],
       "port": 8012
+    },
+    {
+      "//": "A second LOCAL server, for verifying a change while another one is already running on 8012. Same SQLite database, same isolation from .env.",
+      "name": "vidyapath-local-2",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-c",
+        "import os; os.environ['DATABASE_URL']='sqlite:///./vidyapath.db'; os.environ['ALLOW_SQLITE']='1'; os.environ.setdefault('JWT_SECRET','d'*40); os.environ['DOTENV_PATH']='nonexistent.env'; import uvicorn; uvicorn.run('main:app', host='127.0.0.1', port=8015)"
+      ],
+      "port": 8015
     },
     {
       "name": "vidyapath",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8011"],
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8011"
+      ],
       "port": 8011
     },
     {
       "name": "craxle-edu",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "main:app", "--app-dir", "C:/craxle.edu",
-                      "--host", "127.0.0.1", "--port", "8022"],
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "main:app",
+        "--app-dir",
+        "C:/craxle.edu",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8022"
+      ],
       "port": 8022
     }
   ]

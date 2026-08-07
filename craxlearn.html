@@ -3113,11 +3113,27 @@ var OPEN = false;                    // running with no account
 
 var OPEN_TOOLS = ["write", "calc"];  // everything that needs no server
 
-/* Tools that need a person rather than a room. A board holds a subject code,
-   which names a class and a subject and nobody at all — so the register,
-   your own classes and the marking queue have no one to be about here. They
-   live on craxle.com, on the account they belong to. */
-var ACCOUNT_TOOLS = ["roster", "roll", "inbox"];
+/* Tools that need a PERSON rather than a room, and three different reasons.
+ *
+ * A board holds a subject code. It names a class and a subject and nobody at
+ * all, so the register, your own classes and the marking queue have no one to
+ * be about here — they live on craxle.com, on the account they belong to.
+ *
+ * Study material is subtler. The code grants ONE subject; the class's
+ * material list spans every subject that class is taught, which is more than
+ * the code is entitled to. "Saved for this subject" is the board's version of
+ * it and is scoped to the grant, so the board keeps that and leaves this to
+ * an account. Offered, it read ME.classes — empty on a board — and told a
+ * teacher standing in 12-D that they were not in a class yet.
+ *
+ * The SQL board is not a catalogue but a PROGRESS screen: it opens with one
+ * learner's history, the skills they have shown and how many free
+ * explanations they have left. There is no such person at a classroom board,
+ * and it answered "Not signed in".
+ *
+ * The packet walkthrough and the lab stay, because they run entirely in the
+ * page and need nobody. */
+var ACCOUNT_TOOLS = ["roster", "roll", "inbox", "materials", "sqlboard"];
 
 function openBoard(){
   /* A board holding a subject code is NOT an anonymous board.
