@@ -3705,11 +3705,22 @@ function sbAsk(){
 /* Notes live with the lesson, keyed by topic, in the same per-user notes the
    rest of the app uses. Saved on demand rather than on every keystroke — a
    note you did not mean to keep is worse than one you have to press save on. */
-function sbNoteKey(){ return "sbnote_"+(SB.topic||"").slice(0,80).toLowerCase(); }
+/* A note belongs to a lesson, so it is keyed by one.
+   With no topic this returned the bare prefix "sbnote_", which is one shared
+   bucket: every note written before a lesson was on the board overwrote the
+   last one, and then appeared under the next lesson that also had no topic.
+   Falling back to the question keeps them apart; with neither there is
+   nothing to key on and the caller is told so. */
+function sbNoteKey(){
+  const of = (SB.topic || ASK.question || "").trim().slice(0, 80).toLowerCase();
+  return of ? "sbnote_" + of : "";
+}
 function sbSaveNote(){
   const el=document.getElementById("sbNote"); if(!el) return;
+  const key=sbNoteKey();
+  if(!key){ toast("Ask something first — a note is kept with its lesson."); return; }
   const v=el.value||"";
-  S.notes[sbNoteKey()]=v;
+  S.notes[key]=v;
   api.post("/api/note",{key:sbNoteKey(),value:v}).catch(()=>{});
   toast(v.trim()?"Note saved.":"Note cleared.");
 }
@@ -4957,6 +4968,26 @@ async function askTeach(l){
 async function askSubmit(raw){
   const q=(raw!==undefined?raw:ASK.question).trim();
   if(!q||ASK.loading||ASK.speaking)return;
+
+  /* A new question replaces whatever is on the Pro board.
+   *
+   * Two states describe this screen — ASK, the plain answer, and SB, the Pro
+   * board — and renderAsk shows the BOARD whenever SB holds a lesson. So
+   * asking a second question set ASK and left SB exactly as it was, and the
+   * screen went on showing the first question's lesson under the second
+   * question's heading. Leave the page and come back and it is still there,
+   * because nothing on the way out clears it either.
+   *
+   * The board's own follow-up box is not affected: that goes through
+   * sbTeach, which is drilling INTO the lesson on the board rather than
+   * replacing it, and it sets SB itself.
+   *
+   * Speech is stopped too. A board reading the old lesson aloud while the
+   * new one is being fetched is the same bug with a voice. */
+  if(SB.speaking && window.speechSynthesis) window.speechSynthesis.cancel();
+  SB.lesson=null; SB.topic=""; SB.trail=[]; SB.error=""; SB.busy=false;
+  SB.speaking=false; SB.i=0;
+
   ASK.error=""; ASK.question=q; ASK.loading=true; ASK.lesson=null; ASK.fromCache=false; ASK.justSaved=false;
   renderAsk();
   try{
@@ -10995,6 +11026,24 @@ function render(){
   pushView();
   renderWho();
   const v=S.view;
+
+  /* Leaving Ask Axle stops it talking.
+   *
+   * Read aloud is a loop over the lines of a lesson, and nothing on the way
+   * out of the page ended it — so a teacher who pressed Read and then went
+   * to the register had the board reciting photosynthesis over the top of
+   * whatever they opened next, with the Stop button now on a screen they
+   * have left. It is the one control somebody needs in a hurry and it was
+   * the one they could no longer reach.
+   *
+   * Here rather than in each page's own leave path, because there is no such
+   * path: pages are switched by rewriting S.view and calling this. */
+  if(v.page !== "ask" && (ASK.speaking || SB.speaking)){
+    ASK.cancel = true;
+    ASK.speaking = false;
+    SB.speaking = false;
+    if(window.speechSynthesis) window.speechSynthesis.cancel();
+  }
   if(v.page==="home")           renderHome();
   else if(v.page==="messages")  renderMessages();
   else if(v.page==="paths")     renderPaths();
