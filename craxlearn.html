@@ -3947,10 +3947,47 @@ async function activity(){
   };
 }
 
+/* The syllabus coverage table, counted rather than claimed.
+
+   `state` is one word — ready, partial, none — because a percentage invites
+   an argument about the denominator, and a centre owner reading this on a
+   phone wants to know whether to keep reading. What is NOT covered is shown
+   in the same table as what is, which is the whole point: a group with
+   nothing behind it saying so is worth more than six groups with ticks. */
+function groupsHTML(d){
+  var gs = (d && d.groups) || [];
+  if(!gs.length) return "";
+  var LABEL = { ready:"covered", partial:"partly", none:"not yet" };
+  return '<div class="eyebrow">What we can teach</div>' +
+    '<div class="card wrap"><table>' +
+    "<tr><th>Group</th><th>Subjects</th><th>Covered</th><th>Passages</th></tr>" +
+    gs.map(function(g){
+      return "<tr><td><b>" + esc(g.name) + "</b></td><td>" +
+        esc(g.long) +
+        (g.missing && g.missing.length
+          ? '<br><span class="muted">not yet: ' +
+            esc(g.missing.join(", ")) + "</span>"
+          : "") +
+        "</td><td>" + esc(LABEL[g.state] || g.state) + "</td><td>" +
+        (g.passages || 0) + "</td></tr>";
+    }).join("") + "</table>" +
+    (d.note ? '<div class="muted" style="margin-top:.6rem">' + esc(d.note) +
+              "</div>" : "") +
+    "</div>";
+}
+
 async function sources(){
   main().innerHTML = '<div class="muted">Loading…</div>';
   var d = await api.get("/api/craxlearn/sources");
-  main().innerHTML = '<div class="eyebrow">Where the teaching comes from</div>' +
+  /* What we can teach, arranged the way a coaching centre buys it.
+     A school asks "which class"; a centre asks "do you do BiPC" — and the
+     answer has to be countable, not a claim. It is on this page because the
+     honest version of "what do you cover" and the honest version of "where
+     does it come from" are the same conversation. */
+  var cov = null;
+  try{ cov = await api.get("/api/curriculum/groups"); }catch(e){ cov = null; }
+  main().innerHTML = groupsHTML(cov) +
+    '<div class="eyebrow">Where the teaching comes from</div>' +
     '<div class="note">' + esc(d.policy) + "</div>" +
     '<div class="card wrap"><table>' +
     "<tr><th>Source</th><th>Licence</th><th>Used for</th><th>Open</th></tr>" +

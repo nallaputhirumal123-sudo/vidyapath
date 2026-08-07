@@ -9588,6 +9588,50 @@ def craxlearn_calc(body: CalcIn, user: User = Depends(current_user)):
     return {"expression": expr, "result": shown, "value": got}
 
 
+@app.get("/api/curriculum/groups")
+def curriculum_groups(group: str = ""):
+    """What we can teach, arranged the way a coaching centre buys it.
+
+    Unauthenticated, for the same reason /api/craxlearn/sources is: "which
+    syllabus do you cover" is the first question a centre asks and it is
+    asked before anybody has an account.
+
+    A school says "Class 9"; a centre says MPC, BiPC, NEET, JEE. Those are
+    bundles across two years, and asking a centre to translate its own
+    product into ours is asking it to do our work.
+
+    Counted from the corpus on every call rather than from a list in the
+    code. A hard-coded "yes we have Class 12 Biology" that the ingestion
+    actually missed is not a stale number, it is a promise made to a customer
+    that the product then breaks in front of a class. The passage count is
+    shown for the same reason: a book present with nine passages did not
+    ingest, and a centre should see that rather than a tick.
+    """
+    try:
+        import sqlite3
+        import groups as _groups
+        if not os.path.exists(CORPUS_PATH):
+            return {"groups": [], "corpus": 0,
+                    "note": "No corpus is built on this deployment."}
+        con = sqlite3.connect(f"file:{CORPUS_PATH}?mode=ro", uri=True)
+        try:
+            out = _groups.coverage(con, (group or "").strip().lower() or None)
+            total = con.execute("select count(*) from passages").fetchone()[0]
+        finally:
+            con.close()
+    except Exception as e:
+        print(f"groups: {type(e).__name__}: {e}")
+        return {"groups": [], "corpus": 0, "note": "Not available."}
+    return {
+        "groups": out, "corpus": total,
+        # Said once, here, so it cannot be dropped by whoever renders it.
+        # NCERT Physics is what JEE is built on and is not a JEE syllabus.
+        "note": "These are the NCERT books each group is taught from. An "
+                "entrance exam adds topics and sets its own weighting, and "
+                "is not the same thing as the books it draws on.",
+    }
+
+
 @app.get("/api/craxlearn/sources")
 def craxlearn_sources():
     """Where the answers come from, with licences. Open to anybody.
