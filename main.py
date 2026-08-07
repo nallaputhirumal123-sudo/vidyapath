@@ -3028,6 +3028,15 @@ def _teacher_or_board(request: Request, db: Session = Depends(get_db)):
     return board_or_teacher(request, db)
 
 
+def _reader_or_board(request: Request, db: Session = Depends(get_db)):
+    """`board_or_reader`, reachable from a route defined above it.
+
+    Same reason as the wrapper above: the decorator is evaluated when the
+    module is read, and the dependency lives beside the board's routes.
+    """
+    return board_or_reader(request, db)
+
+
 @app.post("/api/teach/pdf")
 async def teach_from_pdf(file: UploadFile = File(...),
                          who=Depends(_teacher_or_board),
@@ -4837,7 +4846,8 @@ def serialise_track(t: Track, include_unpublished=False):
 
 
 @app.get("/api/curriculum")
-def curriculum(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def curriculum(user: User = Depends(_reader_or_board),
+               db: Session = Depends(get_db)):
     tracks = db.query(Track).filter(Track.published == True).order_by(Track.position).all()  # noqa: E712
     return {"tracks": [serialise_track(t) for t in tracks]}
 
@@ -8792,6 +8802,29 @@ class BoardSaveIn(BaseModel):
     lesson: dict = {}
 
 
+def board_or_reader(request: Request, db: Session = Depends(get_db)):
+    """A signed-in person, or a board holding a subject code.
+
+    For the read-only catalogues — the published course list, the simulation
+    index. There is no per-person content in either, so requiring a session
+    was not protecting anything; it just meant a classroom board could not
+    read them. The board asked, got a 401, and showed "Not signed in" on the
+    simulations and an eternal "Loading the courses…" on the course list,
+    because the throw landed where nothing caught it.
+
+    Returns the User when there is one and None for a board, so a caller that
+    wants to personalise can, and one that does not need never look.
+    """
+    if _board_grant(db, request.headers.get("X-Board-Token", "")) is not None:
+        return None
+    try:
+        return current_user(request, db)
+    except HTTPException:
+        raise HTTPException(
+            401, "Sign in, or open this classroom with your subject code "
+                 "first.")
+
+
 def board_or_teacher(request: Request, db: Session = Depends(get_db)):
     """Either a signed-in teacher, or a board holding a subject code's token.
 
@@ -9567,7 +9600,8 @@ _PHET_CHECKED = {}
 
 
 @app.get("/api/craxlearn/phet")
-async def craxlearn_phet(subject: str = "", user: User = Depends(current_user)):
+async def craxlearn_phet(subject: str = "",
+                         user: User = Depends(board_or_reader)):
     """PhET simulations a class can drive, and only ones that really answer.
 
     Every candidate is fetched from PhET before it is offered. An id this

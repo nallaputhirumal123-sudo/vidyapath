@@ -2361,7 +2361,11 @@ function renderNav(){
        audience and the one place on that board that read a craxle.com
        session instead of a subject code. It belongs to the teacher, beside
        their classes, on the account that is actually theirs. */
-    if(USER.is_teacher) h+=nav("asking","📊","What the class is asking");
+    /* Gated on TEACHING, not on is_teacher. A head teacher has is_teacher
+       set and takes no class, so the menu offered them a page that opens
+       only to say it is not for them — an entry that always refuses is a
+       dead end with a label on it. */
+    if(teaching) h+=nav("asking","📊","What the class is asking");
     /* Anybody who teaches can send an update; only whoever runs the
        school keeps the fees. Both screens existed and neither had a way
        in, which is the third time this session. */
@@ -6825,7 +6829,8 @@ async function renderTeacherMessages(){
       padding:11px;margin-bottom:14px;font-size:13.5px">
       <b>${d.waiting}</b> waiting for a reply.</div>`:"")
     + rows.map(t=>`<button class="card" data-cls="tmopen"
-        data-id="${t.assignment_id}" data-cid="${t.student_id}"
+        data-id="${t.assignment_id}" data-klass="${t.class_id}"
+        data-cid="${t.student_id}"
         style="display:block;width:100%;text-align:left;cursor:pointer;
         margin-bottom:10px;padding:13px${
           t.waiting?";border-color:var(--accent)":""}">
@@ -6844,8 +6849,17 @@ async function renderTeacherMessages(){
 /* Opening one goes to the assignment it belongs to, where the thread and the
    reply box already live. A second copy of that conversation here would be a
    second place to answer it and a second place to keep in step. */
-function tmOpen(aid, studentId){
-  S.view={page:"tassign", id:+aid, student:+studentId};
+function tmOpen(aid, studentId, cid){
+  /* The names have to be the ones the dispatcher reads.
+   *
+   * This set `id` and `student`, and the dispatcher calls
+   * renderTeacherAssignment(v.cid, v.aid) — so both arguments arrived
+   * undefined, the page asked the server for assignment "undefined"'s
+   * submissions and showed the error, and the back button pointed at class
+   * "undefined". Every tap on the Student messages list landed there. It
+   * threw nothing and logged nothing: the two halves simply used different
+   * words for the same thing. */
+  S.view={page:"tassign", cid:+cid, aid:+aid, student:+studentId};
   render();
 }
 
@@ -8067,7 +8081,7 @@ document.addEventListener("click",e=>{
   else if(k==="haddslot") hAddSlot(id);
   else if(k==="rosadd") rosAdd(id);
   else if(k==="asgclose") asgClose(id, cid, b.dataset.on === "1");
-  else if(k==="tmopen") tmOpen(id, b.dataset.cid);
+  else if(k==="tmopen") tmOpen(id, b.dataset.cid, b.dataset.klass);
   else if(k==="dobsave") dobSave();
   else if(k==="opensubj") renderSubject(id);
   else if(k==="mysubjects") renderClassSubjects(+id, cid);

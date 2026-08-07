@@ -613,8 +613,21 @@ function _detailText(detail, status, statusText){
 async function req(method, path, body){
   /* "omit", not "same-origin". The board must not become whoever last
      signed in to craxle.com on this machine — see boot(). */
+  /* And it carries the board's token, when it has one.
+   *
+   * This sent nothing at all, so every tool reaching for `api` was anonymous
+   * on a board that was holding a perfectly good subject code. Simulations
+   * answered "Not signed in"; the course list threw where nothing caught it
+   * and sat on "Loading the courses…" for as long as anybody waited. Both
+   * read a published catalogue — there was never a person to be.
+   *
+   * This does not weaken the isolation the line above is about. Credentials
+   * stay omitted, so the board still cannot become whoever last used this
+   * machine. The token names a ROOM and nobody in it, it is the board's only
+   * credential, and there is no reason for one of the two clients to send it
+   * and the other to pretend it does not exist. */
   var opt = { method:method, credentials:"omit",
-              headers:{ "Content-Type":"application/json" } };
+              headers: bhdr({ "Content-Type":"application/json" }) };
   if(body !== undefined) opt.body = JSON.stringify(body);
   var r = await fetch(path, opt);
   var text = await r.text();
@@ -829,6 +842,14 @@ function paintPanes(){
                answer "sign in first". */
             if(OPEN && OPEN_TOOLS.indexOf(k) < 0
                && k !== "home" && k !== "remote") return false;
+            /* Some tools need a PERSON, and this screen never has one.
+               The register, your classes and the marking queue all read a
+               craxle.com session; a board carries a subject code, which
+               names a room and nobody in it. They were unreachable while a
+               coded board was mislabelled as anonymous, and offering them
+               now would only put three tools in the menu that answer "sign
+               in first" — on a screen that cannot sign in at all. */
+            if(ACCOUNT_TOOLS.indexOf(k) >= 0) return false;
             /* Each tool names its own fields by id, so two copies of one
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
@@ -2946,14 +2967,39 @@ var OPEN = false;                    // running with no account
 
 var OPEN_TOOLS = ["write", "calc"];  // everything that needs no server
 
+/* Tools that need a person rather than a room. A board holds a subject code,
+   which names a class and a subject and nobody at all — so the register,
+   your own classes and the marking queue have no one to be about here. They
+   live on craxle.com, on the account they belong to. */
+var ACCOUNT_TOOLS = ["roster", "roll", "inbox"];
+
 function openBoard(){
-  OPEN = true;
+  /* A board holding a subject code is NOT an anonymous board.
+   *
+   * This set OPEN unconditionally, and both ways in come through here — the
+   * "just the board" button and the one after a code is accepted. So a board
+   * that had been given a code was still treated as having none, and two
+   * things followed from it.
+   *
+   * The header said "not signed in" on a board sitting in a named room,
+   * which is the opposite of true and is exactly what somebody reads before
+   * concluding that saving to the class cannot work.
+   *
+   * And the tool menu is filtered by OPEN down to what needs no server —
+   * writing space, calculator, home, remote. Every teaching tool was hidden:
+   * the material shelf, the sources, everything already saved for that
+   * subject. The code is the whole entitlement, and entering it changed
+   * nothing a teacher could see. */
+  OPEN = !boarded();
   ME = { user:{ name:"This board" }, role:"guest", classes:[],
          institution:null, open:true };
   el("gate").hidden = true;
   el("app").hidden = false;
   document.body.classList.remove("gated");
-  el("who").innerHTML = "<b>This board</b>not signed in";
+  el("who").innerHTML = boarded()
+    ? "<b>" + esc(ROOM.class_name || "This class") + "</b>" +
+      esc(ROOM.subject || "")
+    : "<b>This board</b>not signed in";
   /* A board with no code opens straight onto the writing space, because
      there is nothing else it can do. A board that knows its subject opens on
      the home screen, where the teaching tiles are AND everything already

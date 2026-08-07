@@ -90,6 +90,44 @@ check("only for somebody who actually takes a class",
 check("and it still names nobody", "no student is named on any row" in idx,
       "the limit is deliberate, so the page says so before anyone asks")
 
+print("\na board holding a code is not an anonymous board")
+# Both ways in go through openBoard(), which set OPEN unconditionally. So a
+# board that had been given a subject code was still treated as having none,
+# and two things followed. The header said "not signed in" while the board
+# sat in a named room — which is what somebody reads just before concluding
+# that saving to the class cannot work. And the tool menu is filtered by OPEN
+# down to what needs no server, so every teaching tool was hidden: the
+# material shelf, the sources, everything already saved for that subject.
+# Entering the code changed nothing a teacher could see. Measured in a
+# browser: four tools offered before, sixteen after.
+check("OPEN follows the code", "OPEN = !boarded();" in page)
+check("and the header names the room instead of denying it",
+      'el("who").innerHTML = boarded()' in page
+      and 'esc(ROOM.class_name || "This class")' in page)
+
+print("\nbut a board still has no person, so some tools cannot be there")
+check("the register, your classes and the queue are named",
+      'var ACCOUNT_TOOLS = ["roster", "roll", "inbox"];' in page)
+check("and kept out of the menu",
+      "if(ACCOUNT_TOOLS.indexOf(k) >= 0) return false;" in page,
+      "a code names a room and nobody in it")
+
+print("\nthe board's one credential goes on BOTH clients")
+check("api carries the board token too",
+      'headers: bhdr({ "Content-Type":"application/json" })' in page,
+      "simulations answered 'Not signed in' and the course list sat on "
+      "'Loading…' for ever, on a board holding a perfectly good code")
+check("and credentials are still omitted", 'credentials:"omit"' in page,
+      "the token names a room; it must not become whoever last signed in here")
+
+print("\nand a tap on Student messages reaches the assignment")
+check("tmOpen sets the fields the dispatcher reads",
+      'S.view={page:"tassign", cid:+cid, aid:+aid, student:+studentId};' in idx,
+      "it set id and student while the dispatcher read v.cid and v.aid, so "
+      "both arrived undefined and every tap showed an error")
+check("and the row carries the class it needs", 'data-klass="${t.class_id}"'
+      in idx)
+
 print("\nnothing server-side moved")
 main = io.open("main.py", encoding="utf-8").read()
 for r in ("/api/craxlearn/standing", "/api/teacher/classes",

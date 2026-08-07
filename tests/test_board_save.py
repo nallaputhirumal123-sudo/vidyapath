@@ -160,6 +160,25 @@ r = board.post("/api/craxlearn/board/file",
 ck("an empty file is a 400", r.status_code == 400, f"status {r.status_code}")
 ck("and it says so in words", "empty" in r.text.lower(), r.text[:120])
 
+print("\nthe read-only catalogues open to a board too")
+# A board holding a subject code was anonymous to every route that wanted a
+# session, and two of those hold nothing personal at all: the published
+# course list and the simulation index. The board asked, got a 401, and
+# showed "Not signed in" on the simulations and an eternal "Loading the
+# courses…" on the courses — the throw landed where nothing caught it.
+for path, key in (("/api/curriculum", "tracks"),
+                  ("/api/craxlearn/phet", "sims")):
+    anon = board.get(path)
+    ck(f"{path} still refuses an anonymous caller",
+       anon.status_code in (401, 403), f"got {anon.status_code}")
+    withtok = board.get(path, headers=H)
+    ck(f"{path} answers a board holding a code",
+       withtok.status_code == 200,
+       f"got {withtok.status_code}: {withtok.text[:90]}")
+    if withtok.status_code == 200:
+        body = withtok.json()
+        ck(f"  and it has {key} in it", key in body, str(body)[:90])
+
 print("\nthe client cannot throw where it used to")
 src = io.open(os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "craxlearn.html"), encoding="utf-8").read()
