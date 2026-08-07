@@ -51,8 +51,10 @@ corpus.db*
 # Any .env variant, not just the exact name. A credential in
 # .env.local or .env.backup is the same credential.
 .env*
-# The picture archive is a build artefact like corpus.db; its .gz ships.
-corpus-pics.db
-corpus-pics.db.from
-corpus-pics.db.unpacking
-!corpus-pics.db.gz
+# The chapter diagrams SHIP, and uncompressed.
+#
+# They are already JPEG: gzip takes them from 31 MB to 28, eight per cent, in
+# exchange for an unpack at boot, a stamp to keep in step with it, and twice
+# the disk while both copies exist. The corpus is different — 24.5 MB of text
+# down to 10.2 — which is why that one is compressed and this one is not.
+!corpus-pics.db

@@ -2015,7 +2015,6 @@ async def _startup():
     # thread finishes, and then we are back where we started.
     try:
         _unpack_corpus()
-        _unpack_pictures()
     except Exception as e:
         print(f"WARNING: unpacking the books failed: {type(e).__name__}: {e}")
     import asyncio
@@ -8965,8 +8964,12 @@ def _board_where(who, db, class_id=0, subject=""):
     return class_id, _board_subject(db, class_id, user, subject), user.id
 
 
+# The pictures ship UNCOMPRESSED, and the corpus does not, for one reason:
+# they are already JPEG. Gzip takes the 24.5 MB corpus to 10.2 and this file
+# from 31 MB to 28 — eight per cent, in exchange for an unpack step at boot,
+# a stamp to keep in step with it, and twice the disk while both copies
+# exist. Not worth it. The file is read where it lands.
 PICS_PATH = env("PICS_PATH") or str(BASE_DIR / "corpus-pics.db")
-PICS_GZ = str(BASE_DIR / "corpus-pics.db.gz")
 
 
 def _rag_index_only():
@@ -15852,17 +15855,6 @@ def _unpack_gz(gz, target, label):
                 os.remove(tmp)
         except Exception:
             pass
-
-
-def _unpack_pictures():
-    """The chapter diagrams, from their own shipped archive.
-
-    A second file rather than more rows in corpus.db, because they have
-    different lives: the text is rebuilt when a book changes, the pictures
-    when the extraction improves, and a blob store of this size has no
-    business being reopened every time somebody searches for a passage.
-    """
-    _unpack_gz(PICS_GZ, PICS_PATH, "pictures")
 
 
 def _unpack_corpus():
