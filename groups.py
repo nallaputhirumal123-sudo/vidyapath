@@ -31,6 +31,14 @@ CHEMISTRY_11_12 = ["Class 11 Chemistry", "Class 12 Chemistry"]
 BIOLOGY_11_12 = ["Class 11 Biology", "Class 12 Biology"]
 MATHS_11_12 = ["Class 11 Mathematics", "Class 12 Mathematics"]
 
+# The commerce and civics stream. Business Studies is Class 12 only: NCERT
+# publishes no Class 11 Business Studies PDF under any code that answers, so
+# it is not claimed here and stays named as missing below.
+ECONOMICS_11_12 = ["Class 11 Economics", "Class 12 Economics"]
+ACCOUNTANCY_11_12 = ["Class 11 Accountancy", "Class 12 Accountancy"]
+BUSINESS_12 = ["Class 12 Business Studies"]
+CIVICS_11_12 = ["Class 11 Political Science", "Class 12 Political Science"]
+
 
 GROUPS = [
     {
@@ -55,18 +63,24 @@ GROUPS = [
         "id": "mec",
         "name": "MEC",
         "long": "Maths, Economics, Commerce",
-        "note": "Maths is covered by the NCERT books. Economics and "
-                "Commerce are not in the corpus yet.",
-        "books": MATHS_11_12,
-        "missing": ["Economics", "Commerce", "Accountancy"],
+        "note": "Maths, Economics and Accountancy are covered by the NCERT "
+                "books, and Business Studies for second year. NCERT "
+                "publishes no first-year Business Studies book.",
+        "books": MATHS_11_12 + ECONOMICS_11_12 + ACCOUNTANCY_11_12
+                 + BUSINESS_12,
+        "missing": ["Class 11 Business Studies"],
     },
     {
         "id": "cec",
         "name": "CEC",
         "long": "Civics, Economics, Commerce",
-        "note": "Nothing in the corpus covers these yet.",
-        "books": [],
-        "missing": ["Civics / Political Science", "Economics", "Commerce"],
+        "note": "Civics is the NCERT Political Science books, and Economics "
+                "and Commerce the Economics, Accountancy and second-year "
+                "Business Studies ones. NCERT publishes no first-year "
+                "Business Studies book.",
+        "books": CIVICS_11_12 + ECONOMICS_11_12 + ACCOUNTANCY_11_12
+                 + BUSINESS_12,
+        "missing": ["Class 11 Business Studies"],
     },
     {
         "id": "jee",
@@ -149,7 +163,18 @@ def coverage(con, group_id=None):
             "passages": sum(b["passages"] for b in books),
             # Whole, part, or nothing. A centre reads this word and decides;
             # a percentage invites an argument about the denominator.
+            #
+            # A subject we KNOW is not covered counts against this, and used
+            # not to. `state` was computed from the books listed for the group
+            # and ignored g["missing"] entirely — so MEC, which names
+            # Economics, Commerce and Accountancy as absent in its own
+            # definition, reported "ready" because the Maths books it does
+            # have were all present. That is the exact thing this field exists
+            # to prevent: a centre reads one word, buys, and finds out in
+            # front of a class. A group that cannot teach part of its own
+            # stream is at best partial.
             "state": ("ready" if books and len(ready) == len(books)
+                      and not g["missing"]
                       else "partial" if ready else "none"),
             "missing": list(g["missing"]) + [b["book"] for b in books
                                              if not b["present"]],

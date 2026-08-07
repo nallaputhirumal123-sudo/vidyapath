@@ -73,6 +73,27 @@ one.executemany("insert into passages values (?,?,?,?)",
 cov1 = {g["id"]: g for g in G.coverage(one)}
 ck("one book of three is partial, not ready",
    cov1["mpc"]["state"] == "partial", cov1["mpc"]["state"])
+
+# A subject we KNOW we do not have counts against "ready".
+#
+# `state` was computed from the books listed for a group and ignored the
+# group's own `missing` list entirely. So MEC — whose definition named
+# Economics, Commerce and Accountancy as absent — reported "ready", because
+# the Maths books it did have were all present. That is precisely the failure
+# this field exists to prevent: a centre reads one word, buys on it, and
+# finds the hole in front of a class.
+_fake = {"id": "x", "name": "X", "long": "", "note": "",
+         "books": ["Class 11 Physics"], "missing": ["Economics"]}
+_saved = G.GROUPS
+try:
+    G.GROUPS = [_fake]
+    _one = G.coverage(one)[0]
+finally:
+    G.GROUPS = _saved
+ck("a group naming an uncovered subject is never 'ready'",
+   _one["state"] != "ready", _one["state"])
+ck("it is 'partial' when it holds some of its books",
+   _one["state"] == "partial", _one["state"])
 ck("and the two that are absent are named",
    any("Chemistry" in m for m in cov1["mpc"]["missing"]),
    str(cov1["mpc"]["missing"]))
@@ -90,13 +111,25 @@ if os.path.exists(corpus):
     ck("so is BiPC", real["bipc"]["state"] == "ready")
     ck("and it is thousands of passages, not a handful",
        real["mpc"]["passages"] > 2000, str(real["mpc"]["passages"]))
-    # The one that must NOT overstate.
-    ck("CEC says plainly that it is not covered",
-       real["cec"]["state"] == "none" and real["cec"]["missing"],
-       str(real["cec"]))
-    ck("MEC admits the half it does not have",
-       any("Commerce" in m for m in real["mec"]["missing"]),
-       str(real["mec"]["missing"]))
+    # The commerce and civics stream, which used to be the hole in this
+    # product: CEC had NOTHING behind it and MEC had only its Maths — half
+    # the intermediate market, and the half a centre asks about first. The
+    # NCERT Economics, Accountancy, Business Studies and Political Science
+    # books are in the corpus now.
+    ck("CEC is no longer empty", real["cec"]["passages"] > 0,
+       str(real["cec"]["passages"]))
+    ck("and MEC has more than its Maths",
+       real["mec"]["passages"] > 1000, str(real["mec"]["passages"]))
+    # But neither may round up. NCERT publishes no Class 11 Business Studies
+    # PDF under any code that answers, so both streams are PARTIAL and say
+    # which book is absent — the state exists to stop exactly the rounding up
+    # that MEC used to do.
+    for gid in ("mec", "cec"):
+        ck(f"{gid.upper()} does not round up to ready",
+           real[gid]["state"] == "partial", real[gid]["state"])
+        ck(f"and names the book it lacks",
+           any("Business Studies" in m for m in real[gid]["missing"]),
+           str(real[gid]["missing"]))
 else:
     ck("a corpus exists to check against", False, "corpus.db is missing")
 

@@ -62,6 +62,8 @@ def extract(raw):
         return ""
 
     lines = []
+    total_pages = len(doc.pages)
+    read_pages = 0
     try:
         for page in doc.pages[:MAX_PAGES]:
             try:
@@ -73,6 +75,33 @@ def extract(raw):
                 if not ln or _FURNITURE.match(ln):
                     continue
                 lines.append(ln)
+            # A table is not prose and extract_text does not treat it as one.
+            #
+            # It returns the cells in reading order with nothing to say which
+            # row or column they came from, so "Year 2019 2020 Revenue 4.2
+            # 5.1" is what the model sees — and an Accountancy or Economics
+            # chapter is largely tables. Laid out with separators, the same
+            # table is readable, and the rule about keeping numbers exactly
+            # has something to be exact ABOUT.
+            try:
+                for tbl in (page.extract_tables() or [])[:4]:
+                    rows = []
+                    for row in tbl:
+                        cells = [(c or "").strip().replace("\n", " ")
+                                 for c in row]
+                        filled = [c for c in cells if c]
+                        # Two filled cells at minimum, and something actually
+                        # in them. A ruled box round a paragraph and the
+                        # numbering beside a worked example both come back as
+                        # "tables", and " | 3" teaches nobody anything.
+                        if len(filled) >= 2 and len(" ".join(filled)) >= 8:
+                            rows.append(" | ".join(cells))
+                    if len(rows) >= 2:
+                        lines.append("TABLE:")
+                        lines.extend(rows[:30])
+            except Exception:
+                pass
+            read_pages += 1
             if sum(len(x) for x in lines) > MAX_CHARS:
                 break
     finally:
@@ -90,7 +119,24 @@ def extract(raw):
     repeated = {ln for ln, n in seen.items() if n > 3}
     kept = [ln for ln in lines if ln not in repeated]
 
-    return "\n".join(kept)[:MAX_CHARS].strip()
+    out = "\n".join(kept)[:MAX_CHARS].strip()
+    # How much of the document this actually is.
+    #
+    # A long chapter is cut at MAX_PAGES or MAX_CHARS and the cut was
+    # SILENT: the teacher got a confident lesson covering the first part of
+    # their chapter with nothing to say the rest had been dropped. They find
+    # out when the class reaches a topic the board never mentioned. The
+    # caller reports this, so a partial reading is a sentence on the screen
+    # rather than a discovery.
+    extract.last = {
+        "pages_read": read_pages,
+        "pages_total": total_pages,
+        "complete": read_pages >= total_pages and len("\n".join(kept)) <= MAX_CHARS,
+    }
+    return out
+
+
+extract.last = {"pages_read": 0, "pages_total": 0, "complete": True}
 
 
 def looks_scanned(text, pages_hint=1):
@@ -133,6 +179,13 @@ nobody. Say what it MEANS, in the board's own short lines.
 - Where a diagram would help, ask for one. The document's own pictures are
   shown alongside the lesson, so a drawn diagram is for what the document
   explains WITHOUT a picture — not a second copy of one it already has.
+- A block marked TABLE: is a real table, one row per line, columns separated
+  by |. Teach what it SHOWS — the trend, the comparison, the odd one out —
+  and quote the figures you use exactly. Do not reprint the whole table; a
+  class can read a table, and what they need is what it means.
+- Teach the whole document, not its first page. Give every substantial
+  section of it at least one line, in the order the document has them, so a
+  teacher can follow their chapter down the board.
 
 Reply with ONLY valid JSON in this shape:
 {"title":"<what this document is about, 2-8 words>",

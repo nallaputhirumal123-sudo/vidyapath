@@ -3097,6 +3097,8 @@ async def teach_from_pdf(file: UploadFile = File(...),
         raise HTTPException(400, "Send a PDF.")
 
     text = _teachpdf.extract(raw)
+    # Read straight after extract, before anything else can call it again.
+    read = dict(_teachpdf.extract.last)
     if not text:
         raise HTTPException(422, "Nothing readable came out of that PDF. If "
                                  "it is a scan, it is a picture of a page "
@@ -3155,6 +3157,20 @@ async def teach_from_pdf(file: UploadFile = File(...),
             await _offer_scene(c, lesson, lesson.get("title") or "")
     except Exception as e:
         print(f"PDF scene offer skipped: {type(e).__name__}: {e}")
+
+    # How much of the chapter this lesson is actually FROM.
+    #
+    # A long document is cut at forty pages or twenty-four thousand
+    # characters, and the cut was silent: the teacher got a confident lesson
+    # covering the first part of their chapter with nothing to say the rest
+    # had been dropped, and found out when the class reached a topic the
+    # board never mentioned. Said on the lesson itself, so it travels with it
+    # into the cache and onto the saved copy.
+    if not read.get("complete") and read.get("pages_total"):
+        lesson["partial"] = (
+            f"This lesson is from the first {read['pages_read']} of "
+            f"{read['pages_total']} pages — the document was longer than one "
+            f"lesson. Upload the rest as a second file to teach it.")
 
     found, verdict = _check_lesson(lesson)
     if found:

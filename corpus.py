@@ -26,6 +26,7 @@ claiming sixteen is worse than one that holds nine and says so.
 """
 import io
 import re
+import time
 import urllib.request
 
 BASE = "https://ncert.nic.in/textbook/pdf/{code}.pdf"
@@ -71,6 +72,34 @@ BOOKS = [
     ("lebo1", 12, "Biology", 13),
     ("lemh1", 12, "Mathematics", 6),
     ("lemh2", 12, "Mathematics", 7),
+
+    # The commerce and civics stream — MEC and CEC.
+    #
+    # Their absence was not a small gap. CEC had NOTHING behind it and MEC
+    # had only its Maths, which is half the intermediate market in this state
+    # and the half a coaching centre asks about first.
+    #
+    # Probed exactly as the books above were, and for the same reason: every
+    # prefix here answered 200 and every chapter count is the last chapter
+    # that does, checked one by one rather than extrapolated. Class 11
+    # Business Studies is deliberately ABSENT — no code under any letter I
+    # tried returns a PDF, so it stays off this list and stays named as
+    # missing rather than quietly assumed.
+    ("keec1", 11, "Economics", 8),
+    ("kest1", 11, "Economics", 8),
+    ("leec1", 12, "Economics", 6),
+    ("leec2", 12, "Economics", 5),
+    ("keac1", 11, "Accountancy", 7),
+    ("keac2", 11, "Accountancy", 2),
+    ("leac1", 12, "Accountancy", 4),
+    ("leac2", 12, "Accountancy", 6),
+    ("lebs1", 12, "Business Studies", 8),
+    ("lebs2", 12, "Business Studies", 3),
+    ("keps1", 11, "Political Science", 8),
+    ("kepy1", 11, "Political Science", 8),
+    ("leps1", 12, "Political Science", 7),
+    ("leps2", 12, "Political Science", 8),
+    ("lepy1", 12, "Political Science", 7),
 ]
 
 
@@ -98,21 +127,41 @@ def fetch(code):
     Never raises. A chapter that will not download is a chapter we do not
     have, which is a fact to record rather than an exception to handle
     somewhere up the stack.
+
+    Retried, because the first version was not. A run of ninety-five
+    chapters came back with ninety-one URLErrors, and every one of those
+    codes downloaded perfectly when asked for on its own a minute later:
+    ncert.nic.in simply stops accepting connections from a client that asks
+    for three-megabyte PDFs back to back. Treating that as "we do not have
+    this chapter" put a silent hole in a syllabus — the book is listed, the
+    ingestion says it failed in a log nobody reads, and a coaching centre
+    finds the gap in front of a class.
+
+    Four attempts with a widening pause. A refusal that survives all four is
+    a chapter we really cannot get.
     """
     url = BASE.format(code=code)
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            raw = r.read(MAX_MB * 1024 * 1024 + 1)
-        if len(raw) > MAX_MB * 1024 * 1024:
-            print(f"corpus: {code} is larger than {MAX_MB}MB, skipped")
-            return None
-        if not raw.startswith(b"%PDF"):
-            return None
-        return raw
-    except Exception as e:
-        print(f"corpus: {code} not fetched ({type(e).__name__})")
-        return None
+    last = None
+    for attempt in range(4):
+        if attempt:
+            time.sleep(2 ** attempt)        # 2s, 4s, 8s
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                raw = r.read(MAX_MB * 1024 * 1024 + 1)
+            if len(raw) > MAX_MB * 1024 * 1024:
+                print(f"corpus: {code} is larger than {MAX_MB}MB, skipped")
+                return None
+            if not raw.startswith(b"%PDF"):
+                # Not a transient failure: whatever is there is not a PDF,
+                # and asking again will hand back the same thing.
+                return None
+            return raw
+        except Exception as e:
+            last = e
+    print(f"corpus: {code} not fetched after 4 tries "
+          f"({type(last).__name__})")
+    return None
 
 
 # Page furniture: a running header, a page number, the reprint notice that
