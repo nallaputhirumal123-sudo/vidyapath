@@ -1664,6 +1664,25 @@ var PENS = [
  */
 var BOARD_UNIT = 1600;   // the width the OLD fixed board had; now just a scale
 
+/* The grid is OFF unless somebody turns it on.
+ *
+ * It went in to answer a real problem — on a surface with no edges, panning
+ * an empty part of it looks exactly like a board that has stopped responding
+ * — and it solved that at the cost of the thing the board is for. A page of
+ * working written over graph paper is a page of graph paper.
+ *
+ * Fit, the zoom readout and the mark count answer "where am I" well enough
+ * without it. Kept as a switch rather than deleted because it genuinely
+ * helps for plotting axes and drawing to scale, which is a maths lesson.
+ * Remembered, since it is a property of how a room teaches. */
+function gridOn(){
+  try{ return localStorage.getItem("cl_grid") === "1"; }
+  catch(e){ return false; }
+}
+function setGrid(on){
+  try{ localStorage.setItem("cl_grid", on ? "1" : "0"); }catch(e){}
+}
+
 /* What is on the board outlives the element it is drawn on. Splitting the
    screen rebuilds every space, and a teacher who added a second space
    halfway through an explanation should not come back to a blank board —
@@ -1756,6 +1775,7 @@ function write(){
            contact point and a wall-mounted screen often has no keyboard, so
            two-finger pan and the space bar are both unavailable exactly
            where this matters most. */
+        '<button class="iconbtn" id="wGrid" title="Grid on or off">#</button>' +
         '<button class="iconbtn" id="wHand" title="Move around the board">✋</button>' +
         '<button class="iconbtn" id="wOut" title="Zoom out">−</button>' +
         '<button class="iconbtn" id="wIn" title="Zoom in">+</button>' +
@@ -1951,7 +1971,7 @@ function write(){
     ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = BOARD_BG;
     ctx.fillRect(0, 0, w, h);
-    paintGrid(ctx, w, h);
+    if(gridOn()) paintGrid(ctx, w, h);
     paintInk(ink, strokes.concat(live ? [live] : []),
              VIEW.k, -VIEW.x * VIEW.k, -VIEW.y * VIEW.k, w, h);
     ctx.drawImage(inkc, 0, 0);
@@ -2061,7 +2081,7 @@ function write(){
     ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = BOARD_BG;
     ctx.fillRect(0, 0, cv.width, cv.height);
-    paintGrid(ctx, cv.width, cv.height);
+    if(gridOn()) paintGrid(ctx, cv.width, cv.height);
     ctx.drawImage(inkc, 0, 0);
   }
 
@@ -2213,6 +2233,12 @@ function write(){
   document.addEventListener("keydown", spaceDown);
   document.addEventListener("keyup", spaceUp);
 
+  wq("wGrid").classList.toggle("on", gridOn());
+  wq("wGrid").onclick = function(){
+    setGrid(!gridOn());
+    wq("wGrid").classList.toggle("on", gridOn());
+    redraw();
+  };
   wq("wHand").onclick = function(){
     handing = !handing;
     wq("wHand").classList.toggle("on", handing);

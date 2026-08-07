@@ -1,0 +1,387 @@
+{
+  "tracks": [
+    {
+      "id": "s5-dl",
+      "icon": "🧠",
+      "name": "Deep Learning",
+      "level": "Stage 5 · after Machine Learning",
+      "color": "#7c3aed",
+      "weeks": 5,
+      "lang": "Python",
+      "desc": "Networks that learn their own features — built by hand first, then in PyTorch. Backpropagation, convolutions, sequences, attention, and the training tricks that decide whether any of it works.",
+      "outcomes": [
+        "Run a forward pass and a backward pass by hand, on paper and in code",
+        "Explain what a convolution does and why it beats a dense layer on images",
+        "Say why attention replaced recurrence, and what a transformer block contains",
+        "Diagnose a training run from its loss curves and fix the actual cause",
+        "Fine-tune a pretrained model instead of training from scratch"
+      ],
+      "position": 10,
+      "audience": "stage4",
+      "quiz": [],
+      "lessons": [
+        {
+          "id": "dl1",
+          "title": "Backpropagation, by hand",
+          "mins": 45,
+          "lang": "py",
+          "position": 0,
+          "content": "\n<h3>You already know the forward pass</h3>\n<p>A neuron multiplies, adds, and bends. Stack them and you have a network. That part you built in Machine Learning.</p>\n<p>What you have not built is the part that makes it <b>learn</b>: working out how much each of a hundred thousand weights contributed to the error, and nudging every one of them the right way. That is backpropagation, and it is one idea repeated — the chain rule.</p>\n\n<h3>The chain rule is the whole trick</h3>\n<p>If a change in <code>w</code> changes <code>a</code>, and a change in <code>a</code> changes the loss <code>L</code>, then:</p>\n<pre><code>dL/dw = dL/da * da/dw</code></pre>\n<p>Read it aloud: \"how much the loss moves when w moves\" equals \"how much the loss moves when a moves\" times \"how much a moves when w moves\". Multiply the local effects along the path.</p>\n<p>A network is a long chain of such steps. Backpropagation walks the chain <b>backwards</b>, carrying one number — the gradient so far — and multiplying by each local derivative on the way.</p>\n\n<h4>Worked example 1 — the smallest possible network</h4>\n<p>One input, one weight, one bias, squared error. No activation yet.</p>\n<pre><code>x, y = 2.0, 10.0        input, and what we wanted\nw, b  = 3.0, 1.0        the parameters\n\npred = w * x + b        7.0      forward\nerror = pred - y        -3.0\nloss  = error ** 2      9.0\n\ndL/dpred  = 2 * error   -6.0     backward\ndpred/dw  = x           2.0\ndL/dw     = -6.0 * 2.0  -12.0\ndpred/db  = 1\ndL/db     = -6.0</code></pre>\n<p>The gradient on <code>w</code> is -12. Negative means: increasing w decreases the loss. So we step w <b>up</b> — against the sign of the gradient.</p>\n<pre><code>lr = 0.01\nw = w - lr * (-12.0)    3.12\nb = b - lr * (-6.0)     1.06\nnew pred = 3.12*2 + 1.06 = 7.30   closer to 10</code></pre>\n<div class=\"callout\"><b>That is the entire algorithm.</b> Forward to get a prediction, compare, walk backwards multiplying local derivatives, step every parameter against its gradient. Everything else in deep learning is this with more layers and better bookkeeping.</div>\n\n<h3>Adding a layer means one more multiplication</h3>\n<pre><code>h    = relu(w1 * x + b1)      hidden\npred = w2 * h + b2            output\n\ndL/dpred = 2 * (pred - y)\ndL/dw2   = dL/dpred * h\ndL/dh    = dL/dpred * w2\ndL/dw1   = dL/dh * relu'(w1*x+b1) * x</code></pre>\n<p>ReLU's derivative is the simplest in the business: <code>1</code> if the input was positive, <code>0</code> if it was not. A neuron that did not fire passes no gradient back — it learns nothing from that example.</p>\n\n<h3>Why gradients die, in one picture</h3>\n<p>Each layer multiplies the gradient by something. If those somethings are mostly less than 1, the product shrinks as it travels backwards. Ten layers of 0.5 gives 0.5^10 ≈ 0.001. The early layers barely move.</p>\n<p>That is the <b>vanishing gradient</b>, and it is why networks were shallow until about 2012. Three things fixed it and all three are still standard:</p>\n<ul>\n<li><b>ReLU</b> instead of sigmoid — its derivative is 1, not 0.2</li>\n<li><b>Careful initialisation</b> — weights scaled so signals neither explode nor fade</li>\n<li><b>Skip connections</b> — a shortcut path so the gradient has a route home that does not shrink</li>\n</ul>\n<div class=\"callout\"><b>Interview question.</b> \"Why do we use ReLU?\" The weak answer is \"non-linearity\". The good answer is the sentence above: sigmoid's derivative peaks at 0.25, so gradients shrink by at least 4x per layer, and deep networks stopped training. ReLU's is 1.</div>\n\n<h3>What a framework does for you</h3>\n<p>PyTorch records every operation you perform into a graph, then walks it backwards for you.</p>\n<pre><code>import torch\n\nx = torch.tensor([2.0])\ny = torch.tensor([10.0])\nw = torch.tensor([3.0], requires_grad=True)\nb = torch.tensor([1.0], requires_grad=True)\n\nloss = (w * x + b - y) ** 2\nloss.backward()          walks the graph\n\nprint(w.grad)            tensor([-12.])\nprint(b.grad)            tensor([-6.])</code></pre>\n<p>The same -12 and -6 you worked out by hand. <code>requires_grad=True</code> is what puts a parameter on the graph; forget it and the thing simply never learns, silently.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "PyTorch autograd, official tutorial", "url": "https://pytorch.org/tutorials/beginner/basics/autogradqs_tutorial.html" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Forward pass. With <code>w=4</code>, <code>x=3</code>, <code>b=2</code>, print the prediction <code>w*x+b</code>.",
+              "starter": "w, x, b = 4, 3, 2\npred = 0   # fix this\nprint(pred)",
+              "solution": "w, x, b = 4, 3, 2\npred = w * x + b\nprint(pred)",
+              "hint": "pred = w * x + b",
+              "answer": "",
+              "check": { "lines": ["14"] }
+            },
+            {
+              "q": "Squared error. The target is 20 and the prediction is 14. Print the loss <code>(pred-y)**2</code>.",
+              "starter": "pred, y = 14, 20\nloss = 0   # fix this\nprint(loss)",
+              "solution": "pred, y = 14, 20\nloss = (pred - y) ** 2\nprint(loss)",
+              "hint": "Square the difference.",
+              "answer": "",
+              "check": { "lines": ["36"] }
+            },
+            {
+              "q": "The gradient on the prediction is <code>2*(pred-y)</code>. Print it for the numbers above.",
+              "starter": "pred, y = 14, 20\ng = 0   # fix this\nprint(g)",
+              "solution": "pred, y = 14, 20\ng = 2 * (pred - y)\nprint(g)",
+              "hint": "It should come out negative.",
+              "answer": "",
+              "check": { "lines": ["-12"] }
+            },
+            {
+              "q": "Chain it. <code>dL/dw = dL/dpred * x</code>. With <code>dL/dpred=-12</code> and <code>x=3</code>, print <code>dL/dw</code>.",
+              "starter": "dpred, x = -12, 3\ndw = 0   # fix this\nprint(dw)",
+              "solution": "dpred, x = -12, 3\ndw = dpred * x\nprint(dw)",
+              "hint": "Multiply the local effects along the path.",
+              "answer": "",
+              "check": { "lines": ["-36"] }
+            },
+            {
+              "q": "Take one step. <code>w=4</code>, gradient <code>-36</code>, learning rate <code>0.01</code>. Print the new w. Remember the step is AGAINST the gradient.",
+              "starter": "w, grad, lr = 4, -36, 0.01\nw = w   # fix this\nprint(round(w, 2))",
+              "solution": "w, grad, lr = 4, -36, 0.01\nw = w - lr * grad\nprint(round(w, 2))",
+              "hint": "w = w - lr * grad",
+              "answer": "",
+              "check": { "lines": ["4.36"] }
+            },
+            {
+              "q": "ReLU's derivative is 1 for a positive input and 0 otherwise. Write <code>drelu</code> and print <code>drelu(-2)</code>.",
+              "starter": "def drelu(x):\n    return 1   # fix this\nprint(drelu(-2))",
+              "solution": "def drelu(x):\n    return 1 if x > 0 else 0\nprint(drelu(-2))",
+              "hint": "A neuron that did not fire passes no gradient back.",
+              "answer": "",
+              "check": { "lines": ["0"] }
+            },
+            {
+              "q": "Vanishing gradients. Print the gradient left after 10 layers that each multiply it by 0.5, rounded to 4 places.",
+              "starter": "g = 1.0\n# multiply it ten times\nprint(round(g, 4))",
+              "solution": "g = 1.0\nfor _ in range(10):\n    g = g * 0.5\nprint(round(g, 4))",
+              "hint": "0.5 ** 10",
+              "answer": "",
+              "check": { "lines": ["0.001"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "State the chain rule in words, using a weight and a loss.", "a": "How much the loss moves when the weight moves equals how much the loss moves when the neuron's output moves, times how much that output moves when the weight moves. Multiply the local effects along the path." },
+            { "q": "Why do we step against the gradient rather than along it?", "a": "The gradient points in the direction that INCREASES the loss. We want it lower, so we move the opposite way." },
+            { "q": "What is a vanishing gradient, and why did sigmoid cause it?", "a": "The gradient shrinks as it is multiplied backwards through layers until early layers barely move. Sigmoid's derivative peaks at 0.25, so every layer cut the gradient by at least four times." },
+            { "q": "Name the three fixes that made deep networks trainable.", "a": "ReLU activations, careful weight initialisation, and skip connections." },
+            { "q": "What does requires_grad=True do, and what happens if you forget it?", "a": "It puts a tensor on the autograd graph so gradients are computed for it. Forget it and the parameter never receives a gradient and never learns — silently, with no error." }
+          ]
+        },
+        {
+          "id": "dl2",
+          "title": "Convolutions — how a network sees",
+          "mins": 45,
+          "lang": "py",
+          "position": 1,
+          "content": "\n<h3>Why a dense layer fails on images</h3>\n<p>A 200x200 colour photograph is 120,000 numbers. Connect that to one hidden layer of 1,000 neurons and you have 120 million weights in the first layer alone.</p>\n<p>Worse than the size is what it learns. A dense layer learns a weight for <b>each pixel position</b>. Move the cat two pixels to the right and every weight it learned is now looking at the wrong place.</p>\n<div class=\"callout\"><b>The insight behind convolutions.</b> A feature worth detecting — an edge, a corner, a whisker — is worth detecting <i>anywhere</i> in the image. So learn the detector once and slide it over the whole picture.</div>\n\n<h3>A convolution is a small window that slides</h3>\n<pre><code>image          kernel (3x3)      output\n  ...            edge              a map of where\n  ...     *      detector    =     that feature\n  ...                              was found</code></pre>\n<p>The kernel is a small grid of weights — 3x3 is the usual. You place it on the image, multiply each overlapping pair, add them up, write one number to the output, then slide one step and repeat.</p>\n\n<h4>Worked example 1 — a vertical edge detector, by hand</h4>\n<pre><code>row of pixels:   [0, 0, 9, 9]      dark, dark, bright, bright\nkernel:          [-1, 1]           \"is the right side brighter?\"\n\nposition 0:  0*-1 + 0*1  = 0      no edge\nposition 1:  0*-1 + 9*1  = 9      EDGE FOUND\nposition 2:  9*-1 + 9*1  = 0      no edge\n\noutput: [0, 9, 0]</code></pre>\n<p>Three numbers instead of four, with a spike exactly where the brightness changed. That kernel has two weights and it finds a vertical edge <i>anywhere</i> along the row.</p>\n\n<h3>The three numbers you will be asked about</h3>\n<ul>\n<li><b>Kernel size</b> — how big the window is. 3x3 almost always; two stacked 3x3s see as much as one 5x5 for fewer weights.</li>\n<li><b>Stride</b> — how far it jumps each step. Stride 2 halves the output size.</li>\n<li><b>Padding</b> — a border of zeros so the edges of the image get looked at as often as the middle. Without it every layer shrinks the picture.</li>\n</ul>\n<pre><code>out = (in - kernel + 2*padding) / stride + 1\n\n32x32 image, 3x3 kernel, padding 1, stride 1\nout = (32 - 3 + 2)/1 + 1 = 32      same size, on purpose</code></pre>\n\n<h3>Channels, and what depth really means</h3>\n<p>One kernel finds one kind of feature. A layer has many — 32, 64, 256 — each learning its own detector, and each producing its own output map. Those maps stack into <b>channels</b>.</p>\n<p>The next layer's kernels look across all of them at once, so they can combine \"vertical edge here\" and \"horizontal edge here\" into \"corner here\". Stack enough and the combinations become eyes, wheels, faces.</p>\n<pre><code>layer 1   edges and blobs\nlayer 2   corners, curves, textures\nlayer 3   wheels, eyes, letters\nlayer 4   cars, faces, words</code></pre>\n<p>Nobody programmed that hierarchy. It falls out of stacking the same operation.</p>\n\n<h3>Pooling, and why it is going out of fashion</h3>\n<p><b>Max pooling</b> takes the largest value in each little square and throws the rest away. It shrinks the image and buys a little tolerance to things shifting about.</p>\n<pre><code>[1, 5]        max pool 2x2\n[3, 2]   ->   5</code></pre>\n<p>Modern architectures increasingly use a stride-2 convolution instead — it shrinks by the same amount but <i>learns</i> how, rather than always taking the maximum.</p>\n\n<h3>In PyTorch</h3>\n<pre><code>import torch.nn as nn\n\nnet = nn.Sequential(\n    nn.Conv2d(3, 32, 3, padding=1),   3 colour channels in, 32 maps out\n    nn.ReLU(),\n    nn.MaxPool2d(2),                  32x32 -> 16x16\n    nn.Conv2d(32, 64, 3, padding=1),\n    nn.ReLU(),\n    nn.MaxPool2d(2),                  16x16 -> 8x8\n    nn.Flatten(),\n    nn.Linear(64*8*8, 10),            ten classes\n)</code></pre>\n<div class=\"callout\"><b>Count the weights.</b> That first Conv2d has 3*32*3*3 + 32 = 896 parameters and it looks at every position in the image. A dense layer doing the same job would need millions. That is the whole argument.</div>\n",
+          "videos": [],
+          "refs": [
+            { "title": "PyTorch Conv2d reference", "url": "https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Apply the kernel <code>[-1, 1]</code> to <code>[0, 0, 9, 9]</code> at position 1 (pixels 0 and 9). Print the result.",
+              "starter": "a, b = 0, 9\nout = 0   # fix this\nprint(out)",
+              "solution": "a, b = 0, 9\nout = a * -1 + b * 1\nprint(out)",
+              "hint": "Multiply each pair, then add.",
+              "answer": "",
+              "check": { "lines": ["9"] }
+            },
+            {
+              "q": "Output size. Print <code>(in - kernel + 2*padding)//stride + 1</code> for in=32, kernel=3, padding=1, stride=1.",
+              "starter": "i, k, p, s = 32, 3, 1, 1\nout = 0   # fix this\nprint(out)",
+              "solution": "i, k, p, s = 32, 3, 1, 1\nout = (i - k + 2*p)//s + 1\nprint(out)",
+              "hint": "Padding 1 with a 3x3 kernel keeps the size.",
+              "answer": "",
+              "check": { "lines": ["32"] }
+            },
+            {
+              "q": "Now with stride 2, same other numbers. Print the output size.",
+              "starter": "i, k, p, s = 32, 3, 1, 2\nout = 0   # fix this\nprint(out)",
+              "solution": "i, k, p, s = 32, 3, 1, 2\nout = (i - k + 2*p)//s + 1\nprint(out)",
+              "hint": "Stride 2 roughly halves it.",
+              "answer": "",
+              "check": { "lines": ["16"] }
+            },
+            {
+              "q": "Parameters in a conv layer: <code>in_ch * out_ch * k * k + out_ch</code>. Print it for 3 in, 32 out, 3x3.",
+              "starter": "ic, oc, k = 3, 32, 3\nn = 0   # fix this\nprint(n)",
+              "solution": "ic, oc, k = 3, 32, 3\nn = ic * oc * k * k + oc\nprint(n)",
+              "hint": "Do not forget one bias per output channel.",
+              "answer": "",
+              "check": { "lines": ["896"] }
+            },
+            {
+              "q": "Compare with a dense layer: 120000 inputs to 1000 outputs. Print the weight count in millions, rounded to 1 place.",
+              "starter": "inp, out = 120000, 1000\nm = 0   # fix this\nprint(round(m, 1))",
+              "solution": "inp, out = 120000, 1000\nm = inp * out / 1_000_000\nprint(round(m, 1))",
+              "hint": "Multiply, then divide by a million.",
+              "answer": "",
+              "check": { "lines": ["120.0"] }
+            },
+            {
+              "q": "Max pooling. Print the largest value in the 2x2 block <code>[1, 5, 3, 2]</code>.",
+              "starter": "block = [1, 5, 3, 2]\nprint(0)   # fix this",
+              "solution": "block = [1, 5, 3, 2]\nprint(max(block))",
+              "hint": "max()",
+              "answer": "",
+              "check": { "lines": ["5"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Why is a dense layer a poor choice for images?", "a": "It learns a separate weight for every pixel position, so it needs an enormous number of parameters and it does not recognise a feature that has moved. A convolution learns the detector once and slides it everywhere." },
+            { "q": "What does padding do, and what goes wrong without it?", "a": "It adds a border of zeros so pixels at the edge are covered as often as those in the middle. Without it the output shrinks at every layer and edge information is under-used." },
+            { "q": "What is a channel?", "a": "The output map of one kernel. A layer with 64 kernels produces 64 channels, and the next layer looks across all of them at once so it can combine features." },
+            { "q": "Why do two stacked 3x3 convolutions often beat one 5x5?", "a": "They cover the same area with fewer weights and put an activation between them, so the result is cheaper and more expressive." },
+            { "q": "Why are stride-2 convolutions replacing max pooling?", "a": "They shrink the image by the same amount but learn how to do it, instead of always keeping the maximum and discarding the rest." }
+          ]
+        },
+        {
+          "id": "dl3",
+          "title": "Sequences: from recurrence to attention",
+          "mins": 45,
+          "lang": "py",
+          "position": 2,
+          "content": "\n<h3>Some data has an order, and the order is the meaning</h3>\n<p>\"The bank raised rates\" and \"rates raised the bank\" contain identical words. A model that treats input as a bag of numbers cannot tell them apart.</p>\n<p>Sentences, share prices, ECG traces, sensor logs — in all of them, position carries meaning.</p>\n\n<h3>The recurrent idea</h3>\n<p>Read one item at a time, and carry a memory forward.</p>\n<pre><code>state = zeros\nfor word in sentence:\n    state = f(state, word)     same f every step\nanswer = g(state)</code></pre>\n<p>One set of weights, applied at every position — the same trick as a convolution, along time instead of space.</p>\n\n<h4>Worked example 1 — a recurrent cell, by hand</h4>\n<pre><code>state = 0.0\nw_in, w_state = 0.5, 0.9\n\nfor x in [1.0, 2.0, 3.0]:\n    state = w_in * x + w_state * state\n    print(round(state, 3))\n\n0.5                     0.5*1\n1.45                    0.5*2 + 0.9*0.5\n2.805                   0.5*3 + 0.9*1.45</code></pre>\n<p>The first input is still in there at the end, multiplied by 0.9 twice. That is the memory — and it is also the problem.</p>\n\n<h3>Why recurrence struggles</h3>\n<p>After 50 steps that first input has been multiplied by 0.9 fifty times: 0.9^50 ≈ 0.005. It has effectively been forgotten. Make the weight 1.1 instead and after 50 steps it is 117 — the state explodes.</p>\n<p><b>LSTMs</b> and <b>GRUs</b> were the fix: gates that decide what to keep, what to forget and what to output, giving the important signal a path that is not multiplied down at every step. They work, and they were the state of the art for years.</p>\n<p>But two problems remained, and the second is what killed them:</p>\n<ul>\n<li>Long-range links are still indirect — word 1 reaches word 50 through 49 hops.</li>\n<li><b>It cannot be parallelised.</b> Step 50 needs step 49's state. On hardware built to do thousands of things at once, you are doing them one at a time.</li>\n</ul>\n\n<h3>Attention: look at everything, weigh what matters</h3>\n<p>Instead of squeezing the past into one state, let every position look directly at every other position and decide for itself what is relevant.</p>\n<pre><code>\"The animal did not cross the street because it was too tired\"\n                                          ^^\nWhat does \"it\" refer to? Attention lets \"it\" look at every\nother word at once and put most of its weight on \"animal\".</code></pre>\n<p>Three vectors per position, all learned:</p>\n<ul>\n<li><b>Query</b> — what am I looking for?</li>\n<li><b>Key</b> — what do I offer?</li>\n<li><b>Value</b> — what do I actually pass on?</li>\n</ul>\n<pre><code>score  = query . key           how well do they match\nweight = softmax(scores)       turn scores into proportions summing to 1\nout    = sum(weight * value)   a weighted blend</code></pre>\n\n<h4>Worked example 2 — attention weights, by hand</h4>\n<pre><code>scores = [2.0, 1.0, 0.0]\n\nexp:     [7.39, 2.72, 1.0]     e^score\nsum:     11.11\nweights: [0.665, 0.245, 0.090]  they add to 1\n\nThe first position gets two thirds of the attention.</code></pre>\n<div class=\"callout\"><b>Why softmax and not just \"pick the biggest\".</b> Picking the maximum is a step function — it has no useful gradient, so nothing learns which positions to attend to. Softmax is smooth, so the model can be taught what to look at.</div>\n\n<h3>The part that actually changed the field</h3>\n<p>Every position computes its scores against every other position <b>at the same time</b>. It is one big matrix multiplication — exactly what a GPU is built for.</p>\n<p>That is why transformers won. Not only that they model long range better, but that they can be trained on far more data in the same wall-clock time.</p>\n<p>The cost: comparing every position with every other is O(n²). Double the sequence and you quadruple the work — which is why context windows were small for years and why so much research goes into making attention cheaper.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "Attention Is All You Need (the original paper)", "url": "https://arxiv.org/abs/1706.03762" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Run one recurrent step: <code>state = 0.5*x + 0.9*state</code> with state 0 and x 1. Print it.",
+              "starter": "state, x = 0.0, 1.0\nstate = 0   # fix this\nprint(state)",
+              "solution": "state, x = 0.0, 1.0\nstate = 0.5 * x + 0.9 * state\nprint(state)",
+              "hint": "The old state is zero, so only the input contributes.",
+              "answer": "",
+              "check": { "lines": ["0.5"] }
+            },
+            {
+              "q": "Forgetting. Print <code>0.9 ** 50</code> rounded to 4 places.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(round(0.9 ** 50, 4))",
+              "hint": "How much of step 1 survives to step 50.",
+              "answer": "",
+              "check": { "lines": ["0.0052"] }
+            },
+            {
+              "q": "Exploding. Print <code>1.1 ** 50</code> rounded to 1 place.",
+              "starter": "print(0)   # fix this",
+              "solution": "print(round(1.1 ** 50, 1))",
+              "hint": "Just above 1 is as dangerous as just below.",
+              "answer": "",
+              "check": { "lines": ["117.4"] }
+            },
+            {
+              "q": "Dot product of a query and a key: <code>[1,2]</code> and <code>[3,4]</code>. Print the score.",
+              "starter": "q, k = [1, 2], [3, 4]\ns = 0   # fix this\nprint(s)",
+              "solution": "q, k = [1, 2], [3, 4]\ns = sum(a*b for a, b in zip(q, k))\nprint(s)",
+              "hint": "Multiply pairwise, then add.",
+              "answer": "",
+              "check": { "lines": ["11"] }
+            },
+            {
+              "q": "Softmax the scores <code>[2.0, 1.0, 0.0]</code> and print the first weight, rounded to 3 places.",
+              "starter": "import math\nscores = [2.0, 1.0, 0.0]\nw = 0   # fix this\nprint(round(w, 3))",
+              "solution": "import math\nscores = [2.0, 1.0, 0.0]\nexps = [math.exp(s) for s in scores]\nw = exps[0] / sum(exps)\nprint(round(w, 3))",
+              "hint": "e^score divided by the sum of all e^score.",
+              "answer": "",
+              "check": { "lines": ["0.665"] }
+            },
+            {
+              "q": "Attention cost is O(n squared). Print how many times more work a sequence of 2000 is than one of 500.",
+              "starter": "a, b = 2000, 500\nprint(0)   # fix this",
+              "solution": "a, b = 2000, 500\nprint((a*a) // (b*b))",
+              "hint": "Four times the length is not four times the work.",
+              "answer": "",
+              "check": { "lines": ["16"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Why can a bag-of-words model not tell 'the bank raised rates' from 'rates raised the bank'?", "a": "It discards order, and in those sentences the order is the entire difference in meaning." },
+            { "q": "What do LSTM gates fix, and what do they not fix?", "a": "They fix vanishing and exploding memory by giving the signal a path that is not multiplied down at every step. They do not fix the inability to parallelise, because each step still needs the previous one." },
+            { "q": "Explain query, key and value in one sentence each.", "a": "The query is what this position is looking for; the key is what a position offers; the value is what it passes on if selected." },
+            { "q": "Why softmax rather than taking the highest score?", "a": "Taking the maximum has no useful gradient, so the model could never learn what to attend to. Softmax is smooth and trainable." },
+            { "q": "What is the real reason transformers displaced RNNs?", "a": "Every position is compared with every other in one matrix multiplication, so training parallelises across a GPU. Long-range modelling improved too, but the speed is what allowed training on far more data." }
+          ]
+        },
+        {
+          "id": "dl4",
+          "title": "Inside a transformer block",
+          "mins": 45,
+          "lang": "py",
+          "position": 3,
+          "content": "\n<h3>The whole architecture is one block, repeated</h3>\n<p>GPT, BERT, Llama and the rest differ in size and training data far more than in structure. The block is small enough to hold in your head:</p>\n<pre><code>x = x + attention(norm(x))      talk to other positions\nx = x + feedforward(norm(x))    think about what you heard</code></pre>\n<p>That is it. Stack it 12 times for a small model, 96 for a large one.</p>\n\n<h3>Multi-head attention</h3>\n<p>One attention mechanism learns one notion of relevance. Real language needs several at once — grammatical subject, topic, coreference, tense agreement.</p>\n<p>So the vectors are split into <b>heads</b>, each doing attention independently, and the results are joined back together.</p>\n<pre><code>d_model = 512, heads = 8   ->  each head works in 64 dimensions\n\nhead 1 might track subject-verb agreement\nhead 4 might track what a pronoun refers to\nhead 7 might mostly attend to the previous token</code></pre>\n<p>Nobody assigns those jobs. They are what the heads settle into.</p>\n\n<h3>The feedforward part is most of the weights</h3>\n<pre><code>hidden = 4 * d_model            512 -> 2048 -> 512\n\nFFN(x) = W2 @ relu(W1 @ x + b1) + b2</code></pre>\n<p>Attention gets the attention, but this is where roughly two thirds of the parameters live. Attention moves information between positions; the feedforward layer does the processing at each position.</p>\n\n<h3>Residuals and normalisation, and why both are load-bearing</h3>\n<p><b>The residual</b> — that <code>x +</code> at the front of each line — gives the gradient a road home that is not multiplied by anything. It is what makes 96 layers trainable at all.</p>\n<p><b>Layer norm</b> re-centres and re-scales the values at each position, so nothing drifts to a scale that breaks the next layer.</p>\n<div class=\"callout\"><b>Pre-norm versus post-norm.</b> The original paper normalised AFTER the residual. Everything modern normalises BEFORE it, because post-norm needs a careful learning-rate warm-up or training diverges. If you ever see a transformer refuse to train at all, this is one of the first things to check.</div>\n\n<h3>Position, because attention has no idea where anything is</h3>\n<p>Attention is a weighted sum. Shuffle the inputs and you get the same answer — it is order-blind by construction.</p>\n<p>So position is added to the input: sinusoids in the original paper, learned vectors in GPT-2, rotary embeddings (RoPE) in most current models because they extrapolate to longer sequences more gracefully.</p>\n\n<h3>The mask is the difference between BERT and GPT</h3>\n<pre><code>GPT   (causal)     position 5 may attend to 1..5\nBERT  (bidirectional)  position 5 may attend to everything</code></pre>\n<p>Same block, one mask apart. The causal mask is why GPT can generate: it is never allowed to see the answer it is being asked to predict.</p>\n<pre><code>scores = scores.masked_fill(future, float('-inf'))\nweights = softmax(scores)     -inf becomes exactly 0</code></pre>\n\n<h3>Tokens, and why models cannot spell</h3>\n<p>A model does not see letters. Text is cut into <b>tokens</b> — common words whole, rarer ones in pieces.</p>\n<pre><code>\"unbelievable\"  ->  [\"un\", \"believ\", \"able\"]\n\"Hyderabad\"     ->  [\"Hyder\", \"abad\"]</code></pre>\n<p>This explains several things people find baffling: why counting the r's in \"strawberry\" is hard, why Indian names cost more tokens than English ones, and why your API bill is measured in tokens rather than words.</p>\n<div class=\"callout\"><b>Rule of thumb for costing.</b> About 1.3 tokens per English word. A 500-word answer is roughly 650 tokens out — worth knowing before you promise somebody a price per query.</div>\n",
+          "videos": [],
+          "refs": [
+            { "title": "The Illustrated Transformer", "url": "https://jalammar.github.io/illustrated-transformer/" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Head dimension. With d_model 512 and 8 heads, print the size each head works in.",
+              "starter": "d, h = 512, 8\nprint(0)   # fix this",
+              "solution": "d, h = 512, 8\nprint(d // h)",
+              "hint": "The dimensions are split between the heads.",
+              "answer": "",
+              "check": { "lines": ["64"] }
+            },
+            {
+              "q": "Feedforward hidden size is 4x d_model. Print it for d_model 768.",
+              "starter": "d = 768\nprint(0)   # fix this",
+              "solution": "d = 768\nprint(4 * d)",
+              "hint": "Four times.",
+              "answer": "",
+              "check": { "lines": ["3072"] }
+            },
+            {
+              "q": "A residual connection is <code>x + f(x)</code>. With x=3 and f(x)=0.5, print the output.",
+              "starter": "x, fx = 3, 0.5\nprint(0)   # fix this",
+              "solution": "x, fx = 3, 0.5\nprint(x + fx)",
+              "hint": "The road home for the gradient.",
+              "answer": "",
+              "check": { "lines": ["3.5"] }
+            },
+            {
+              "q": "Causal masking. Given <code>pos=5</code>, print how many positions it may attend to, counting from 1.",
+              "starter": "pos = 5\nprint(0)   # fix this",
+              "solution": "pos = 5\nprint(pos)",
+              "hint": "Itself and everything before it.",
+              "answer": "",
+              "check": { "lines": ["5"] }
+            },
+            {
+              "q": "Estimate tokens: 1.3 per word. Print the tokens in a 500-word answer, as a whole number.",
+              "starter": "words = 500\nprint(0)   # fix this",
+              "solution": "words = 500\nprint(int(words * 1.3))",
+              "hint": "Multiply and drop the decimals.",
+              "answer": "",
+              "check": { "lines": ["650"] }
+            },
+            {
+              "q": "Depth. Print the total number of attention layers in a 96-block model with 96 blocks, one attention each.",
+              "starter": "blocks = 96\nprint(0)   # fix this",
+              "solution": "blocks = 96\nprint(blocks)",
+              "hint": "One per block.",
+              "answer": "",
+              "check": { "lines": ["96"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Write the two lines of a transformer block.", "a": "x = x + attention(norm(x)), then x = x + feedforward(norm(x))." },
+            { "q": "Why multiple attention heads rather than one bigger one?", "a": "Different heads settle into different notions of relevance — agreement, coreference, position — and one head can only represent one at a time." },
+            { "q": "Which part holds most of the parameters, and what does it do?", "a": "The feedforward layer, roughly two thirds. Attention moves information between positions; the feedforward layer processes it at each position." },
+            { "q": "Why does a transformer need positional information at all?", "a": "Attention is a weighted sum and is order-blind: shuffle the inputs and the output is unchanged. Position has to be added to the input." },
+            { "q": "What single change turns a BERT-style model into a GPT-style one?", "a": "The causal mask, which stops a position attending to anything after it — so the model can never see the token it is being asked to predict." },
+            { "q": "Why can a language model struggle to count letters in a word?", "a": "It never sees letters. Text is split into tokens, so 'strawberry' may be two or three chunks and the individual r's are not separate things it can count." }
+          ]
+        },
+        {
+          "id": "dl5",
+          "title": "Training that actually works",
+          "mins": 45,
+          "lang": "py",
+          "position": 4,
+          "content": "\n<h3>Reading a loss curve is the skill</h3>\n<p>Most of deep learning in practice is looking at two lines and knowing what they mean.</p>\n<pre><code>train down, val down          fine. keep going.\ntrain down, val UP            overfitting. stop, or regularise.\nboth flat and high            underfitting. bigger model, or train longer.\nloss = NaN                    exploded. lower the learning rate.\nval better than train         a bug — usually dropout, or a leak.</code></pre>\n<div class=\"callout\"><b>That last one catches people out.</b> Validation loss below training loss usually means dropout is active during training and off during evaluation — which is normal and mild. If the gap is large, suspect a leak: something in the validation set is also in training.</div>\n\n<h3>The learning rate matters more than the architecture</h3>\n<pre><code>too high    loss jumps around, or becomes NaN\ntoo low     loss falls, very slowly, forever\nabout right falls fast then flattens</code></pre>\n<p>Standard practice is a <b>warm-up</b> — start tiny, rise over the first few hundred steps — then <b>cosine decay</b> down to almost nothing. Warm-up exists because the first few steps of an untrained network produce huge gradients that can wreck it before it starts.</p>\n\n<h3>Regularisation, in the order you should reach for it</h3>\n<ul>\n<li><b>More data</b> — always first, always best.</li>\n<li><b>Augmentation</b> — flip, crop, rotate. Free extra data for images.</li>\n<li><b>Early stopping</b> — keep the weights from the best validation epoch, not the last.</li>\n<li><b>Weight decay</b> — a small pull towards zero, so no weight grows enormous.</li>\n<li><b>Dropout</b> — randomly zero some neurons during training so the network cannot rely on any one of them.</li>\n</ul>\n<pre><code>model.train()    dropout ON,  batchnorm updating\nmodel.eval()     dropout OFF, batchnorm frozen</code></pre>\n<div class=\"callout\"><b>The single most common bug in production PyTorch:</b> forgetting <code>model.eval()</code> before validating or serving. Dropout stays on, predictions become random-ish, and the model looks worse than it is. It throws no error.</div>\n\n<h3>Batch size, and what it is really trading</h3>\n<pre><code>small batch   noisy gradients, often generalises better, slow per epoch\nlarge batch   smooth gradients, fast per epoch, needs a higher LR\n</code></pre>\n<p>If a large batch will not fit in memory, accumulate gradients over several small ones before stepping — the arithmetic is identical.</p>\n\n<h3>Do not train from scratch</h3>\n<p>This is the most valuable paragraph in the track. Almost nobody trains a large model from nothing. They take one already trained on an enormous corpus and adapt it.</p>\n<pre><code>1. freeze the pretrained body\n2. replace the final layer with your own\n3. train just that layer     minutes, small data\n4. optionally unfreeze the top few layers, tiny LR</code></pre>\n<p>A hundred labelled images and a pretrained backbone will beat ten thousand images and a network trained from scratch. The early layers already know edges and textures; you are only teaching it your particular classes.</p>\n\n<h4>Worked example — fine-tuning, in full</h4>\n<pre><code>import torch, torch.nn as nn\nfrom torchvision import models\n\nnet = models.resnet18(weights=\"DEFAULT\")\nfor p in net.parameters():\n    p.requires_grad = False           freeze everything\n\nnet.fc = nn.Linear(512, 3)            three classes of ours\n                                      (new layers default to trainable)\n\nopt = torch.optim.AdamW(net.fc.parameters(), lr=1e-3)\n\nfor xb, yb in loader:\n    opt.zero_grad()                   or last step's gradients add on\n    loss = nn.functional.cross_entropy(net(xb), yb)\n    loss.backward()\n    opt.step()</code></pre>\n<p><code>opt.zero_grad()</code> is not optional. PyTorch accumulates gradients by design, so leaving it out silently sums every batch's gradient into the next — and the model trains on nonsense without complaining.</p>\n\n<h3>LoRA, for when the model is too big to fine-tune</h3>\n<p>Fine-tuning a 7-billion-parameter model means storing 7 billion gradients. <b>LoRA</b> freezes the original and trains two small matrices alongside it, typically under 1% of the parameters, with almost all of the benefit. It is why fine-tuning a large language model is possible on a single rented GPU.</p>\n",
+          "videos": [],
+          "refs": [
+            { "title": "PyTorch transfer learning tutorial", "url": "https://pytorch.org/tutorials/beginner/transfer_learning_tutorial.html" },
+            { "title": "LoRA: Low-Rank Adaptation", "url": "https://arxiv.org/abs/2106.09685" }
+          ],
+          "lab": {},
+          "exercises": [
+            {
+              "q": "Training loss is falling and validation loss is rising. Print the one-word diagnosis.",
+              "starter": "print('')   # fix this",
+              "solution": "print('overfitting')",
+              "hint": "It is memorising the training set.",
+              "answer": "",
+              "check": { "lines": ["overfitting"] }
+            },
+            {
+              "q": "The loss has become NaN. Print what to lower.",
+              "starter": "print('')   # fix this",
+              "solution": "print('learning rate')",
+              "hint": "The step size was too big.",
+              "answer": "",
+              "check": { "lines": ["learning rate"] }
+            },
+            {
+              "q": "Gradient accumulation: batches of 8, accumulating 4 steps. Print the effective batch size.",
+              "starter": "b, acc = 8, 4\nprint(0)   # fix this",
+              "solution": "b, acc = 8, 4\nprint(b * acc)",
+              "hint": "Multiply.",
+              "answer": "",
+              "check": { "lines": ["32"] }
+            },
+            {
+              "q": "LoRA trains under 1% of 7 billion parameters. Print 0.7% of 7e9 as a whole number.",
+              "starter": "n = 7_000_000_000\nprint(0)   # fix this",
+              "solution": "n = 7_000_000_000\nprint(int(n * 0.007))",
+              "hint": "Multiply by 0.007.",
+              "answer": "",
+              "check": { "lines": ["49000000"] }
+            },
+            {
+              "q": "Print the PyTorch call that must come before validating, so dropout is switched off.",
+              "starter": "print('')   # fix this",
+              "solution": "print('model.eval()')",
+              "hint": "The counterpart of model.train().",
+              "answer": "",
+              "check": { "lines": ["model.eval()"] }
+            },
+            {
+              "q": "Print the call that must come before every backward pass, or gradients accumulate.",
+              "starter": "print('')   # fix this",
+              "solution": "print('opt.zero_grad()')",
+              "hint": "PyTorch adds gradients by default.",
+              "answer": "",
+              "check": { "lines": ["opt.zero_grad()"] }
+            }
+          ],
+          "worksheet": [
+            { "q": "Training loss falls, validation loss rises. What is happening and what are two fixes?", "a": "Overfitting. Stop early and keep the best validation weights, or regularise — more data, augmentation, weight decay or dropout." },
+            { "q": "Why is there a learning-rate warm-up?", "a": "An untrained network produces very large gradients in its first steps, which can damage the weights before training properly begins. Starting small avoids it." },
+            { "q": "What does model.eval() change, and what breaks if you forget it?", "a": "It turns dropout off and freezes batch-norm statistics. Forgetting it leaves dropout on during validation or serving, so predictions are noisier and the model looks worse than it is — with no error raised." },
+            { "q": "Why does fine-tuning beat training from scratch on a small dataset?", "a": "The pretrained layers already encode general features like edges and textures learned from a huge corpus. You only have to teach the final layer your specific classes, which needs far less data." },
+            { "q": "What does LoRA do and why does it matter?", "a": "It freezes the original weights and trains two small matrices alongside them — typically under 1% of the parameters — so a very large model can be fine-tuned on a single GPU." },
+            { "q": "You have 100 labelled images. What is your plan?", "a": "Take a pretrained backbone, freeze it, replace the final layer, train that on the 100 images with augmentation, and use early stopping. Do not train from scratch." }
+          ]
+        }
+      ]
+    }
+  ]
+}

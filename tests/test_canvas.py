@@ -116,6 +116,24 @@ ck("the picture is taken from the bounds of every mark",
 ck("and it is capped, because an endless board holds an endless amount",
    "var SHOT_MAX = 4200;" in SRC)
 
+print("\nthe grid is off unless somebody asks for it")
+# It answered a real problem — panning an empty part of an endless surface
+# looks exactly like a board that has stopped responding — and it solved that
+# at the cost of the thing the board is for. A page of working written over
+# graph paper is a page of graph paper. Fit, the zoom readout and the mark
+# count answer "where am I" well enough on their own.
+ck("off by default",
+   'localStorage.getItem("cl_grid") === "1"' in SRC,
+   "absent means off, so a board nobody has configured is clean")
+ck("there is a switch", 'id="wGrid"' in SRC)
+ck("and the choice is remembered", 'localStorage.setItem("cl_grid"' in SRC,
+   "it is a property of how a room teaches, not of one lesson")
+ck("both draw paths honour it", SRC.count("if(gridOn()) paintGrid") == 2,
+   "the fast path that paints a single stroke repaints the background too")
+ck("but the grid itself is kept, not deleted",
+   "function paintGrid(c, w, h)" in SRC,
+   "it genuinely helps for plotting axes and drawing to scale")
+
 print("\nthe writing space cannot be squeezed to nothing")
 ck("the board takes the space rather than its own content height",
    ".wboard{flex:1 1 0;" in SRC)

@@ -1732,6 +1732,52 @@ async def _craxlearn_gate(request, call_next):
 SUPERSEDED_TRACKS = {"sql", "data", "ml", "llm", "basics", "python"}
 
 
+# Which curriculum files are loaded, and where each sits in the order.
+#
+# Hard-coded on purpose — the offset decides where a stage appears, and that
+# is an editorial decision rather than something to infer from a filename.
+# But it USED to be two copies of this list in two functions, and startup
+# printed "curriculum files found: [every json in the folder]" right beside
+# it, which reads as "these are loaded" and means nothing of the kind. A new
+# curriculum file was written, deployed, and silently never loaded.
+#
+# One list now, and `_unseeded_curriculum()` says plainly when a file that
+# looks like curriculum is not on it.
+CURRICULUM_FILES = [
+    ("school.json",     "school",   0),      # Stage 1
+    ("stage2.json",     "stage2",   50),     # Stage 2
+    ("stage3a.json",    "stage3a",  80),     # Stage 3
+    ("stage3b.json",    "stage3b",  90),     # Stage 4
+    ("stage4.json",     "stage4",   95),     # Stage 5
+    ("stage5.json",     "stage4",   100),    # Stage 5 continued — deep learning
+    ("curriculum.json", "graduate", 120),    # Stage 6
+    ("placement.json",  "graduate", 150),    # DSA + aptitude
+    ("gamedev.json",    "graduate", 160),    # Game development
+    ("cybersec.json",   "graduate", 170),    # Cybersecurity
+]
+
+
+def _unseeded_curriculum():
+    """Files that hold tracks and are not in the list above.
+
+    Silence here cost a whole track: it was written, committed, deployed and
+    never loaded, and the only clue was a "files found" line that listed it
+    among package-lock.json and the web manifest.
+    """
+    listed = {name for name, _, _ in CURRICULUM_FILES}
+    out = []
+    for path in sorted(BASE_DIR.glob("*.json")):
+        if path.name in listed or path.name == "railway.json":
+            continue
+        try:
+            head = path.read_text(encoding="utf-8")[:400]
+        except Exception:
+            continue
+        if '"tracks"' in head:
+            out.append(path.name)
+    return out
+
+
 def _seed_file(db, filename, audience, position_offset):
     """Load one curriculum file into the database. Returns tracks added."""
     path = BASE_DIR / filename
@@ -1882,17 +1928,12 @@ def seed_if_empty():
         # seeds an empty database AND auto-adds any NEW curriculum file on a
         # later deploy — without a manual "reload curriculum" and without
         # touching existing tracks or student progress.
-        counts = [
-            _seed_file(db, "school.json",     "school",   0),    # Stage 1
-            _seed_file(db, "stage2.json",     "stage2",   50),   # Stage 2
-            _seed_file(db, "stage3a.json",    "stage3a",  80),   # Stage 3
-            _seed_file(db, "stage3b.json",    "stage3b",  90),   # Stage 4
-            _seed_file(db, "stage4.json",     "stage4",   95),   # Stage 5
-            _seed_file(db, "curriculum.json", "graduate", 120),  # Stage 6
-            _seed_file(db, "placement.json",  "graduate", 150),  # DSA + aptitude
-            _seed_file(db, "gamedev.json",    "graduate", 160),  # Game development
-            _seed_file(db, "cybersec.json",   "graduate", 170),  # Cybersecurity
-        ]
+        counts = [_seed_file(db, name, aud, off)
+                  for name, aud, off in CURRICULUM_FILES]
+        missed = _unseeded_curriculum()
+        if missed:
+            print(f"WARNING: curriculum files NOT loaded: {missed}. "
+                  f"Add them to CURRICULUM_FILES or they do nothing.")
         db.commit()
         added = sum(counts)
         if added:
@@ -2146,14 +2187,14 @@ def reload_curriculum(user: User = Depends(admin_user), db: Session = Depends(ge
     db.query(Track).delete()
     db.commit()
 
-    counts = [
-        _seed_file(db, "school.json",     "school",   0),
-        _seed_file(db, "stage2.json",     "stage2",   50),
-        _seed_file(db, "stage3a.json",    "stage3a",  80),
-        _seed_file(db, "stage3b.json",    "stage3b",  90),
-        _seed_file(db, "stage4.json",     "stage4",   95),
-        _seed_file(db, "curriculum.json", "graduate", 120),
-    ]
+    # The same list startup uses.
+    #
+    # This was its own copy and it had drifted to SIX files. Since it deletes
+    # every track first, pressing "reload curriculum" quietly destroyed DSA,
+    # aptitude, game development and cybersecurity and did not bring them
+    # back — a repair button that removed four tracks.
+    counts = [_seed_file(db, name, aud, off)
+              for name, aud, off in CURRICULUM_FILES]
     db.commit()
 
     return {
