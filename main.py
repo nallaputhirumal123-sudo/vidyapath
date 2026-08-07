@@ -8931,6 +8931,77 @@ def _board_where(who, db, class_id=0, subject=""):
     return class_id, _board_subject(db, class_id, user, subject), user.id
 
 
+@app.post("/api/craxlearn/handwriting")
+async def craxlearn_handwriting(file: UploadFile = File(...),
+                                who=Depends(board_or_teacher),
+                                db: Session = Depends(get_db)):
+    """Turn what was written by hand into typed text.
+
+    ON DEMAND, and never on a timer. A teacher presses a button when they
+    want it; nothing here runs because somebody drew a line. That is the
+    whole reason this is a route and not a background job — reading a board
+    costs a vision call, and a vision call per stroke would be the most
+    expensive thing in the product by a wide margin.
+
+    Cached on the bytes of the picture, exactly like the scanner, so pressing
+    it twice on the same working is one call. A board that has not been
+    written on since the last press pays nothing.
+
+    It returns the text and nothing else. It does not rewrite, correct or
+    answer what it read: a teacher who writes a wrong intermediate step on
+    purpose, to ask a class where the mistake is, must get that step back
+    unchanged. Tidying it up would quietly destroy the lesson.
+    """
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "There is nothing written to read")
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(400, "That picture of the board is too large")
+    mime = (file.content_type or "").lower().split(";")[0].strip()
+    if mime not in ("image/png", "image/jpeg", "image/webp"):
+        raise HTTPException(400, "Send a PNG, JPG or WEBP")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+
+    user, grant = who
+    owner = db.get(User, grant["teacher_id"]) if grant else user
+    if owner is None:
+        raise HTTPException(403, "Nobody is on this subject to charge this to")
+
+    digest = hashlib.sha256(raw).hexdigest()
+    qkey = _cl.key(_scope_of(db, owner), "hand", digest)[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    out = _cached_json(db, row, need=None)
+    if out:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"text": out.get("text", ""), "cached": True}
+
+    _ai_enforce_limit(db, owner)
+    try:
+        got = _ai_json(await _ai_vision(
+            "Read the handwriting in this picture and return it as text.\n"
+            "Return JSON only: {\"text\": \"...\"}\n"
+            "Copy what is written EXACTLY. Do not correct spelling, do not "
+            "fix arithmetic, do not finish an unfinished line and do not "
+            "answer anything. A wrong step may have been written on purpose "
+            "for a class to find.\n"
+            "Keep line breaks. Write mathematics in plain text: x^2, "
+            "sqrt(9), 3/4. If nothing is legible return {\"text\": \"\"}.",
+            raw, mime, 1200))
+    except Exception as e:
+        print(f"Handwriting failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+
+    text = str((got or {}).get("text") or "").strip()[:8000]
+    if not text:
+        # Nothing legible is a board to write on again, not an answer worth
+        # storing — caching it would serve the blank straight back.
+        return {"text": "", "cached": False}
+    _ai_cache_put(db, qkey, {"text": text})
+    return {"text": text, "cached": False}
+
+
 @app.post("/api/craxlearn/board/file")
 async def craxlearn_board_file(file: UploadFile = File(...),
                                title: str = Form(default=""),

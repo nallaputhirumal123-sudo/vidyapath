@@ -1988,11 +1988,156 @@ var Ink = (function(){
       '<button class="iconbtn" data-ink="redo" title="Redo">↷</button>' +
       '<button class="btn ghost" data-ink="clear">Clear</button>' +
       '<span class="sep"></span>' +
+      '<button class="btn ghost" data-ink="type" title="Read what is ' +
+        'written and turn it into text">Aa To text</button>' +
       '<button class="btn" data-ink="save">Save the screen</button>' +
       '<button class="btn ghost" data-ink="off">Done</button>' +
       '<span class="muted" id="inkCount" style="font-size:.62rem"></span>';
     mark();
     say();
+  }
+
+  /* Handwriting to typed text — only ever because somebody pressed this.
+   *
+   * The marks are drawn again onto a WHITE sheet in black, cropped to what
+   * was actually written. Two reasons, and both are about the bill: a model
+   * reads dark-on-light far better than the board's own light-on-dark, so a
+   * legible picture is one call instead of a call and a retry; and cropping
+   * to the writing sends a fraction of the pixels of a whole 4K board.
+   *
+   * The result is cached on the bytes of that picture, so pressing it twice
+   * on unchanged working costs nothing.
+   */
+  function inkSheet(){
+    var d = window.devicePixelRatio || 1, pad = 24 * d;
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    strokes.forEach(function(st){
+      if(st.e) return;                    // a rubbed-out stroke is not writing
+      st.p.forEach(function(p){
+        if(p[0] < x0) x0 = p[0];
+        if(p[1] < y0) y0 = p[1];
+        if(p[0] > x1) x1 = p[0];
+        if(p[1] > y1) y1 = p[1];
+      });
+    });
+    if(!isFinite(x0)) return null;
+    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+    x1 = Math.min(cv.width, x1 + pad); y1 = Math.min(cv.height, y1 + pad);
+    var w = Math.round(x1 - x0), h = Math.round(y1 - y0);
+    if(w < 8 || h < 8) return null;
+    var out = document.createElement("canvas");
+    out.width = w; out.height = h;
+    var c = out.getContext("2d");
+    c.fillStyle = "#ffffff";
+    c.fillRect(0, 0, w, h);
+    c.translate(-x0, -y0);
+    c.lineCap = "round"; c.lineJoin = "round";
+    c.strokeStyle = "#111111";
+    strokes.forEach(function(st){
+      if(st.e) return;
+      c.lineWidth = st.w;
+      for(var i = 1; i < st.p.length; i++){
+        c.beginPath();
+        c.moveTo(st.p[i-1][0], st.p[i-1][1]);
+        c.lineTo(st.p[i][0], st.p[i][1]);
+        c.stroke();
+      }
+    });
+    return out;
+  }
+
+  function toText(btn){
+    var n = document.getElementById("inkCount");
+    if(!boarded()){
+      if(n) n.textContent = "Enter a subject code first — reading the board "
+        + "is charged to whoever teaches it.";
+      return;
+    }
+    var sheet = inkSheet();
+    if(!sheet){
+      if(n) n.textContent = "There is nothing written to read.";
+      return;
+    }
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = "Reading…";
+    sheet.toBlob(async function(blob){
+      try{
+        if(!blob) throw new Error("This browser cannot read the board.");
+        var fd = new FormData();
+        fd.append("file", blob, "hand.png");
+        var d = await window.bapi.send("/api/craxlearn/handwriting", fd);
+        showText((d && d.text) || "");
+      }catch(e){
+        if(n) n.textContent = e.message || "It could not be read.";
+      }finally{
+        btn.disabled = false; btn.textContent = was;
+      }
+    }, "image/png");
+  }
+
+  /* Shown back for checking, never swapped in silently. Handwriting is read
+     imperfectly and a teacher must see what it made of theirs before it goes
+     anywhere near a class page. */
+  function showText(text){
+    var old = document.getElementById("inkText");
+    if(old && old.parentNode) old.parentNode.removeChild(old);
+    var box = document.createElement("div");
+    box.id = "inkText";
+    box.style.cssText = "position:fixed;left:50%;bottom:4.6rem;" +
+      "transform:translateX(-50%);z-index:72;max-width:min(46rem,94vw);" +
+      "width:34rem;background:#101823;border:1px solid #2a3444;" +
+      "border-radius:14px;padding:.7rem;box-shadow:0 8px 30px #0009";
+    box.innerHTML =
+      '<div class="eyebrow" style="margin:0 0 .4rem">What it read</div>' +
+      '<textarea id="inkTextBody" style="width:100%;min-height:7rem;' +
+        'background:#0b0f16;color:#e8eef6;border:1px solid #2a3444;' +
+        'border-radius:10px;padding:.5rem;font-size:.8rem;' +
+        'font-family:inherit"></textarea>' +
+      '<div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">' +
+        '<button class="btn" id="inkTextKeep">Keep on the class page</button>' +
+        '<button class="btn ghost" id="inkTextCopy">Copy</button>' +
+        '<button class="btn ghost" id="inkTextNo">Close</button>' +
+        '<span class="muted" id="inkTextMsg" style="font-size:.62rem"></span>' +
+      "</div>";
+    document.body.appendChild(box);
+    var ta = document.getElementById("inkTextBody");
+    ta.value = text || "";
+    var msg = document.getElementById("inkTextMsg");
+    if(!text) msg.textContent = "Nothing legible. Write a little larger and "
+      + "try again.";
+    document.getElementById("inkTextNo").onclick = function(){
+      if(box.parentNode) box.parentNode.removeChild(box); };
+    document.getElementById("inkTextCopy").onclick = function(){
+      ta.select();
+      try{ document.execCommand("copy"); msg.textContent = "Copied."; }
+      catch(e){ msg.textContent = "Select it and copy."; }
+    };
+    /* Whatever is in the box, which may be what a teacher corrected — the
+       point of showing it is that the correction is the thing kept. */
+    document.getElementById("inkTextKeep").onclick = async function(){
+      var body = (ta.value || "").trim();
+      if(!body){ msg.textContent = "There is nothing to keep."; return; }
+      msg.textContent = "Saving…";
+      try{
+        /* The route's own shape: a topic, and a lesson it turns into the
+           saved text. Sending a bare `body` field looked reasonable and
+           would have been a 422 the first time a teacher pressed it. */
+        var first = body.split("\n")[0].slice(0, 60).trim();
+        await window.bapi.post("/api/craxlearn/board/save", {
+          topic: first.length >= 2 ? first : "Board notes",
+          title: (first.length >= 2 ? first : "Board notes") + " — "
+                 + new Date().toLocaleDateString(),
+          class_id: (ROOM && ROOM.class_id) || 0,
+          subject: (ROOM && ROOM.subject) || "",
+          lesson: { title: first, steps: body.split("\n").filter(Boolean),
+                    takeaway: "" }
+        });
+        msg.textContent = "Saved to " + ((ROOM && ROOM.subject) || "the class")
+          + ".";
+        setTimeout(function(){
+          if(box.parentNode) box.parentNode.removeChild(box); }, 900);
+      }catch(e){ msg.textContent = e.message || "It could not be saved."; }
+    };
   }
 
   function mark(){
@@ -2049,6 +2194,7 @@ var Ink = (function(){
       }
       else if(k === "off"){ close(); }
       else if(k === "save"){ shoot(); }
+      else if(k === "type"){ toText(b); }
     });
     bar.addEventListener("input", function(e){
       if(e.target && e.target.id === "inkSize") size = +e.target.value;
