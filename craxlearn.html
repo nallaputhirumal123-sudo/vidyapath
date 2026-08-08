@@ -956,6 +956,9 @@ function paintPanes(){
   MODULE_HOST = null;
   layout();
   wirePanes();
+  /* Every repaint is a change worth surviving a reload: the tool in each
+     space, and how the space is divided. */
+  remberRoom();
   (async function(){
     for(var i = 0; i < PANES.length; i++) await drawPane(i);
   })();
@@ -3289,6 +3292,7 @@ function openBoard(){
   el("gate").hidden = true;
   el("app").hidden = false;
   document.body.classList.remove("gated");
+  remberRoom();
   el("who").innerHTML = boarded()
     ? "<b>" + esc(ROOM.class_name || "This class") + "</b>" +
       esc(ROOM.subject || "")
@@ -3326,6 +3330,7 @@ function wireSignIn(host){
       /* Straight to the code box, with the board still behind it: the ink
          is in the page, so it is still there afterwards. */
       OPEN = false;
+      forgetRoom();
       el("app").hidden = true;
       el("gate").hidden = false;
       document.body.classList.add("gated");
@@ -4818,6 +4823,25 @@ async function sources(){
     }).join("") + "</table></div>";
 }
 
+/* What class this board is teaching, taken from the room rather than asked.
+ *
+ * There was a Class 6 / 8 / 10 / 12 / Undergraduate / Research dropdown here.
+ * On a board opened with a subject code it is a question already answered:
+ * the code names 9-R Physics, so the class is nine. Asking a teacher standing
+ * in that room to pick it again is a control whose only possible correct
+ * value is the one we already hold — and one nobody changes, which is why
+ * every class was getting whatever the box happened to say.
+ *
+ * A class name that carries no number is a coaching batch or a section with
+ * its own naming, and "Intermediate" is the honest answer there rather than a
+ * guess at a year. */
+function roomLevel(){
+  var name = (ROOM && ROOM.class_name) || "";
+  var m = /(?:^|[^0-9])(\d{1,2})(?:[^0-9]|$)/.exec(name);
+  var n = m ? +m[1] : 0;
+  return (n >= 1 && n <= 12) ? "Class " + n : "Intermediate";
+}
+
 /* The step-by-step board. Kept simple on purpose: this is the corner of a
    lesson, not the main app's full board with its lenses and deeper links. */
 async function board(topic){
@@ -4829,14 +4853,11 @@ async function board(topic){
         'placeholder="Anything — photosynthesis, longest prefix match, the quadratic formula" ' +
         'value="' + esc(t) + '">' +
       micButton("bMic") +
-      '<select id="bLevel">' +
-        ["Class 6","Class 8","Class 10","Class 12","Undergraduate","Research"]
-          .map(function(l){ return '<option>' + l + "</option>"; }).join("") +
-      "</select>" +
       '<button class="btn" id="bGo">Teach it</button>' +
     '</div><div class="muted" id="bMsg" style="margin-top:.4rem">' +
       "Say it or type it — either way the board explains the idea, with a " +
       "drawing or something to turn around where one helps." +
+      (boarded() ? " Pitched for " + esc(roomLevel()) + "." : "") +
     "</div></div><div id=\"bOut\"></div>";
   el("bGo").onclick = teach;
   el("bTopic").onkeydown = function(e){ if(e.key === "Enter") teach(); };
@@ -5234,12 +5255,29 @@ function wireAssign(){
   };
 }
 
+/* Which question the board is currently answering.
+ *
+ * Asking a second one while the first is still building used to leave two
+ * requests in flight with nothing deciding between them, and a lesson takes
+ * long enough that this is easy to do — a teacher retypes, or presses Teach
+ * it again because nothing has happened yet. Whichever reply arrived LAST
+ * won, so the new question sometimes produced the new answer and sometimes
+ * the old one, with no pattern from the outside.
+ *
+ * The counter settles it: a reply is drawn only if it belongs to the newest
+ * ask. The button is held down for the same reason, so pressing twice is not
+ * how somebody discovers this. */
+var TEACHING = 0;
+
 async function teach(){
   var topic = (el("bTopic").value||"").trim();
   if(topic.length < 2) return;
   remember(topic);
-  var level = el("bLevel").value;
+  var level = roomLevel();
   var out = el("bOut");
+  var mine = ++TEACHING;
+  var go = el("bGo"), was = go ? go.textContent : "";
+  if(go){ go.disabled = true; go.textContent = "Teaching…"; }
   out.innerHTML = '<div class="card muted">Building the lesson…</div>';
   var d;
   try{
@@ -5250,9 +5288,17 @@ async function teach(){
     d = await window.bapi.post("/api/board/lesson",
                                { topic:topic, level:level });
   }catch(e){
-    out.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
+    if(mine === TEACHING){
+      out.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
+    }
+    if(go && mine === TEACHING){ go.disabled = false; go.textContent = was; }
     return;
+  }finally{
+    if(go && mine === TEACHING){ go.disabled = false; go.textContent = was; }
   }
+  /* A reply to a question that has been superseded is thrown away rather
+     than drawn over the one the room is waiting for. */
+  if(mine !== TEACHING) return;
   var L = d.lesson || {};
 
   var mine = (ME.classes || []).filter(function(c){ return c.mine; });
@@ -5681,6 +5727,60 @@ async function roomFromLink(){
  * account. That is the whole seam between the two halves of the product, and
  * it is one line: credentials "omit".
  */
+/* A refresh must not cost the lesson.
+ *
+ * ROOM lived in memory and nowhere else, so reloading — a stray gesture on a
+ * board, a browser deciding to reclaim a background tab, a teacher pressing
+ * refresh because something looked stuck — threw away the room AND whatever
+ * was on the screen, and came back at the code box or on Home.
+ *
+ * sessionStorage rather than localStorage, deliberately. It is per tab and it
+ * dies when the tab closes, which is the right lifetime for a credential on
+ * a machine at the front of a classroom: a reload keeps the room, and closing
+ * the browser ends it. The token names a room and nobody in it, it already
+ * expires in twelve hours, and it was already sitting in this page's memory.
+ */
+var KEEP = "cl_open";
+
+function remberRoom(){
+  try{
+    if(!boarded()) return;
+    sessionStorage.setItem(KEEP, JSON.stringify({
+      room: ROOM,
+      panes: PANES.map(function(p){ return { page:p.page, arg:p.arg }; }),
+      split: SPLIT, rows: ROWS, at: Date.now()
+    }));
+  }catch(e){}
+}
+
+function forgetRoom(){
+  try{ sessionStorage.removeItem(KEEP); }catch(e){}
+}
+
+function restoreRoom(){
+  var raw = null;
+  try{ raw = sessionStorage.getItem(KEEP); }catch(e){ return false; }
+  if(!raw) return false;
+  var d = null;
+  try{ d = JSON.parse(raw); }catch(e){ return false; }
+  /* The token is good for twelve hours; anything older than that is a board
+     somebody left on overnight, and it should ask for the code again. */
+  if(!d || !d.room || !d.room.board_token
+     || (Date.now() - (d.at || 0)) > 11 * 3600 * 1000){
+    forgetRoom();
+    return false;
+  }
+  ROOM = d.room;
+  openBoard();
+  if(d.panes && d.panes.length){
+    PANES = d.panes;
+    if(typeof d.split === "number") SPLIT = d.split;
+    if(typeof d.rows === "number") ROWS = d.rows;
+    paintPanes();
+  }
+  return true;
+}
+
 async function boot(){
   ME = null;
   /* Before the gate is drawn, so a teacher arriving from their dashboard
@@ -5691,6 +5791,8 @@ async function boot(){
     go("home");
     return;
   }
+  /* And before the gate too: a reload is not a new lesson. */
+  if(restoreRoom()) return;
   var signedIn = false;
   el("gate").hidden = signedIn;
   el("app").hidden = !signedIn;
@@ -5817,6 +5919,10 @@ el("scaleBtn").onclick = function(){
         ? "desk" : "board");
 };
 el("outBtn").onclick = async function(){
+  /* Signing out ends the room. A board left for the next class must not come
+     back into the last one's subject on a reload. */
+  forgetRoom();
+  ROOM = null;
   try{ await api.post("/api/auth/logout"); }catch(e){}
   ME = null;
   boot();

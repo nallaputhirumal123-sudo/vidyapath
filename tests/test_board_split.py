@@ -143,6 +143,56 @@ check("tmOpen sets the fields the dispatcher reads",
 check("and the row carries the class it needs", 'data-klass="${t.class_id}"'
       in idx)
 
+print("\na refresh does not cost the lesson")
+# ROOM lived in memory and nowhere else, so reloading — a stray gesture on a
+# board, a browser reclaiming a background tab, a teacher pressing refresh
+# because something looked stuck — threw away the room AND what was on the
+# screen, and came back at the code box or on Home.
+check("the room survives a reload", "function restoreRoom(){" in page)
+check("in sessionStorage, not localStorage", "sessionStorage.setItem(KEEP"
+      in page,
+      "per tab and gone when the tab closes, which is the right lifetime "
+      "for a credential on a machine at the front of a classroom")
+check("with what was on the screen", "panes: PANES.map(" in page)
+check("and it is refused once the token would have expired",
+      "> 11 * 3600 * 1000" in page,
+      "a board left on overnight should ask for the code again")
+check("signing out ends it", "forgetRoom();" in page)
+check("and so does going back to the code screen",
+      "OPEN = false;\n      forgetRoom();" in page,
+      "a board handed to the next class must not reopen the last one's "
+      "subject")
+
+print("\nthe board does not ask what class it is in")
+# There was a Class 6 / 8 / 10 / 12 / Undergraduate / Research dropdown on
+# Ask the board. On a board opened with a subject code it is a question
+# already answered — the code names 9-R Physics — and it is a control whose
+# only correct value is the one already held. Nobody changed it, which is why
+# every class was getting whatever the box happened to say.
+check("the dropdown is gone", 'id="bLevel"' not in page)
+check("the level comes from the room", "function roomLevel(){" in page)
+check("read off the class name", "ROOM.class_name" in page)
+check("and a name with no number is not guessed at",
+      'return (n >= 1 && n <= 12) ? "Class " + n : "Intermediate";' in page,
+      "a coaching batch is not a school year")
+check("the screen says which level it is teaching at",
+      'boarded() ? " Pitched for " + esc(roomLevel())' in page,
+      "removing a control should not also remove the answer it gave")
+
+print("\ntwo questions do not race")
+# A lesson takes long enough that asking again is easy — a teacher retypes,
+# or presses Teach it because nothing has happened yet. Both requests used to
+# stay in flight with nothing deciding between them, so whichever replied
+# LAST won: a new question sometimes produced the new answer and sometimes
+# the old one, with no pattern visible from outside.
+check("each ask is numbered", "var TEACHING = 0;" in page)
+check("and a superseded reply is thrown away",
+      "if(mine !== TEACHING) return;" in page)
+check("the button is held while one is building",
+      'go.textContent = "Teaching…";' in page,
+      "so pressing twice is not how somebody discovers this")
+check("and released whichever way it ends", "}finally{" in page)
+
 print("\nnothing server-side moved")
 main = io.open("main.py", encoding="utf-8").read()
 for r in ("/api/craxlearn/standing", "/api/teacher/classes",
