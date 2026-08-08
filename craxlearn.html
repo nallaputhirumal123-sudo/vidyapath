@@ -2561,6 +2561,10 @@ function write(){
 
   function measure(){
     var r = surf.getBoundingClientRect();
+    /* A pane can be resized without the window being: splitting the board,
+       folding the space bars, opening the pen's bar. The cached canvas rect
+       has to go with it, or every stroke afterwards lands at an offset. */
+    RECT = null;
     DPR = window.devicePixelRatio || 1;
     var w = Math.max(1, Math.round(r.width * DPR));
     var h = Math.max(1, Math.round(r.height * DPR));
@@ -2763,8 +2767,25 @@ function write(){
      the edge of the board, and there is no edge. A stroke that runs off the
      right of the screen is simply a stroke to the right of the screen, and
      Fit brings it back. */
+  /* Where the canvas is, read ONCE rather than per pointer sample.
+   *
+   * getBoundingClientRect forces the browser to settle the layout before it
+   * can answer. A stylus reports 120 samples a second and each one asked
+   * again — so the board did over a hundred forced reflows a second while
+   * somebody was writing, which is most of what "lagging behind the pen"
+   * was. It only changes when the pane resizes or the page scrolls, and both
+   * of those already call measure(). */
+  var RECT = null;
+  function rect(){
+    if(!RECT) RECT = cv.getBoundingClientRect();
+    return RECT;
+  }
+  function forgetRect(){ RECT = null; }
+  window.addEventListener("resize", forgetRect);
+  window.addEventListener("scroll", forgetRect, true);
+
   function at(e){
-    var r = cv.getBoundingClientRect();
+    var r = rect();
     var p = (e.pressure && e.pointerType === "pen") ? e.pressure : 0.5;
     return [VIEW.x + (e.clientX - r.left) * DPR / VIEW.k,
             VIEW.y + (e.clientY - r.top) * DPR / VIEW.k, p];
@@ -2772,7 +2793,7 @@ function write(){
 
   /* Canvas pixels, for zooming about a point and for panning. */
   function px(e){
-    var r = cv.getBoundingClientRect();
+    var r = rect();
     return [(e.clientX - r.left) * DPR, (e.clientY - r.top) * DPR];
   }
 
@@ -2797,11 +2818,32 @@ function write(){
     ink.lineTo(sx(b[0]), sy(b[1]));
     ink.stroke();
     ink.globalCompositeOperation = "source-over";
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = BOARD_BG;
-    ctx.fillRect(0, 0, cv.width, cv.height);
-    if(gridOn()) paintGrid(ctx, cv.width, cv.height);
-    ctx.drawImage(inkc, 0, 0);
+    show();
+  }
+
+  /* One composite per FRAME, not one per sample.
+   *
+   * The segment itself is a line on a layer and costs almost nothing. What
+   * the board was paying for on every pointer sample was the composite
+   * underneath it: fill the whole canvas, redraw the grid across it, blit
+   * the ink layer over the top. On a wall-mounted 4K screen that is eight
+   * million pixels, and a stylus asked for it a hundred and twenty times a
+   * second — twice as often as the screen can show anything.
+   *
+   * requestAnimationFrame collapses those to one, in step with the display.
+   * The samples are all still drawn onto the ink layer as they arrive, so
+   * nothing is dropped from the stroke; only the showing of it is paced. */
+  var frame = 0;
+  function show(){
+    if(frame) return;
+    frame = requestAnimationFrame(function(){
+      frame = 0;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = BOARD_BG;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      if(gridOn()) paintGrid(ctx, cv.width, cv.height);
+      ctx.drawImage(inkc, 0, 0);
+    });
   }
 
   /* Moving over the plane. Three ways in, because the three devices this

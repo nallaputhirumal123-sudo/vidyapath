@@ -149,6 +149,32 @@ ck("with a scroll as the last resort, so nothing is ever unreachable",
    "gap:.5rem;overflow-y:auto}" in SRC,
    "clipping loses the control; scrolling only moves it")
 
+print("\nwriting keeps up with the pen")
+# Two costs, both paid on EVERY pointer sample, and a stylus reports about a
+# hundred and twenty a second.
+#
+# getBoundingClientRect forces the browser to settle the layout before it can
+# answer — measured at 0.462ms here, so the board was doing over a hundred
+# forced reflows a second while somebody wrote. And the composite underneath
+# the new segment redrew the background, the grid and the whole ink layer:
+# 0.048ms on a laptop pane, and roughly nine times that on a 4K wall screen.
+ck("the canvas rect is cached, not asked for per sample",
+   "var RECT = null;" in SRC and "function rect(){" in SRC,
+   "a forced reflow per stylus sample is most of what 'lagging behind the "
+   "pen' was")
+ck("and dropped when the pane moves under it",
+   "RECT = null;\n    DPR = window.devicePixelRatio" in SRC,
+   "splitting the board resizes a pane without resizing the window, and a "
+   "stale rect puts every later stroke at an offset")
+ck("the composite is paced to the display",
+   "frame = requestAnimationFrame(function(){" in SRC,
+   "120 samples a second against a screen that shows 60")
+ck("but every sample is still drawn onto the layer",
+   "ink.globalCompositeOperation = live.e" in SRC,
+   "only the SHOWING is paced; nothing is dropped from the stroke")
+ck("and a frame already booked is not booked twice",
+   "if(frame) return;" in SRC)
+
 print("\nthe board ends where the screen ends")
 # `#panes` was `height: calc(100vh - 4rem)`, and both halves of that were
 # wrong on a phone. The header WRAPS to two rows on a narrow screen — 124px
