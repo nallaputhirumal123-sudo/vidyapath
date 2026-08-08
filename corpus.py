@@ -32,7 +32,19 @@ import urllib.request
 BASE = "https://ncert.nic.in/textbook/pdf/{code}.pdf"
 UA = "craxle-education/1.0 (+https://craxle.com)"
 TIMEOUT = 60
-MAX_MB = 40
+# 40 was too tight by one book.
+#
+# lebo102 — Class 12 Biology, chapter 2 — is 64 MB, and it was the single
+# chapter missing from both the text corpus and the diagram archive. It read
+# as a network failure in the logs, because the first probe of it happened to
+# time out, and the size check underneath would have refused it anyway. One
+# chapter of the syllabus, absent from two independent runs on different
+# days, for a reason neither log stated plainly.
+#
+# The cap exists so a mis-typed code cannot pull down something enormous, and
+# 80 still does that. Nothing NCERT publishes comes close to it apart from
+# this one.
+MAX_MB = 80
 
 # NCERT's own scheme. The class letter, then the subject, then the chapter
 # number — jesc101 is Class 10 Science chapter 1.

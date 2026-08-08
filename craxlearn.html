@@ -49,7 +49,12 @@ body{
   background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   font-size:1rem; line-height:1.6; -webkit-text-size-adjust:100%;
-  min-height:100vh;
+  /* A column of exactly the screen, so the panes can take what is LEFT.
+     dvh over vh: on a phone 100vh is the height with the browser's own bars
+     HIDDEN, which is not the height anything is being read at. */
+  display:flex; flex-direction:column;
+  min-height:100vh; min-height:100dvh;
+  height:100vh; height:100dvh;
 }
 button{font:inherit;color:inherit}
 a{color:var(--accent)}
@@ -61,7 +66,16 @@ h1{font-size:1.5rem}h2{font-size:1.2rem}h3{font-size:1rem}
   display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;
   padding:.7rem var(--pad); border-bottom:1px solid var(--line);
   background:var(--panel2); position:sticky; top:0; z-index:50;
+  flex:0 0 auto;
 }
+/* Whatever the header did not use. On a narrow screen it WRAPS to two rows —
+   124px against the 4rem this used to subtract — so the panes were 48px
+   taller than the screen and .pane's overflow:hidden cut the bottom off. On a
+   phone the browser's URL bar takes another sixty or so on top of that,
+   which is how half an explanation went missing. Nothing measures the header
+   now; the column does it. */
+#app{flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+#gate{flex:1 1 auto; min-height:0; overflow-y:auto}
 #brand{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:1.05rem}
 /* The mark itself, not a coloured circle standing in for one.
    The gradient was a placeholder from before there was an icon; the icon has
@@ -196,7 +210,7 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
    forgetting to count it that left three and four spaces unadjustable. */
 #panes{display:grid;gap:8px;position:relative;
   grid-template-columns:1fr;grid-template-rows:1fr;
-  height:calc(100vh - 4rem)}
+  flex:1 1 auto; min-height:0}
 .pane{display:flex;flex-direction:column;min-width:0;min-height:0;
   overflow:hidden}
 .pane.wide{grid-column:1 / -1}

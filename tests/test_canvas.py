@@ -149,6 +149,27 @@ ck("with a scroll as the last resort, so nothing is ever unreachable",
    "gap:.5rem;overflow-y:auto}" in SRC,
    "clipping loses the control; scrolling only moves it")
 
+print("\nthe board ends where the screen ends")
+# `#panes` was `height: calc(100vh - 4rem)`, and both halves of that were
+# wrong on a phone. The header WRAPS to two rows on a narrow screen — 124px
+# against the 76px being subtracted — so the panes were 48px taller than the
+# screen and .pane's overflow:hidden cut the bottom off. And 100vh on a phone
+# is the height with the browser's own bars HIDDEN, which is not the height
+# anything is being read at, so the real overflow was worse again. Half an
+# explanation went missing.
+ck("nothing subtracts a guess at the header's height",
+   "calc(100vh - 4rem)" not in SRC,
+   "the header is 102px on a laptop and 124px wrapped on a phone")
+ck("the page is a column of exactly the screen",
+   "height:100vh; height:100dvh;" in SRC,
+   "dvh tracks the viewport the browser is actually showing")
+ck("and the panes take what is left",
+   "flex:1 1 auto; min-height:0}" in SRC)
+ck("the header is not squeezed to make room", "flex:0 0 auto;\n}" in SRC)
+ck("and the code screen scrolls rather than being clipped",
+   "#gate{flex:1 1 auto; min-height:0; overflow-y:auto}" in SRC,
+   "it is taller than a phone with the keyboard up")
+
 print("\na phone is not a wall")
 # Board size is 26px because a wall-mounted screen is read from the back of a
 # room, every measurement here is in rem, and "board" is the DEFAULT. On a
