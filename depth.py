@@ -13,16 +13,29 @@ question is in its words. "How do I solve X" is one procedure. "Explain
 photosynthesis" is a process with parts. "Everything about networking" is a
 subject.
 
-Deliberately blunt, and biased towards the smaller answer. Somebody who wants
-more can press "Go deeper", which is a button that exists; somebody given six
-steps for a one-step question has already stopped reading.
+Deliberately blunt. It was also biased towards the SMALLER answer, on the
+reasoning that somebody given six steps for a one-step question has already
+stopped reading — and that was the wrong bias for what this is being sold as.
+A board a class is taught from is not a search result: a lesson that stops
+at four steps leaves the teacher filling in the rest, which is the work they
+came here to have help with. "Go deeper" being a button does not help the
+class in front of them right now.
+
+So the bands are wider. A narrow question still gets a narrow answer — asking
+what 7 times 8 is does not want ten steps — but the standard and broad cases
+are close to twice what they were, and the shape of the judgement is
+unchanged.
+
+The cost of this is real and worth stating: the steps are output tokens, and
+output is the expensive half. It is paid once per topic, because the answer
+is cached and the second class to ask that question pays nothing.
 """
 import re
 
 # The three sizes, as (min_steps, max_steps, name).
-NARROW = (2, 4, "narrow")
-STANDARD = (4, 7, "standard")
-BROAD = (7, 10, "broad")
+NARROW = (3, 6, "narrow")
+STANDARD = (6, 11, "standard")
+BROAD = (10, 16, "broad")
 
 # ---------------------------------------------------------------------------
 # What makes a question narrow: it names one thing and asks one thing of it.
@@ -93,11 +106,11 @@ def measure(topic):
 
     # The lens overrides, because it is an explicit request about depth.
     if _LENS_ONE.search(full):
-        return (2, 4, "they asked for one specific thing")
+        return (2, 5, "they asked for one specific thing")
     if _LENS_DEEPER.search(full):
-        return (5, 8, "they asked to go deeper")
+        return (10, 18, "they asked to go deeper")
     if _LENS_SIMPLER.search(full):
-        return (2, 4, "they asked for it much more simply")
+        return (2, 5, "they asked for it much more simply")
 
     if not q:
         return STANDARD[0], STANDARD[1], "no topic given"
@@ -110,7 +123,7 @@ def measure(topic):
     if _ONE_THING.match(q) and len(words) <= 14:
         if _INSTANCE.search(q) or len(words) <= 8:
             return NARROW[0], NARROW[1], "one specific question"
-        return (3, 5, "a single question, stated generally")
+        return (5, 8, "a single question, stated generally")
 
     if _STRUCTURED.search(q):
         return STANDARD[0], STANDARD[1], "a process with parts"
@@ -143,7 +156,14 @@ def instruction(topic):
 # Roughly 1.4 tokens a word, times the upper step count, times 220 words a
 # step, plus room for the JSON scaffolding, the code blocks and a drawing.
 def tokens(topic):
-    """How many output tokens this question's answer could need."""
+    """How many output tokens this question's answer could need.
+
+    The ceiling is generous because running out is a SILENT failure: the JSON
+    stops mid-object, which arrives as a parse error rather than as "too
+    long", so a lesson that was too big to finish looks like a board that is
+    broken. Asking for room that is not used costs nothing — only the tokens
+    actually generated are billed.
+    """
     _lo, hi, _why = measure(topic)
     words = hi * 220
-    return max(2200, min(8000, int(words * 1.4) + 1800))
+    return max(2600, min(12000, int(words * 1.6) + 2200))

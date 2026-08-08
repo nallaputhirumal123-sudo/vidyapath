@@ -141,7 +141,12 @@ TPDF = io.open(os.path.join(ROOT, "teachpdf.py"), encoding="utf-8").read()
 IMG = io.open(os.path.join(ROOT, "images.py"), encoding="utf-8").read()
 MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
 _i = MAIN.index("async def teach_from_pdf")
-_PDFROUTE = MAIN[_i:_i + 6000]
+# To the end of the function rather than a fixed number of characters. A
+# window measured in bytes fails the moment anybody adds a paragraph to the
+# route — which is a test breaking on a change it does not care about, and it
+# reads exactly like the property having been removed.
+_j = MAIN.index("\n@app.", _i)
+_PDFROUTE = MAIN[_i:_j]
 
 print("\nthe page a picture came from is the page that DREW it")
 # `page.images` walks /Resources, and a resource dictionary is very often

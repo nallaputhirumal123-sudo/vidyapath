@@ -3168,7 +3168,11 @@ async def teach_from_pdf(file: UploadFile = File(...),
     _ai_enforce_limit(db, user)
     prompt = f"THE DOCUMENT:\n{text}\n\n" + _teachpdf.PROMPT
     try:
-        lesson = _clean_board(_ai_json(await _ai_text(prompt, 5000,
+        # 9000, not 5000. A chapter turned into a lesson is the longest
+        # thing this asks a model for, and running out of room stops the JSON
+        # mid-object — which arrives as a parse failure, so a lesson too big
+        # to finish reads as a document that could not be read at all.
+        lesson = _clean_board(_ai_json(await _ai_text(prompt, 9000,
                                                       json_mode=True)),
                               _teachpdf.title_of(text))
     except Exception as e:
@@ -16182,7 +16186,10 @@ def _clean_board(d, topic):
         return str(v or "").strip()[:n]
 
     steps = []
-    for raw in (d.get("steps") or [])[:14]:
+    # 20, not 14. The depth bands ask for up to 18 on "go deeper", and a cap
+    # below what the prompt requests silently throws away the end of the
+    # lesson — the part a class has not reached yet.
+    for raw in (d.get("steps") or [])[:20]:
         if not isinstance(raw, dict):
             continue
         lang = txt(raw.get("lang"), 12).lower()

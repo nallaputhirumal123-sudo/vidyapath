@@ -53,8 +53,16 @@ NARROW = [
     "what is 5 mod 2",
     "how do I convert 45 degrees to radians",
 ]
+# Against depth's own constants, not against the numbers they happen to
+# hold. The judgement being tested is "is this one question or a subject",
+# and that is unchanged; the bands themselves were widened deliberately —
+# a board a class is taught from is not a search result, and a lesson that
+# stopped at four steps left the teacher filling in the rest.
+NARROW_BAND = depth.NARROW[:2]
+STANDARD_BAND = depth.STANDARD[:2]
+BROAD_BAND = depth.BROAD[:2]
 for q in NARROW:
-    check(f"narrow: {q[:34]!r}", band(q) == (2, 4), str(band(q)))
+    check(f"narrow: {q[:34]!r}", band(q) == NARROW_BAND, str(band(q)))
 
 # ---- a topic with parts ---------------------------------------------
 STANDARD = [
@@ -65,7 +73,7 @@ STANDARD = [
     "the TCP handshake",
 ]
 for q in STANDARD:
-    check(f"standard: {q[:32]!r}", band(q) == (4, 7), str(band(q)))
+    check(f"standard: {q[:32]!r}", band(q) == STANDARD_BAND, str(band(q)))
 
 # ---- a whole subject -------------------------------------------------
 BROAD = [
@@ -76,27 +84,32 @@ BROAD = [
     "a roadmap to becoming a data scientist",
 ]
 for q in BROAD:
-    check(f"broad: {q[:34]!r}", band(q) == (7, 10), str(band(q)))
+    check(f"broad: {q[:34]!r}", band(q) == BROAD_BAND, str(band(q)))
 
 # ---- the lens is an explicit request about depth ---------------------
 BASE = "aircraft gearbox"
-check("'go deeper' asks for more",
-      band(BASE + " — go deeper, with the details an expert would want")
-      == (5, 8))
+check("'go deeper' asks for more than broad",
+      band(BASE + " — go deeper, with the details an expert would want")[1]
+      > BROAD_BAND[1],
+      "somebody who asks to go deeper is asking past the widest ordinary "
+      "answer, not for one of the same size")
 check("'one worked example' asks for less",
-      band(BASE + " — walk through one concrete worked example end to end")
-      == (2, 4))
+      band(BASE + " — walk through one concrete worked example end to end")[1]
+      < STANDARD_BAND[1])
 check("'much more simply' asks for less",
-      band(BASE + " — explain much more simply, for a beginner") == (2, 4))
+      band(BASE + " — explain much more simply, for a beginner")[1]
+      < STANDARD_BAND[1])
 check("a follow-up is one specific thing",
-      band(BASE + " — specifically: how is backlash measured") == (2, 4))
+      band(BASE + " — specifically: how is backlash measured")[1]
+      < STANDARD_BAND[1])
 
 # ---- the instruction that reaches the prompt -------------------------
 ins = depth.instruction("how can I solve a square + b square")
-check("the instruction names a number", "2 to 4 steps" in ins, ins[:44])
+check("the instruction names a number",
+      "%d to %d steps" % NARROW_BAND in ins, ins[:48])
 check("and says why", "one specific question" in ins)
 check("the prompt carries it",
-      "LENGTH: 2 to 4 steps" in main._board_prompt(
+      "LENGTH: %d to %d steps" % NARROW_BAND in main._board_prompt(
           "how can I solve a square + b square", "Intermediate"))
 
 # ---- and the lesson is actually held to it ---------------------------
@@ -105,10 +118,12 @@ def lesson(n):
             "steps": [{"t": "step %d" % i} for i in range(n)]}
 
 
-check("six steps for a narrow question become four",
-      len(main._trim_to_depth(lesson(6), NARROW[0])["steps"]) == 4)
-check("nine become seven for a standard topic",
-      len(main._trim_to_depth(lesson(9), "photosynthesis")["steps"]) == 7)
+check("a narrow question is trimmed to its band",
+      len(main._trim_to_depth(lesson(NARROW_BAND[1] + 3),
+                              NARROW[0])["steps"]) == NARROW_BAND[1])
+check("and a standard topic to its own",
+      len(main._trim_to_depth(lesson(STANDARD_BAND[1] + 3),
+                              "photosynthesis")["steps"]) == STANDARD_BAND[1])
 check("a broad question keeps its nine",
       len(main._trim_to_depth(lesson(9),
                               "everything about kubernetes")["steps"]) == 9)
@@ -133,7 +148,8 @@ for junk in (None, {}, {"steps": None}, {"steps": "not a list"},
     except Exception as e:
         check(f"survives {str(junk)[:26]}", False, f"{type(e).__name__}: {e}")
 
-check("an empty topic still gives a band", band("") == (4, 7), str(band("")))
+check("an empty topic still gives a band", band("") == STANDARD_BAND,
+      str(band("")))
 
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)

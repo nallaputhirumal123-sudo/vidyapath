@@ -187,6 +187,19 @@ nobody. Say what it MEANS, in the board's own short lines.
   section of it at least one line, in the order the document has them, so a
   teacher can follow their chapter down the board.
 
+HOW LONG. A chapter is not a question, and this is the longest thing this
+board is asked to teach. Give it TEN TO EIGHTEEN steps — one per section or
+idea the document actually has, not padding. A six-step summary of a
+forty-page chapter is a contents page, and the teacher who uploaded it still
+has to teach the chapter afterwards; length here is the whole point of
+uploading the file rather than asking a question.
+
+SHAPE OF A STEP. Open it with a short heading line — a few words, no full
+stop — then the lines that explain it underneath, one idea each. The board
+sets that first line as a heading and the rest as the body, so a step
+written this way reads as a section of a lesson rather than a paragraph of
+text. Do not number the headings; the order is already the order.
+
 Reply with ONLY valid JSON in this shape:
 {"title":"<what this document is about, 2-8 words>",
  "steps":[{"t":"<several short lines, one idea each, separated by newlines>",
