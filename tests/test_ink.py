@@ -94,6 +94,53 @@ ck("and an empty coalesced list falls back to the event",
    "an empty array is truthy; this is the bug that made every stroke a dot "
    "in the writing space")
 
+print("\nthe bar folds away without putting the pen down")
+# The writing space has a toolbar along the bottom of its pane and the pen's
+# bar is fixed across the bottom of the SCREEN, so with both out they stack
+# and which control belongs to which stops being obvious. Folding leaves a
+# handle rather than closing: closing loses the ink, and somebody who wants
+# the room to see the board does not want to lose what they drew.
+ck("there is a fold control", 'data-ink="fold"' in SRC)
+ck("folded, it is a handle and not a bar",
+   "#inkBar.folded > *{display:none}" in SRC)
+ck("the sheet still takes strokes while it is folded",
+   "#inkBar.folded{padding:0;gap:0;background:transparent" in SRC,
+   "the BAR stops taking presses, not the canvas")
+ck("and the choice is remembered", 'localStorage.setItem("cl_inkbar"' in SRC,
+   "a board is used the same way every lesson")
+
+print("\nall four shapes, in one slot")
+ck("one button, not four", 'data-ink="shape"' in SRC)
+ck("cycling through freehand as well as the shapes",
+   "function nextShape(){" in SRC and 'var order = [""].concat(' in SRC,
+   "freehand has to be one tap away, not four")
+ck("it uses the writing space's own shapes",
+   "live.p = shapePoints(shape, anchor, at(e));" in SRC,
+   "a straight line is a straight line on either surface, and a second "
+   "vocabulary here would drift")
+ck("the anchor is dropped when the stroke ends", "anchor = null;" in SRC,
+   "or the next freehand stroke comes out as a shape")
+
+print("\nthe space bars can be put away")
+# Slimming them took 74px to 53, and 53 is still a row per space saying which
+# tool is open — which a teacher mid-lesson already knows. Collapsed, each
+# head is the 4px line that was its own bottom border, and that line is the
+# way back.
+ck("there is a control", 'id="headsBtn"' in SRC)
+ck("collapsed, a head is its own border", "#panes.noheads .paneHead{height:4px"
+   in SRC)
+ck("which still shows which space is live",
+   '#panes.noheads .pane[data-live="1"] .paneHead{border-bottom-color:'
+   'var(--accent)}' in SRC,
+   "the one thing the bar said that is not obvious from the content")
+ck("dragging a head down puts them away",
+   "if(ev.clientY - y0 > 24) setHeads(true);" in SRC,
+   "the gesture somebody tries before finding a button")
+ck("and a plain press is not a drag", "y0 = e.clientY;" in SRC)
+ck("repainting does not undo the choice",
+   '(headsHidden() ? " noheads" : "")' in SRC,
+   "assigning className wholesale brought the bars back on every tool change")
+
 print("\nsaving keeps what is UNDERNEATH as well as the marks")
 ck("it goes through the screen capture", 'data-ink="save"' in SRC
    and "shoot()" in SRC,

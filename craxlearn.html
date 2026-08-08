@@ -223,6 +223,33 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .paneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--pad);
   -webkit-overflow-scrolling:touch}
 #panes.one .paneHead{display:none}
+/* Split, the head has to earn its height.
+ *
+ * Controls on this board are 52px because a finger finds them from across a
+ * room. That is right for one space filling the screen, and wrong inside a
+ * quarter of it: measured at four panes, the head was 74px of a 329px pane —
+ * 22% of every space, 147px of the board gone to two rows of chrome that say
+ * which tool is open.
+ *
+ * Still 44px of target, which is the floor for a finger; it is the padding
+ * and the oversizing that go, not the tap area. */
+/* Put away entirely, when the room needs the board and not the controls.
+ *
+ * Slimming it took 74px to 53, and 53 is still a row per space that says
+ * which tool is open — which a teacher mid-lesson already knows. Collapsed,
+ * each head becomes the 4px line that was its own bottom border, and that
+ * line is the way back: press it, or the ⌃ in the top bar, and they return.
+ * Dragging one downward puts them away, which is the gesture somebody
+ * reaches for first. */
+#panes.noheads .paneHead{height:4px;min-height:0;padding:0;overflow:hidden;
+  cursor:ns-resize;border-bottom:4px solid var(--line)}
+#panes.noheads .pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
+#panes.noheads .paneHead > *{display:none}
+#panes:not(.one) .paneHead{padding:.15rem var(--pad)}
+#panes:not(.one) .paneHead select{min-height:1.7rem;font-size:.6rem;
+  padding:.1rem .3rem}
+#panes:not(.one) .paneHead .iconbtn{width:1.7rem;min-height:1.7rem;
+  font-size:.75rem;padding:0}
 #panes.one .paneBody{max-width:1500px;margin:0 auto;width:100%}
 
 /* The handles. Wide enough for a finger on a board, drawn narrow. */
@@ -322,6 +349,24 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   padding:.5rem .6rem;background:#101823f2;border-top:1px solid #2a3444;
   backdrop-filter:blur(6px)}
 #inkBar.on{display:flex}
+/* Folded away, without putting the pen down.
+ *
+ * The writing space has a toolbar of its own along the bottom of its pane,
+ * and the pen's bar is fixed across the bottom of the SCREEN — so with both
+ * out they stack, and which one a control belongs to stops being obvious.
+ * Folding leaves a handle rather than closing: closing loses the ink, and
+ * somebody who wants the room to see the board without the controls does not
+ * want to lose what they have drawn. */
+#inkBar.folded{padding:0;gap:0;background:transparent;border-top:0;
+  backdrop-filter:none;pointer-events:none}
+#inkBar.folded > *{display:none}
+#inkBar.folded > #inkFold{display:inline-flex;pointer-events:auto}
+/* Folded, it is a handle and not a bar: 26 pixels of tab against 93 of
+   controls, so the board underneath is the board and not the last row of
+   somebody's toolbar. */
+#inkBar.folded > #inkFold{width:3rem;min-height:1.35rem;height:1.35rem;
+  padding:0;border-radius:8px 8px 0 0;background:#101823f2;
+  border:1px solid #2a3444;border-bottom:0;font-size:.7rem}
 #inkBar .btn{padding:.3rem .6rem;font-size:.72rem;min-height:2rem}
 #inkBar .iconbtn{width:2rem;min-height:2rem;padding:0}
 #inkBar .sep{width:1px;align-self:stretch;background:#2a3444;margin:0 .15rem}
@@ -469,6 +514,7 @@ body.gated #inkBar{display:none}
   <button class="iconbtn" id="inkBtn" title="Write on the screen">✏️</button>
   <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
+  <button class="iconbtn" id="headsBtn" title="Hide the space bars">⌃</button>
   <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
   <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
@@ -840,7 +886,11 @@ function layout(){
 
 function paintPanes(){
   var wrap = el("panes");
-  wrap.className = PANES.length === 1 ? "one" : "";
+  /* `one` is recomputed here and `noheads` is not — it is a choice the
+     teacher made, and assigning className wholesale threw it away on every
+     repaint, so the bars came back the moment anybody switched tool. */
+  wrap.className = (PANES.length === 1 ? "one" : "") +
+    (headsHidden() ? " noheads" : "");
   var html = "";
   PANES.forEach(function(p, i){
     html += '<div class="pane" data-i="' + i + '" data-live="' +
@@ -1910,6 +1960,19 @@ var Ink = (function(){
   var cv, ctx, bar, on = false;
   var strokes = [], undone = [], live = null;
   var colour = "#ff9933", size = 4, erasing = false;
+  /* "" is freehand. The shapes are SHAPES and shapePoints(), the same
+     two the writing space uses — a straight line is a straight line on
+     either surface, and a second vocabulary here would drift. */
+  var shape = "", anchor = null;
+
+  /* The cycle, freehand included, so the button always has a next. */
+  function nextShape(){
+    var order = [""].concat(SHAPES.map(function(x){ return x.k; }));
+    var at = order.indexOf(shape);
+    var k = order[(at + 1) % order.length];
+    var found = SHAPES.filter(function(x){ return x.k === k; })[0];
+    return { k: k, label: found ? found.name.toLowerCase() : "freehand" };
+  }
 
   function fit(){
     if(!cv) return;
@@ -1963,12 +2026,22 @@ var Ink = (function(){
       try{ cv.setPointerCapture(e.pointerId); }catch(err){}
       live = { c: colour, e: erasing, w: (erasing ? size : size) *
                (window.devicePixelRatio || 1), p: [at(e)] };
+      /* A shape is dragged from where it started, so the anchor is kept and
+         the whole stroke is rebuilt from it on every move. Freehand appends;
+         a shape REPLACES, which is what makes it rubbery rather than a trail
+         of rectangles. */
+      anchor = shape ? at(e) : null;
       /* A tap is a dot, and a dot is a mark somebody meant to make. */
       live.p.push([live.p[0][0] + 0.01, live.p[0][1]]);
       redraw();
     });
     cv.addEventListener("pointermove", function(e){
       if(!on || !live) return;
+      if(anchor){
+        live.p = shapePoints(shape, anchor, at(e));
+        redraw();
+        return;
+      }
       var held = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
       var pts = (held && held.length) ? held : [e];
       for(var i = 0; i < pts.length; i++) live.p.push(at(pts[i]));
@@ -1980,6 +2053,7 @@ var Ink = (function(){
         strokes.push(live);
         undone.length = 0;
         live = null;
+        anchor = null;
         redraw();
       });
     });
@@ -1995,6 +2069,12 @@ var Ink = (function(){
           'style="background:' + c + ';border-color:' + c + '"></button>';
       }).join("") +
       '<button class="iconbtn" data-inkpen="erase" title="Rub out">⌫</button>' +
+      /* ONE slot, not five. The bar is fixed across the bottom of the
+         screen and every control on it is board the room cannot see, so
+         the four shapes share a button that cycles: freehand, line,
+         arrow, rectangle, circle, freehand. Its face is what it will
+         draw, so the current mode is readable without opening anything. */
+      '<button class="iconbtn" id="inkShape" data-ink="shape"></button>' +
       '<input type="range" id="inkSize" min="2" max="24" value="' + size +
         '" title="Thickness" style="width:5rem">' +
       '<span class="sep"></span>' +
@@ -2006,6 +2086,8 @@ var Ink = (function(){
         'written and turn it into text">Aa To text</button>' +
       '<button class="btn" data-ink="save">Save the screen</button>' +
       '<button class="btn ghost" data-ink="off">Done</button>' +
+      '<button class="iconbtn" id="inkFold" data-ink="fold" ' +
+        'title="Hide this bar — the marks stay">▾</button>' +
       '<span class="muted" id="inkCount" style="font-size:.62rem"></span>';
     mark();
     say();
@@ -2155,6 +2237,15 @@ var Ink = (function(){
   }
 
   function mark(){
+    var sb = document.getElementById("inkShape");
+    if(sb){
+      var cur = SHAPES.filter(function(x){ return x.k === shape; })[0];
+      var nxt = nextShape();
+      sb.textContent = cur ? cur.ic : "✎";
+      sb.title = cur ? cur.name + " — tap for " + nxt.label
+                     : "Freehand — tap for " + nxt.label;
+      sb.classList.toggle("on", !!shape);
+    }
     bar.querySelectorAll("[data-inkpen]").forEach(function(b){
       var isPen = b.dataset.inkpen !== "erase";
       var sel = erasing ? !isPen : (isPen && PENS[+b.dataset.inkpen] === colour);
@@ -2168,6 +2259,15 @@ var Ink = (function(){
     bar.classList.add("on");
     document.body.classList.add("inking");
     paintBar();
+    /* The bar comes back the way it was left. */
+    var want = null;
+    try{ want = localStorage.getItem("cl_inkbar"); }catch(e){}
+    if(want === "0"){
+      bar.classList.add("folded");
+      document.body.classList.remove("inking");
+      var f = document.getElementById("inkFold");
+      if(f){ f.textContent = "▴"; f.title = "Show the pen's controls"; }
+    }
     fit();
   }
 
@@ -2209,6 +2309,23 @@ var Ink = (function(){
       else if(k === "off"){ close(); }
       else if(k === "save"){ shoot(); }
       else if(k === "type"){ toText(b); }
+      else if(k === "shape"){
+        shape = nextShape().k;
+        erasing = false;
+        mark();
+      }
+      else if(k === "fold"){
+        var folded = bar.classList.toggle("folded");
+        document.body.classList.toggle("inking", !folded);
+        b.textContent = folded ? "▴" : "▾";
+        b.title = folded ? "Show the pen's controls"
+                         : "Hide this bar — the marks stay";
+        /* Remembered, because a board that is used one way is used that way
+           every lesson, and setting it again each morning is the kind of
+           thing that stops a feature being used at all. */
+        try{ localStorage.setItem("cl_inkbar", folded ? "0" : "1"); }
+        catch(err){}
+      }
     });
     bar.addEventListener("input", function(e){
       if(e.target && e.target.id === "inkSize") size = +e.target.value;
@@ -5624,6 +5741,10 @@ el("homeBtn").onclick = function(){ go("home"); };
 el("askBtn").onclick = function(){ go("board"); };
 /* The pen works over whatever is on the screen, including the gate. */
 Ink.start();
+/* paintPanes puts the class back on every repaint; this is the button's own
+   face, which is set once and would otherwise say "Hide" over a board whose
+   bars are already hidden. */
+setHeads(headsHidden());
 el("inkBtn").onclick = function(){ Ink.toggle(); };
 el("shotBtn").onclick = function(){ shoot(); };
 /* One press adds a space, up to four; the fifth press goes back to one.
@@ -5652,6 +5773,45 @@ el("splitBtn").onclick = function(){
     ? "Back to one space" : "Open another space (" + PANES.length + " of 4)";
   paintPanes();
 };
+/* The space bars, away and back.
+ *
+ * Remembered, because a board is used the same way every lesson and setting
+ * it again each morning is how a feature stops being used. Three ways back,
+ * so nobody is stranded with a board they cannot change the tool on: the
+ * button, the 4px line each head leaves behind, and dragging that line down.
+ */
+function setHeads(hidden){
+  var p = el("panes");
+  if(!p) return;
+  p.classList.toggle("noheads", !!hidden);
+  var b = el("headsBtn");
+  if(b){
+    b.textContent = hidden ? "⌄" : "⌃";
+    b.title = hidden ? "Show the space bars" : "Hide the space bars";
+  }
+  try{ localStorage.setItem("cl_heads", hidden ? "0" : "1"); }catch(e){}
+}
+function headsHidden(){
+  try{ return localStorage.getItem("cl_heads") === "0"; }catch(e){ return false; }
+}
+el("headsBtn").onclick = function(){
+  setHeads(!el("panes").classList.contains("noheads"));
+};
+/* A press on the collapsed line brings them back, and a drag downward on a
+   head puts them away — the gesture somebody tries before finding a button. */
+document.addEventListener("pointerdown", function(e){
+  var h = e.target.closest && e.target.closest(".paneHead");
+  if(!h) return;
+  var panes = el("panes");
+  if(panes && panes.classList.contains("noheads")){ setHeads(false); return; }
+  var y0 = e.clientY;
+  function up(ev){
+    document.removeEventListener("pointerup", up, true);
+    if(ev.clientY - y0 > 24) setHeads(true);
+  }
+  document.addEventListener("pointerup", up, true);
+}, true);
+
 el("scaleBtn").onclick = function(){
   scale(document.documentElement.getAttribute("data-scale") === "board"
         ? "desk" : "board");
