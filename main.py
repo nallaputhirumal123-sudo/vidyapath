@@ -8464,13 +8464,30 @@ def class_materials(cid: int, user: User = Depends(current_user),
 
 
 @app.get("/api/material/{mid}/file")
-def material_file(mid: int, user: User = Depends(current_user),
+def material_file(request: Request, mid: int,
+                  user: User = Depends(_reader_or_board),
                   db: Session = Depends(get_db)):
-    """Download one file, if you are in the class it belongs to."""
+    """Download one file, if you are in the class it belongs to.
+
+    Or if you are the BOARD standing in that class. This wanted a session, so
+    a teacher who opened a saved worksheet from the board — the tool whose
+    whole job is putting saved things back on the screen — got turned away
+    by the one route the ⧉ link points at. The list of files worked; opening
+    one did not.
+
+    A board is held to the class its token names, which is stricter than a
+    signed-in teacher rather than looser: it can reach that class's material
+    and nothing else, whatever id is typed into the URL.
+    """
     m = db.get(Material, mid)
     if not m or not m.file_data:
         raise HTTPException(404, "Not found")
-    _in_class_or_teaching(db, m.class_id, user)
+    if user is None:
+        grant = _board_grant(db, request.headers.get("X-Board-Token", ""))
+        if not grant or int(grant.get("class_id") or 0) != int(m.class_id or 0):
+            raise HTTPException(403, "That is not this class's material.")
+    else:
+        _in_class_or_teaching(db, m.class_id, user)
     try:
         raw = base64.b64decode(m.file_data)
     except Exception:

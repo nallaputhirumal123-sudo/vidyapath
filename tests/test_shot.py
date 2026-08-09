@@ -91,6 +91,44 @@ ck("because a dialog that just closes looks the same when it failed",
 ck("and without a code it says what is missing, rather than nothing",
    '"Enter a subject code to keep this on a "' in SRC)
 
+print("\nan empty board is not a picture")
+# shotCanvas falls back to a full-board rectangle when bounds() finds no
+# strokes, so an untouched board produced a 3360x1952 picture of its own
+# background — filed to the class page with "Kept on Social." underneath it.
+# Proved from the stored rows: the blank one had ONE distinct colour and zero
+# bright pixels; the one after the fix had 60 colours, 10,506 bright pixels,
+# and was cropped to what was actually drawn.
+ck("the writing space says when there is nothing to photograph",
+   "WRITING_SHOT = function(){ return bounds() ? shotCanvas() : null; };"
+   in SRC)
+ck("and the keeper refuses rather than filing a blank",
+   'toastLine("There is nothing on the board yet' in SRC)
+ck("Download is guarded too", "if(!bounds()){" in SRC)
+ck("and Save to the class with it",
+   SRC.count("There is nothing on the board yet") >= 3,
+   "an untouched board filed a picture of its own background under the "
+   "subject, and the class opened a blank rectangle")
+
+print("\nand a saved file opens from the board")
+# The link was a plain <a href>, and a header does not ride on a link click,
+# so the board asked for the file with no credential and was turned away.
+# The LIST worked and opening one did not, which is the tool's whole job.
+ck("it is a button that fetches, not a link that navigates",
+   'data-openfile="' in SRC and "async function openFile(btn){" in SRC)
+ck("carrying the board's token", "headers: bhdr({})" in SRC)
+ck("the window is opened inside the click, before the fetch",
+   'var win = window.open("", "_blank");' in SRC,
+   "a pop-up blocker refuses one opened in a promise that settles later")
+ck("and the blob is released after the window has had it",
+   "URL.revokeObjectURL(url); }, 60000);" in SRC,
+   "revoking immediately can cancel the load on a slow board")
+
+_MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+ck("the route lets a board have its own class's material, and no other",
+   'int(grant.get("class_id") or 0) != int(m.class_id or 0)' in _MAIN,
+   "stricter than a signed-in teacher rather than looser: that class and "
+   "nothing else, whatever id is typed into the URL")
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\n{len(P)} passed, {len(F)} failed")
 sys.exit(1 if F else 0)

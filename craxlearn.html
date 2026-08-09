@@ -2649,6 +2649,39 @@ function setGrid(on){
    nor to a different part of the canvas than the one they were looking at,
    so the window travels with the ink. */
 var BOARD_INK = { strokes: [], undone: [], view: null };
+/* Open a saved file, carrying the board's token.
+ *
+ * The window is opened BEFORE the fetch, not after. A pop-up blocker allows
+ * a window opened inside a click and refuses one opened in a promise that
+ * settles later — so the obvious order fails silently on exactly the boards
+ * this is for. */
+async function openFile(btn){
+  var id = btn.dataset.openfile;
+  var win = window.open("", "_blank");
+  var was = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Opening…";
+  try{
+    var r = await fetch("/api/material/" + encodeURIComponent(id) + "/file",
+                        { credentials:"omit", headers: bhdr({}) });
+    if(!r.ok) throw new Error(r.status === 403
+      ? "That file belongs to another class."
+      : "That file could not be opened.");
+    var blob = await r.blob();
+    var url = URL.createObjectURL(blob);
+    if(win) win.location = url;
+    else window.open(url, "_blank");
+    /* Released once the new window has had it. Revoking immediately can
+       cancel the load on a slow board. */
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  }catch(e){
+    if(win) win.close();
+    toastLine(e.message || "That file could not be opened.");
+  }finally{
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
 /* One place that turns a canvas into something the class can open.
  *
  * Three buttons wanted this — the space's own camera, the writing space's
@@ -2658,7 +2691,10 @@ var BOARD_INK = { strokes: [], undone: [], view: null };
  * is exactly right and still happens.
  */
 async function keepShot(cnv, btn){
-  if(!cnv) return;
+  if(!cnv){
+    toastLine("There is nothing on the board yet — write something first.");
+    return;
+  }
   var was = btn ? btn.textContent : "";
   if(btn){ btn.disabled = true; }
   function done(msg){
@@ -3391,7 +3427,16 @@ function write(){
      asking to share the whole screen. There is one writing space open at a
      time in practice; if a second is opened it replaces this, which is the
      right answer — the button belongs to whichever one is live. */
-  WRITING_SHOT = function(){ return shotCanvas(); };
+  /* Null when there is nothing on the board.
+   *
+   * shotCanvas falls back to a full-board rectangle when bounds() finds no
+   * strokes, so an untouched board produced a 3360x1952 picture of the
+   * background — which was then filed to the class page with "Kept on
+   * Social." underneath it. Every download and every capture from an empty
+   * board came out blank, and nothing said why. The caller refuses now,
+   * because "there is nothing here yet" is an answer and a blank rectangle
+   * on a class's page is not. */
+  WRITING_SHOT = function(){ return bounds() ? shotCanvas() : null; };
 
   function shotCanvas(){
     var b = bounds() || [0, 0, BOARD_UNIT, BOARD_UNIT * 0.56];
@@ -3430,6 +3475,10 @@ function write(){
      picture goes to the subject page instead, and says so. On somebody's
      own device a download is right and still happens. */
   wq("wShot").onclick = function(){
+    if(!bounds()){
+      wSay("There is nothing on the board yet — write something first.");
+      return;
+    }
     /* `keep` is assigned further down; this handler runs long after, so the
        name is bound by the time anybody presses anything. Guarded anyway —
        trading one dead button for another would be no improvement. */
@@ -3462,6 +3511,13 @@ function write(){
    * a page of algebra under History is worse than one more question. */
   var keep = wq("wKeep");
   if(keep) keep.onclick = async function(){
+    /* Nothing written is nothing to keep. Without this an untouched board
+       filed a picture of its own background under the subject, and the
+       class opened a blank rectangle. */
+    if(!bounds()){
+      wSay("There is nothing on the board yet — write something first.");
+      return;
+    }
     /* A board holding a subject code MAY keep this — that is the whole of
        what the code buys, and the reason a teacher typed it. Only a board
        with no code at all has nowhere to put a page. */
@@ -4668,8 +4724,18 @@ async function materials(){
         ? '<button class="btn ghost" data-openmat="' + m.id + '">Read it</button>'
         : m.kind === "link"
         ? '<a class="btn ghost" href="' + esc(m.url) + '" target="_blank" rel="noopener">Open the link</a>'
-        : '<a class="btn ghost" href="/api/material/' + m.id + '/file" target="_blank">Open ' +
-          esc(m.file_name || "the file") + "</a>";
+        /* A button, not a link.
+         *
+         * A plain <a href> navigation cannot carry the board's token — a
+         * header does not ride on a link click — so opening a saved
+         * worksheet from the board asked the server for it with no
+         * credential and was turned away. The list worked and opening one
+         * did not, which is the tool's whole job.
+         *
+         * Fetched with the token and opened as a blob instead. */
+        : '<button class="btn ghost" data-openfile="' + m.id + '" ' +
+          'data-name="' + esc(m.file_name || "the file") + '">Open ' +
+          esc(m.file_name || "the file") + "</button>";
       /* Subject and teacher on every card. A reading list from nobody in
          particular leaves a class not knowing whose lesson it is for or
          which teacher to ask about it. */
@@ -6003,6 +6069,7 @@ document.addEventListener("click", function(e){
       { aid:b.dataset.review, sid:b.dataset.student });
   if((b = t.closest("[data-teach]")))  return go("board", b.dataset.teach);
   if((b = t.closest("[data-bookpics]"))) return bookPics(b);
+  if((b = t.closest("[data-openfile]"))) return openFile(b);
   if((b = t.closest("[data-go]")))     return go(b.dataset.go);
 });
 

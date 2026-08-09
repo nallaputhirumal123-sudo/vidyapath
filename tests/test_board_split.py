@@ -274,7 +274,11 @@ print("\nevery space photographs itself, onto the class page")
 # the browser's own chrome in the shot, and the other half of a split board
 # with it. The writing space is a canvas and can be read directly.
 check("the writing space publishes how to photograph it",
-      "WRITING_SHOT = function(){ return shotCanvas(); };" in page)
+      "WRITING_SHOT = function(){" in page)
+check("and returns nothing when there is nothing on it",
+      "bounds() ? shotCanvas() : null" in page,
+      "an untouched board otherwise produced a 3360x1952 picture of its own "
+      "background and filed it to the class page")
 check("and the space's own button uses it",
       "if(isWriting && WRITING_SHOT){" in page,
       "no permission prompt, and nothing in frame that is not the board")
