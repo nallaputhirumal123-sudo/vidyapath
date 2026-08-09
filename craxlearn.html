@@ -25,7 +25,21 @@
   --pad:clamp(16px,2.2vw,34px);
   --r:16px;
 }
+/* Five sizes, not two.
+ *
+ * This was a toggle between 26px and 18px, and a toggle only fits a room if
+ * the room happens to be one of two. A hall wants more than a board; a
+ * teacher marking on a laptop wants less than a desk; somebody at the back
+ * of a long classroom wants whatever it takes. A named ladder lets a school
+ * pick the one that suits the room they actually have, once, and never
+ * think about it again. */
+:root[data-scale="small"]{ font-size:16px }
+:root[data-scale="normal"]{ font-size:19px }
+:root[data-scale="large"]{ font-size:22px }
 :root[data-scale="board"]{ font-size:26px }
+:root[data-scale="hall"]{ font-size:31px }
+/* Kept so a board that was set before this still comes up the size it was
+   set to, rather than resetting itself the morning of an update. */
 :root[data-scale="desk"]{ font-size:18px }
 /* A phone is not a wall.
  *
@@ -40,7 +54,11 @@
  * laptop type. It does not stand at 600px. Nothing that narrow is on a wall,
  * so the choice is kept and the sizes it means are brought back to a phone. */
 @media (max-width:600px){
+  :root[data-scale="small"]{ font-size:14px }
+  :root[data-scale="normal"]{ font-size:16px }
+  :root[data-scale="large"]{ font-size:17px }
   :root[data-scale="board"]{ font-size:19px }
+  :root[data-scale="hall"]{ font-size:21px }
   :root[data-scale="desk"]{ font-size:16px }
 }
 *{box-sizing:border-box}
@@ -626,7 +644,7 @@ body.gated .gatesources{display:none}
   <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="headsBtn" title="Hide the space bars">⌃</button>
-  <button class="iconbtn" id="scaleBtn" title="Board size / desk size">⤢</button>
+  <button class="iconbtn" id="scaleBtn" title="Text size">Aa</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
   <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
 </div>
@@ -1486,20 +1504,92 @@ function cropPick(src){
   });
 }
 
-/* ---------- room size ---------- */
-/* Two sizes and a button, remembered per device. A teacher sets it once on
-   the board in the room and once on their own laptop, and neither has to
-   think about it again. Defaulting by screen width was tried on paper and
-   is wrong: a smart board reports a perfectly ordinary 1920 wide and would
-   have been given laptop type. */
-function scale(next){
-  var v = next || localStorage.getItem("cl_scale") || "board";
-  document.documentElement.setAttribute("data-scale", v);
-  localStorage.setItem("cl_scale", v);
-  var b = el("scaleBtn");
-  if(b) b.title = v === "board" ? "Board size — press for desk size"
-                                : "Desk size — press for board size";
+/* ---------- how big the text is ---------- */
+/* Remembered per device. A school sets it once on the board in the room and
+   once on a teacher's laptop, and neither has to think about it again.
+   Defaulting by screen width was tried on paper and is wrong: a smart board
+   reports a perfectly ordinary 1920 wide and would be given laptop type.
+
+   It was a toggle between two sizes, which fits a room only when the room
+   happens to be one of the two. These are named for where they are used
+   rather than in points, because nobody standing at a board knows what 22px
+   looks like and everybody knows whether they are in a hall. */
+var SCALES = [
+  { id:"small",  name:"Small",  note:"marking on a laptop" },
+  { id:"normal", name:"Normal", note:"a desk or a tablet" },
+  { id:"large",  name:"Large",  note:"a small classroom" },
+  { id:"board",  name:"Board",  note:"a wall screen — the usual one" },
+  { id:"hall",   name:"Hall",   note:"a long room, read from the back" }
+];
+
+function scaleNow(){
+  var v = localStorage.getItem("cl_scale") || "board";
+  /* The old toggle wrote "desk". A board that was set before this comes up
+     the size it was left at rather than resetting itself overnight. */
+  if(v === "desk") v = "normal";
+  return SCALES.some(function(x){ return x.id === v; }) ? v : "board";
 }
+
+function scale(next){
+  var v = next || scaleNow();
+  document.documentElement.setAttribute("data-scale", v);
+  try{ localStorage.setItem("cl_scale", v); }catch(e){}
+  var b = el("scaleBtn");
+  var now = SCALES.filter(function(x){ return x.id === v; })[0];
+  if(b) b.title = "Text size — " + ((now && now.name) || v);
+  var menu = document.getElementById("scaleMenu");
+  if(menu && menu.dataset.open === "1") paintScaleMenu();
+}
+
+/* The menu itself. A list of names rather than a cycle, so a teacher can see
+   what the choices are and land on one in a single press instead of tapping
+   a button until the room looks right. */
+function paintScaleMenu(){
+  var m = document.getElementById("scaleMenu");
+  if(!m) return;
+  var now = scaleNow();
+  m.innerHTML = '<div class="eyebrow" style="margin:.1rem .2rem .35rem">' +
+    "Text size</div>" +
+    SCALES.map(function(x){
+      return '<button class="btn ghost" data-scaleset="' + x.id + '" ' +
+        'style="display:block;width:100%;text-align:left;margin:.15rem 0' +
+        (x.id === now ? ";border-color:var(--accent)" : "") + '">' +
+        (x.id === now ? "● " : "○ ") + esc(x.name) +
+        '<span class="muted" style="font-size:.62rem"> · ' + esc(x.note) +
+        "</span></button>";
+    }).join("");
+}
+
+function toggleScaleMenu(){
+  var m = document.getElementById("scaleMenu");
+  if(!m){
+    m = document.createElement("div");
+    m.id = "scaleMenu";
+    m.style.cssText = "position:fixed;top:3.4rem;right:.6rem;z-index:88;" +
+      "background:#101823f2;border:1px solid #2a3444;border-radius:14px;" +
+      "padding:.5rem;min-width:15rem;backdrop-filter:blur(6px);" +
+      "box-shadow:0 10px 30px #0009";
+    document.body.appendChild(m);
+    m.addEventListener("click", function(e){
+      var b = e.target.closest("[data-scaleset]");
+      if(b) scale(b.dataset.scaleset);
+    });
+  }
+  var open = m.dataset.open === "1";
+  m.dataset.open = open ? "0" : "1";
+  m.style.display = open ? "none" : "block";
+  if(!open) paintScaleMenu();
+}
+
+/* Anywhere else closes it, which is what a menu does. */
+document.addEventListener("click", function(e){
+  var m = document.getElementById("scaleMenu");
+  if(!m || m.dataset.open !== "1") return;
+  if(m.contains(e.target) || (e.target.closest &&
+      e.target.closest("#scaleBtn"))) return;
+  m.dataset.open = "0";
+  m.style.display = "none";
+});
 
 /* ---------- signing in with nothing but a class code ----------
  *
@@ -6179,9 +6269,9 @@ document.addEventListener("pointerdown", function(e){
   document.addEventListener("pointerup", up, true);
 }, true);
 
-el("scaleBtn").onclick = function(){
-  scale(document.documentElement.getAttribute("data-scale") === "board"
-        ? "desk" : "board");
+el("scaleBtn").onclick = function(e){
+  e.stopPropagation();
+  toggleScaleMenu();
 };
 el("outBtn").onclick = async function(){
   /* Signing out ends the room. A board left for the next class must not come

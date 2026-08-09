@@ -223,16 +223,37 @@ print("\na phone is not a wall")
 # room, every measurement here is in rem, and "board" is the DEFAULT. On a
 # 375px phone that left the writing surface 38% of its pane — measured — with
 # the top bar, pane head and tool rows taking the rest. It is 61% now.
-ck("board size is brought back on a small screen",
-   '@media (max-width:600px){\n  :root[data-scale="board"]{ font-size:19px }'
-   in SRC,
-   "26px on a 390px phone spends the screen on chrome")
-ck("and desk size with it", ':root[data-scale="desk"]{ font-size:16px }\n}'
-   in SRC)
+ck("every size is brought back on a small screen",
+   ':root[data-scale="board"]{ font-size:19px }' in SRC
+   and ':root[data-scale="hall"]{ font-size:21px }' in SRC
+   and ':root[data-scale="small"]{ font-size:14px }' in SRC,
+   "26px on a 390px phone spends the screen on chrome, and the whole ladder "
+   "has to come down with it or the top of it is unusable there")
 ck("but the choice itself is still the teacher's, not guessed from width",
    'localStorage.getItem("cl_scale") || "board"' in SRC,
    "a smart board reports a perfectly ordinary 1920 and must not get "
    "laptop type")
+
+print("\ntext size is chosen, not toggled")
+# It was a toggle between 26px and 18px, and a toggle fits a room only when
+# the room happens to be one of two. A hall wants more than a board; somebody
+# marking on a laptop wants less than a desk. They are named for where they
+# are used, because nobody standing at a board knows what 22px looks like and
+# everybody knows whether they are in a hall.
+ck("there is a ladder of sizes", "var SCALES = [" in SRC)
+for _w in ("small", "normal", "large", "board", "hall"):
+    ck(f"  {_w} is on it", f'id:"{_w}"' in SRC)
+ck("and a menu that shows them all", "function paintScaleMenu(){" in SRC,
+   "a list you can land on in one press beats tapping a button until the "
+   "room looks right")
+ck("marking which one is current", "x.id === now ?" in SRC)
+ck("the choice is remembered", 'localStorage.setItem("cl_scale", v)' in SRC)
+ck("a board set on the OLD toggle keeps its size",
+   'if(v === "desk") v = "normal";' in SRC,
+   "it must not reset itself the morning of an update")
+ck("and an unknown value falls back rather than breaking",
+   'SCALES.some(function(x){ return x.id === v; }) ? v : "board"' in SRC)
+ck("clicking away closes the menu", 'm.dataset.open = "0";' in SRC)
 
 print("\nthe vertical divider divides something")
 # Three spaces put the third across the whole bottom, and a handle pinned
