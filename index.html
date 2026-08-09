@@ -7465,10 +7465,14 @@ async function schoolStaffPaint(){
           ${esc(p.name||p.email)}
           <span style="font-size:11.5px;color:var(--dim)">· ${
             esc(p.role||"teacher")}${
-            (p.email&&p.email.indexOf("schoolcode.invalid")<0
-             &&p.email.indexOf("classcode.invalid")<0)
-              ? " · "+esc(p.email) : ""}</span></span>
+            placeholderAddress(p.email)
+              ? `<span style="color:var(--accent)"> · cannot sign in yet</span>`
+              : (p.email ? " · "+esc(p.email) : "")}</span></span>
         <span style="display:flex;gap:5px;flex:0 0 auto">
+          <button class="btn ghost sm" data-cls="stfix"
+            data-id="${p.id||p.user_id}" data-nm="${esc(p.name||"")}"
+            data-ph="${placeholderAddress(p.email)?1:0}"
+            >${placeholderAddress(p.email)?"Fix sign-in":"Edit"}</button>
           <button class="btn ghost sm" data-cls="strm"
             data-id="${p.id||p.user_id}" data-nm="${esc(p.name||"")}"
             >Remove</button>
@@ -7476,6 +7480,63 @@ async function schoolStaffPaint(){
       </div>`).join("")
     : `<div style="color:var(--dim);font-size:13px">${
         esc(STAFF_ERROR || "No staff yet.")}</div>`;
+}
+
+/* An address the office never filled in.
+ *
+ * A staff account made from a school code gets a generated address ending
+ * .invalid, which is exactly right — it is a placeholder, not a mailbox. The
+ * list then HID it, on the reasoning that a fake address is noise. The effect
+ * was that a teacher who could not sign in looked identical to one who could,
+ * and the only button on the row was Remove. A head with a locked-out
+ * colleague had nothing to see and nothing to press.
+ *
+ * It is named now, and there is a control beside it. */
+function placeholderAddress(email){
+  var e = String(email || "");
+  return !e || e.indexOf("schoolcode.invalid") >= 0
+             || e.indexOf("classcode.invalid") >= 0;
+}
+
+/* Give somebody a real address, and a password to go with it.
+ *
+ * The route for this existed and had no way in — the third time in this
+ * session that a working endpoint had no button. Correcting an address is
+ * ordinary: a head mistypes one, or the account was made from a code and
+ * never had one, and either way the person cannot sign in until somebody
+ * fixes it. The account is corrected rather than replaced, so the classes
+ * they teach and the marks they gave stay attached to them. */
+async function staffFix(uid, who, placeholder){
+  var now = prompt(
+    (placeholder
+      ? (who || "This teacher") + " has no real email address yet, so they "
+        + "cannot sign in.\n\nType the address they should use:"
+      : "New email address for " + (who || "this teacher") + ":"), "");
+  if(now === null) return;
+  now = now.trim();
+  if(!now){ toast("No address given."); return; }
+  var body = { email: now, name: "" };
+  /* A brand new address needs a password to go with it; an account that
+     already worked does not, and issuing one would sign them out of every
+     device for no reason. */
+  body.new_password = placeholder
+    || confirm("Also issue a new one-time password?\n\nThis signs them out "
+               + "everywhere. Cancel to change only the address.");
+  var d;
+  try{ d = await api.patch("/api/head/staff/" + uid, body); }
+  catch(e){ toast(e.message); return; }
+  await schoolStaffPaint();
+  if(d && d.temporary_password){
+    /* Shown once, and said so. It is stored as a hash, so there is no second
+       chance to read it — and a head who closes this without writing it down
+       can simply press the button again. */
+    alert((who || "That teacher") + " can now sign in with:\n\n"
+          + now + "\n" + d.temporary_password
+          + "\n\nWrite it down — it is not shown again. You can issue "
+          + "another from this screen at any time.");
+  }else{
+    toast("Address updated.");
+  }
 }
 
 /* Taking a member of staff off the school.
@@ -8096,6 +8157,7 @@ document.addEventListener("click",e=>{
   else if(k==="discsend") discAsk(cid, id, "discR"+id);
   else if(k==="discdel") discDel(id, cid);
   else if(k==="hstaffadd") schoolStaffAdd();
+  else if(k==="stfix") staffFix(id, b.dataset.nm, b.dataset.ph==="1");
   else if(k==="staffclear") staffClear();
   else if(k==="notices") renderNotices();
   else if(k==="feeplan") feePlan();

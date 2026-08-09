@@ -134,17 +134,39 @@ ck("but the grid itself is kept, not deleted",
    "function paintGrid(c, w, h)" in SRC,
    "it genuinely helps for plotting axes and drawing to scale")
 
-print("\nthe controls are reachable, which beats a bigger surface")
-# "Save to the class is not working" — it was working, and it was 211 pixels
-# below the bottom of a pane that clips. The surface was flex:1 1 auto with a
-# 9rem floor, so it refused to shrink; in a split pane the wrapped toolbar was
-# pushed straight out of view. A button off the screen looks exactly like a
-# dead button and is worse, because there is nothing for anyone to report.
-ck("the surface takes what is LEFT, rather than claiming a floor first",
-   ".wsurf{flex:1 1 0;min-height:0;position:relative}" in SRC,
-   "flex-basis:auto with a 9rem floor pushed the toolbar out of the pane")
-ck("and the tools are never the thing that shrinks",
-   "flex-wrap:wrap;align-items:center;flex:0 0 auto;" in SRC)
+print("\nthe tool bar gives way, and the board does not")
+# This has been wrong in both directions, so the rule is written down here
+# rather than left in the CSS to be re-derived.
+#
+# It began as a surface with a 9rem floor that refused to shrink, which
+# pushed the wrapped toolbar out of the bottom of a pane that clips — "Save
+# to the class is not working", when the button was simply 211 pixels below
+# the visible area. Making the surface yield instead put the fault the other
+# way up: in a 394px pane the tools wrapped into 245 pixels of rows on a
+# board 256 tall, the canvas came out 452x2, and nothing could be written on
+# it at all.
+#
+# Three attempts in between are worth not repeating. A media query on the
+# WINDOW width does not help, because wrapping depends on the PANE's width —
+# a board split three ways at 1440px still gave 211 pixels of tools against a
+# 182-pixel surface. Forcing one sideways-scrolling row fixed the height
+# everywhere and hid controls behind a scroll on a full-width board, where
+# there was no problem to solve. And a fixed rem ceiling bites on a real
+# board, which runs at a 26px root font.
+#
+# What settles it is an order of precedence: the surface keeps a floor, the
+# BAR is what may shrink, and it scrolls inside itself once it has. Measured
+# after: one pane 78% surface with every row visible, three panes 65% with
+# the bar shrunk to 84px, a phone 58% and writable.
+ck("the surface has a floor it cannot go below",
+   ".wsurf{flex:1 1 0;min-height:7rem;position:relative}" in SRC,
+   "min-height:0 let it collapse to two pixels the moment the bar grew")
+ck("and the BAR is what gives way",
+   "flex:0 1 auto;min-height:2.6rem;overflow-y:auto" in SRC,
+   "flex:0 0 auto made the bar immovable, so the board gave way instead")
+ck("it still wraps, so nothing hides when there is room",
+   ".wtools{display:flex;gap:.35rem;flex-wrap:wrap" in SRC,
+   "on a full-width board every control was visible and should stay so")
 ck("with a scroll as the last resort, so nothing is ever unreachable",
    "gap:.5rem;overflow-y:auto}" in SRC,
    "clipping loses the control; scrolling only moves it")
