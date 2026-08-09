@@ -249,6 +249,44 @@ check("a report is counted against the subject's teacher",
       in MAIN,
       "the limit still has to belong to somebody")
 
+print("\na lesson shaped to be read from the back of a room")
+# A section heading was .74rem, uppercase and letter-spaced — SMALLER than
+# the body it introduced. Uppercase micro-type is a label on a form: it reads
+# as furniture at arm's length and disappears entirely from the back of a
+# room, which is the one place this has to work. Measured after: 36 / 28 /
+# 23 / 19 / 19 for the step number, heading, lead, body and list.
+check("headings are bigger than the body they introduce",
+      ".lessonBody .lh{font-size:1.45em" in page)
+check("the step number is the thing readable from the door",
+      ".lessonBody .lstep b{font-size:1.9em" in page,
+      "it was muted grey text the size of a caption")
+check("and says how much is left",
+      '"<span>of " + ((L.steps || []).length' in page,
+      "a class needs to know where they are in a lesson")
+check("a bullet reads the same size as a sentence",
+      ".lessonBody .ll{margin:.2rem 0 .9rem 1.3rem;padding:0;font-size:1.02em}"
+      in page,
+      "five pixels smaller made a list look like a footnote to the sentence "
+      "above it, when it is usually the substance")
+
+print("\nevery space photographs itself, onto the class page")
+# The space's camera asked to share the whole SCREEN: a permission prompt,
+# the browser's own chrome in the shot, and the other half of a split board
+# with it. The writing space is a canvas and can be read directly.
+check("the writing space publishes how to photograph it",
+      "WRITING_SHOT = function(){ return shotCanvas(); };" in page)
+check("and the space's own button uses it",
+      "if(isWriting && WRITING_SHOT){" in page,
+      "no permission prompt, and nothing in frame that is not the board")
+check("the picture is KEPT, not downloaded",
+      "async function keepShot(cnv, btn){" in page,
+      "a file in the Downloads folder of a machine bolted to a wall reaches "
+      "nobody")
+check("off a board a download is still right",
+      'a.download = "craxlearn-"' in page)
+check("and it says so afterwards", "function toastLine(msg){" in page,
+      "a press that succeeded looked the same as one that did nothing")
+
 print("\nnothing server-side moved")
 main = io.open("main.py", encoding="utf-8").read()
 for r in ("/api/craxlearn/standing", "/api/teacher/classes",

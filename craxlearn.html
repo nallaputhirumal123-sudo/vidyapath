@@ -226,12 +226,23 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .pane{display:flex;flex-direction:column;min-width:0;min-height:0;
   overflow:hidden}
 .pane.wide{grid-column:1 / -1}
+/* The bar that says which tool is open, kept to what that is worth.
+ *
+ * It was 15% of every space — and with the board split four ways that is
+ * 15% of each of them, spent on a row whose whole content is the name of a
+ * tool the teacher just chose. Trimmed to about 11%: the padding was the
+ * cheap part, and the controls were 1.9rem when 1.6 is still 41px on a real
+ * board, which is a touch target a finger finds.
+ *
+ * Below this it stops being pressable on a wall screen, which is why the
+ * answer to wanting the space back is the fold — one button, four pixels,
+ * and the line that is left still says which space is live. */
 .paneHead{
-  display:flex;align-items:center;gap:.4rem;padding:.4rem var(--pad);
+  display:flex;align-items:center;gap:.34rem;padding:.24rem var(--pad);
   border-bottom:1px solid var(--line);background:var(--panel2);flex:0 0 auto;
 }
 .pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
-.paneHead select{font-size:.66rem;min-height:1.9rem;padding:.2rem .45rem}
+.paneHead select{font-size:.64rem;min-height:1.6rem;padding:.15rem .4rem}
 .paneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--pad);
   -webkit-overflow-scrolling:touch}
 #panes.one .paneHead{display:none}
@@ -257,11 +268,22 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
   cursor:ns-resize;border-bottom:4px solid var(--line)}
 #panes.noheads .pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
 #panes.noheads .paneHead > *{display:none}
-#panes:not(.one) .paneHead{padding:.15rem var(--pad)}
-#panes:not(.one) .paneHead select{min-height:1.7rem;font-size:.6rem;
-  padding:.1rem .3rem}
-#panes:not(.one) .paneHead .iconbtn{width:1.7rem;min-height:1.7rem;
-  font-size:.75rem;padding:0}
+/* Slimmer again when the board is split, because the cost is per space.
+ *
+ * 1.7rem was already a trim from the full-size control, and with the board
+ * in four it is still 15% of every one of them — a bar whose whole content
+ * is the name of a tool the teacher chose a moment ago. 1.45rem is 38px on
+ * a real board, which a finger still finds, and takes the row to about 11%.
+ *
+ * It does not go below this. Smaller stops being pressable on a wall screen,
+ * and the answer to wanting the rest of the space back is the fold: one
+ * button, four pixels, and the line left behind still says which space is
+ * live. */
+#panes:not(.one) .paneHead{padding:.1rem var(--pad);gap:.28rem}
+#panes:not(.one) .paneHead select{min-height:1.45rem;font-size:.58rem;
+  padding:.08rem .28rem}
+#panes:not(.one) .paneHead .iconbtn{width:1.45rem;min-height:1.45rem;
+  font-size:.7rem;padding:0}
 #panes.one .paneBody{max-width:1500px;margin:0 auto;width:100%}
 
 /* The handles. Wide enough for a finger on a board, drawn narrow. */
@@ -474,14 +496,39 @@ body.gated .gatesources{display:none}
 .lessonBody img{max-width:100%;border-radius:12px;display:block}
 
 /* Prose on a board: a shape the eye can land on, at distance, while
-   somebody is also talking. */
-.lessonBody .lh{font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--accent);margin:1.15rem 0 .35rem;font-weight:700}
-.lessonBody .lh:first-child{margin-top:.2rem}
-.lessonBody .lp{margin:0 0 .6rem;line-height:1.6;max-width:64ch}
-.lessonBody .lead{font-size:1.12em;line-height:1.52}
-.lessonBody .ll{margin:.1rem 0 .7rem 1.1rem;padding:0}
-.lessonBody .ll li{margin:.2rem 0;line-height:1.55}
+   somebody is also talking.
+ *
+ * A section heading was .74rem, uppercase and letter-spaced — SMALLER than
+ * the body it introduced. Uppercase micro-type is a label on a form; it
+ * reads as furniture at arm's length and disappears entirely from the back
+ * of a room, which is the one place this has to work. A heading here is
+ * bigger than what follows it, in sentence case, because that is what makes
+ * a page scannable while somebody is also listening to a person talk. */
+.lessonBody .lh{font-size:1.45em;line-height:1.25;color:var(--accent);
+  margin:1.3rem 0 .5rem;font-weight:700;letter-spacing:-.01em}
+.lessonBody .lh:first-child{margin-top:.1rem}
+.lessonBody .lp{margin:0 0 .7rem;line-height:1.65;max-width:62ch;
+  font-size:1.02em}
+.lessonBody .lead{font-size:1.22em;line-height:1.5;font-weight:500}
+.lessonBody .ll{margin:.2rem 0 .9rem 1.3rem;padding:0;font-size:1.02em}
+/* The same size as a paragraph. A bullet was coming out five pixels
+   smaller, which makes a list look like a footnote to the sentence above it
+   when it is usually the substance. */
+.lessonBody .ll li{margin:.32rem 0;line-height:1.6;padding-left:.2rem}
+.lessonBody .ll li::marker{color:var(--accent)}
+
+/* The step number, as a number rather than a whisper.
+ *
+ * It was muted grey text reading "Step 1", the same size as a caption. On a
+ * paged lesson the number is how a class knows where they are and how much
+ * is left, and a teacher says it out loud — so it is the one thing on the
+ * page that should be readable from the door. */
+.lessonBody .lstep{display:flex;align-items:baseline;gap:.55rem;
+  margin:0 0 .7rem}
+.lessonBody .lstep b{font-size:1.9em;line-height:1;color:var(--accent);
+  font-weight:800;letter-spacing:-.02em}
+.lessonBody .lstep span{font-size:.72rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted)}
 
 /* A picture the document itself carried. On white, boxed and captioned,
    because a room has to be able to tell what the author drew from what we
@@ -1055,8 +1102,30 @@ function wirePanes(){
       paintPanes();
     };
   });
+  /* Each space photographs ITSELF, and the picture goes to the subject.
+   *
+   * This asked to share the whole screen — a browser permission prompt, the
+   * browser's own chrome in the shot, and the other half of a split board
+   * with it. For the writing space none of that is necessary: the board is
+   * a canvas and it can be read directly, with no permission and nothing in
+   * frame that is not the board.
+   *
+   * And it is KEPT rather than downloaded. A picture of the board on a
+   * machine bolted to a wall reaches nobody; on the subject page the class
+   * opens it that evening. Anything that is not the writing space still
+   * goes through the screen capture, because a lesson is a page of HTML and
+   * a browser cannot rasterise one without a library. */
   wrap.querySelectorAll("[data-shot]").forEach(function(b){
-    b.onclick = function(){ shoot(); };
+    b.title = "Keep a picture of this space on the class page";
+    b.onclick = function(){
+      var i = +b.dataset.shot;
+      var isWriting = PANES[i] && PANES[i].page === "write";
+      if(isWriting && WRITING_SHOT){
+        try{ return keepShot(WRITING_SHOT(), b); }
+        catch(e){ /* fall through to the screen capture */ }
+      }
+      shoot();
+    };
   });
   wrap.querySelectorAll("[data-wrong]").forEach(function(b){
     b.onclick = function(){ reportWrong(+b.dataset.wrong); };
@@ -2490,6 +2559,71 @@ function setGrid(on){
    nor to a different part of the canvas than the one they were looking at,
    so the window travels with the ink. */
 var BOARD_INK = { strokes: [], undone: [], view: null };
+/* One place that turns a canvas into something the class can open.
+ *
+ * Three buttons wanted this — the space's own camera, the writing space's
+ * Download, and the crop tool — and each had its own copy of the same
+ * fifteen lines. On a board it is KEPT, because a file in the Downloads
+ * folder of a machine bolted to a wall reaches nobody; off one, a download
+ * is exactly right and still happens.
+ */
+async function keepShot(cnv, btn){
+  if(!cnv) return;
+  var was = btn ? btn.textContent : "";
+  if(btn){ btn.disabled = true; }
+  function done(msg){
+    if(btn){ btn.disabled = false; btn.textContent = was; }
+    if(msg) toastLine(msg);
+  }
+  if(!boarded()){
+    var a = document.createElement("a");
+    a.href = cnv.toDataURL("image/png");
+    a.download = "craxlearn-" + new Date().toISOString().slice(0, 16)
+                   .replace(/[:T]/g, "-") + ".png";
+    a.click();
+    return done("");
+  }
+  cnv.toBlob(async function(blob){
+    if(!blob) return done("This browser cannot make a picture of that.");
+    try{
+      var fd = new FormData();
+      fd.append("file", blob, "board.png");
+      fd.append("title", "Board — " + new Date().toLocaleString());
+      fd.append("class_id", String((ROOM && ROOM.class_id) || 0));
+      fd.append("subject", (ROOM && ROOM.subject) || "");
+      await window.bapi.send("/api/craxlearn/board/file", fd);
+      done("Kept on " + ((ROOM && ROOM.subject) || "the class page") + ".");
+    }catch(e){
+      done(e.message || "It could not be kept.");
+    }
+  }, "image/png");
+}
+
+/* A line that says what happened and then goes away. The board had no way
+   to say "that worked" outside a dialog, so a press that succeeded looked
+   the same as one that did nothing. */
+function toastLine(msg){
+  if(!msg) return;
+  var t = document.getElementById("boardToast");
+  if(!t){
+    t = document.createElement("div");
+    t.id = "boardToast";
+    t.style.cssText = "position:fixed;left:50%;bottom:1.2rem;" +
+      "transform:translateX(-50%);z-index:90;background:#101823f2;" +
+      "border:1px solid #2a3444;border-radius:12px;padding:.5rem .9rem;" +
+      "font-size:.72rem;color:#e8eef6;box-shadow:0 8px 24px #0009";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.display = "block";
+  clearTimeout(toastLine._t);
+  toastLine._t = setTimeout(function(){ t.style.display = "none"; }, 2600);
+}
+
+/* How to photograph the writing space, set by the writing space itself.
+   Null until one is open, which is exactly when the pane button should fall
+   back to capturing the screen instead. */
+var WRITING_SHOT = null;
 
 /* Straight things, drawn as strokes.
  *
@@ -3163,6 +3297,12 @@ function write(){
    * hundred-megapixel PNG is a save that silently fails on a school tablet.
    */
   var SHOT_MAX = 4200;             // pixels on the longer side
+  /* Published so the space's OWN ⛶ can photograph the board rather than
+     asking to share the whole screen. There is one writing space open at a
+     time in practice; if a second is opened it replaces this, which is the
+     right answer — the button belongs to whichever one is live. */
+  WRITING_SHOT = function(){ return shotCanvas(); };
+
   function shotCanvas(){
     var b = bounds() || [0, 0, BOARD_UNIT, BOARD_UNIT * 0.56];
     var pad = 40;
@@ -5152,8 +5292,9 @@ function lessonPages(L, topic){
   (L.steps || []).forEach(function(st, i){
     var body = typeof st === "string" ? st : (st.t || "");
     var figs = [];
-    var h = '<div class="card"><div class="muted">Step ' + (i + 1) +
-      (st && st.where ? " · " + esc(st.where) : "") + "</div>" +
+    var h = '<div class="card"><div class="lstep"><b>' + (i + 1) + "</b>" +
+      "<span>of " + ((L.steps || []).length || 1) +
+      (st && st.where ? " · " + esc(st.where) : "") + "</span></div>" +
       lessonProse(body);
     if(st && st.code){
       h += '<pre class="wrap" style="font-size:.62rem;background:var(--panel2);' +
