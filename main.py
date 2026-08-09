@@ -2925,8 +2925,18 @@ class ReportIn(BaseModel):
     where: str = Field(default="", max_length=40)
 
 
+def _reader_or_board(request: Request, db: Session = Depends(get_db)):
+    """`board_or_reader`, reachable from a route defined above it.
+
+    Same reason as the wrapper above: the decorator is evaluated when the
+    module is read, and the dependency lives beside the board's routes.
+    """
+    return board_or_reader(request, db)
+
+
 @app.post("/api/report")
-def report_inaccuracy(body: ReportIn, user: User = Depends(current_user),
+def report_inaccuracy(request: Request, body: ReportIn,
+                      user: User = Depends(_reader_or_board),
                       db: Session = Depends(get_db)):
     """Somebody says an answer is wrong.
 
@@ -2947,8 +2957,18 @@ def report_inaccuracy(body: ReportIn, user: User = Depends(current_user),
 
     # A report costs a cached lesson, so a bored account cannot empty the
     # cache one button-press at a time.
+    #
+    # A board has no account to count against. It also has a ⚠ button in the
+    # head of every space, which is where a teacher standing in front of the
+    # class notices the wrong answer — the one moment this is most likely to
+    # be used, and it answered "Not signed in". Counted against the teacher
+    # the code names, so the limit still has somebody to belong to.
+    who = user.id if user is not None else _board_teacher_id(request, db)
+    if not who:
+        raise HTTPException(403, "Open this classroom with your subject code "
+                                 "first.")
     today = now().strftime("%Y%m%d")
-    seen = db.query(Note).filter(Note.user_id == user.id,
+    seen = db.query(Note).filter(Note.user_id == who,
                                  Note.k == f"reports_{today}").first()
     count = int((seen.v or "0")) if seen and (seen.v or "").isdigit() else 0
     if count >= 20:
@@ -2969,19 +2989,19 @@ def report_inaccuracy(body: ReportIn, user: User = Depends(current_user),
     stamp = now().isoformat(timespec="seconds")
     entry = json.dumps({"at": stamp, "topic": topic, "what": what,
                         "where": (body.where or "")[:40], "qkey": qkey,
-                        "user": user.id, "dropped": dropped})
+                        "user": who, "dropped": dropped})
     try:
-        rec = Note(user_id=user.id, k=f"report_{stamp}_{user.id}", v=entry)
+        rec = Note(user_id=who, k=f"report_{stamp}_{who}", v=entry)
         db.add(rec)
         if seen:
             seen.v = str(count + 1)
         else:
-            db.add(Note(user_id=user.id, k=f"reports_{today}", v="1"))
+            db.add(Note(user_id=who, k=f"reports_{today}", v="1"))
         db.commit()
     except Exception as e:
         db.rollback()
         print(f"Report not stored ({type(e).__name__}) — cache drop stands")
-    print(f"REPORTED WRONG by user {user.id}: {topic[:60]!r} — {what[:120]!r}"
+    print(f"REPORTED WRONG by user {who}: {topic[:60]!r} — {what[:120]!r}"
           + (" (cached lesson dropped)" if dropped else ""))
     return {"ok": True, "dropped": dropped}
 
@@ -3087,15 +3107,6 @@ def _teacher_or_board(request: Request, db: Session = Depends(get_db)):
     request, which is the only place it is needed.
     """
     return board_or_teacher(request, db)
-
-
-def _reader_or_board(request: Request, db: Session = Depends(get_db)):
-    """`board_or_reader`, reachable from a route defined above it.
-
-    Same reason as the wrapper above: the decorator is evaluated when the
-    module is read, and the dependency lives beside the board's routes.
-    """
-    return board_or_reader(request, db)
 
 
 @app.post("/api/teach/pdf")
@@ -8813,6 +8824,44 @@ def _lesson_figures(lesson):
         out.append({"how": "pic", "step": int(pic.get("step") or 0),
                     "spec": {"src": src, "page": int(pic.get("page") or 0)}})
 
+    # And the PHOTOGRAPHS, which were being dropped entirely.
+    #
+    # A board lesson gets a lead photograph and one against each step it can
+    # find one for — that is what _illustrate is — and none of them survived
+    # being kept. So a teacher wrote up DNA with a picture of DNA on the
+    # screen, pressed save, and the class opened a page of prose. The words
+    # were kept and the reason the lesson was worth keeping was not.
+    #
+    # Only an https address on a host the picture search itself named, and
+    # the credit travels with it: these are other people's photographs under
+    # licences that require the author be named, and a saved copy that drops
+    # the attribution is a licence breach sitting on a school's page.
+    def _photo(p, step):
+        if not isinstance(p, dict):
+            return None
+        url = str(p.get("url") or "")
+        if not url.startswith("https://"):
+            return None
+        host = url.split("/")[2].lower() if len(url.split("/")) > 2 else ""
+        if not any(host == h or host.endswith("." + h)
+                   for h in _images._HOSTS):
+            return None
+        return {"how": "photo", "step": step,
+                "spec": {"url": url[:600],
+                         "caption": str(p.get("caption") or "")[:200],
+                         "author": str(p.get("author") or "")[:160],
+                         "license": str(p.get("license") or "")[:80],
+                         "page": str(p.get("page") or "")[:600]}}
+
+    lead = _photo(lesson.get("photo"), -1)
+    if lead:
+        out.append(lead)
+    for i, st in enumerate((lesson.get("steps") or [])[:14]):
+        if isinstance(st, dict):
+            got = _photo(st.get("photo"), i)
+            if got:
+                out.append(got)
+
     if not out:
         return ""
     text = json.dumps(out)
@@ -8881,6 +8930,20 @@ class BoardSaveIn(BaseModel):
     subject: str = Field(default="", max_length=80)
     note: str = Field(default="", max_length=2000)
     lesson: dict = {}
+
+
+def _board_teacher_id(request, db):
+    """Whoever the school put on the subject this board is holding, or 0.
+
+    A board is not a person, but everything charged or counted still needs a
+    name against it. The token names the subject; the subject names its
+    teacher.
+    """
+    try:
+        grant = _board_grant(db, request.headers.get("X-Board-Token", ""))
+    except Exception:
+        return 0
+    return int((grant or {}).get("teacher_id") or 0)
 
 
 def board_or_reader(request: Request, db: Session = Depends(get_db)):
@@ -9817,7 +9880,8 @@ async def _resolve_structure(client, name):
 
 
 @app.get("/api/craxlearn/structure")
-async def craxlearn_structure(name: str, user: User = Depends(current_user)):
+async def craxlearn_structure(name: str,
+                              user: User = Depends(board_or_reader)):
     """Put a real structure on the board, for anything we actually have one of.
 
     Free — every source behind it is either a table in this repository or a

@@ -75,6 +75,18 @@ h1{font-size:1.5rem}h2{font-size:1.2rem}h3{font-size:1rem}
    which is how half an explanation went missing. Nothing measures the header
    now; the column does it. */
 #app{flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+/* `hidden` has to actually hide.
+ *
+ * The browser's own rule for [hidden] is display:none at the lowest possible
+ * specificity, and `#app{display:flex}` beats it — an id selector against a
+ * UA default is not close. So el("app").hidden = true set the attribute,
+ * changed nothing, and the split panes stayed on screen UNDERNEATH the code
+ * box: a board that had been signed out still showing the last lesson's
+ * spaces to whoever walked up next.
+ *
+ * The same trap applies to anything else given both an id and a display, so
+ * the rule is written once and generally. */
+[hidden]{display:none !important}
 #gate{flex:1 1 auto; min-height:0; overflow-y:auto}
 #brand{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:1.05rem}
 /* The mark itself, not a coloured circle standing in for one.
@@ -405,13 +417,32 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 #inkBar .sep{width:1px;align-self:stretch;background:#2a3444;margin:0 .15rem}
 /* The bar sits over the page, so the page needs somewhere to end. */
 body.inking{padding-bottom:4.2rem}
-/* Before a code is entered there is nothing to annotate — the screen is a
-   clock and a text box. The pen, its sheet and its bar are all withdrawn,
-   rather than merely inert, because a control that does nothing is worse
-   than one that is not there. */
+/* Before a code is entered there is nothing to act ON.
+ *
+ * The screen is a clock and a text box. Every control here works on a board
+ * — split it, screenshot it, fold its bars, go to its home, sign out of it,
+ * ask its subject a question — and a board is exactly what does not exist
+ * yet. They were all sitting in the top bar of the code screen, which is a
+ * row of nine buttons that either do nothing or take somebody somewhere they
+ * cannot be. A control that does nothing is worse than one that is not
+ * there.
+ *
+ * What stays is what still makes sense with no board: the text size, because
+ * somebody is reading this screen, and the install prompt.
+ *
+ * "Where our answers come from" goes too. It is worth reading and it is not
+ * worth putting on the screen a class is looking at while the teacher types
+ * a code; it is a tool inside the board, where somebody has asked for it. */
 body.gated #inkBtn,
 body.gated #inkLayer,
-body.gated #inkBar{display:none}
+body.gated #inkBar,
+body.gated #splitBtn,
+body.gated #askBtn,
+body.gated #shotBtn,
+body.gated #headsBtn,
+body.gated #homeBtn,
+body.gated #outBtn,
+body.gated .gatesources{display:none}
 
 /* A viewer takes whatever is left after the controls above it, and follows
    the space when it is dragged. A fixed height is wrong in both directions
@@ -587,7 +618,8 @@ body.gated #inkBar{display:none}
     <div id="gateMsg" class="muted" style="margin-top:.7rem"></div>
   </div>
   <p class="muted" style="text-align:center">
-    <a href="/api/craxlearn/sources">Where our answers come from</a> ·
+    <a class="gatesources" href="/api/craxlearn/sources">Where our answers
+      come from</a><span class="gatesources"> · </span>
     <a href="/privacy">Privacy</a>
   </p>
 </div>
@@ -1966,6 +1998,23 @@ async function homeSaved(){
    which is the only reason it is safe to put in an attribute. */
 function figureHTML(f, id){
   if(!f) return "";
+  /* A photograph kept with the lesson.
+   *
+   * These were dropped on the way into storage, so a lesson written up with
+   * a picture of DNA on the screen came back to the class as prose. They are
+   * kept now, and the credit is kept WITH them — these are other people's
+   * photographs under licences that require the author be named, and a
+   * saved copy that quietly loses the attribution is a licence breach
+   * sitting on a school's page. */
+  if(f.how === "photo"){
+    var sp = f.spec || {};
+    var credit = [sp.caption, sp.author, sp.license]
+      .filter(Boolean).join(" · ");
+    return '<figure class="lpic"><img src="' + esc(sp.url || "") +
+      '" alt="' + esc(sp.caption || "") + '" loading="lazy">' +
+      (credit ? '<figcaption>' + esc(credit) + "</figcaption>" : "") +
+      "</figure>";
+  }
   if(f.how === "pic"){
     var page = (f.spec && +f.spec.page) || 0;
     return '<figure class="lpic"><img src="' + esc((f.spec || {}).src || "") +

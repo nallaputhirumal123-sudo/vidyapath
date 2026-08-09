@@ -70,10 +70,16 @@ ck("and the page is given room so the bar does not sit on its last line",
 print("\nnot on the code screen")
 ck("the gate marks the body",
    'classList.toggle("gated", !signedIn)' in SRC)
+# Each is checked on its own rather than as one exact list. The list has
+# since grown — the split, the screenshot, the pane-head fold, Home and sign
+# out all act on a board that does not exist yet either — and a test pinned
+# to the whole string fails on a change it does not care about, which reads
+# exactly like the pen having come back.
 ck("the pen, the sheet and the bar are all withdrawn there",
-   re.search(r"body\.gated #inkBtn,\s*body\.gated #inkLayer,\s*body\.gated #inkBar\{display:none\}",
-             SRC) is not None,
+   all(("body.gated #" + x) in SRC
+       for x in ("inkBtn", "inkLayer", "inkBar")),
    "a control that does nothing is worse than one that is not there")
+ck("in a rule that hides them", "{display:none}" in SRC)
 ck("opening a board clears it", 'classList.remove("gated")' in SRC)
 ck("going back to the code screen puts the pen away",
    'classList.add("gated")' in SRC and "Ink.close();" in SRC,

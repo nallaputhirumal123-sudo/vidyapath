@@ -193,6 +193,62 @@ check("the button is held while one is building",
       "so pressing twice is not how somebody discovers this")
 check("and released whichever way it ends", "}finally{" in page)
 
+MAIN = io.open("main.py", encoding="utf-8").read()
+
+print("\nthe code screen has nothing on it that acts on a board")
+# Nine controls sat in the top bar of the gate — split, screenshot, fold the
+# bars, home, sign out, Ask Axle — every one of them working on a board that
+# does not exist yet, plus the split panes from the LAST lesson still showing
+# underneath the code box.
+check("board controls are withdrawn while gated",
+      "body.gated #splitBtn," in page and "body.gated #shotBtn," in page
+      and "body.gated #outBtn," in page)
+check("and the sources link with them", "body.gated .gatesources" in page,
+      "worth reading, and not on the screen a class watches while a code is "
+      "typed")
+# The panes stayed because #app{display:flex} beats the browser's own
+# [hidden] rule — an id selector against a UA default is not close — so
+# el("app").hidden = true set the attribute and changed nothing.
+check("hidden actually hides", "[hidden]{display:none !important}" in page,
+      "a signed-out board was still showing the last lesson's spaces")
+
+print("\nphotographs survive being kept")
+# _lesson_figures preserved drawings, sketches, 3D and a PDF's own pictures,
+# and dropped every PHOTOGRAPH. So a teacher wrote up DNA with a picture of
+# DNA on the screen, pressed save, and the class opened a page of prose.
+check("a lead photograph is kept",
+      'lead = _photo(lesson.get("photo"), -1)' in MAIN)
+check("and one per step", 'got = _photo(st.get("photo"), i)' in MAIN)
+check("only over https", 'if not url.startswith("https://")' in MAIN)
+check("and only from a host the picture search itself named",
+      "for h in _images._HOSTS" in MAIN,
+      "this is stored and handed to every child in the class")
+check("the credit travels with the picture",
+      '"author": str(p.get("author") or "")[:160]' in MAIN,
+      "these are other people's photographs under licences that require the "
+      "author be named")
+check("and the board renders it back", 'if(f.how === "photo"){' in page)
+check("with the credit shown", "[sp.caption, sp.author, sp.license]" in page,
+      "a saved copy that loses the attribution is a licence breach on a "
+      "school's page")
+
+print("\nthe board's own tools do not need an account")
+# The fourth and fifth instances of the same fault. 3D structures answered
+# "Not signed in" on a board holding a perfectly good code, and the ⚠ button
+# in the head of every space — the one a teacher presses the moment they see
+# a wrong answer in front of a class — did the same.
+check("3D structures opens to a board",
+      "async def craxlearn_structure(name: str,\n"
+      "                              user: User = Depends(board_or_reader)):"
+      in MAIN)
+check("and reporting a wrong answer does too",
+      "user: User = Depends(_reader_or_board),\n"
+      "                      db: Session = Depends(get_db)):" in MAIN)
+check("a report is counted against the subject's teacher",
+      "who = user.id if user is not None else _board_teacher_id(request, db)"
+      in MAIN,
+      "the limit still has to belong to somebody")
+
 print("\nnothing server-side moved")
 main = io.open("main.py", encoding="utf-8").read()
 for r in ("/api/craxlearn/standing", "/api/teacher/classes",
