@@ -40,6 +40,26 @@ BUSINESS_12 = ["Class 12 Business Studies"]
 CIVICS_11_12 = ["Class 11 Political Science", "Class 12 Political Science"]
 
 
+# ---------------------------------------------------------------------------
+# The international boards, and the honest limit on what can be claimed.
+#
+# NCERT is published free by the Government of India, which is why it could be
+# ingested at all. Cambridge and IB textbooks are copyrighted commercial
+# publications: they cannot go into this corpus, and no amount of wanting them
+# changes that.
+#
+# What CAN be said is true and useful: the physics in an IGCSE syllabus is the
+# same physics, and a centre teaching it can be told exactly which NCERT books
+# cover the same ground and which of their subjects nothing here touches. That
+# is the same promise made to JEE and NEET — these are the books the topics
+# are drawn from, not the board's own material and not its syllabus.
+#
+# The subjects each board examines are listed from its own published syllabus
+# outline, which is public. What is NOT claimed is coverage of assessment
+# objectives, mark schemes, coursework or the internal assessment, because
+# those are the board's and we do not have them.
+
+
 GROUPS = [
     {
         "id": "mpc",
@@ -101,6 +121,50 @@ GROUPS = [
                 "weighting, and Biology carries half the paper.",
         "books": BIOLOGY_11_12 + PHYSICS_11_12 + CHEMISTRY_11_12,
         "missing": [],
+    },
+    {
+        "id": "igcse",
+        "name": "IGCSE",
+        "long": "Cambridge IGCSE — the NCERT books covering the same topics",
+        "note": "Maths and the sciences at IGCSE level are covered by the "
+                "NCERT Class 9 and 10 books, which teach the same topics. "
+                "This is NOT the Cambridge syllabus and does not include its "
+                "assessment objectives, mark schemes or coursework — those "
+                "are Cambridge's own and are not reproduced here.",
+        "books": MATHS_6_10 + SCIENCE_6_10,
+        "missing": ["English as a Second Language", "Cambridge past papers",
+                    "Assessment objectives and mark schemes"],
+    },
+    {
+        "id": "alevel",
+        "name": "A Level",
+        "long": "Cambridge AS & A Level — the NCERT books covering the same "
+                "topics",
+        "note": "Physics, Chemistry, Biology, Maths, Economics and Business "
+                "at A Level draw on the same material as the NCERT Class 11 "
+                "and 12 books. Not the Cambridge syllabus: the exam sets its "
+                "own weighting, its own practical assessment and its own "
+                "papers, none of which are here.",
+        "books": (PHYSICS_11_12 + CHEMISTRY_11_12 + BIOLOGY_11_12
+                  + MATHS_11_12 + ECONOMICS_11_12 + BUSINESS_12),
+        "missing": ["Cambridge past papers", "Practical assessment",
+                    "Class 11 Business Studies"],
+    },
+    {
+        "id": "ibdp",
+        "name": "IB Diploma",
+        "long": "IB Diploma Programme — the NCERT books covering the same "
+                "topics",
+        "note": "The Group 4 sciences, Maths and Economics overlap heavily "
+                "with the NCERT Class 11 and 12 books. The parts that make "
+                "the IB what it is — Theory of Knowledge, the Extended "
+                "Essay, CAS and the internal assessments — are not here and "
+                "cannot be, so a centre should read this as subject content "
+                "only.",
+        "books": (PHYSICS_11_12 + CHEMISTRY_11_12 + BIOLOGY_11_12
+                  + MATHS_11_12 + ECONOMICS_11_12),
+        "missing": ["Theory of Knowledge", "Extended Essay",
+                    "Internal assessment", "IB past papers"],
     },
     {
         "id": "foundation",

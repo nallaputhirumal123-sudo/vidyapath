@@ -133,6 +133,42 @@ if os.path.exists(corpus):
 else:
     ck("a corpus exists to check against", False, "corpus.db is missing")
 
+print("\nthe international boards, and the limit on what may be claimed")
+# NCERT is published free by the Government of India, which is why it could be
+# ingested. Cambridge and IB textbooks are copyrighted commercial
+# publications: they cannot go into this corpus, and wanting them does not
+# change that. What can honestly be offered is the overlap — the physics in an
+# IGCSE syllabus is the same physics — said in the same words already used for
+# JEE and NEET: these are the BOOKS the topics are drawn from, not the board's
+# syllabus and not its papers.
+gids = {g["id"] for g in G.GROUPS}
+for want in ("igcse", "alevel", "ibdp"):
+    ck(f"{want} is offered", want in gids)
+if os.path.exists(corpus):
+    con = sqlite3.connect(f"file:{corpus}?mode=ro", uri=True)
+    intl = {g["id"]: g for g in G.coverage(con)}
+    con.close()
+    for gid in ("igcse", "alevel", "ibdp"):
+        ck(f"{gid} has real material behind it",
+           intl[gid]["passages"] > 1000, str(intl[gid]["passages"]))
+        # None of the three may ever read "ready". The board's own papers,
+        # mark schemes and internal assessment are not here and will not be.
+        ck(f"{gid} never claims to be complete",
+           intl[gid]["state"] == "partial", intl[gid]["state"])
+        ck(f"{gid} names what is absent", bool(intl[gid]["missing"]),
+           "a centre shown a confident tick finds out in front of a class")
+    ck("the IB says its own distinctive parts are not here",
+       any("Theory of Knowledge" in m for m in intl["ibdp"]["missing"]),
+       str(intl["ibdp"]["missing"]))
+    ck("and Cambridge says its papers are not",
+       any("past papers" in m for m in intl["alevel"]["missing"]),
+       str(intl["alevel"]["missing"]))
+    for gid in ("igcse", "alevel", "ibdp"):
+        note = G.BY_ID[gid]["note"]
+        ck(f"{gid} says plainly it is not the board's own syllabus",
+           "Cambridge syllabus" in note or "subject content only" in note,
+           note[:70])
+
 print("\nand it answers before anybody has an account")
 # "Which syllabus do you cover" is asked by a procurement officer or a centre
 # owner, and it is asked before there is a login to give them.
