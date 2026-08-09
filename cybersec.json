@@ -25,67 +25,124 @@
     {
      "id": "cs-intro",
      "title": "What cybersecurity is: the CIA triad",
-     "mins": 22,
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>Protecting information from harm</h3>\n<p>Cybersecurity is keeping data and systems safe from people who shouldn't reach them. Everything in the field maps to three goals — the <b>CIA triad</b>:</p>\n<ul>\n<li><b>Confidentiality</b> — only the right people can read the data (encryption, passwords, access control).</li>\n<li><b>Integrity</b> — the data hasn't been secretly changed (hashing, checksums, signatures).</li>\n<li><b>Availability</b> — the system is up when you need it (backups, defending against overload).</li>\n</ul>\n<h3>Attackers vs defenders</h3>\n<p>People who defend systems are the <b>blue team</b>; people who test them (with permission) to find weaknesses are the <b>red team</b> / ethical hackers. This whole course is about defending, and about hacking <i>only</i> with permission — attacking systems you don't own is a crime.</p>\n<div class=\"callout\"><b>Golden rule of ethics:</b> never test, probe or attack a system you do not own or have written permission to test. Curiosity is good; consent is mandatory.</div>\n",
+     "content": "\n<h3>Three questions, asked of everything</h3>\n<p>Security is not one property. It is three, and they pull against each\nother — which is why \"make it secure\" is not an instruction anybody can\nfollow.</p>\n<pre><code>CONFIDENTIALITY  can only the right people READ it?\nINTEGRITY        can only the right people CHANGE it,\n                 and can you tell if somebody did?\nAVAILABILITY     is it there when it is needed?</code></pre>\n<p>A hospital that encrypts its records so thoroughly that nobody can open\nthem at 3 a.m. has perfect confidentiality and has killed somebody. A school\nthat keeps marks on a shared spreadsheet has excellent availability and no\nintegrity at all — anybody can change a grade and nobody can prove it\nhappened.</p>\n<div class=\"callout\"><b>Every real decision trades one against another.</b>\nAsk which of the three matters most for THIS data, and say so out loud. The\nanswer for exam papers before the exam is confidentiality; for the same\npapers after it, availability. Nothing is \"secure\" in the abstract.</div>\n\n<h3>Threat, vulnerability, risk — three different words</h3>\n<p>People use them interchangeably and then cannot reason about any of\nthem.</p>\n<pre><code>THREAT         who or what might cause harm\n               (a criminal, a careless clerk, a flood)\nVULNERABILITY  the weakness they could use\n               (a shared password, an unpatched server)\nRISK           how likely, and how bad\n               risk = likelihood x impact</code></pre>\n<p>A vulnerability with no threat is not urgent. A threat with no\nvulnerability cannot land. Risk is the only one of the three you can\nprioritise with, because it is the only one with a size.</p>\n\n<h4>Worked example</h4>\n<pre><code>The school's fee database is on one server, no backups.\n\nthreat         ransomware, or the disk simply failing\nvulnerability  no backup, so recovery is impossible\nlikelihood     a disk fails eventually: near certain over 5 years\nimpact         every fee record gone; the school cannot invoice\nrisk           HIGH  ->  fix this before the fancy firewall</code></pre>\n\n<h3>Defence in depth</h3>\n<p>No single control holds. Assume each one fails and ask what is behind\nit.</p>\n<pre><code>a locked gate        somebody props it open\n+ a locked door      somebody is let in\n+ a password         it is guessed\n+ a second factor    the phone is stolen\n+ a log              ...and now you can SEE what happened</code></pre>\n<p>The last layer is different in kind. The first four try to stop things;\nthe log tells you what got through. A system with no record of what happened\ncannot be investigated, and \"we think nothing was taken\" is not an answer\nanybody can act on.</p>\n\n<h3>Least privilege, and why it is unpopular</h3>\n<p>Give every person and every program exactly the access the job needs, and\nnothing else. A teacher needs their own class's marks; they do not need the\nfee ledger. A backup script needs to READ the database; it does not need to\ndrop tables.</p>\n<p>It is unpopular because it is inconvenient on the day and only pays on the\nday something goes wrong — which is the shape of most security work.</p>\n<div class=\"callout\"><b>The honest measure of a control: what does it cost\nwhen nothing is wrong, and what does it save when something is?</b> A control\nwhose everyday cost is high gets switched off by the people it protects, and\na control that has been switched off is worse than none, because everybody\nstill believes it is there.</div>\n\n<h3>This course is defensive</h3>\n<p>Everything here is about understanding attacks well enough to stop them.\nRunning any of it against a system you do not own or have written permission\nto test is a crime in India under the Information Technology Act, 2000, and\nin most countries under their own law. Permission is written, specific, and\nfrom somebody entitled to give it.</p>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "A hacker reads private messages they shouldn't. Which of the CIA triad is broken? Print exactly: Confidentiality",
-       "starter": "# which goal is broken when private data is read?\n",
-       "hint": "Reading data you shouldn't breaks confidentiality.",
-       "solution": "print('Confidentiality')",
+       "q": "Risk is likelihood times impact. Print the risk score for likelihood 0.4 and impact 50000.",
+       "starter": "likelihood, impact = 0.4, 50000\nprint(0)   # fix this",
+       "solution": "likelihood, impact = 0.4, 50000\nprint(likelihood * impact)",
+       "hint": "Multiply them.",
        "answer": "",
        "check": {
         "lines": [
-         "Confidentiality"
+         "20000.0"
         ]
        }
       },
       {
-       "q": "Someone secretly edits a bank record. Which goal is broken? Print exactly: Integrity",
-       "starter": "# secretly changing data breaks...\n",
-       "hint": "Changing data breaks integrity.",
-       "solution": "print('Integrity')",
+       "q": "Compare two risks. Print the higher of 20000 and 7500.",
+       "starter": "a, b = 20000, 7500\nprint(0)   # fix this",
+       "solution": "a, b = 20000, 7500\nprint(max(a, b))",
+       "hint": "max().",
        "answer": "",
        "check": {
         "lines": [
-         "Integrity"
+         "20000"
         ]
        }
       },
       {
-       "q": "A website is knocked offline so no one can use it. Which goal is broken? Print exactly: Availability",
-       "starter": "# taking a system down breaks...\n",
-       "hint": "Downtime breaks availability.",
-       "solution": "print('Availability')",
+       "q": "Which of the three is broken when anybody can change a mark and nobody can tell? Print one word.",
+       "starter": "print('')   # fix this",
+       "solution": "print('integrity')",
+       "hint": "Reading is confidentiality; changing is the other one.",
        "answer": "",
        "check": {
         "lines": [
-         "Availability"
+         "integrity"
+        ]
+       }
+      },
+      {
+       "q": "Defence in depth. With four layers each failing 20% of the time, print the chance ALL four fail, rounded to 4 places.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(round(0.2 ** 4, 4))",
+       "hint": "Multiply the failure rate four times.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "0.0016"
+        ]
+       }
+      },
+      {
+       "q": "Least privilege. From the rights <code>['read','write','drop']</code>, print only what a backup script needs.",
+       "starter": "rights = ['read','write','drop']\nprint([])   # fix this",
+       "solution": "rights = ['read','write','drop']\nprint([r for r in rights if r == 'read'])",
+       "hint": "A backup reads.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "['read']"
+        ]
+       }
+      },
+      {
+       "q": "A vulnerability with no threat is not urgent. Print whether a threat list of <code>[]</code> is empty.",
+       "starter": "threats = []\nprint(False)   # fix this",
+       "solution": "threats = []\nprint(len(threats) == 0)",
+       "hint": "Check the length.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "Name the three properties security is made of.",
+       "a": "Confidentiality — only the right people can read it. Integrity — only the right people can change it, and you can tell if somebody did. Availability — it is there when it is needed."
+      },
+      {
+       "q": "Give an example where two of them conflict.",
+       "a": "Encrypting hospital records so thoroughly that nobody can open them in an emergency: confidentiality is perfect and availability has failed, which is the more dangerous failure there."
+      },
+      {
+       "q": "Distinguish threat, vulnerability and risk.",
+       "a": "A threat is who or what might cause harm; a vulnerability is the weakness they could use; risk is likelihood times impact. Risk is the only one with a size, so it is the only one you can prioritise with."
+      },
+      {
+       "q": "Why is the logging layer different from the other layers of defence?",
+       "a": "The others try to stop things. The log tells you what got through — and a system with no record cannot be investigated, so 'we think nothing was taken' is the best anybody can say."
+      },
+      {
+       "q": "What is the honest measure of whether a control is worth having?",
+       "a": "What it costs when nothing is wrong against what it saves when something is. A control with a high everyday cost gets switched off, and one that has been switched off is worse than none because everybody still believes it is there."
+      }
+     ]
     },
     {
      "id": "cs-net",
      "title": "How data travels: the internet, safely",
-     "mins": 24,
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>Addresses, names and ports</h3>\n<p>Every device online has an <b>IP address</b> (like a street address). <b>DNS</b> turns a name like <code>example.com</code> into that address. Programs talk through numbered <b>ports</b> — e.g. web traffic uses port 80 (HTTP) or 443 (HTTPS).</p>\n<h3>HTTP vs HTTPS</h3>\n<p><b>HTTP</b> sends data in the clear — anyone in between can read it. <b>HTTPS</b> wraps it in TLS encryption, so it stays private and can't be tampered with. The padlock in your browser means HTTPS. <b>Never</b> type a password into a plain <code>http://</code> page.</p>\n<pre><code>https://shop.example.com:443/cart\n  |         |            |    |\nscheme     host        port  path</code></pre>\n",
+     "content": "\n<h3>What actually leaves your machine</h3>\n<p>Nothing travels as \"a message\". It is cut into <b>packets</b>, each\ncarrying an address, and each finding its own way across perhaps twenty\nmachines you have never heard of.</p>\n<pre><code>your laptop -> home router -> ISP -> ... -> the site's server\n              every hop can SEE a packet it forwards</code></pre>\n<p>That is the whole security problem of a network in one line. The question\nis never \"can somebody see this\" — somebody can — it is \"what can they make\nof it\".</p>\n\n<h3>The layers, and what each one gives away</h3>\n<pre><code>IP    where it is going       ALWAYS visible\nTCP   which service, in order  port visible: 443 = https\nTLS   the contents             encrypted\nDNS   which NAME you asked for often visible</code></pre>\n<div class=\"callout\"><b>TLS hides what you said, not who you said it to.</b>\nOn an encrypted connection an observer still learns the site's address, the\ntime, and roughly how much you sent. For most people that is the more\nrevealing half: which clinic, which bank, which lawyer.</div>\n\n<h3>DNS: the phone book, and the oldest weak point</h3>\n<p>Before anything connects, your machine asks \"what is the address of\ncraxle.com\" — and historically asked it in plain text, so every hop saw the\nname and any of them could answer first with a lie.</p>\n<pre><code>you: where is bank.example?\nattacker (faster than the real server): 203.0.113.9   <- theirs\nyou: connects to the attacker</code></pre>\n<p>DNS over HTTPS (DoH) closes the reading half. The lying half is closed by\nTLS: the attacker's server cannot produce a valid certificate for\nbank.example, so the browser refuses — which is exactly what a certificate\nis for and why a certificate warning is never to be clicked through.</p>\n\n<h3>Ports, and why open ones are the map</h3>\n<pre><code>22   SSH        remote shell\n80   HTTP       unencrypted web\n443  HTTPS      encrypted web\n3306 MySQL      a DATABASE, on the internet</code></pre>\n<p>The first thing anybody assessing a machine learns is which doors exist.\nA database on 3306 reachable from the internet is not a subtle flaw; it is\nthe single most common way a small company loses everything.</p>\n<div class=\"callout\"><b>Default deny.</b> A firewall that blocks everything\nand opens named ports is a list you can read and defend. One that allows\neverything and blocks known-bad is a list that is always out of date.</div>\n\n<h3>Public Wi-Fi, honestly</h3>\n<p>The old advice — never bank on café Wi-Fi — was written when most sites\nwere HTTP. With HTTPS everywhere, the contents are safe. What remains:</p>\n<ul>\n<li><b>The names you visit</b> are visible to the network owner.</li>\n<li><b>A fake access point</b> called \"Airport_Free_WiFi\" is trivial to run,\nand everything you send goes through somebody's laptop.</li>\n<li><b>A certificate warning on a strange network is a red light</b>, not a\nnuisance.</li>\n</ul>\n<p>A VPN moves the trust rather than removing it: the café can no longer see\nthe names, and the VPN company can. That is a good trade with a company you\nhave reason to trust and a bad one with a free app.</p>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "Print the standard port for <b>HTTPS</b> (secure web). It is 443.",
-       "starter": "# secure web port\n",
-       "hint": "HTTPS uses 443.",
+       "q": "Print the standard port for encrypted web traffic.",
+       "starter": "print(0)   # fix this",
        "solution": "print(443)",
+       "hint": "HTTPS.",
        "answer": "",
        "check": {
         "lines": [
@@ -94,96 +151,210 @@
        }
       },
       {
-       "q": "From the URL, print the host part. The URL is 'https://shop.example.com/cart'.",
-       "starter": "url = 'https://shop.example.com/cart'\n# get the host between :// and the next /\n",
-       "hint": "Split off 'https://', then take up to the first '/'.",
-       "solution": "url='https://shop.example.com/cart'\nafter=url.split('://')[1]\nprint(after.split('/')[0])",
+       "q": "Default deny. From <code>[22, 80, 443, 3306]</code>, print the ports left open when only 443 is allowed.",
+       "starter": "ports = [22, 80, 443, 3306]\nallow = [443]\nprint([])   # fix this",
+       "solution": "ports = [22, 80, 443, 3306]\nallow = [443]\nprint([p for p in ports if p in allow])",
+       "hint": "Keep only what is on the allow list.",
        "answer": "",
        "check": {
         "lines": [
-         "shop.example.com"
+         "[443]"
         ]
        }
       },
       {
-       "q": "A page starts with 'http://'. Is it safe to enter a password? Print 'unsafe' if it is plain http.",
-       "starter": "url = 'http://login.example.com'\n# http (no s) is not encrypted\n",
-       "hint": "If it starts with http:// (not https://) it's unsafe.",
-       "solution": "url='http://login.example.com'\nif url.startswith('http://') and not url.startswith('https://'):\n    print('unsafe')\nelse:\n    print('safe')",
+       "q": "A database exposed to the internet. Print whether 3306 is in the allow list <code>[443]</code>.",
+       "starter": "print(True)   # fix this",
+       "solution": "print(3306 in [443])",
+       "hint": "It is not.",
        "answer": "",
        "check": {
         "lines": [
-         "unsafe"
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "Packets. A 45,000-byte file at 1,500 bytes per packet — print how many packets, rounding up.",
+       "starter": "size, mtu = 45000, 1500\nprint(0)   # fix this",
+       "solution": "size, mtu = 45000, 1500\nprint(-(-size // mtu))",
+       "hint": "Ceiling division.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "30"
+        ]
+       }
+      },
+      {
+       "q": "TLS hides the contents, not the address. Print the host from <code>'https://bank.example/accounts'</code>.",
+       "starter": "url = 'https://bank.example/accounts'\nprint('')   # fix this",
+       "solution": "url = 'https://bank.example/accounts'\nprint(url.split('/')[2])",
+       "hint": "Split on slashes and take the third piece.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "bank.example"
+        ]
+       }
+      },
+      {
+       "q": "Count the hops a packet passes through in <code>['router','isp','backbone','server']</code>.",
+       "starter": "hops = ['router','isp','backbone','server']\nprint(0)   # fix this",
+       "solution": "hops = ['router','isp','backbone','server']\nprint(len(hops))",
+       "hint": "Each one can see the packet it forwards.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "4"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "What does TLS hide, and what does it still reveal?",
+       "a": "It hides the contents. It still reveals the address you connected to, the time, and roughly how much was sent — which is often the more revealing half."
+      },
+      {
+       "q": "How does a certificate stop a DNS lie from working?",
+       "a": "An attacker who answers the DNS question first still cannot produce a valid certificate for that name, so the browser refuses the connection. That is why a certificate warning must never be clicked through."
+      },
+      {
+       "q": "Why is default deny better than blocking known-bad?",
+       "a": "An allow list is a short list you can read and defend. A block list of known-bad is always out of date, because it can only contain what somebody has already seen."
+      },
+      {
+       "q": "Is banking on café Wi-Fi dangerous?",
+       "a": "The contents are protected by HTTPS. What remains is that the network owner sees which sites you visit, and that a fake access point is easy to run — so a certificate warning on a strange network matters a great deal."
+      },
+      {
+       "q": "What does a VPN actually change?",
+       "a": "It moves the trust rather than removing it. The café can no longer see the names you visit; the VPN company can instead."
+      }
+     ]
     },
     {
      "id": "cs-pass",
      "title": "Passwords done right",
-     "mins": 24,
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>Why length beats complexity</h3>\n<p>A short \"clever\" password like <code>P@ss1</code> is weak; a long passphrase like <code>correct-horse-battery-staple</code> is far stronger because there are vastly more possibilities to guess. Length is the biggest factor.</p>\n<h3>Never store passwords as plain text</h3>\n<p>Systems must never keep your actual password. They store a <b>hash</b> (a scrambled, one-way fingerprint) with a random <b>salt</b> so two people with the same password get different stored values. When you log in, they hash what you typed and compare. This course's own backend uses bcrypt for exactly this.</p>\n<div class=\"callout\">If a website can email you your <i>original</i> password, they're storing it unsafely — a red flag.</div>\n",
+     "content": "\n<h3>What makes a password hard, and it is not punctuation</h3>\n<p>Strength is how many guesses an attacker must make. That is\n<b>length</b> and <b>unpredictability</b>, and almost nothing else.</p>\n<pre><code>guesses = (size of alphabet) ^ (length)\n\nlowercase only,  8 chars   26^8  = 2 x 10^11\nall keyboard,    8 chars   95^8  = 7 x 10^15\nfour common words         ~ 10^17   <- longer beats fancier</code></pre>\n<p>\"P@ssw0rd!\" satisfies every corporate rule and is on every cracking list,\nbecause the substitutions are the ones everybody makes. A machine tries them\nfirst.</p>\n<div class=\"callout\"><b>Rules that force symbols and 90-day changes make\npasswords worse.</b> People respond with Summer2024!, then Summer2025!. NIST\nwithdrew that advice years ago: length, a check against known-breached\npasswords, and no forced rotation unless there is reason to think it\nleaked.</div>\n\n<h3>Never store a password</h3>\n<p>Store something that can CHECK a password without containing it. That is a\nhash — one-way by design.</p>\n<pre><code>sign up:   store  H(password)\nsign in:   does H(what they typed) == what we stored?</code></pre>\n<p>But a plain hash is not enough, for two reasons that both have fixes.</p>\n\n<h4>Identical passwords get identical hashes</h4>\n<p>So one leaked table shows you which accounts share a password, and one\nprecomputed table of common passwords cracks all of them at once. The fix is\na <b>salt</b>: a random value per user, stored beside the hash.</p>\n<pre><code>store: salt, H(salt + password)     <- different for every user\n</code></pre>\n\n<h4>Fast hashes are the wrong tool</h4>\n<p>SHA-256 is built to be fast — billions per second on a GPU, which is\nexactly what an attacker wants. Password hashing wants to be\n<i>deliberately slow</i>.</p>\n<pre><code>bcrypt, scrypt, argon2       tunable cost, ~100ms per guess\n</code></pre>\n<p>100 ms is invisible to one person signing in and reduces ten billion\nguesses a second to ten. That single change is the difference between a\nleaked table being cracked in an afternoon and not at all.</p>\n\n<h3>The thing that actually stops break-ins</h3>\n<p><b>A second factor.</b> Password plus a code from a phone means a leaked\npassword alone is not enough.</p>\n<pre><code>SMS codes      better than nothing; SIM swapping is real in India\napp codes      much better (TOTP: Google/Microsoft Authenticator)\nhardware key   best; phishing-resistant by design</code></pre>\n\n<h3>Reuse is the real disaster</h3>\n<p>One site is breached. The attacker takes the email and password and tries\nthem at every bank, mail provider and shopping site — <b>credential\nstuffing</b>, and it is automated and cheap. It works because most people\nhave one password.</p>\n<p>A password manager fixes this properly: one strong passphrase you\nremember, everything else long, random and different.</p>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "Write a simple strength check: a password is 'strong' if it is at least 12 characters. Test 'correct-horse-battery' and print strong or weak.",
-       "starter": "pw = 'correct-horse-battery'\n# strong if len >= 12\n",
-       "hint": "len(pw) >= 12 -> strong.",
-       "solution": "pw='correct-horse-battery'\nprint('strong' if len(pw)>=12 else 'weak')",
+       "q": "Guess space. Print 26**8.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(26 ** 8)",
+       "hint": "Alphabet size to the power of the length.",
        "answer": "",
        "check": {
         "lines": [
-         "strong"
+         "208827064576"
         ]
        }
       },
       {
-       "q": "Test the password 'P@ss1' with the same rule (>=12 chars). Print strong or weak.",
-       "starter": "pw = 'P@ss1'\n",
-       "hint": "It's only 5 characters.",
-       "solution": "pw='P@ss1'\nprint('strong' if len(pw)>=12 else 'weak')",
+       "q": "Longer beats fancier. Print how many times bigger 26**12 is than 95**8, rounded to 1 place.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(round(26**12 / 95**8, 1))",
+       "hint": "Divide. Twelve lowercase letters against eight of everything.",
        "answer": "",
        "check": {
         "lines": [
-         "weak"
+         "14.4"
         ]
        }
       },
       {
-       "q": "Check a password against a tiny 'common passwords' list. If 'password123' is in the banned list, print 'banned'.",
-       "starter": "banned = ['123456','password','password123','qwerty']\npw = 'password123'\n",
-       "hint": "Use: if pw in banned.",
-       "solution": "banned=['123456','password','password123','qwerty']\npw='password123'\nprint('banned' if pw in banned else 'ok')",
+       "q": "Slow hashing. At 100ms per guess, print how many guesses fit in one second.",
+       "starter": "ms = 100\nprint(0)   # fix this",
+       "solution": "ms = 100\nprint(1000 // ms)",
+       "hint": "A thousand milliseconds in a second.",
        "answer": "",
        "check": {
         "lines": [
-         "banned"
+         "10"
+        ]
+       }
+      },
+      {
+       "q": "Salting. Print the salted string for salt 'x9f2' and password 'hunter2'.",
+       "starter": "salt, pw = 'x9f2', 'hunter2'\nprint('')   # fix this",
+       "solution": "salt, pw = 'x9f2', 'hunter2'\nprint(salt + pw)",
+       "hint": "Join them before hashing.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "x9f2hunter2"
+        ]
+       }
+      },
+      {
+       "q": "Two users, same password, different salts. Print whether 'a'+'pw' equals 'b'+'pw'.",
+       "starter": "print(True)   # fix this",
+       "solution": "print('a' + 'pw' == 'b' + 'pw')",
+       "hint": "That is the whole point of a salt.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "Credential stuffing. From <code>['bank','mail','shop']</code> print how many sites one leaked password is tried on.",
+       "starter": "sites = ['bank','mail','shop']\nprint(0)   # fix this",
+       "solution": "sites = ['bank','mail','shop']\nprint(len(sites))",
+       "hint": "All of them, automatically.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "What actually makes a password strong?",
+       "a": "Length and unpredictability. The size of the guess space is the alphabet raised to the length, so four random words beat eight characters of punctuation."
+      },
+      {
+       "q": "Why did NIST withdraw the advice about symbols and 90-day rotation?",
+       "a": "It makes passwords worse in practice. People answer forced complexity with predictable substitutions and forced rotation with Summer2024!, then Summer2025!."
+      },
+      {
+       "q": "What does a salt prevent?",
+       "a": "Identical passwords producing identical hashes — so a leaked table no longer shows which accounts share a password, and one precomputed table cannot crack them all at once."
+      },
+      {
+       "q": "Why is SHA-256 the wrong hash for passwords?",
+       "a": "It is built to be fast, which is what the attacker wants — billions of guesses a second on a GPU. bcrypt, scrypt and argon2 are deliberately slow, which is invisible to one person signing in and ruinous to a cracking run."
+      },
+      {
+       "q": "Why is password reuse the most damaging habit?",
+       "a": "One breached site gives an attacker credentials they then try automatically at every bank, mail provider and shop — credential stuffing. It is cheap and it works because most people have one password."
+      }
+     ]
     },
     {
      "id": "cs-caesar",
      "title": "Your first cipher: Caesar",
-     "mins": 26,
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>Shifting letters to hide a message</h3>\n<p>The <b>Caesar cipher</b> shifts every letter forward by a fixed number. Shift 3: A→D, B→E, ... This is easy to break (only 25 shifts to try) but it teaches the core idea of encryption: a reversible transformation controlled by a key.</p>\n<pre><code>plain:  H E L L O\nshift+3\ncipher: K H O O R</code></pre>\n<p>To decrypt, shift back by the same amount. In Python, <code>ord('A')</code> gives a letter's number and <code>chr()</code> turns a number back into a letter.</p>\n",
+     "content": "\n<h3>The whole idea of a cipher, in its simplest form</h3>\n<p>The <b>Caesar cipher</b> shifts every letter forward by a fixed amount.\nShift 3 turns A into D, B into E, and so on round the alphabet.</p>\n<pre><code>plain   H E L L O\nshift+3\ncipher  K H O O R</code></pre>\n<p>In Python, <code>ord('A')</code> is 65 and <code>chr(68)</code> is 'D', so\na shift is arithmetic on letter numbers with a wrap:</p>\n<pre><code>chr((ord(c) - 65 + shift) % 26 + 65)</code></pre>\n<p>The <code>% 26</code> is what makes Z wrap to A. Everything else is\ncounting.</p>\n\n<h3>Why it fails, and the lesson that survives</h3>\n<p>There are only 25 useful shifts. You do not need to be clever — you try\nall of them and read the one that is English. That is a <b>brute-force</b>\nattack, and it takes a computer no time at all.</p>\n<p>Worse, you do not even need to try them. Letter frequencies survive the\nshift: E is the commonest letter in English, so whichever letter is\ncommonest in the cipher text is probably E, and the shift falls out of the\ndifference. That is <b>frequency analysis</b>, and it breaks every simple\nsubstitution cipher.</p>\n<div class=\"callout\"><b>The size of the key space is the first question to\nask of any cipher.</b> Caesar has 25 keys. AES-128 has 2^128 — about\n340,000,000,000,000,000,000,000,000,000,000,000,000. No amount of computing\ngets through that by trying, which is why the attacks on real systems are\nagainst the keys, the implementation and the people, never the arithmetic.</div>\n\n<h3>Kerckhoffs's principle</h3>\n<p>A cipher must stay secure even when the enemy knows exactly how it works.\nOnly the KEY is secret.</p>\n<p>This is the oldest and most-ignored rule in the subject. A system whose\nsecurity depends on nobody knowing how it works has a secret that leaks the\nfirst time somebody reads the code, decompiles the app, or leaves. Every\ncipher worth using is published, argued over for years, and attacked in the\nopen — that is the process that makes it trustworthy, not a weakness.</p>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "Shift the single uppercase letter 'A' forward by 3 using ord/chr. Print the result (D).",
-       "starter": "c = 'A'\nshift = 3\n# (ord(c)-65+shift)%26 + 65 -> chr\n",
-       "hint": "chr((ord('A')-65+3)%26 + 65) = 'D'.",
-       "solution": "c='A'; shift=3\nprint(chr((ord(c)-65+shift)%26+65))",
+       "q": "Shift 'A' forward by 3. Print the letter.",
+       "starter": "c, shift = 'A', 3\nprint('')   # fix this",
+       "solution": "c, shift = 'A', 3\nprint(chr((ord(c) - 65 + shift) % 26 + 65))",
+       "hint": "chr((ord(c)-65+shift)%26+65)",
        "answer": "",
        "check": {
         "lines": [
@@ -192,10 +363,22 @@
        }
       },
       {
-       "q": "Encrypt the word 'HELLO' with a Caesar shift of 3. Print the cipher text (KHOOR).",
-       "starter": "word = 'HELLO'\nshift = 3\nout = ''\n# shift each letter, build out\n",
-       "hint": "For each letter: chr((ord(c)-65+shift)%26+65).",
-       "solution": "word='HELLO'; shift=3; out=''\nfor c in word:\n    out+=chr((ord(c)-65+shift)%26+65)\nprint(out)",
+       "q": "The wrap. Shift 'Z' forward by 1 and print it.",
+       "starter": "c, shift = 'Z', 1\nprint('')   # fix this",
+       "solution": "c, shift = 'Z', 1\nprint(chr((ord(c) - 65 + shift) % 26 + 65))",
+       "hint": "%26 is what makes Z become A.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "A"
+        ]
+       }
+      },
+      {
+       "q": "Encrypt a word. Shift 'HELLO' by 3 and print it.",
+       "starter": "w, s = 'HELLO', 3\nprint('')   # fix this",
+       "solution": "w, s = 'HELLO', 3\nprint(''.join(chr((ord(c)-65+s)%26+65) for c in w))",
+       "hint": "Do each letter and join.",
        "answer": "",
        "check": {
         "lines": [
@@ -204,329 +387,328 @@
        }
       },
       {
-       "q": "Decrypt 'KHOOR' back with a shift of 3 (shift the other way). Print HELLO.",
-       "starter": "word = 'KHOOR'\nshift = 3\nout = ''\n# subtract the shift\n",
-       "hint": "Use -shift inside the same formula.",
-       "solution": "word='KHOOR'; shift=3; out=''\nfor c in word:\n    out+=chr((ord(c)-65-shift)%26+65)\nprint(out)",
+       "q": "Decrypt. Shift 'KHOOR' back by 3 and print it.",
+       "starter": "w, s = 'KHOOR', 3\nprint('')   # fix this",
+       "solution": "w, s = 'KHOOR', 3\nprint(''.join(chr((ord(c)-65-s)%26+65) for c in w))",
+       "hint": "A negative shift, same formula.",
        "answer": "",
        "check": {
         "lines": [
          "HELLO"
         ]
        }
+      },
+      {
+       "q": "Key space. Print how many useful shifts a Caesar cipher has.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(25)",
+       "hint": "Twenty-six, minus the one that changes nothing.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "25"
+        ]
+       }
+      },
+      {
+       "q": "Frequency analysis. In <code>'KHOOR'</code> print the commonest letter.",
+       "starter": "w = 'KHOOR'\nprint('')   # fix this",
+       "solution": "w = 'KHOOR'\nprint(max(set(w), key=w.count))",
+       "hint": "Count each letter and take the highest.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "O"
+        ]
+       }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "What does the % 26 do in the Caesar formula?",
+       "a": "It wraps the alphabet round, so shifting Z forward gives A instead of running off the end."
+      },
+      {
+       "q": "Give two ways a Caesar cipher is broken.",
+       "a": "Brute force — there are only 25 useful shifts, so try them all and read the English one. And frequency analysis — the commonest cipher letter is probably E, and the shift falls out of the difference."
+      },
+      {
+       "q": "Why is the size of the key space the first question to ask?",
+       "a": "It says whether trying every key is possible at all. Caesar has 25; AES-128 has 2^128, which no amount of computing gets through — which is why real attacks go after keys, implementations and people rather than the arithmetic."
+      },
+      {
+       "q": "State Kerckhoffs's principle.",
+       "a": "A cipher must remain secure even when the enemy knows exactly how it works. Only the key is secret."
+      },
+      {
+       "q": "Why is a published, publicly attacked cipher more trustworthy than a secret one?",
+       "a": "Because years of people trying to break it in the open is the evidence that it holds. A secret design has a secret that leaks the first time somebody reads the code or leaves the company."
+      }
+     ]
     },
     {
      "id": "cs-xor",
      "title": "XOR and symmetric encryption",
-     "mins": 24,
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>One key to lock and unlock</h3>\n<p><b>Symmetric</b> encryption uses the <i>same</i> secret key to encrypt and decrypt. A simple example is <b>XOR</b>: combine each byte of the message with a key byte. XOR has a magic property — doing it twice with the same key gives you back the original.</p>\n<pre><code>5 XOR 3 = 6      (encrypt)\n6 XOR 3 = 5      (decrypt — back to the start!)</code></pre>\n<p>Real symmetric ciphers like <b>AES</b> are far stronger, but they rest on this same \"shared secret key\" idea. The hard part in real life is sharing the key safely — which is what public-key crypto (next lessons) solves.</p>\n",
+     "content": "\n<h3>One operation, and it undoes itself</h3>\n<p>XOR gives 1 when its two inputs differ and 0 when they match.</p>\n<pre><code>0^0 = 0    0^1 = 1    1^0 = 1    1^1 = 0</code></pre>\n<p>The property that matters for encryption is this: applying the same key\ntwice gets you back where you started.</p>\n<pre><code>cipher = plain ^ key\nplain  = cipher ^ key        the SAME operation both ways</code></pre>\n<p>So one function encrypts and decrypts, which is why XOR sits underneath\nalmost every symmetric cipher in use.</p>\n\n<h3>The one-time pad: unbreakable, and unusable</h3>\n<p>If the key is truly random, as long as the message, and never reused, XOR\nis <b>provably</b> unbreakable — not \"hard\", but mathematically impossible,\nbecause every possible plaintext of that length is equally consistent with\nthe ciphertext.</p>\n<p>The conditions are what defeat it. A key as long as the message has to\nreach the other end somehow, and if you have a safe way to send a\nmillion-character key you could have sent the message that way.</p>\n\n<h3>Reuse a key and it collapses</h3>\n<p>This is the mistake worth understanding properly, because it is made\nconstantly and it is total.</p>\n<pre><code>c1 = p1 ^ k\nc2 = p2 ^ k\nc1 ^ c2 = p1 ^ p2        the key CANCELS\n</code></pre>\n<p>Two messages encrypted with one key leak the XOR of the plaintexts, and\nEnglish is redundant enough to pull both apart from that alone. No key\nneeded. The key did not leak — it simply stopped protecting anything.</p>\n<div class=\"callout\"><b>This is why every real cipher takes an IV or a\nnonce.</b> It is a value that must be different for every message under the\nsame key, and its whole job is to stop this. It is not secret; it is just\nnever repeated. Reusing a nonce with AES-GCM breaks it as completely as\nreusing a one-time pad.</div>\n\n<h3>What is actually used</h3>\n<pre><code>AES-256      the block cipher everything is built on\nAES-GCM      AES + an authentication tag\nChaCha20     a stream cipher, faster without hardware AES</code></pre>\n<p>Note the tag. Encryption alone stops somebody READING the message; it does\nnot stop them CHANGING it. With plain XOR an attacker who knows the message\nsays \"PAY 100\" can flip the exact bits that make it say \"PAY 900\" without\never knowing the key. Authenticated encryption — the GCM part — adds a tag\nthat fails if a single bit moved.</p>\n<div class=\"callout\"><b>Encrypt-then-authenticate, always, and never write it\nyourself.</b> Use AES-GCM or ChaCha20-Poly1305 from a library. Every step of\nthis has a subtle way to be wrong, and the failures are silent.</div>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "Compute 5 XOR 3 in Python (the ^ operator). Print it.",
-       "starter": "# 5 XOR 3\n",
-       "hint": "print(5 ^ 3) -> 6.",
-       "solution": "print(5 ^ 3)",
+       "q": "XOR two bits. Print 1 ^ 0.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(1 ^ 0)",
+       "hint": "Different bits give 1.",
        "answer": "",
        "check": {
         "lines": [
-         "6"
+         "1"
         ]
        }
       },
       {
-       "q": "XOR is reversible. Take 6 (the cipher) XOR 3 (the key) and print it — you should get the original 5.",
-       "starter": "cipher = 6\nkey = 3\n",
-       "hint": "print(cipher ^ key).",
-       "solution": "cipher=6; key=3\nprint(cipher ^ key)",
+       "q": "It undoes itself. Print (200 ^ 77) ^ 77.",
+       "starter": "print(0)   # fix this",
+       "solution": "print((200 ^ 77) ^ 77)",
+       "hint": "The key applied twice returns the original.",
        "answer": "",
        "check": {
         "lines": [
-         "5"
+         "200"
         ]
        }
       },
       {
-       "q": "Encrypt the number list [72, 73] by XOR-ing each with key 10, then print the encrypted list.",
-       "starter": "msg = [72, 73]\nkey = 10\n# xor each with key\n",
-       "hint": "[m ^ key for m in msg].",
-       "solution": "msg=[72,73]; key=10\nprint([m ^ key for m in msg])",
+       "q": "Encrypt a byte. Print 72 ^ 42.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(72 ^ 42)",
+       "hint": "One XOR.",
        "answer": "",
        "check": {
         "lines": [
-         "[66, 67]"
+         "98"
+        ]
+       }
+      },
+      {
+       "q": "Key reuse cancels the key. Print (72 ^ 42) ^ (65 ^ 42).",
+       "starter": "print(0)   # fix this",
+       "solution": "print((72 ^ 42) ^ (65 ^ 42))",
+       "hint": "It equals 72 ^ 65 — no key in sight.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "9"
+        ]
+       }
+      },
+      {
+       "q": "Prove it. Print whether (72 ^ 42) ^ (65 ^ 42) equals 72 ^ 65.",
+       "starter": "print(False)   # fix this",
+       "solution": "print(((72 ^ 42) ^ (65 ^ 42)) == (72 ^ 65))",
+       "hint": "This is the whole attack.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      },
+      {
+       "q": "Encrypt a word with a repeating key byte and print the numbers.",
+       "starter": "msg, k = 'HI', 42\nprint([])   # fix this",
+       "solution": "msg, k = 'HI', 42\nprint([ord(c) ^ k for c in msg])",
+       "hint": "XOR each character's number.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "[98, 99]"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "Why does one XOR function both encrypt and decrypt?",
+       "a": "Applying the same key twice returns the original: plain ^ key ^ key is plain. So the same operation runs in both directions."
+      },
+      {
+       "q": "What makes a one-time pad unbreakable, and why is it not used?",
+       "a": "A truly random key, as long as the message and never reused, makes every possible plaintext equally consistent with the ciphertext. It is unusable because delivering a key that long safely is as hard as delivering the message."
+      },
+      {
+       "q": "What exactly leaks when a key is reused?",
+       "a": "The XOR of the two plaintexts, because the key cancels: c1 ^ c2 = p1 ^ p2. English is redundant enough to separate both messages from that, with no key needed."
+      },
+      {
+       "q": "What is an IV or nonce for?",
+       "a": "To be different for every message encrypted under the same key, so the key-reuse collapse cannot happen. It is not secret — it is only never repeated."
+      },
+      {
+       "q": "Why is encryption alone not enough?",
+       "a": "It stops somebody reading the message, not changing it. An attacker who knows the message says 'PAY 100' can flip the bits to make it 'PAY 900' without the key. Authenticated encryption adds a tag that fails if a bit moved."
+      }
+     ]
     },
     {
      "id": "cs-hash",
      "title": "Hashing and integrity",
-     "mins": 22,
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>A one-way fingerprint</h3>\n<p>A <b>hash</b> turns any data into a fixed-size fingerprint. It's <b>one-way</b>: you can't get the data back from the hash. Change one character of the input and the hash changes completely. That makes hashes perfect for two jobs:</p>\n<ul>\n<li><b>Integrity</b> — download a file, hash it, compare to the published hash. If they match, the file wasn't tampered with.</li>\n<li><b>Password storage</b> — store the hash, never the password.</li>\n</ul>\n<p><b>Hashing is not encryption.</b> Encryption is reversible with a key; hashing is deliberately not reversible.</p>\n",
+     "content": "\n<h3>A fingerprint for data</h3>\n<p>A hash turns any input into a fixed-size value, and it is designed to be\none-way: easy forwards, impossible backwards.</p>\n<pre><code>\"hello\"            -> 2cf24dba5fb0a30e...   (64 hex chars)\n\"hellp\"            -> 7d1a54127b222502...   completely different\na 4 GB film        -> 64 hex chars</code></pre>\n<p>Two properties do all the work:</p>\n<ul>\n<li><b>One-way.</b> Given the hash, you cannot work back to the input.</li>\n<li><b>Collision-resistant.</b> You cannot find two inputs with the same\nhash — so a matching hash means the same bytes.</li>\n</ul>\n<p>And one behaviour: change a single bit of input and roughly half the\noutput bits change. There is no \"close\" — a hash either matches or tells you\nnothing about how nearly it did.</p>\n\n<h3>What it is for</h3>\n<pre><code>downloads   published hash vs what you got: was it altered in transit?\ngit         every commit is named by the hash of its contents\nstorage     \"have I seen this file before\" without keeping the file\npasswords   check without storing — with a SLOW hash, see the earlier lesson\n</code></pre>\n\n<h3>Integrity is not authenticity</h3>\n<p>This distinction is the one people get wrong, and it matters.</p>\n<p>A plain hash published beside a file proves the file was not <i>corrupted</i>.\nIt proves nothing about who put it there: an attacker who can replace the\nfile can replace the hash beside it.</p>\n<pre><code>hash        did this change?          integrity\nHMAC        did somebody WITH THE KEY\n            vouch for this?           authenticity\nsignature   did the holder of this\n            private key vouch for it? authenticity, publicly checkable</code></pre>\n<p>HMAC mixes a secret key into the hash, so only somebody with the key can\nproduce a valid one. That is what turns \"unchanged\" into \"unchanged and from\nyou\".</p>\n<div class=\"callout\"><b>Do not build HMAC yourself from a hash.</b> The\nobvious H(key + message) is vulnerable to a length-extension attack on\nSHA-256: an attacker can append to your message and produce a valid tag\nwithout the key. HMAC's construction exists precisely to stop that.</div>\n\n<h3>Which to use</h3>\n<pre><code>SHA-256, SHA-3      general use\nBLAKE3              fast, modern\nMD5, SHA-1          BROKEN. Collisions can be produced on demand.\n                    Still fine as a non-security checksum, and nowhere else.</code></pre>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "A tiny 'checksum' hash: add up the character codes of 'HI' (H=72, I=73) and print the total.",
-       "starter": "s = 'HI'\n# sum of ord() of each character\n",
-       "hint": "sum(ord(c) for c in s) = 145.",
-       "solution": "s='HI'\nprint(sum(ord(c) for c in s))",
+       "q": "Hash a string. Print the length of a SHA-256 hex digest.",
+       "starter": "import hashlib\nprint(0)   # fix this",
+       "solution": "import hashlib\nprint(len(hashlib.sha256(b'hello').hexdigest()))",
+       "hint": "Sixty-four hex characters.",
        "answer": "",
        "check": {
         "lines": [
-         "145"
+         "64"
         ]
        }
       },
       {
-       "q": "Show that changing one letter changes the checksum: print the checksum of 'HJ' (H=72, J=74).",
-       "starter": "s = 'HJ'\n",
-       "hint": "72+74 = 146 — different from 'HI'.",
-       "solution": "s='HJ'\nprint(sum(ord(c) for c in s))",
+       "q": "Any size in, fixed size out. Print the digest length for a 1,000,000-byte input.",
+       "starter": "import hashlib\nprint(0)   # fix this",
+       "solution": "import hashlib\nprint(len(hashlib.sha256(b'x' * 1000000).hexdigest()))",
+       "hint": "The same as for any other input.",
        "answer": "",
        "check": {
         "lines": [
-         "146"
+         "64"
         ]
        }
       },
       {
-       "q": "Integrity check: the published checksum is 145. Our file's checksum is 145. Print 'ok' if they match, else 'tampered'.",
-       "starter": "published = 145\nfile_sum = 145\n",
-       "hint": "if published == file_sum -> ok.",
-       "solution": "published=145; file_sum=145\nprint('ok' if published==file_sum else 'tampered')",
+       "q": "One bit changes everything. Print whether the hashes of 'hello' and 'hellp' are equal.",
+       "starter": "import hashlib\nprint(True)   # fix this",
+       "solution": "import hashlib\nprint(hashlib.sha256(b'hello').hexdigest() == hashlib.sha256(b'hellp').hexdigest())",
+       "hint": "There is no 'close'.",
        "answer": "",
        "check": {
         "lines": [
-         "ok"
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "Same input, same hash. Print whether hashing 'hello' twice agrees.",
+       "starter": "import hashlib\nprint(False)   # fix this",
+       "solution": "import hashlib\nprint(hashlib.sha256(b'hello').hexdigest() == hashlib.sha256(b'hello').hexdigest())",
+       "hint": "A hash is deterministic.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      },
+      {
+       "q": "Verify a download. Print whether the published and computed digests match.",
+       "starter": "import hashlib\npub = hashlib.sha256(b'file').hexdigest()\ngot = hashlib.sha256(b'file').hexdigest()\nprint(False)   # fix this",
+       "solution": "import hashlib\npub = hashlib.sha256(b'file').hexdigest()\ngot = hashlib.sha256(b'file').hexdigest()\nprint(pub == got)",
+       "hint": "Compare them.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      },
+      {
+       "q": "HMAC needs a key. Print whether tags made with keys b'k1' and b'k2' differ.",
+       "starter": "import hmac, hashlib\nprint(False)   # fix this",
+       "solution": "import hmac, hashlib\nprint(hmac.new(b'k1', b'm', hashlib.sha256).hexdigest() != hmac.new(b'k2', b'm', hashlib.sha256).hexdigest())",
+       "hint": "Only the key holder can make the right one.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "Name the two properties that make a hash useful.",
+       "a": "One-way — you cannot work back to the input. Collision-resistant — you cannot find two inputs with the same hash, so a matching hash means the same bytes."
+      },
+      {
+       "q": "Why is there no such thing as a 'close' hash?",
+       "a": "Changing one bit of input changes about half the output bits. A hash either matches or tells you nothing about how nearly it did."
+      },
+      {
+       "q": "Distinguish integrity from authenticity.",
+       "a": "A plain hash shows the file was not corrupted — integrity. It says nothing about who put it there, because an attacker who can replace the file can replace the hash beside it. HMAC or a signature adds authenticity."
+      },
+      {
+       "q": "Why must you not build HMAC as H(key + message)?",
+       "a": "SHA-256 is vulnerable to length extension there: an attacker can append to the message and produce a valid tag without knowing the key. HMAC's construction exists to prevent exactly that."
+      },
+      {
+       "q": "Where may MD5 and SHA-1 still be used?",
+       "a": "As non-security checksums only. Collisions can be produced on demand, so they must never back a signature, a certificate or any integrity claim against an adversary."
+      }
+     ]
     },
     {
      "id": "cs-crypto",
      "title": "Public-key cryptography & HTTPS",
-     "mins": 26,
+     "mins": 42,
      "lang": "py",
-     "content": "\n<h3>Two keys: one public, one private</h3>\n<p><b>Asymmetric</b> crypto uses a <b>pair</b> of keys. Anything locked with your <b>public</b> key can only be unlocked with your <b>private</b> key (which you never share). This solves the \"how do we agree a secret over the open internet?\" problem.</p>\n<ul>\n<li><b>Encrypt with public key</b> → only the private-key holder can read it.</li>\n<li><b>Sign with private key</b> → anyone can verify it with your public key (proves it's really you).</li>\n</ul>\n<h3>What HTTPS actually does</h3>\n<p>When you visit an <code>https://</code> site, your browser and the server use public-key crypto to agree on a temporary shared key, check the site's certificate (proving it's the real site), then switch to fast symmetric encryption for the rest. That's the padlock.</p>\n",
+     "content": "\n<h3>The problem symmetric encryption cannot solve</h3>\n<p>AES needs both sides to share a key. But how do you send the key to\nsomebody you have never met, over a network you do not trust? Sending it\nunencrypted defeats the point, and encrypting it needs a key you have not\nshared yet.</p>\n\n<h3>Two keys, mathematically linked</h3>\n<pre><code>PUBLIC key    given to anybody. Encrypts. Verifies signatures.\nPRIVATE key   never leaves you. Decrypts. Makes signatures.</code></pre>\n<p>Anyone can encrypt to you using something you published; only you can read\nit. And you can sign with your private key so that anyone can check, with\nyour public key, that it was really you.</p>\n<pre><code>confidentiality   encrypt with THEIR public key\nauthenticity      sign with YOUR private key</code></pre>\n<p>The two run in opposite directions, which is the part worth holding on\nto.</p>\n\n<h3>What is actually used</h3>\n<pre><code>RSA-2048/4096   older, larger keys, widely supported\nECDSA / Ed25519 elliptic curve: 256-bit keys, same strength, much faster\nX25519          key exchange, the modern default</code></pre>\n<p>Public-key operations are slow, so nothing encrypts real data with them.\nTLS uses them once, to agree a symmetric key, and then AES does the work.\nBest of both: the hard problem solved once, the fast cipher for the rest.</p>\n\n<h3>Certificates: the part that decides everything</h3>\n<p>A public key alone proves nothing — an attacker in the middle can hand you\nTHEIR public key and read everything. The missing piece is somebody\ntrustworthy saying \"this key belongs to bank.example\".</p>\n<pre><code>your browser trusts ~150 root authorities (shipped with it)\n  a root signs an intermediate\n    an intermediate signs bank.example's certificate\n      -> a chain your browser can check to a root it already trusts</code></pre>\n<p>That is why a certificate warning matters. It means the chain did not\ncheck out, and the two ordinary causes are a misconfigured server and\nsomebody sitting in the middle. The browser cannot tell you which.</p>\n<div class=\"callout\"><b>The trust is only as good as the weakest authority.</b>\nAny of those roots can vouch for any name. Certificate Transparency exists\nbecause of that: every certificate issued is published to a public,\nappend-only log, so a bank can SEE if somebody issued a certificate for their\ndomain. It does not prevent it; it makes it impossible to do quietly.</div>\n\n<h3>Forward secrecy</h3>\n<p>Modern TLS agrees a fresh key for every session and throws it away\nafterwards. So an attacker who records your traffic today and steals the\nserver's private key in five years still cannot read it — the key that\nprotected that conversation no longer exists anywhere.</p>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "The core of RSA is modular arithmetic. Compute (7 ** 3) % 33 in Python and print it.",
-       "starter": "# 7 to the power 3, mod 33\n",
-       "hint": "pow(7,3,33) or (7**3)%33 = 13.",
-       "solution": "print((7**3) % 33)",
+       "q": "Which key does somebody use to send you a secret? Print 'public' or 'private'.",
+       "starter": "print('')   # fix this",
+       "solution": "print('public')",
+       "hint": "Yours, the one you gave away.",
        "answer": "",
        "check": {
         "lines": [
-         "13"
+         "public"
         ]
        }
       },
       {
-       "q": "Python has a built-in for modular exponentiation: pow(base, exp, mod). Print pow(7, 3, 33).",
-       "starter": "# pow(7,3,33)\n",
-       "hint": "It equals 13.",
-       "solution": "print(pow(7,3,33))",
+       "q": "Which key signs? Print 'public' or 'private'.",
+       "starter": "print('')   # fix this",
+       "solution": "print('private')",
+       "hint": "Only you can make a signature.",
        "answer": "",
        "check": {
         "lines": [
-         "13"
+         "private"
         ]
        }
       },
       {
-       "q": "A certificate is valid if today (day 100) is before its expiry (day 365). Print 'valid' or 'expired'.",
-       "starter": "today = 100\nexpiry = 365\n",
-       "hint": "if today < expiry -> valid.",
-       "solution": "today=100; expiry=365\nprint('valid' if today<expiry else 'expired')",
+       "q": "Key sizes. Print how many times larger an RSA-3072 key is than an Ed25519 256-bit key.",
+       "starter": "rsa, ec = 3072, 256\nprint(0)   # fix this",
+       "solution": "rsa, ec = 3072, 256\nprint(rsa // ec)",
+       "hint": "Divide.",
        "answer": "",
        "check": {
         "lines": [
-         "valid"
-        ]
-       }
-      }
-     ],
-     "worksheet": []
-    },
-    {
-     "id": "cs-attacks",
-     "title": "How attacks work — so you can stop them",
-     "mins": 24,
-     "lang": "py",
-     "content": "\n<h3>Know the enemy (to defend)</h3>\n<p>Most breaches don't use movie-style hacking — they use these:</p>\n<ul>\n<li><b>Phishing</b> — a fake email/message tricking you into a password or a bad link. The #1 way real breaches start.</li>\n<li><b>Social engineering</b> — manipulating a <i>person</i> (\"IT here, I need your password\").</li>\n<li><b>Malware</b> — malicious software (viruses, ransomware, spyware) run by mistake.</li>\n<li><b>Brute force</b> — trying millions of passwords. Long passwords + rate limits + lockouts defeat it.</li>\n</ul>\n<h3>Spotting phishing</h3>\n<p>Warning signs: urgency (\"act now!\"), a mismatched sender address, a link whose real destination differs from its text, unexpected attachments, and requests for passwords or payment. When unsure, go to the site directly instead of clicking.</p>\n<div class=\"callout\">We teach how attacks work only to defend against them. Building or sending real malware or phishing is illegal and off-limits.</div>\n",
-     "videos": [],
-     "refs": [],
-     "lab": {},
-     "exercises": [
-      {
-       "q": "A brute-force attacker tries 1000 passwords per second. A lockout triggers after 5 tries. Print how many tries the attacker actually gets (5).",
-       "starter": "lockout_after = 5\n# the attacker is stopped at the lockout\n",
-       "hint": "The lockout caps it at 5.",
-       "solution": "lockout_after=5\nprint(lockout_after)",
-       "answer": "",
-       "check": {
-        "lines": [
-         "5"
+         "12"
         ]
        }
       },
       {
-       "q": "Flag a phishing sign: the email demands you 'verify your password now'. If the text contains 'password', print 'phishing'.",
-       "starter": "email = 'Urgent: verify your password now'\n# a request for your password is a red flag\n",
-       "hint": "if 'password' in email.lower(): print('phishing').",
-       "solution": "email='Urgent: verify your password now'\nprint('phishing' if 'password' in email.lower() else 'ok')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "phishing"
-        ]
-       }
-      },
-      {
-       "q": "Check a link: the visible text says 'bank.com' but the real URL is 'bank-secure.ru'. If they don't match, print 'suspicious'.",
-       "starter": "text = 'bank.com'\nreal = 'bank-secure.ru'\n",
-       "hint": "if text != real -> suspicious.",
-       "solution": "text='bank.com'; real='bank-secure.ru'\nprint('suspicious' if text!=real else 'ok')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "suspicious"
-        ]
-       }
-      }
-     ],
-     "worksheet": []
-    },
-    {
-     "id": "cs-web",
-     "title": "Web security: injection & XSS (and how to prevent them)",
-     "mins": 26,
-     "lang": "py",
-     "content": "\n<h3>Never trust user input</h3>\n<p>Most web vulnerabilities come from mixing untrusted input with code or HTML.</p>\n<h4>SQL injection</h4>\n<p>If you build a query by gluing strings together, an attacker can inject SQL. The <b>fix</b> is <b>parameterized queries</b> — the database treats input as data, never as code.</p>\n<pre><code># WRONG — vulnerable\n\"SELECT * FROM users WHERE name = '\" + name + \"'\"\n\n# RIGHT — parameterized\ncursor.execute(\"SELECT * FROM users WHERE name = ?\", (name,))</code></pre>\n<h4>Cross-site scripting (XSS)</h4>\n<p>If you put user text straight into a page, they can inject a &lt;script&gt;. The <b>fix</b> is to <b>escape</b> output — turn <code>&lt;</code> into <code>&amp;lt;</code> so it shows as text, not code.</p>\n<div class=\"callout\">The lesson everywhere: validate input, and escape/parameterize output. This app does both.</div>\n",
-     "videos": [],
-     "refs": [],
-     "lab": {},
-     "exercises": [
-      {
-       "q": "Escape a dangerous character: replace '<' with '&lt;' in the string \"<script>\". Print the safe version.",
-       "starter": "s = '<script>'\n# replace < with &lt; and > with &gt;\n",
-       "hint": "s.replace('<','&lt;').replace('>','&gt;').",
-       "solution": "s='<script>'\nprint(s.replace('<','&lt;').replace('>','&gt;'))",
-       "answer": "",
-       "check": {
-        "lines": [
-         "&lt;script&gt;"
-        ]
-       }
-      },
-      {
-       "q": "Basic input validation: a username should be letters/numbers only. Print 'valid' if 'Ravi42' is alphanumeric, else 'invalid'.",
-       "starter": "name = 'Ravi42'\n# use .isalnum()\n",
-       "hint": "name.isalnum() returns True here.",
-       "solution": "name='Ravi42'\nprint('valid' if name.isalnum() else 'invalid')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "valid"
-        ]
-       }
-      },
-      {
-       "q": "Reject a suspicious input: does \"a' OR '1'='1\" contain a single quote? If yes print 'reject'.",
-       "starter": "inp = \"a' OR '1'='1\"\n# a quote in a name is suspicious\n",
-       "hint": "if \"'\" in inp: print('reject').",
-       "solution": "inp=\"a' OR '1'='1\"\nprint('reject' if \"'\" in inp else 'allow')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "reject"
-        ]
-       }
-      }
-     ],
-     "worksheet": []
-    },
-    {
-     "id": "cs-secure",
-     "title": "Secure coding & handling secrets",
-     "mins": 22,
-     "lang": "py",
-     "content": "\n<h3>Habits that prevent most bugs</h3>\n<ul>\n<li><b>Validate all input</b> — assume anything from a user or the network is hostile.</li>\n<li><b>Least privilege</b> — give every account and program the minimum access it needs.</li>\n<li><b>Never hard-code secrets</b> — keep API keys and passwords in environment variables, never in code or a public repo (this app's keys live in Railway variables, not the code).</li>\n<li><b>Keep dependencies updated</b> — most breaches exploit known bugs in out-of-date libraries.</li>\n<li><b>Fail safely</b> — on error, deny access; never reveal stack traces or secrets to users.</li>\n</ul>\n",
-     "videos": [],
-     "refs": [],
-     "lab": {},
-     "exercises": [
-      {
-       "q": "A secret key should come from the environment, not the code. If the variable API_KEY is empty, print 'missing key' (never use a default secret).",
-       "starter": "API_KEY = ''\n# empty means not configured\n",
-       "hint": "if not API_KEY: print('missing key').",
-       "solution": "API_KEY=''\nprint('missing key' if not API_KEY else 'ok')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "missing key"
-        ]
-       }
-      },
-      {
-       "q": "Least privilege: a 'guest' role should NOT be able to delete. Print 'denied' when role is 'guest' and action is 'delete'.",
-       "starter": "role = 'guest'\naction = 'delete'\n# guests cannot delete\n",
-       "hint": "if role=='guest' and action=='delete': denied.",
-       "solution": "role='guest'; action='delete'\nprint('denied' if (role=='guest' and action=='delete') else 'allowed')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "denied"
-        ]
-       }
-      },
-      {
-       "q": "Validate age input is a number before using it. If '25' is all digits, print the age plus 1 (26).",
-       "starter": "age = '25'\n# check .isdigit() then int()\n",
-       "hint": "if age.isdigit(): print(int(age)+1).",
-       "solution": "age='25'\nif age.isdigit():\n    print(int(age)+1)\nelse:\n    print('invalid')",
-       "answer": "",
-       "check": {
-        "lines": [
-         "26"
-        ]
-       }
-      }
-     ],
-     "worksheet": []
-    },
-    {
-     "id": "cs-blue",
-     "title": "Defence & monitoring (Blue Team)",
-     "mins": 24,
-     "lang": "py",
-     "content": "\n<h3>You can't stop what you can't see</h3>\n<p>Defenders watch systems constantly. Key ideas:</p>\n<ul>\n<li><b>Logging</b> — record logins, errors and important actions. Logs are how you spot and reconstruct an attack.</li>\n<li><b>IDS / SIEM</b> — tools that watch logs and network traffic for suspicious patterns and raise alerts.</li>\n<li><b>Rate limiting & lockouts</b> — stop brute force by capping attempts.</li>\n<li><b>Backups</b> — the answer to ransomware is a clean, tested backup.</li>\n</ul>\n<h3>Incident response (the calm checklist)</h3>\n<p><b>Prepare → Detect → Contain → Eradicate → Recover → Learn.</b> Panicking or hiding a breach makes it worse; a rehearsed plan makes it survivable.</p>\n",
-     "videos": [],
-     "refs": [],
-     "lab": {},
-     "exercises": [
-      {
-       "q": "Count failed logins in a log to spot an attack. Given the list, print how many are 'FAIL'.",
-       "starter": "log = ['OK','FAIL','FAIL','OK','FAIL']\n# count the FAILs\n",
-       "hint": "log.count('FAIL') = 3.",
-       "solution": "log=['OK','FAIL','FAIL','OK','FAIL']\nprint(log.count('FAIL'))",
+       "q": "A chain of trust. Print the length of <code>['root','intermediate','site']</code>.",
+       "starter": "chain = ['root','intermediate','site']\nprint(0)   # fix this",
+       "solution": "chain = ['root','intermediate','site']\nprint(len(chain))",
+       "hint": "Count the links.",
        "answer": "",
        "check": {
         "lines": [
@@ -535,47 +717,492 @@
        }
       },
       {
-       "q": "Raise an alert if failed logins exceed 4. There were 6. Print 'ALERT' or 'quiet'.",
-       "starter": "fails = 6\nthreshold = 4\n",
-       "hint": "if fails > threshold: ALERT.",
-       "solution": "fails=6; threshold=4\nprint('ALERT' if fails>threshold else 'quiet')",
+       "q": "A chain must end at a trusted root. Print whether 'root' is in <code>['root','other']</code>.",
+       "starter": "trusted = ['root','other']\nprint(False)   # fix this",
+       "solution": "trusted = ['root','other']\nprint('root' in trusted)",
+       "hint": "The browser ships with the list.",
        "answer": "",
        "check": {
         "lines": [
-         "ALERT"
+         "True"
         ]
        }
       },
       {
-       "q": "Incident response order: print the FIRST step of the checklist. Print exactly: Prepare",
-       "starter": "# the checklist starts with...\n",
-       "hint": "Prepare comes first.",
-       "solution": "print('Prepare')",
+       "q": "Forward secrecy. With a fresh key per session, print how many past sessions one stolen session key exposes.",
+       "starter": "print(99)   # fix this",
+       "solution": "print(1)",
+       "hint": "Only its own.",
        "answer": "",
        "check": {
         "lines": [
-         "Prepare"
+         "1"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "What problem does public-key cryptography solve?",
+       "a": "Agreeing a secret with somebody you have never met, over a network you do not trust — which symmetric encryption cannot do, because it needs a shared key already."
+      },
+      {
+       "q": "Which key is used for confidentiality, and which for authenticity?",
+       "a": "Encrypt with the recipient's public key for confidentiality; sign with your own private key for authenticity. The two run in opposite directions."
+      },
+      {
+       "q": "Why does TLS use both kinds of cryptography?",
+       "a": "Public-key operations are slow, so they are used once to agree a symmetric key, and AES then does the actual work."
+      },
+      {
+       "q": "What does a certificate add that a public key alone does not?",
+       "a": "Somebody trustworthy vouching that this key belongs to this name. Without it an attacker in the middle can simply present their own key."
+      },
+      {
+       "q": "What is Certificate Transparency for?",
+       "a": "Every issued certificate is published to a public append-only log, so a domain owner can see if an authority issued one for their name. It does not prevent it — it makes it impossible to do quietly."
+      }
+     ]
     },
     {
-     "id": "cs-career",
-     "title": "Ethical hacking & a cybersecurity career",
-     "mins": 22,
+     "id": "cs-attacks",
+     "title": "How attacks work — so you can stop them",
+     "mins": 40,
      "lang": "py",
-     "content": "\n<h3>Hacking — the legal, paid kind</h3>\n<p><b>Penetration testers</b> and <b>bug-bounty hunters</b> break into systems <i>with permission</i> to find weaknesses before criminals do. It is one of the best-paid, most in-demand areas in tech, and it is global and remote-friendly.</p>\n<h3>Roles</h3>\n<ul>\n<li><b>SOC analyst / Blue team</b> — monitor and defend (great first job).</li>\n<li><b>Penetration tester / Red team</b> — authorised attacking to find holes.</li>\n<li><b>Security engineer</b> — build defences into products.</li>\n<li><b>GRC / compliance</b> — policies, risk, audits (less coding).</li>\n</ul>\n<h3>How to get in</h3>\n<p>Learn the fundamentals (this track), practise <b>legally</b> on sites built for it — TryHackMe, Hack The Box, PortSwigger Web Security Academy, OverTheWire — and aim for a certificate like <b>CompTIA Security+</b> (entry), then <b>CEH</b> or <b>OSCP</b> (hands-on). Build a habit of writing up what you learn.</p>\n<div class=\"callout\"><b>The line that defines your career:</b> only ever test systems you own or are explicitly authorised to test. Unauthorised access is a serious crime — ethics is the whole job.</div>\n",
+     "content": "\n<h3>Almost none of it is technical</h3>\n<p>The picture of hacking is somebody defeating cryptography. The reality is\nthat the great majority of successful attacks begin with a person being\npersuaded to do something.</p>\n<pre><code>phishing        a message that looks like one you expected\npretexting      a story: \"IT here, we need to verify your login\"\nurgency         \"your account closes in 2 hours\" — hurry stops thought\nauthority       a mail from the principal, or the tax office</code></pre>\n<p>They work because they are the same shapes as legitimate messages. The\ndefence is not cleverness; it is a habit: <b>verify through a channel you\nchose</b>. Not the number in the message — the number you already had.</p>\n\n<h3>Phishing, and what actually gives it away</h3>\n<pre><code>the domain      craxle-secure.com is not craxle.com\n                paypa1.com is not paypal.com\nwhat it wants   credentials, a payment, or a file opened\nthe pressure    a deadline that leaves no time to check</code></pre>\n<div class=\"callout\"><b>Spelling mistakes are a filter, not a mistake.</b>\nObvious errors weed out careful people, leaving the ones who will go all the\nway through. A targeted attack on your finance officer will have no errors at\nall, will name your principal, and will refer to a real invoice.</div>\n\n<h3>Malware, by what it wants</h3>\n<pre><code>ransomware   encrypts your files, sells the key\nspyware      watches: keystrokes, screens, cameras\ntrojan       useful software with something else inside\nworm         spreads by itself, no click needed\ncryptominer  quietly spends your electricity</code></pre>\n\n<h3>Ransomware, and the only defence that works</h3>\n<p>Everything else is delay. What ends the incident is a backup you can\nrestore from.</p>\n<pre><code>3  copies of the data\n2  different kinds of media\n1  off-site AND offline</code></pre>\n<p>The offline part is the point. Modern ransomware looks for backups first\nand encrypts anything it can reach — a backup on a permanently connected\ndrive is not a backup, it is a second copy waiting its turn.</p>\n<div class=\"callout\"><b>A backup nobody has restored from is a belief, not a\nbackup.</b> Restore one, to a different machine, on a schedule. The common\nfailures are found only this way: the job that has silently been backing up\nan empty folder for a year, and the archive nobody has the password for.</div>\n\n<h3>In the middle, and denial of service</h3>\n<p><b>Man in the middle</b> is sitting between two parties and relaying —\nfake Wi-Fi, a poisoned DNS answer, a compromised router. HTTPS with a valid\ncertificate defeats it, which is the whole reason certificate warnings\nmatter.</p>\n<p><b>Denial of service</b> does not steal anything; it takes availability\naway. It is the third leg of the triad, and a school that cannot publish\nresults on results day has suffered a real attack even though nothing\nleaked.</p>\n",
      "videos": [],
      "refs": [],
      "lab": {},
      "exercises": [
       {
-       "q": "The one rule of ethical hacking: you must have this before testing a system. Print exactly: permission",
-       "starter": "# what must you always have first?\n",
-       "hint": "You must have permission.",
+       "q": "Look at the domain. Print whether 'craxle-secure.com' equals 'craxle.com'.",
+       "starter": "print(True)   # fix this",
+       "solution": "print('craxle-secure.com' == 'craxle.com')",
+       "hint": "It is a different domain entirely.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "Homograph. Print whether 'paypa1.com' equals 'paypal.com'.",
+       "starter": "print(True)   # fix this",
+       "solution": "print('paypa1.com' == 'paypal.com')",
+       "hint": "A one where an l should be.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "The 3-2-1 rule. Print how many copies of the data it asks for.",
+       "starter": "print(0)   # fix this",
+       "solution": "print(3)",
+       "hint": "Three copies, two media, one off-site and offline.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "3"
+        ]
+       }
+      },
+      {
+       "q": "An always-connected backup. Print how many of 2 backups survive if ransomware reaches every connected drive and one is offline.",
+       "starter": "backups, offline = 2, 1\nprint(0)   # fix this",
+       "solution": "backups, offline = 2, 1\nprint(offline)",
+       "hint": "Only the one it could not reach.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "1"
+        ]
+       }
+      },
+      {
+       "q": "Verify through a channel you chose. From <code>['number in the email','number you already had']</code> print the safe one.",
+       "starter": "opts = ['number in the email','number you already had']\nprint('')   # fix this",
+       "solution": "opts = ['number in the email','number you already had']\nprint(opts[1])",
+       "hint": "Never the one the message supplied.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "number you already had"
+        ]
+       }
+      },
+      {
+       "q": "Denial of service attacks which property? Print one word.",
+       "starter": "print('')   # fix this",
+       "solution": "print('availability')",
+       "hint": "Nothing is read or changed — it is taken away.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "availability"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Why do most successful attacks begin with a person rather than a computer?",
+       "a": "Because persuading somebody is easier than defeating cryptography, and the messages take the same shape as legitimate ones people already expect."
+      },
+      {
+       "q": "What is the habit that defeats phishing?",
+       "a": "Verify through a channel you chose — the number or address you already had, never the one supplied in the message."
+      },
+      {
+       "q": "Why are spelling mistakes in phishing often deliberate?",
+       "a": "They filter out careful people, leaving those who will go all the way through. A targeted attack on a finance officer has no errors, names real people and refers to a real invoice."
+      },
+      {
+       "q": "State the 3-2-1 rule and say which part ransomware defeats.",
+       "a": "Three copies, on two kinds of media, one off-site and offline. The offline part is the one that matters: ransomware looks for backups first and encrypts anything it can reach."
+      },
+      {
+       "q": "Why is a backup nobody has restored from not a backup?",
+       "a": "Because the common failures — a job silently backing up an empty folder, an archive nobody has the password for — are only ever found by restoring one to a different machine."
+      }
+     ]
+    },
+    {
+     "id": "cs-web",
+     "title": "Web security: injection & XSS (and how to prevent them)",
+     "mins": 42,
+     "lang": "py",
+     "content": "\n<h3>One mistake, wearing three costumes</h3>\n<p>Injection, cross-site scripting and command injection are the same error:\n<b>data from a user reached a place where it was read as instructions</b>.\nOnce you see that, the fix is always the same shape too — keep data as data,\nnever build a command by gluing strings together.</p>\n\n<h3>SQL injection</h3>\n<pre><code>BROKEN\n  query = \"SELECT * FROM users WHERE name = '\" + name + \"'\"\n\n  name = admin'--\n  -> SELECT * FROM users WHERE name = 'admin'--'\n     the rest is a comment; the password check is gone</code></pre>\n<pre><code>SAFE — a parameter, not a string\n  cur.execute(\"SELECT * FROM users WHERE name = ?\", (name,))</code></pre>\n<p>The database receives the query and the value separately. There is no\narrangement of characters that turns the value into SQL, because it never\npasses through the parser as SQL.</p>\n<div class=\"callout\"><b>Escaping quotes yourself is not the fix.</b> It has\nbeen tried for twenty-five years and loses to some encoding, some character\nset, some case nobody thought of. Parameters are not a tidier escape — they\nremove the parsing step entirely, which is why they are safe by\nconstruction.</div>\n\n<h3>Cross-site scripting</h3>\n<p>Same fault, in the browser. A comment box takes what somebody typed and\nputs it into the page:</p>\n<pre><code>comment = \"&lt;script&gt;steal(document.cookie)&lt;/script&gt;\"</code></pre>\n<p>Written into the page as HTML, that runs — in every visitor's browser,\nwith their session. The fix is to <b>escape on output</b>: turn\n<code>&lt;</code> into <code>&amp;lt;</code> so it is displayed rather than\nexecuted.</p>\n<pre><code>escape when WRITING to the page, not when reading input\n  the same text is safe in HTML and dangerous in a URL,\n  so the encoding depends on where it lands</code></pre>\n<p>Then <b>Content-Security-Policy</b> as the layer behind it: a header\nsaying which scripts may run at all, so an injected one is refused even if\nsomething slipped through.</p>\n\n<h3>Cross-site request forgery</h3>\n<p>A different shape. You are signed in to your bank; another site quietly\nsubmits a form to it, and your browser helpfully attaches your cookies.</p>\n<pre><code>defence 1  a CSRF token: a value the other site cannot know\ndefence 2  SameSite cookies: the browser stops sending them\n           cross-site at all</code></pre>\n\n<h3>The habits underneath all of it</h3>\n<ul>\n<li><b>Validate on the server.</b> Browser checks are for helpfulness. Anyone\ncan send a request without a browser.</li>\n<li><b>Allow lists, not block lists.</b> \"Letters and digits only\" holds.\n\"Not &lt;script&gt;\" loses to <code>&lt;ScRiPt&gt;</code> and forty other\nspellings.</li>\n<li><b>Encode for the destination.</b> HTML, URL, SQL and a shell each need\ntheir own, and the right one depends on where the value is going.</li>\n</ul>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "The classic payload. Print what is left of <code>\"name = 'admin'--'\"</code> before the comment marker.",
+       "starter": "q = \"name = 'admin'--'\"\nprint('')   # fix this",
+       "solution": "q = \"name = 'admin'--'\"\nprint(q.split('--')[0].strip())",
+       "hint": "SQL ignores everything after --.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "name = 'admin'"
+        ]
+       }
+      },
+      {
+       "q": "Parameters keep data as data. Print the number of placeholders in <code>'... WHERE name = ? AND age = ?'</code>.",
+       "starter": "s = '... WHERE name = ? AND age = ?'\nprint(0)   # fix this",
+       "solution": "s = '... WHERE name = ? AND age = ?'\nprint(s.count('?'))",
+       "hint": "Count the question marks.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2"
+        ]
+       }
+      },
+      {
+       "q": "Escape for HTML. Turn <code>'&lt;b&gt;'</code> into its escaped form and print it.",
+       "starter": "s = '<b>'\nprint('')   # fix this",
+       "solution": "s = '<b>'\nprint(s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))",
+       "hint": "Ampersand first, or you double-escape.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "&lt;b&gt;"
+        ]
+       }
+      },
+      {
+       "q": "Order matters. Print the escaping of <code>'&amp;'</code>.",
+       "starter": "s = '&'\nprint('')   # fix this",
+       "solution": "s = '&'\nprint(s.replace('&', '&amp;'))",
+       "hint": "Do the ampersand before anything that produces one.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "&amp;"
+        ]
+       }
+      },
+      {
+       "q": "Block lists lose. Print whether '<ScRiPt>'.lower() contains '<script>'.",
+       "starter": "s = '<ScRiPt>'\nprint(False)   # fix this",
+       "solution": "s = '<ScRiPt>'\nprint('<script>' in s.lower())",
+       "hint": "Case is only one of the ways round it.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      },
+      {
+       "q": "Allow lists hold. Print whether 'abc123' is alphanumeric.",
+       "starter": "s = 'abc123'\nprint(False)   # fix this",
+       "solution": "s = 'abc123'\nprint(s.isalnum())",
+       "hint": "Say what IS allowed.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "True"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "What single mistake underlies SQL injection, XSS and command injection?",
+       "a": "Data from a user reaching a place where it is read as instructions — which is why the fix is always the same shape: keep data as data and never build a command by joining strings."
+      },
+      {
+       "q": "Why are query parameters safer than escaping quotes yourself?",
+       "a": "They remove the parsing step entirely: the database receives the query and the value separately, so no arrangement of characters can turn the value into SQL. Escaping is a twenty-five-year losing battle against encodings and character sets."
+      },
+      {
+       "q": "When should output be escaped, and why does the destination matter?",
+       "a": "When writing to the page, not when reading input. The same text is safe in HTML and dangerous in a URL, so the encoding depends on where the value lands."
+      },
+      {
+       "q": "What is CSRF and what are the two defences?",
+       "a": "Another site submitting a request to one you are signed in to, with your browser attaching your cookies. A CSRF token the other site cannot know, and SameSite cookies so the browser does not send them cross-site."
+      },
+      {
+       "q": "Why are allow lists better than block lists?",
+       "a": "'Letters and digits only' holds against everything. 'Not <script>' loses to <ScRiPt> and dozens of other spellings, because you can only block what somebody has already thought of."
+      }
+     ]
+    },
+    {
+     "id": "cs-secure",
+     "title": "Secure coding & handling secrets",
+     "mins": 40,
+     "lang": "py",
+     "content": "\n<h3>Secrets do not belong in code</h3>\n<p>An API key in a repository is public the moment the repository is, and\ndeleting it later does not help — git keeps every version, and automated\nscanners find keys within minutes of a push.</p>\n<pre><code>WRONG   API_KEY = \"sk_live_51H...\"          in the file\nRIGHT   API_KEY = os.environ[\"API_KEY\"]     from the environment</code></pre>\n<pre><code>.gitignore\n  .env               the file that holds them\ncommit\n  .env.example       the NAMES, with no values</code></pre>\n<div class=\"callout\"><b>A leaked key is rotated, not hidden.</b> Removing it\nfrom the latest commit leaves it in the history, and anybody who cloned the\nrepository already has it. The only correct response is to revoke that key\nand issue a new one, and then to ask what else that key could reach.</div>\n\n<h3>Everything you did not write</h3>\n<p>A modern project has hundreds of dependencies, most of them installed by\nsomething else. Every one runs with your program's privileges.</p>\n<pre><code>pip audit / npm audit     what has a known problem\nlock files                the same versions on every machine\ntyposquatting             'requsts' is not 'requests'\n```</code></pre>\n<p>Check the name character by character before installing something new.\nMalicious packages with names one letter from popular ones are published\nconstantly, and they run at install time.</p>\n\n<h3>Fail closed, and say little</h3>\n<pre><code>WRONG   except Exception:\n            pass                    an error nobody will ever see\n\nWRONG   \"No account with that email\"\n        \"Wrong password\"            now I know which emails exist\n\nRIGHT   \"Email or password is incorrect\"   one message, both cases\n</code></pre>\n<p>The same rule applies to stack traces. A page that prints one to a visitor\nhas handed over your file paths, your library versions and often a fragment\nof a query. Log the detail where you can read it; show the user a reference\nnumber.</p>\n\n<h3>What actually keeps code safe</h3>\n<ul>\n<li><b>Validate at the boundary</b> — where data enters the system, not\nscattered through it.</li>\n<li><b>Least privilege for programs too</b> — a web app's database user has\nno business being able to DROP a table.</li>\n<li><b>Update deliberately.</b> Most breaches use a vulnerability with a\npatch already available. The gap is not knowledge; it is the weeks between\nrelease and installation.</li>\n<li><b>Another pair of eyes.</b> Code review catches what the author cannot\nsee, because they know what they meant.</li>\n</ul>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Read a secret from the environment. Print the value of a variable that is not set, using a default.",
+       "starter": "import os\nprint('')   # fix this",
+       "solution": "import os\nprint(os.environ.get('API_KEY', 'not set'))",
+       "hint": "os.environ.get with a default.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "not set"
+        ]
+       }
+      },
+      {
+       "q": "Typosquatting. Print whether 'requsts' equals 'requests'.",
+       "starter": "print(True)   # fix this",
+       "solution": "print('requsts' == 'requests')",
+       "hint": "Read it letter by letter.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "One message for both cases. Print the safe response to a failed sign-in.",
+       "starter": "print('')   # fix this",
+       "solution": "print('Email or password is incorrect')",
+       "hint": "Never say which half was wrong.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "Email or password is incorrect"
+        ]
+       }
+      },
+      {
+       "q": "A leaked key stays in history. Print how many commits still hold it if it was added 5 commits ago and 'removed' in the latest.",
+       "starter": "added_ago = 5\nprint(0)   # fix this",
+       "solution": "added_ago = 5\nprint(added_ago)",
+       "hint": "Deleting it now changes nothing behind.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "5"
+        ]
+       }
+      },
+      {
+       "q": "Least privilege for a web app's database user. From <code>['select','insert','drop']</code> print what it should not have.",
+       "starter": "rights = ['select','insert','drop']\nprint([])   # fix this",
+       "solution": "rights = ['select','insert','drop']\nprint([r for r in rights if r == 'drop'])",
+       "hint": "It never needs to destroy a table.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "['drop']"
+        ]
+       }
+      },
+      {
+       "q": "The patch gap. Print the days between a patch on day 3 and installation on day 45.",
+       "starter": "released, installed = 3, 45\nprint(0)   # fix this",
+       "solution": "released, installed = 3, 45\nprint(installed - released)",
+       "hint": "That window is where most breaches happen.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "42"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "Why does deleting a leaked key from the latest commit not fix anything?",
+       "a": "Git keeps every version, so it is still in the history, and anybody who cloned the repository already has it. The key must be revoked and reissued."
+      },
+      {
+       "q": "What should be committed instead of the .env file?",
+       "a": "A .env.example holding the NAMES of the variables with no values, so somebody setting the project up knows what to supply."
+      },
+      {
+       "q": "Why is 'No account with that email' a security problem?",
+       "a": "It confirms which addresses are registered, which lets somebody enumerate your users. One message covering both cases gives nothing away."
+      },
+      {
+       "q": "What is the risk in a dependency you did not write?",
+       "a": "It runs with your program's full privileges, and most are installed by something else rather than chosen. Lock files, audits and reading a package name character by character are the defences."
+      },
+      {
+       "q": "Why is the patch gap more dangerous than unknown vulnerabilities?",
+       "a": "Most breaches use a vulnerability that already had a patch. The failure is not knowledge but the weeks between a fix being released and it being installed."
+      }
+     ]
+    },
+    {
+     "id": "cs-blue",
+     "title": "Defence & monitoring (Blue Team)",
+     "mins": 40,
+     "lang": "py",
+     "content": "\n<h3>Assume it will happen</h3>\n<p>Prevention is the first half and it is never complete. Blue team is the\nsecond: notice, understand, contain, recover. The measure of a defence is not\nwhether anything got in — it is how long it took to notice and how long to\nput right.</p>\n<pre><code>MTTD  mean time to DETECT     the industry figure is months\nMTTR  mean time to RESPOND    once detected, usually days</code></pre>\n<p>Months is the number that should be surprising. Most organisations do not\nfind out from their own systems; they are told by a customer, a bank or a\nresearcher.</p>\n\n<h3>Logs are what makes an answer possible</h3>\n<p>After an incident there are four questions, and every one of them is\nanswered from logs or not at all: what was reached, when it started, what was\ntaken, and is it still happening.</p>\n<pre><code>WORTH LOGGING\n  sign-ins, and failures\n  privilege changes: who became an admin\n  access to sensitive records\n  outbound connections from servers\n  configuration changes\n\nWORTH NOT LOGGING\n  passwords, card numbers, whole request bodies\n  — a log is a database of everything, and it gets breached too</code></pre>\n<div class=\"callout\"><b>Logs on the machine that was compromised are\nevidence somebody else controls.</b> The first thing an intruder tidies is\nthe record of their arrival. Ship them somewhere append-only and separately\ncontrolled, or they can be edited by exactly the person you are\ninvestigating.</div>\n\n<h3>Detection: what to actually watch</h3>\n<p>Alerting on everything produces a wall of noise that gets ignored, and an\nalert nobody reads is worse than none. A small number of specific, unusual\nthings works far better:</p>\n<pre><code>a sign-in from a new country, minutes after one from here\na user reading a thousand records when they usually read ten\nan admin account created outside working hours\na server making outbound connections it never made before\nthe same account failing to sign in a hundred times, then succeeding</code></pre>\n<p>The last one is the shape of a successful password attack, and it is\nvisible in the logs of almost every organisation that has had one.</p>\n\n<h3>When it happens</h3>\n<pre><code>1  CONTAIN    disconnect, disable the account, block the address\n              — do not wipe anything yet\n2  ASSESS     what was reached, over what period, whose data\n3  ERADICATE  close the way in; a password change is not enough\n              if a back door was left\n4  RECOVER    restore from a known-good backup, then watch\n5  LEARN      write down what happened and what would have\n              caught it sooner</code></pre>\n<div class=\"callout\"><b>Reformatting the machine immediately feels decisive\nand destroys the evidence.</b> You then cannot tell what was taken, which is\nthe question you are legally obliged to answer. In India, the CERT-In\ndirections require reporting certain incidents within six hours — and you\ncannot report what you did not preserve.</div>\n\n<h3>Practise it</h3>\n<p>Read the plan aloud with the people named in it, before anything happens.\nTabletop exercises find the ordinary problems: the phone number nobody\nanswers at 2 a.m., the backup password held by the person on leave, the\ndecision nobody is authorised to make.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "Print the total incident time when detection took 60 days and response took 5.",
+       "starter": "mttd, mttr = 60, 5\nprint(0)   # fix this",
+       "solution": "mttd, mttr = 60, 5\nprint(mttd + mttr)",
+       "hint": "Add them.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "65"
+        ]
+       }
+      },
+      {
+       "q": "Detection dominates. Print the percentage of that 65 days spent undetected, rounded to 0 places as a whole number.",
+       "starter": "mttd, total = 60, 65\nprint(0)   # fix this",
+       "solution": "mttd, total = 60, 65\nprint(int(round(mttd / total * 100)))",
+       "hint": "Divide and scale.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "92"
+        ]
+       }
+      },
+      {
+       "q": "Never log a password. From <code>['user','ip','password']</code> print what to keep.",
+       "starter": "fields = ['user','ip','password']\nprint([])   # fix this",
+       "solution": "fields = ['user','ip','password']\nprint([f for f in fields if f != 'password'])",
+       "hint": "A log gets breached too.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "['user', 'ip']"
+        ]
+       }
+      },
+      {
+       "q": "Unusual volume. A user normally reads 10 records and read 1000. Print how many times normal.",
+       "starter": "normal, seen = 10, 1000\nprint(0)   # fix this",
+       "solution": "normal, seen = 10, 1000\nprint(seen // normal)",
+       "hint": "Divide.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "100"
+        ]
+       }
+      },
+      {
+       "q": "A password attack, then success. Print the total sign-in attempts from 100 failures and 1 success.",
+       "starter": "fails, ok = 100, 1\nprint(0)   # fix this",
+       "solution": "fails, ok = 100, 1\nprint(fails + ok)",
+       "hint": "That shape is visible in almost every breach.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "101"
+        ]
+       }
+      },
+      {
+       "q": "CERT-In requires reporting within six hours. Print that in minutes.",
+       "starter": "hours = 6\nprint(0)   # fix this",
+       "solution": "hours = 6\nprint(hours * 60)",
+       "hint": "Sixty minutes to an hour.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "360"
+        ]
+       }
+      }
+     ],
+     "worksheet": [
+      {
+       "q": "What actually measures a defence, if not whether anything got in?",
+       "a": "How long it took to detect and how long to respond. The industry figure for detection is months, and most organisations are told by somebody outside rather than finding out themselves."
+      },
+      {
+       "q": "Why must logs be shipped off the machine that produced them?",
+       "a": "The first thing an intruder tidies is the record of their arrival. Logs on a compromised machine are evidence the attacker controls."
+      },
+      {
+       "q": "What should never be written to a log?",
+       "a": "Passwords, card numbers and whole request bodies. A log is a database of everything that happened, and it gets breached like any other."
+      },
+      {
+       "q": "Why is reformatting a compromised machine immediately a mistake?",
+       "a": "It destroys the evidence, so you can no longer say what was reached or taken — which is the question you are legally obliged to answer, and CERT-In requires reporting certain incidents within six hours."
+      },
+      {
+       "q": "What do tabletop exercises find that a written plan does not?",
+       "a": "The ordinary problems: the phone number nobody answers at 2 a.m., the backup password held by somebody on leave, the decision nobody is authorised to make."
+      }
+     ]
+    },
+    {
+     "id": "cs-career",
+     "title": "Ethical hacking & a cybersecurity career",
+     "mins": 40,
+     "lang": "py",
+     "content": "\n<h3>The line, and it is a legal one</h3>\n<p>The difference between a security professional and a criminal is\n<b>permission</b>, in writing, from somebody entitled to give it, naming what\nmay be tested and when.</p>\n<p>In India the Information Technology Act, 2000 — sections 43 and 66 — makes\nunauthorised access to a computer resource an offence, with damages and\nimprisonment. There is no exception for good intentions, none for \"I only\nlooked\", and none for reporting it afterwards.</p>\n<div class=\"callout\"><b>Scanning a company's website to see if it is\nvulnerable, with no agreement in place, is an offence.</b> So is trying a\npassword you found in a breach against somebody else's account. Both are\nthings people do while believing they are being helpful, and both have led to\nprosecutions.</div>\n\n<h3>Where to practise legally</h3>\n<pre><code>CTFs               picoCTF, OverTheWire, HackTheBox, TryHackMe\ndeliberately weak  DVWA, Juice Shop, WebGoat — run them yourself\nyour own lab       virtual machines on your own hardware\nbug bounties       HackerOne, Bugcrowd — read the SCOPE, then read it again\n</code></pre>\n<p>A bug bounty programme's scope is the permission. Testing something a page\noutside it is unauthorised access however good the finding, and the usual\noutcome is a ban rather than a reward.</p>\n\n<h3>The jobs, honestly</h3>\n<pre><code>SOC analyst        watch alerts, investigate, escalate. The usual way in.\nSecurity engineer  build the defences; mostly software engineering\nPenetration tester the glamorous one, the smallest number of posts\nIncident response  arrive after; long hours, high demand\nGRC / compliance   policy, audit, risk. Unfashionable, well paid, hiring.\nAppSec             secure the code. Best paid route for a developer.</code></pre>\n<p>Almost nobody starts as a penetration tester. The ordinary path is a\nhelp-desk or SOC role first, because employers want somebody who has seen how\nsystems actually behave before letting them break things.</p>\n\n<h3>Certifications, in the order they help</h3>\n<pre><code>Security+     the entry ticket many HR filters ask for\nCEH           widely recognised in India, theory-heavy\nOSCP          the respected one: 24 hours, hands-on, you either\n              get in or you do not\nCISSP         management-level; needs 5 years' experience</code></pre>\n<div class=\"callout\"><b>A certificate gets the interview; evidence gets the\njob.</b> A GitHub with a tool you wrote, a blog explaining a vulnerability\nclass in your own words, a CTF profile with solved challenges, a\nresponsible-disclosure thank-you. All of it legal, all of it checkable, and\nall of it worth more than another badge.</div>\n\n<h3>Disclosing something you find</h3>\n<pre><code>1  stop as soon as you have confirmed it — do not go further in\n2  do not read, copy or keep any data you can now reach\n3  report privately: security@, a bounty page, or CERT-In\n4  give them time to fix it before saying anything publicly\n5  never ask for money in exchange for silence — that is extortion,\n   whatever it is called\n</code></pre>\n<p>Step 2 is the one that decides how the conversation goes. \"I found this\nand stopped\" is a report. \"I found this and downloaded your customer table to\nprove it\" is an offence, and the fact that you were right about the\nvulnerability will not help.</p>\n",
+     "videos": [],
+     "refs": [],
+     "lab": {},
+     "exercises": [
+      {
+       "q": "What makes testing legal? Print one word.",
+       "starter": "print('')   # fix this",
        "solution": "print('permission')",
+       "hint": "In writing, from somebody entitled to give it.",
        "answer": "",
        "check": {
         "lines": [
@@ -584,19 +1211,88 @@
        }
       },
       {
-       "q": "A good entry-level certificate for cybersecurity. Print exactly: Security+",
-       "starter": "# entry-level CompTIA cert\n",
-       "hint": "CompTIA Security+.",
-       "solution": "print('Security+')",
+       "q": "Scope is the permission. Print whether 'admin.example.com' is in the scope <code>['www.example.com']</code>.",
+       "starter": "scope = ['www.example.com']\nprint(True)   # fix this",
+       "solution": "scope = ['www.example.com']\nprint('admin.example.com' in scope)",
+       "hint": "One page outside is unauthorised access.",
        "answer": "",
        "check": {
         "lines": [
-         "Security+"
+         "False"
+        ]
+       }
+      },
+      {
+       "q": "Print the sections of India's IT Act, 2000 that cover unauthorised access, separated by ' and '.",
+       "starter": "print('')   # fix this",
+       "solution": "print('43 and 66')",
+       "hint": "Two numbers.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "43 and 66"
+        ]
+       }
+      },
+      {
+       "q": "OSCP is a 24-hour practical exam. Print that in minutes.",
+       "starter": "hours = 24\nprint(0)   # fix this",
+       "solution": "hours = 24\nprint(hours * 60)",
+       "hint": "Multiply by sixty.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "1440"
+        ]
+       }
+      },
+      {
+       "q": "Evidence beats badges. From <code>['certificate','a tool you wrote','a CTF profile']</code> print how many are things you made.",
+       "starter": "items = ['certificate','a tool you wrote','a CTF profile']\nprint(0)   # fix this",
+       "solution": "items = ['certificate','a tool you wrote','a CTF profile']\nprint(len([i for i in items if i != 'certificate']))",
+       "hint": "Everything except the badge.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "2"
+        ]
+       }
+      },
+      {
+       "q": "Disclosure. From the steps <code>['confirm','stop','report']</code> print the one that comes straight after confirming.",
+       "starter": "steps = ['confirm','stop','report']\nprint('')   # fix this",
+       "solution": "steps = ['confirm','stop','report']\nprint(steps[1])",
+       "hint": "Do not go further in.",
+       "answer": "",
+       "check": {
+        "lines": [
+         "stop"
         ]
        }
       }
      ],
-     "worksheet": []
+     "worksheet": [
+      {
+       "q": "What separates a security professional from a criminal?",
+       "a": "Written permission from somebody entitled to give it, naming what may be tested and when. There is no exception for good intentions or for reporting it afterwards."
+      },
+      {
+       "q": "Name two things people do believing they are helpful that are offences in India.",
+       "a": "Scanning a company's website for vulnerabilities with no agreement in place, and trying a password found in a breach against somebody else's account. Both fall under sections 43 and 66 of the IT Act, 2000."
+      },
+      {
+       "q": "Where can somebody practise attacking systems legally?",
+       "a": "CTF platforms, deliberately vulnerable applications run on their own machine, a personal lab of virtual machines, and bug bounty programmes strictly inside the published scope."
+      },
+      {
+       "q": "Why does almost nobody start as a penetration tester?",
+       "a": "Employers want somebody who has seen how systems actually behave first, so the ordinary route is a help-desk or SOC role. There are also far fewer penetration testing posts than the reputation suggests."
+      },
+      {
+       "q": "Why is 'I downloaded your customer table to prove it' a serious mistake?",
+       "a": "Confirming and stopping is a report; copying data is an offence regardless of the vulnerability being real. It turns a disclosure into a prosecution."
+      }
+     ]
     }
    ]
   }
