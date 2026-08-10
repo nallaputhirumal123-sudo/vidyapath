@@ -1133,6 +1133,7 @@ function markOn(i){
         return '<button class="sw" data-mc="' + c + '" title="' + c +
           '" style="background:' + c + '"></button>'; }).join("") +
       '<button data-mt="pen" title="Pen">✎</button>' +
+      '<button data-mt="mark" title="Highlighter">🖍</button>' +
       '<button data-mt="eraser" title="Rub out">⌫</button>' +
       '<button data-mclear="1" title="Take every mark off">Clear</button>' +
       '<button data-mdone="1" title="Put the pen down">Done</button>';
@@ -1160,12 +1161,18 @@ function markOn(i){
   }
   function stroke(s){
     if(!ctx) return;
+    /* Same two tools as the writing board, drawn the same way, so a
+       highlight over a lesson and a highlight on the board look alike.
+       `lighter` rather than `multiply`: this pane may be showing a dark
+       lesson, and multiply over near-black highlights nothing. */
+    var mark = s.t === "mark";
     ctx.save();
-    ctx.globalAlpha = s.t === "marker" ? 0.34 : 1;
+    ctx.globalCompositeOperation = mark ? "lighter" : "source-over";
+    ctx.globalAlpha = mark ? 0.22 : 1;
     ctx.strokeStyle = s.c;
-    ctx.lineCap = "round";
+    ctx.lineCap = mark ? "butt" : "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = 3.2;
+    ctx.lineWidth = mark ? 16 : 3.2;
     if(s.p.length === 1){
       ctx.fillStyle = s.c;
       ctx.beginPath();
@@ -1242,11 +1249,14 @@ function markOn(i){
     b.classList.toggle("sel", b.dataset.mc === p.markColour);
     b.onclick = function(){
       p.markColour = b.dataset.mc;
-      p.markTool = "pen";
+      /* Picking a colour takes you out of the ERASER, because an eraser has
+         no colour — but not out of the highlighter, because highlighting one
+         line amber and the next green is the ordinary thing to want. */
+      if(p.markTool === "eraser") p.markTool = "pen";
       bar.querySelectorAll("[data-mc]").forEach(function(o){
         o.classList.toggle("sel", o === b); });
       bar.querySelectorAll("[data-mt]").forEach(function(o){
-        o.classList.toggle("sel", o.dataset.mt === "pen"); });
+        o.classList.toggle("sel", o.dataset.mt === p.markTool); });
     };
   });
   bar.querySelectorAll("[data-mt]").forEach(function(b){
@@ -1405,7 +1415,8 @@ function wirePanes(){
         try{ return keepShot(WRITING_SHOT(), b); }
         catch(e){ /* fall through to the screen capture */ }
       }
-      shoot();
+      /* This space, cropped out of the frame — not the whole tab. */
+      shootPane(i, b);
     };
   });
   wrap.querySelectorAll("[data-wrong]").forEach(function(b){
@@ -1475,6 +1486,63 @@ function wirePanes(){
    screenshot without shipping a dependency, it captures the 3D view and the
    writing space correctly where a DOM copy would not, and on a board it is
    one tap and a confirm. */
+/* One space, filed to the subject — not the whole screen.
+ *
+ * The ⛶ on a pane's own head said "Screenshot this space" and then captured
+ * the entire tab: the other three panes, the top bar, and the browser's own
+ * chrome around them. On a four-way split that is a picture of everything
+ * except the thing that was asked for.
+ *
+ * A browser cannot rasterise a page of HTML without a library, so the frame
+ * still comes from getDisplayMedia — but it is then cropped to that pane's
+ * own rectangle before anything is kept. The captured frame is the whole
+ * tab at some device scale, so the pane's CSS rectangle is scaled by the
+ * ratio between them rather than assumed to match.
+ */
+async function shootPane(i, btn){
+  var pane = el("panes").querySelector('.pane[data-i="' + i + '"]');
+  if(!pane) return shoot();
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    toastLine("This board's browser cannot photograph a space. The writing "
+              + "space has its own Save to the class button.");
+    return;
+  }
+  var stream = null;
+  try{
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser" }, audio: false });
+    var v = document.createElement("video");
+    v.srcObject = stream;
+    v.muted = true;
+    await v.play();
+    await new Promise(function(r){ setTimeout(r, 320); });
+    var fw = v.videoWidth || 1920, fh = v.videoHeight || 1080;
+    /* The frame covers the viewport, so the ratio is frame pixels per CSS
+       pixel — not devicePixelRatio, which is a different number whenever the
+       captured surface is scaled. */
+    var kx = fw / Math.max(1, window.innerWidth);
+    var ky = fh / Math.max(1, window.innerHeight);
+    var r = pane.getBoundingClientRect();
+    var sx = Math.max(0, Math.round(r.left * kx));
+    var sy = Math.max(0, Math.round(r.top * ky));
+    var sw = Math.min(fw - sx, Math.round(r.width * kx));
+    var sh = Math.min(fh - sy, Math.round(r.height * ky));
+    if(sw < 8 || sh < 8){
+      toastLine("That space is too small to photograph.");
+      return;
+    }
+    var cv = document.createElement("canvas");
+    cv.width = sw;
+    cv.height = sh;
+    cv.getContext("2d").drawImage(v, sx, sy, sw, sh, 0, 0, sw, sh);
+    await keepShot(cv, btn);
+  }catch(e){
+    /* Cancelling the picker is not an error worth a dialog. */
+  }finally{
+    if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  }
+}
+
 async function shoot(){
   if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
     alert("This board's browser cannot take a screenshot. The writing " +
@@ -3165,6 +3233,12 @@ function write(){
             'style="background:' + p.colour + ';border-color:' + p.colour +
             ';width:2rem"></button>';
         }).join("") +
+        /* Pen or highlighter, beside the colours rather than hidden behind
+           a menu. A highlighter is one of the two things anybody does at a
+           board — write, and point at what matters — and it took the same
+           number of taps as changing colour to reach, which was none,
+           because it did not exist. */
+        '<button class="iconbtn" id="wMark" title="Highlighter">🖍</button>' +
         '<button class="iconbtn" data-pen="erase" title="Rub out">⌫</button>' +
         '<span class="sep"></span>' +
         SHAPES.map(function(sh){
@@ -3211,6 +3285,11 @@ function write(){
      it matters. */
 
   var shape = "";          /* "" is the pen */
+  /* Holding the highlighter rather than the pen. Kept beside `shape` and
+     `erasing` because the three are one answer to "what does a drag do
+     now", and a board where two of them can be true at once is a board
+     nobody can predict. */
+  var highlighting = false;
 
   /* Found INSIDE this pane, never by id alone.
      `el()` is getElementById, and the board can show the writing space in
@@ -3303,20 +3382,40 @@ function write(){
 
   /* One stroke, in whatever size the board currently is. Segment by segment
      so a stylus's pressure still varies along it. */
+  /* A pen, or a highlighter.
+   *
+   * A highlighter is not a fat pen. It is wide, translucent, flat-ended and
+   * — the part that matters on a board — it must not hide what it is drawn
+   * over. So it is stroked at low alpha with a square cap, and pressure is
+   * ignored: a highlighter that thins where the hand lightened looks like a
+   * worn-out marker rather than a highlight.
+   *
+   * `lighter` rather than `multiply` because this board is dark. Multiply
+   * over a near-black background produces near-black, which is a highlighter
+   * that highlights nothing; adding light is what a yellow marker does to
+   * dark chalk.
+   */
   function drawStroke(c, s, scale, ox, oy){
-    c.globalCompositeOperation = s.e ? "destination-out" : "source-over";
+    var mark = s.t === "mark";
+    c.globalCompositeOperation = s.e ? "destination-out"
+                                     : (mark ? "lighter" : "source-over");
+    c.globalAlpha = mark ? 0.22 : 1;
     c.strokeStyle = s.c;
-    c.lineCap = "round";
+    c.lineCap = mark ? "butt" : "round";
     c.lineJoin = "round";
     var pts = s.p;
     for(var i = 1; i < pts.length; i++){
-      c.lineWidth = Math.max(0.5, (s.e ? s.w * 3 : s.w) * scale
-                                  * (0.6 + pts[i][2] * 0.8));
+      var w = s.e ? s.w * 3 : (mark ? s.w * 5 : s.w);
+      c.lineWidth = Math.max(0.5, w * scale
+                                  * (mark ? 1 : (0.6 + pts[i][2] * 0.8)));
       c.beginPath();
       c.moveTo(ox + pts[i - 1][0] * scale, oy + pts[i - 1][1] * scale);
       c.lineTo(ox + pts[i][0] * scale, oy + pts[i][1] * scale);
       c.stroke();
     }
+    /* Left set, the next stroke inherits it — and one highlight turns every
+       mark after it translucent. */
+    c.globalAlpha = 1;
   }
 
   /* The whole board, onto any context. The screen and the exported picture
@@ -3603,7 +3702,14 @@ function write(){
 
   cv.addEventListener("pointerdown", function(e){
     e.preventDefault();
-    cv.setPointerCapture(e.pointerId);
+    /* Guarded, like every other setPointerCapture on this board.
+       It throws NotFoundError when the pointer it names is no longer active
+       — a pointer released between the event being queued and this handler
+       running, which a slow board under a lesson does produce. Unguarded,
+       the throw lands BEFORE `live` is created, so the stroke never starts:
+       the teacher writes and nothing appears, with no error they can see.
+       Capture is a nicety here; drawing is not. */
+    try{ cv.setPointerCapture(e.pointerId); }catch(err){}
     touches[e.pointerId] = px(e);
     var ids = Object.keys(touches);
 
@@ -3651,7 +3757,8 @@ function write(){
 
     var hint = wq("wHint");
     if(hint) hint.hidden = true;
-    live = { c: pen, e: erasing, w: size, p: [] };
+    live = { c: pen, e: erasing, w: size, p: [],
+             t: highlighting ? "mark" : "" };
     var p0 = at(e);
     live.p.push(p0);
     if(shape){ live.from = p0; return; }    /* a shape grows from here */
@@ -3922,6 +4029,15 @@ function write(){
     wq("wTools").querySelectorAll("[data-shape]").forEach(function(q){
       q.classList.toggle("on", q.dataset.shape === shape);
     });
+    var hb = wq("wMark");
+    if(hb) hb.classList.toggle("on", highlighting);
+    /* Which colour is in the hand. Nothing said, so after picking green
+       the bar still looked exactly as it had with white. */
+    wq("wTools").querySelectorAll("[data-pen]").forEach(function(q){
+      if(q.dataset.pen === "erase"){ q.classList.toggle("on", erasing); return; }
+      q.classList.toggle("on", !erasing &&
+                          PENS[+q.dataset.pen].colour === pen);
+    });
   }
   wq("wTools").querySelectorAll("[data-shape]").forEach(function(b){
     b.onclick = function(){
@@ -3934,12 +4050,28 @@ function write(){
   });
   wq("wTools").querySelectorAll("[data-pen]").forEach(function(b){
     b.onclick = function(){
-      shape = ""; markTool();
-      if(b.dataset.pen === "erase"){ erasing = true; return; }
+      shape = "";
+      if(b.dataset.pen === "erase"){
+        erasing = true;
+        /* An eraser is not a colour of highlighter. */
+        highlighting = false;
+        markTool();
+        return;
+      }
       erasing = false;
       pen = PENS[+b.dataset.pen].colour;
+      /* Picking a colour does NOT put the highlighter down: highlighting
+        one line amber and the next green is the ordinary thing to want. */
+      markTool();
     };
   });
+  /* Tapping the highlighter while holding it puts the pen back, the same
+     way the shape buttons behave — one rule for every tool on this bar. */
+  wq("wMark").onclick = function(){
+    highlighting = !highlighting;
+    if(highlighting){ erasing = false; shape = ""; }
+    markTool();
+  };
   wq("wSize").oninput = function(){ size = +wq("wSize").value; };
   /* Undo, because Clear on its own is a lesson's worth of working thrown
      away by one mis-tap, and every board a teacher has used has this. */

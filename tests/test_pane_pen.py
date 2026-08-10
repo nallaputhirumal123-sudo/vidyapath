@@ -115,5 +115,69 @@ ck("an eraser that removes strokes rather than painting over them",
    "or the theme changes")
 ck("and Clear", 'data-mclear="1"' in SRC)
 
+# Highlighters, and a picture of ONE space.
+#
+# Two complaints from the same lesson. There was one pen and five colours —
+# no marker, nothing to point at a line with — and the ⛶ on a pane's own
+# head said "Screenshot this space" and captured the entire tab: the other
+# three panes, the top bar and the browser chrome. On a four-way split that
+# is a picture of everything except the thing that was asked for.
+print("\na highlighter, not just a fatter pen")
+ck("the writing board has one on its fixed bar", 'id="wMark"' in SRC)
+ck("and so does each space's own pen", 'data-mt="mark"' in SRC,
+   "the two bars should hold the same tools or the board has two grammars")
+ck("it is wide, flat-ended and translucent",
+   'c.lineCap = mark ? "butt" : "round";' in SRC
+   and "c.globalAlpha = mark ? 0.22 : 1;" in SRC)
+ck("pressure is ignored for it",
+   "(mark ? 1 : (0.6 + pts[i][2] * 0.8))" in SRC,
+   "a highlight that thins where the hand lightened reads as a worn-out "
+   "marker rather than a highlight")
+ck("and it ADDS light rather than multiplying",
+   '(mark ? "lighter" : "source-over")' in SRC,
+   "multiply over this board's near-black background produces near-black — "
+   "a highlighter that highlights nothing")
+ck("the alpha is put back after the stroke",
+   "c.globalAlpha = 1;" in SRC,
+   "left set, one highlight turns every mark after it translucent")
+ck("changing colour keeps the highlighter in hand",
+   'if(p.markTool === "eraser") p.markTool = "pen";' in SRC,
+   "highlighting one line amber and the next green is the ordinary thing "
+   "to want")
+ck("but the eraser is not a colour of highlighter",
+   "highlighting = false;" in SRC)
+ck("and the bar shows which colour is held",
+   "PENS[+q.dataset.pen].colour === pen" in SRC,
+   "nothing said, so after picking green the bar looked as it had with white")
+
+print("\nand a picture of one space is that space")
+ck("a pane photographs itself", "async function shootPane(i, btn){" in SRC)
+ck("cropped out of the captured frame",
+   "cv.getContext(\"2d\").drawImage(v, sx, sy, sw, sh, 0, 0, sw, sh);" in SRC)
+ck("scaled by frame pixels per CSS pixel",
+   "var kx = fw / Math.max(1, window.innerWidth);" in SRC,
+   "devicePixelRatio is a different number whenever the captured surface is "
+   "scaled")
+ck("clamped inside the frame",
+   "var sw = Math.min(fw - sx, Math.round(r.width * kx));" in SRC)
+ck("and it is FILED to the subject, not downloaded to a wall-mounted PC",
+   "await keepShot(cv, btn);" in SRC)
+ck("the pane's button calls it rather than the whole-screen capture",
+   "shootPane(i, b);" in SRC)
+
+print("\nand a stroke is never lost to a capture that failed")
+# setPointerCapture throws NotFoundError when the pointer it names is no
+# longer active — a pointer released between the event being queued and the
+# handler running, which a slow board under a lesson does produce. Unguarded
+# on the writing canvas, that throw landed BEFORE `live` was created, so the
+# stroke never started: the teacher writes and nothing appears, with no error
+# they can see. Found while trying to draw on it from a browser and getting
+# nothing; guarding it made both strokes land.
+ck("the writing canvas guards it",
+   SRC.count("try{ cv.setPointerCapture(e.pointerId); }catch(err){}") >= 3,
+   "capture is a nicety on this canvas; drawing is not")
+ck("and nothing calls it bare any more",
+   "\n    cv.setPointerCapture(e.pointerId);\n" not in SRC)
+
 print(f"\nPASSED {P}   FAILED {F}")
 sys.exit(1 if F else 0)
