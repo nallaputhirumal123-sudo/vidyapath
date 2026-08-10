@@ -835,6 +835,10 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 .ask-samp{background:var(--panel2);border:1px solid var(--line,#2a3340);color:var(--text);
   font-size:12.5px;padding:7px 12px;border-radius:999px;cursor:pointer;font-family:inherit}
 .ask-samp:hover:not(:disabled){border-color:#8fe3b0}
+/* Which simulation is the one on screen. A row of identical pills with no
+   mark on the current one is a row you cannot read your place in. */
+.ask-samp.on{border-color:var(--accent);color:var(--accent)}
+.ask-samp{margin:0 6px 6px 0}
 .ask-toggle{margin-left:auto;font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none}
 .ask-sw{width:38px;height:22px;border-radius:999px;background:#666;position:relative;transition:.2s;display:inline-block}
 .ask-sw.on{background:#8fe3b0}
@@ -5625,6 +5629,23 @@ function renderAskInner(){
     </div>
   </div>
 
+  <!-- Three things to LOOK at, under the board, for the person learning.
+       The classroom board has had a 3D viewer, PhET and a picture search in
+       its tool menu since it shipped, and a student on this site had none of
+       them: they existed only where a teacher was standing. A molecule you
+       can turn over is the thing a diagram in a book cannot be, and it is
+       the learner who needs to turn it, not the room. Same routes, same
+       catalogues, same licences printed underneath. -->
+  <div class="ask-actions" style="margin-top:2px">
+    <button class="ask-abtn ${LOOK.open==="scene"?"ok":""}" data-look="scene"
+      title="Turn a molecule or a crystal over in your hands">🧬 3D structure</button>
+    <button class="ask-abtn ${LOOK.open==="sim"?"ok":""}" data-look="sim"
+      title="Drive a PhET simulation">🔬 Simulation</button>
+    <button class="ask-abtn ${LOOK.open==="pic"?"ok":""}" data-look="pic"
+      title="A photograph or a diagram, with its licence">🖼 Picture</button>
+  </div>
+  <div id="lookWrap"></div>
+
   ${hasLesson&&!sbOn?`<div class="ask-actions">
     ${a.speaking?"":`<button class="ask-abtn" data-ask="readaloud">🔊 Read aloud</button>`}
     ${a.speaking?"":`<button class="ask-abtn" data-ask="more">🔎 More detail</button>`}
@@ -5705,7 +5726,160 @@ function renderAskInner(){
   }
   const ph=document.getElementById("askPhoto");
   if(ph) ph.onchange=()=>{ if(ph.files[0]) askPhotoSend(ph.files[0]); };
+  /* The look-at panel lives in a container this render just replaced, so it
+     is drawn again here rather than left blank behind an open chip. */
+  renderLook();
 }
+
+/* ---- three things to look at, under the board ----------------------------
+ *
+ * The classroom board has carried a 3D viewer, the PhET catalogue and a
+ * picture search in its tool menu since it shipped. A student on this site
+ * had none of the three: they existed only in the room where a teacher was
+ * standing. These are the same routes and the same catalogues — no new
+ * server work, no model call, and the licence still prints underneath.
+ *
+ * Kept in its own container and drawn by its own function rather than
+ * folded into renderAsk(), because renderAsk() replaces the whole section:
+ * a WebGL canvas mounted inside it would be thrown away and rebuilt on
+ * every level change, losing whatever the learner had turned the molecule
+ * to. This redraws only when the panel itself changes.
+ */
+const LOOK={open:"",q:"",busy:false,msg:"",out:null,sims:null,sim:""};
+const LOOK_PLACE={
+  scene:"caffeine · water · silicon · graphene · haemoglobin",
+  pic:"a mitochondrion · Saturn · a titration"
+};
+const LOOK_NOTE={
+  scene:"Measured, not drawn — from PubChem, the Protein Data Bank, or a "+
+        "published table. Drag to turn it over.",
+  pic:"Public catalogues only, with the licence beside the picture.",
+  sim:"Simulations by PhET, University of Colorado Boulder."
+};
+function lookOpen(kind){
+  LOOK.open = LOOK.open===kind ? "" : kind;
+  LOOK.msg = LOOK.open ? LOOK_NOTE[LOOK.open] : "";
+  LOOK.out = null;
+  renderAsk();
+  if(LOOK.open==="sim") lookSims();
+}
+function renderLook(){
+  const wrap=$("#lookWrap"); if(!wrap) return;
+  if(!LOOK.open){ wrap.innerHTML=""; return; }
+  const k=LOOK.open;
+  wrap.innerHTML=`<div class="card" style="margin-top:8px">
+    ${k==="sim"?"":`<div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ask-input" id="lookQ" style="flex:1 1 220px"
+        placeholder="${esc(LOOK_PLACE[k])}" value="${esc(LOOK.q)}">
+      <button class="btn sm" id="lookGo" ${LOOK.busy?"disabled":""}>${
+        LOOK.busy?"Looking…":"Show it"}</button></div>`}
+    <div style="color:var(--dim);font-size:12.5px;margin-top:6px"
+      id="lookMsg">${esc(LOOK.msg||"")}</div>
+    <div id="lookOut" style="margin-top:10px"></div></div>`;
+  const q=$("#lookQ");
+  if(q){
+    q.oninput=e=>{ LOOK.q=e.target.value; };
+    q.onkeydown=e=>{ if(e.key==="Enter") lookRun(); };
+  }
+  const go=$("#lookGo"); if(go) go.onclick=()=>lookRun();
+  lookPaint();
+}
+/* Drawing the result is separate from drawing the panel, so that a redraw
+   of the panel does not have to re-fetch, and a 3D scene is mounted exactly
+   once — mount() a second time into a host that already holds a canvas and
+   the board ends up with two. */
+function lookPaint(){
+  const out=$("#lookOut"); if(!out||!LOOK.out) return;
+  const o=LOOK.out;
+  if(o.kind==="scene"){
+    if(out.querySelector("canvas")) return;
+    out.innerHTML=`<div id="lookScene" style="height:340px;border-radius:12px;
+      overflow:hidden;background:var(--panel)"></div>
+      <div style="color:var(--dim);font-size:12.5px;margin-top:6px">${
+        esc(o.caption||"")}</div>`;
+    const host=$("#lookScene");
+    if(!window.Three3D||!Three3D.mount){
+      host.innerHTML=`<div style="padding:14px;color:var(--dim)">The 3D
+        viewer could not load. It comes from a public CDN — this network may
+        be blocking it.</div>`;
+      return;
+    }
+    Three3D.mount(host,o.scene).catch(()=>{
+      host.innerHTML=`<div style="padding:14px;color:var(--dim)">The 3D
+        viewer could not draw this one.</div>`; });
+  }else if(o.kind==="pic"){
+    /* caption / author / license / page — the names images.py actually
+       returns. The board's own picture search read title / credit / licence,
+       so every one of the three was undefined and the credit line under a
+       CC BY photograph rendered empty. A licence that does not print is a
+       licence that is not being honoured. */
+    out.innerHTML=(o.photo?`<img src="${esc(o.photo.url||"")}" alt=""
+      style="max-width:100%;border-radius:12px;display:block">
+      <div style="color:var(--dim);font-size:12.5px;margin-top:6px">${
+        esc(o.photo.caption||"")}${
+        o.photo.author?" · "+esc(o.photo.author):""}${
+        o.photo.license?" · "+esc(o.photo.license):""}${
+        o.photo.page?` · <a href="${esc(o.photo.page)}" target="_blank"
+          rel="noopener">source</a>`:""}</div>`:"")+
+      ((o.chapters||[]).length?`<div style="color:var(--dim);font-size:12.5px;
+        margin-top:10px">Also in your books: ${o.chapters.map(c=>esc(c.title))
+        .join(" · ")}</div>`:"");
+  }else if(o.kind==="sim"){
+    out.innerHTML=`<div style="margin-bottom:8px">${o.sims.map(s=>
+      `<button class="ask-samp${s.id===LOOK.sim?" on":""}"
+        data-looksim="${esc(s.id)}">${esc(s.title)}</button>`).join("")}</div>
+      ${o.url?`<iframe src="${esc(o.url)}" title="${esc(o.title||"")}"
+        style="width:100%;height:420px;border:0;border-radius:12px;
+        background:#000" allowfullscreen></iframe>
+        <div style="color:var(--dim);font-size:12.5px;margin-top:6px">${
+          esc(o.title||"")} · ${esc(o.licence||"")}</div>`:""}`;
+  }
+}
+async function lookRun(){
+  const k=LOOK.open, q=(LOOK.q||"").trim();
+  if(k==="sim") return;
+  if(q.length<2){ LOOK.msg="Type the name of the thing itself — a molecule, "+
+    "a mineral, a planet."; return renderLook(); }
+  LOOK.busy=true; LOOK.msg="Looking…"; LOOK.out=null; renderLook();
+  try{
+    if(k==="scene"){
+      const d=await api.get("/api/craxlearn/structure?name="+
+        encodeURIComponent(q));
+      LOOK.out={kind:"scene",scene:d.scene,caption:(d.scene&&d.scene.caption)||q};
+      LOOK.msg=LOOK_NOTE.scene;
+    }else{
+      const d=await api.get("/api/craxlearn/search?q="+encodeURIComponent(q));
+      LOOK.out={kind:"pic",photo:d.photo,chapters:d.chapters||[]};
+      LOOK.msg=d.photo?("From: "+(d.sources||[]).join(", "))
+        :"Nothing in the open catalogues for that. Try the plain name of the "+
+         "thing rather than a question about it.";
+    }
+  }catch(e){ LOOK.msg=e.message||"That did not come back."; }
+  LOOK.busy=false; renderLook();
+}
+async function lookSims(pick){
+  if(!LOOK.sims){
+    LOOK.msg="Loading what PhET has…"; renderLook();
+    try{ const d=await api.get("/api/craxlearn/phet");
+         LOOK.sims=d.sims||[]; LOOK.licence=d.licence||""; }
+    catch(e){ LOOK.msg=e.message||"PhET could not be reached."; LOOK.sims=null;
+              return renderLook(); }
+  }
+  if(!LOOK.sims.length){ LOOK.msg="Nothing available right now."; LOOK.out=null;
+                         return renderLook(); }
+  const s=LOOK.sims.filter(x=>x.id===(pick||LOOK.sim))[0]||LOOK.sims[0];
+  LOOK.sim=s.id;
+  LOOK.out={kind:"sim",sims:LOOK.sims,url:s.url,title:s.title,
+            licence:LOOK.licence};
+  LOOK.msg=LOOK_NOTE.sim;
+  renderLook();
+}
+document.addEventListener("click",e=>{
+  const b=e.target.closest&&e.target.closest("[data-look]");
+  if(b) return lookOpen(b.dataset.look);
+  const s=e.target.closest&&e.target.closest("[data-looksim]");
+  if(s) return lookSims(s.dataset.looksim);
+});
 
 /* Ask section uses its own data-ask handler so it never triggers navigation. */
 document.addEventListener("click",e=>{

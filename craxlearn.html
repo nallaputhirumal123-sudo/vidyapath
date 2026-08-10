@@ -4260,12 +4260,20 @@ async function find(term){
         '<div id="bp_' + esc(c.code) + '"></div></div>';
     });
     if(d.photo){
+      /* caption / author / license / page — the names images.py returns.
+         This read title / credit / licence, so all three were undefined and
+         the line under a CC BY photograph came out empty: the picture was
+         on the board with no credit and no licence beside it, which is the
+         one thing this tool promises in its own subtitle. */
       h += '<div class="card"><img src="' + esc(d.photo.url || "") +
         '" alt="" style="max-width:100%;border-radius:12px;display:block">' +
         '<div class="muted" style="margin-top:.5rem">' +
-        esc(d.photo.title || "") +
-        (d.photo.credit ? " · " + esc(d.photo.credit) : "") +
-        (d.photo.licence ? " · " + esc(d.photo.licence) : "") + "</div></div>";
+        esc(d.photo.caption || "") +
+        (d.photo.author ? " · " + esc(d.photo.author) : "") +
+        (d.photo.license ? " · " + esc(d.photo.license) : "") +
+        (d.photo.page ? ' · <a href="' + esc(d.photo.page) +
+          '" target="_blank" rel="noopener">source</a>' : "") +
+        "</div></div>";
     }
     if(d.scene){
       h += '<div class="card" style="padding:.4rem"><div id="fScene" ' +
@@ -5439,9 +5447,11 @@ function lessonPages(L, topic){
       html: '<div class="card"><img src="' + esc(L.photo.url) + '" alt="" ' +
         'style="max-width:100%;border-radius:12px;display:block">' +
         '<div class="muted" style="margin-top:.5rem">' +
-        esc(L.photo.title || "") +
-        (L.photo.credit ? " · " + esc(L.photo.credit) : "") +
-        (L.photo.licence ? " · " + esc(L.photo.licence) : "") + "</div></div>",
+        esc(L.photo.caption || "") +
+        (L.photo.author ? " · " + esc(L.photo.author) : "") +
+        (L.photo.license ? " · " + esc(L.photo.license) : "") +
+        (L.photo.page ? ' · <a href="' + esc(L.photo.page) +
+          '" target="_blank" rel="noopener">source</a>' : "") + "</div></div>",
       figures: []
     });
   }
