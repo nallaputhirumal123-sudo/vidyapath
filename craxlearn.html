@@ -645,6 +645,7 @@ body.gated .gatesources{display:none}
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="headsBtn" title="Hide the space bars">⌃</button>
   <button class="iconbtn" id="scaleBtn" title="Text size">Aa</button>
+  <button class="iconbtn" id="fullBtn" title="Full screen">⤢</button>
   <button class="iconbtn" id="homeBtn" title="Home">⌂</button>
   <button class="iconbtn" id="outBtn" title="Sign out">↪</button>
 </div>
@@ -6270,7 +6271,27 @@ Ink.start();
    bars are already hidden. */
 setHeads(headsHidden());
 el("inkBtn").onclick = function(){ Ink.toggle(); };
-el("shotBtn").onclick = function(){ shoot(); };
+/* The top bar's camera photographs the LIVE space when it can.
+ *
+ * It always asked to share the whole screen, and a permission dialog in the
+ * middle of a lesson is the wrong answer to "keep this". The writing space
+ * is a canvas and can be read with no permission at all — and what comes out
+ * is the board rather than the board plus a tab strip, an address bar and
+ * whatever is in the other half.
+ *
+ * The screen capture is still there for everything a browser genuinely
+ * cannot rasterise on its own, which is every space that is a page of HTML
+ * rather than a canvas. */
+el("shotBtn").onclick = function(b){
+  var live = PANES[LIVE];
+  if(live && live.page === "write" && WRITING_SHOT){
+    var cnv = WRITING_SHOT();
+    if(cnv) return keepShot(cnv, el("shotBtn"));
+    toastLine("There is nothing on the board yet — write something first.");
+    return;
+  }
+  shoot();
+};
 /* One press adds a space, up to four; the fifth press goes back to one.
    A cycle rather than separate add and remove buttons, because a board is
    operated mid-sentence and one button you press again is easier to
@@ -6336,6 +6357,47 @@ document.addEventListener("pointerdown", function(e){
   document.addEventListener("pointerup", up, true);
 }, true);
 
+/* Full screen, which this never actually had.
+ *
+ * The button in this slot used to be ⤢ and was the text-size toggle, so it
+ * READ as full screen and was not — which is how somebody notices it
+ * "missing" the moment the icon changes to Aa. A wall-mounted board wants
+ * the real thing: the browser's tab strip and address bar are two
+ * centimetres of a screen a class is reading from the back of.
+ *
+ * The button follows the actual state rather than remembering what it last
+ * asked for. Escape exits full screen without going near this button, and a
+ * control that then still says "Full screen" is lying about the room. */
+function paintFull(){
+  var b = el("fullBtn");
+  if(!b) return;
+  var on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  b.textContent = on ? "⤡" : "⤢";
+  b.title = on ? "Leave full screen" : "Full screen";
+  b.classList.toggle("on", on);
+}
+
+document.addEventListener("fullscreenchange", paintFull);
+document.addEventListener("webkitfullscreenchange", paintFull);
+
+el("fullBtn").onclick = function(){
+  var d = document.documentElement;
+  var on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  try{
+    if(on){
+      (document.exitFullscreen || document.webkitExitFullscreen)
+        .call(document);
+    }else{
+      (d.requestFullscreen || d.webkitRequestFullscreen).call(d);
+    }
+  }catch(e){
+    /* Refused by the browser, or unsupported — an iframe without the
+       permission, or a kiosk that is already full screen. Saying so beats a
+       button that does nothing. */
+    toastLine("This browser would not change to full screen.");
+  }
+};
+
 el("scaleBtn").onclick = function(e){
   e.stopPropagation();
   toggleScaleMenu();
@@ -6385,6 +6447,7 @@ window.addEventListener("beforeinstallprompt", function(e){
 })();
 
 scale();
+paintFull();
 boot();
 })();
 </script>

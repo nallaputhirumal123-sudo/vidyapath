@@ -234,6 +234,25 @@ ck("but the choice itself is still the teacher's, not guessed from width",
    "a smart board reports a perfectly ordinary 1920 and must not get "
    "laptop type")
 
+print("\nfull screen, which the board never actually had")
+# The button in this slot used to be the text-size toggle drawn as an expand
+# arrow, so it READ as full screen and was not — which is how it gets noticed
+# as "missing" the moment the icon becomes Aa. A wall-mounted board wants the
+# real thing: a tab strip and an address bar are two centimetres of a screen
+# a class reads from the back of.
+ck("there is a full screen button", 'id="fullBtn"' in SRC)
+ck("it asks the browser, both spellings",
+   "d.requestFullscreen || d.webkitRequestFullscreen" in SRC)
+ck("and leaves it again",
+   "document.exitFullscreen || document.webkitExitFullscreen" in SRC)
+ck("the icon follows the real state, not the last press",
+   'document.addEventListener("fullscreenchange", paintFull);' in SRC,
+   "Escape leaves full screen without touching the button, and one that "
+   "still says 'Full screen' is lying about the room")
+ck("and a refusal is said out loud",
+   'toastLine("This browser would not change to full screen.");' in SRC,
+   "an iframe without the permission, or a kiosk already full screen")
+
 print("\ntext size is chosen, not toggled")
 # It was a toggle between 26px and 18px, and a toggle fits a room only when
 # the room happens to be one of two. A hall wants more than a board; somebody

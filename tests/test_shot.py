@@ -109,6 +109,18 @@ ck("and Save to the class with it",
    "an untouched board filed a picture of its own background under the "
    "subject, and the class opened a blank rectangle")
 
+print("\nthe top bar's camera does not ask to share the screen either")
+# The pane's own camera was fixed and this one was not, so pressing the
+# obvious button in the top bar still put a permission dialog in the middle
+# of a lesson — and captured a tab strip, an address bar and the other half
+# of a split board along with the board.
+ck("it photographs the live space when that is a canvas",
+   'live && live.page === "write" && WRITING_SHOT' in SRC)
+ck("and says so when there is nothing on it",
+   SRC.count("There is nothing on the board yet") >= 4)
+ck("the screen capture stays for everything else", "  shoot();\n};" in SRC,
+   "a browser cannot rasterise a page of HTML without a library")
+
 print("\nand a saved file opens from the board")
 # The link was a plain <a href>, and a header does not ride on a link click,
 # so the board asked for the file with no credential and was turned away.
