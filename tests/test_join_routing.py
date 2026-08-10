@@ -81,5 +81,46 @@ ck("and the join tab points staff at it",
    "use the Sign in tab instead" in _idx,
    "a teacher with a password needs telling where it goes")
 
+# The boxes went and the sign above them stayed.
+#
+# "or use email" is a divider between Google and the email fields. Removing
+# the fields from this tab left the divider announcing them, so the code tab
+# read: Continue with Google — or use email — YOUR CODE. Both the button and
+# the rule are withdrawn here, because Google on the code tab lands you in an
+# account rather than in the class.
+ck("the code tab shows no or-use-email rule",
+   'const gon = GOOGLE_ON && which !== "join";' in _idx,
+   "a divider naming fields that are not there")
+ck("and neither the Google button above it",
+   'if(gb) gb.style.display = gon ? "flex" : "none";' in _idx)
+ck("the other two tabs still get both",
+   'if(go) go.style.display = gon ? "flex" : "none";' in _idx
+   and "let GOOGLE_ON = false;" in _idx)
+ck("and the config reply cannot switch them back on over the code tab",
+   'const on = !$("#tabJoin") || !$("#tabJoin").classList.contains("on");'
+   in _idx,
+   "/api/auth/config settles after the tab is chosen, so it would have "
+   "re-shown them on a deep link straight to the code tab")
+
+# A code shown beside a teacher's name that refuses to sign them in.
+#
+# The dashboard headed these "Subjects & teacher codes" and printed one next
+# to each teacher. They are BOARD codes: they open a subject on a classroom
+# screen and sign nobody in, deliberately, because a whole class reads one
+# off a wall and it must not be a credential. But the label invited the
+# obvious thing to try, and the obvious thing to try is refused — which
+# reads as broken rather than as designed.
+ck("the heading says what the code opens",
+   "board codes</div>" in _idx)
+ck("and each row repeats it", "board code <b style=" in _idx,
+   "a teacher reads the row, not the heading")
+ck("with the sign-in said plainly beside it",
+   "It is not a\n        sign-in — teachers sign in with their email and "
+   "password." in _idx)
+ck("and the pupils' code says whose it is",
+   "for pupils, on the Join with code tab" in _idx,
+   "a class code typed into the Teacher tab is the other half of the same "
+   "confusion")
+
 print(f"\nPASSED {P}   FAILED {F}")
 sys.exit(1 if F else 0)
