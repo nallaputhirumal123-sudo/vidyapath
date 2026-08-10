@@ -161,6 +161,44 @@ ck("dragging a rectangle selects rather than saves immediately",
 ck("and with no rectangle, the whole frame is used",
    "keep(picked || src)" in SRC and "save(picked || src)" in SRC)
 
+# A ring drawn round the third paragraph, and the third paragraph moving.
+#
+# The marks were kept in viewport coordinates: annotate a lesson, scroll, and
+# the ring is round a different paragraph. And scrolling was locked outright
+# while the pen was on, so the way to mark the next screenful was to turn the
+# pen off, scroll, turn it on — and find the earlier marks in the wrong
+# places. They travel with the document now.
+_INK = io.open(os.path.join(ROOT, "ink.js"), encoding="utf-8").read()
+print("\nmarks stay on what they were drawn on")
+ck("strokes are captured in page coordinates",
+   "x: e.clientX + sx(), y: e.clientY + sy()" in _INK)
+ck("coalesced points too, or a stroke splits across two spaces",
+   "x: evs[i].clientX + sx(), y: evs[i].clientY + sy()" in _INK)
+ck("the eraser looks in the same space it drew in",
+   "erase(e.clientX + sx(), e.clientY + sy())" in _INK,
+   "a stroke laid down against one number and erased against another is a "
+   "mark that cannot be rubbed out")
+ck("and the canvas is drawn at the page's offset",
+   "ctx.translate(-sx(), -sy());" in _INK)
+ck("cleared before that translate, not after",
+   _INK.index("ctx.clearRect(0, 0, innerWidth, innerHeight);")
+   < _INK.index("ctx.translate(-sx(), -sy());"),
+   "or scrolling smears a band of old marks along the leading edge")
+
+print("\nand the page is no longer frozen under them")
+ck("the pen does not lock scrolling",
+   'document.documentElement.style.overflow = "";' in _INK
+   and 'overflow = on ? "hidden"' not in _INK,
+   "a lesson longer than a screen could only be marked one screenful at a "
+   "time")
+ck("scrolling repaints them", 'global.addEventListener("scroll"' in _INK)
+ck("once a frame, not once an event",
+   "global.requestAnimationFrame(function () { pending = false; redraw(); });"
+   in _INK,
+   "scroll fires far faster than a board paints")
+ck("and passively, so it never fights the scroll it is following",
+   "{ passive: true }" in _INK)
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\n{len(P)} passed, {len(F)} failed")
 sys.exit(1 if F else 0)

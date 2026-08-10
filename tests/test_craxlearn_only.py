@@ -392,7 +392,14 @@ print("\nEvery route has a side")
 # appearing here is a decision somebody has to make on purpose.
 NEUTRAL = ("/api/auth", "/api/health", "/api/status", "/api/version",
            "/api/docs", "/api/admin", "/api/ai", "/api/mail",
-           "/api/notifications", "/api/note", "/api/recent")
+           "/api/notifications", "/api/note", "/api/recent",
+           # Your own account: name, phone, password. Neutral by nature — a
+           # school that bought only the teaching product still has people
+           # who need to change their own password, and a job seeker with no
+           # school does too. Listed one path at a time rather than as
+           # "/api/me", because the rest of that prefix (invites,
+           # open-to-work) is squarely the job half.
+           "/api/me/account", "/api/me/password")
 TEACHING = ("/api/ask", "/api/board", "/api/class", "/api/course",
             "/api/craxlearn", "/api/curriculum", "/api/lab", "/api/net",
             "/api/progress", "/api/quiz", "/api/scan", "/api/skills",

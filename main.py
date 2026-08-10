@@ -223,6 +223,11 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     college = Column(String(160), default="")
+    # A number the school office can ring, and the one a parent gives when a
+    # password has gone. Never a sign-in: an SMS second factor on a shared
+    # classroom device is a lockout waiting for the day the phone is at home.
+    # Nullable, because _migrate_columns adds it to a table with rows already.
+    phone = Column(String(32), default="")
     city = Column(String(120), default="")
     degree = Column(String(120), default="")
     path = Column(String(40), default="")
@@ -4270,8 +4275,13 @@ class RequestIn(BaseModel):
 
 def _slot_json(db, s):
     tu = db.get(User, s.teacher_id) if s.teacher_id else None
+    # The teacher's address travels with the subject, because the question a
+    # head asks at this row is "how does she get in", and the answer was on a
+    # different screen. A board code was sitting next to a teacher's name and
+    # reading as her sign-in; the actual sign-in belongs beside it.
     return {"id": s.id, "subject": s.subject, "code": s.code,
             "status": s.status, "teacher": tu.name if tu else "",
+            "teacher_email": (tu.email if tu else ""),
             "teacher_id": s.teacher_id or 0}
 
 
@@ -9971,6 +9981,51 @@ async def craxlearn_search(q: str, user: User = Depends(board_or_reader)):
             "chapters": chapters[:3],
             "found": bool(photo or scene or chapters),
             "sources": [s["name"] for s in _cl.sourcing()]}
+
+
+@app.get("/api/craxlearn/picture")
+async def craxlearn_picture(url: str, user: User = Depends(board_or_reader)):
+    """One picture from the open catalogues, served from our own origin.
+
+    Not a convenience. A remote image drawn onto a canvas TAINTS it, and a
+    tainted canvas refuses toBlob and toDataURL — so a teacher who dropped a
+    diagram of the eye onto the board would find that Save to the class and
+    Download had both stopped working, with no error anybody could act on.
+    Coming back through here, the bytes are same-origin and the board can
+    still be photographed.
+
+    The allowlist is the same one the lesson figures use, so this proxies
+    Wikimedia, PubChem, the PDB and NASA and nothing else. Without it this
+    route would fetch any URL in the world on the server's behalf, from
+    inside the network the database is on.
+
+    SVG is refused. It is an image everywhere else and a document that can
+    carry script here, and serving one from our own origin is the whole
+    shape of a stored XSS. Every catalogue thumbnail is a PNG or a JPEG.
+    """
+    url = (url or "")[:600]
+    if not url.startswith("https://"):
+        raise HTTPException(400, "Pictures are fetched over https only.")
+    parts = url.split("/")
+    host = parts[2].lower() if len(parts) > 2 else ""
+    if not any(host == h or host.endswith("." + h) for h in _images._HOSTS):
+        raise HTTPException(
+            400, "That picture is not from one of the open catalogues.")
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as c:
+            r = await c.get(url, headers={"User-Agent": _images.UA})
+    except Exception as e:
+        print(f"Picture proxy failed: {type(e).__name__}: {e}")
+        raise HTTPException(502, "The catalogue could not be reached.")
+    if r.status_code != 200:
+        raise HTTPException(502, "The catalogue does not have that picture.")
+    kind = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+        raise HTTPException(400, "That is not a picture this board can draw.")
+    if len(r.content) > 12 * 1024 * 1024:
+        raise HTTPException(413, "That picture is too large for a board.")
+    return RawResponse(content=r.content, media_type=kind,
+                       headers={"Cache-Control": "public, max-age=86400"})
 
 
 # Checked once per process. PhET's catalogue does not change during a
@@ -18834,6 +18889,104 @@ def set_open_to_work(body: OpenToWorkIn, user: User = Depends(current_user),
                        "anonymously, until you accept an introduction."
                        if body.on else
                        "You are hidden from employer searches."}
+
+
+class AccountIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    phone: str = Field(default="", max_length=32)
+
+
+class PasswordChangeIn(BaseModel):
+    current: str = Field(min_length=1, max_length=200)
+    new: str = Field(min_length=8, max_length=200)
+
+
+# A phone number, not an address. Digits, spaces, brackets, dashes and one
+# leading +, which covers every way an Indian school writes one down without
+# accepting a sentence.
+_PHONE_OK = re.compile(r"^\+?[0-9][0-9 ()\-]{6,23}$")
+
+
+@app.get("/api/me/account")
+def my_account(user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """Everything about this account, on one screen.
+
+    It was on five: the plan on the billing page, the school on the teacher
+    dashboard, the address nowhere at all, and no way to change a password
+    without signing out and using the forgotten-password flow. Tapping your
+    own name in the sidebar did nothing, which is the one place everybody
+    looks first.
+    """
+    u = db.get(User, user.id)
+    t = teacher_row(u, db)
+    return {
+        "name": u.name, "email": u.email, "phone": u.phone or "",
+        "plan": u.plan or "free", "provider": u.plan_provider or "",
+        "since": u.created_at.date().isoformat() if u.created_at else "",
+        "school": (t.school if t else ""),
+        "role": (t.role if t else ""),
+        "devices": len([s for s in _sessions(u) if s]),
+        "max_devices": MAX_DEVICES,
+        "support": "support@craxle.com",
+    }
+
+
+@app.patch("/api/me/account")
+def my_account_save(body: AccountIn, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Name and phone number. The address is not editable here.
+
+    Changing your own sign-in address in a settings panel is how somebody
+    locks themselves out of a school account with one typo and no way back —
+    the school office issues and repairs addresses, deliberately, and that is
+    the one route that can prove who you are before it moves them.
+    """
+    u = db.get(User, user.id)
+    nm = (body.name or "").strip()
+    if nm:
+        if len(nm) < 2:
+            raise HTTPException(400, "A name needs at least two characters.")
+        u.name = nm[:120]
+    ph = (body.phone or "").strip()
+    if ph and not _PHONE_OK.match(ph):
+        raise HTTPException(
+            400, "That does not look like a phone number. Digits, and a "
+                 "leading + if it is an international one.")
+    u.phone = ph[:32]
+    db.commit()
+    return {"ok": True, "name": u.name, "phone": u.phone or "",
+            "message": "Saved."}
+
+
+@app.post("/api/me/password")
+def my_password(body: PasswordChangeIn, response: Response,
+                user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Change your own password, knowing the old one.
+
+    The old one is required and checked. Without that, anybody who reaches an
+    unlocked laptop for ten seconds owns the account permanently — and on a
+    school device left signed in at a desk, ten seconds is not a stretch.
+
+    Every other session is dropped and this one re-issued, because a password
+    change is what somebody does when they think another person has it. A
+    change that leaves the other person signed in has done nothing.
+    """
+    u = db.get(User, user.id)
+    if not verify_pw(body.current, u.password_hash):
+        raise HTTPException(400, "That is not your current password.")
+    if body.new == body.current:
+        raise HTTPException(400, "That is the password you already have.")
+    if len(body.new.strip()) < 8:
+        raise HTTPException(400, "Use at least eight characters.")
+    u.password_hash = hash_pw(body.new)
+    u.session_token = ""
+    db.commit()
+    set_session(response, u, db)
+    return {"ok": True,
+            "message": "Password changed. Every other device has been "
+                       "signed out."}
 
 
 @app.get("/api/jobs/tracked")

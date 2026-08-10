@@ -27,10 +27,17 @@
  * a stylus has been seen, touch stops drawing for a few seconds — the standard
  * bargain, and much better than a stray blob across a proof mid-lesson.
  *
- * **Viewport space, deliberately.** A classroom board annotates the screen: a
- * ring is around what is visible now. So marks do not scroll with the document,
- * and scrolling is suppressed while the pen is down rather than sliding the
- * page out from under a half-drawn arrow.
+ * **Page space, because a lesson is longer than a screen.** This started in
+ * viewport space, on the reasoning that a classroom board annotates what is
+ * visible. It does — but a lesson scrolls, and a ring drawn round the third
+ * paragraph stayed where it was while the paragraph moved, so it ended up
+ * round a different one. Worse, scrolling was locked outright while the pen
+ * was on, so the answer to "how do I mark the next part" was: turn the pen
+ * off, scroll, turn it on, and find your earlier marks in the wrong places.
+ *
+ * Strokes are stored in document coordinates and drawn at an offset. The
+ * canvas is still fixed to the viewport — it only ever needs to cover what
+ * is on screen — and the offset is the page's own scroll.
  */
 (function (global) {
   "use strict";
@@ -42,6 +49,13 @@
   var cv = null, ctx = null, bar = null;
   var strokes = [], live = null, lastPen = 0, drawing = false;
   var cfg = {};
+
+  /* Where the page has been scrolled to. One place, because every reader of
+     it — capture, erase, redraw — has to agree, and a stroke laid down
+     against one number and erased against another is a mark that cannot be
+     rubbed out. */
+  function sx() { return global.scrollX || global.pageXOffset || 0; }
+  function sy() { return global.scrollY || global.pageYOffset || 0; }
 
   var TOOLS = {
     pen: { width: 3.2, alpha: 1, cap: "round" },
@@ -125,9 +139,15 @@
 
   function redraw() {
     if (!ctx) return;
+    /* Cleared in viewport space and drawn in page space. The clear has to
+       come before the translate, or scrolling leaves a band of old marks
+       along the edge the page came from. */
     ctx.clearRect(0, 0, innerWidth, innerHeight);
+    ctx.save();
+    ctx.translate(-sx(), -sy());
     strokes.forEach(strokePath);
     if (live) strokePath(live);
+    ctx.restore();
   }
 
   /* A pen reports pressure; a finger and a mouse report 0 or a flat 0.5, and
@@ -160,16 +180,17 @@
     e.preventDefault();
     drawing = true;
     try { cv.setPointerCapture(e.pointerId); } catch (err) {}
-    if (tool === "eraser") { erase(e.clientX, e.clientY); return; }
+    if (tool === "eraser") { erase(e.clientX + sx(), e.clientY + sy()); return; }
     live = { tool: tool, colour: colour,
-             pts: [{ x: e.clientX, y: e.clientY, p: pressure(e) }] };
+             pts: [{ x: e.clientX + sx(), y: e.clientY + sy(),
+                     p: pressure(e) }] };
     redraw();
   }
 
   function move(e) {
     if (!on || !drawing) return;
     e.preventDefault();
-    if (tool === "eraser") { erase(e.clientX, e.clientY); return; }
+    if (tool === "eraser") { erase(e.clientX + sx(), e.clientY + sy()); return; }
     if (!live) return;
     /* Coalesced events are the difference between a smooth arc and a polygon
        on a board sampling far faster than it paints.
@@ -180,7 +201,7 @@
     var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
     if (!evs || !evs.length) evs = [e];
     for (var i = 0; i < evs.length; i++) {
-      live.pts.push({ x: evs[i].clientX, y: evs[i].clientY,
+      live.pts.push({ x: evs[i].clientX + sx(), y: evs[i].clientY + sy(),
                       p: pressure(evs[i]) });
     }
     redraw();
@@ -267,7 +288,16 @@
     cv.classList.toggle("on", on);
     bar.classList.toggle("on", on);
     if (on) paintBar();
-    document.documentElement.style.overflow = on ? "hidden" : "";
+    /* The page is NOT frozen any more.
+       It used to be: overflow went hidden the moment the pen came on, so a
+       lesson longer than a screen could only be marked one screenful at a
+       time — turn the pen off, scroll, turn it on. Now the marks travel with
+       the document, so scrolling to the next part and carrying on is the
+       obvious thing and it works. A wheel or trackpad scroll passes through
+       the glass because nothing here calls preventDefault on it; on touch
+       the glass still takes the gesture, which is what makes drawing with a
+       finger possible at all. */
+    document.documentElement.style.overflow = "";
     if (cfg.onToggle) cfg.onToggle(on);
     /* Marking up and selecting text are different intentions, and the glass
        swallows the events the selection toolbar listens for anyway. */
@@ -291,6 +321,16 @@
     cv.addEventListener("pointerleave", up);
 
     global.addEventListener("resize", sizeCanvas);
+    /* The marks are anchored to the document, so every scroll moves them on
+       screen. Passive, and one repaint per frame — a scroll fires far faster
+       than the board paints, and redrawing per event is how a lesson with
+       forty marks on it starts to stutter under a finger. */
+    var pending = false;
+    global.addEventListener("scroll", function () {
+      if (!ctx || pending) return;
+      pending = true;
+      global.requestAnimationFrame(function () { pending = false; redraw(); });
+    }, { passive: true });
     document.addEventListener("keydown", function (e) {
       if (!on) return;
       if (e.key === "Escape") set(false);

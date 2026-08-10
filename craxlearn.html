@@ -261,8 +261,36 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 }
 .pane[data-live="1"] .paneHead{border-bottom-color:var(--accent)}
 .paneHead select{font-size:.64rem;min-height:1.6rem;padding:.15rem .4rem}
-.paneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--pad);
-  -webkit-overflow-scrolling:touch}
+/* `overflow:hidden auto` rather than `overflow-y:auto`.
+   With only the y axis named, the x axis is `visible` — and `visible` on one
+   axis is promoted to `auto` by the spec, which is not the same as clipping.
+   A stroke dragged past the right edge of one space could paint into the one
+   beside it, which is the one thing a pen fixed to a pane must never do. The
+   .pane above clips as well, so this is belt and braces on the axis nobody
+   thinks about. */
+.paneBody{flex:1 1 auto;min-height:0;overflow:hidden auto;padding:var(--pad);
+  -webkit-overflow-scrolling:touch;position:relative}
+/* The pen for one space. Sized to the pane's SCROLLABLE height, not its
+   visible height, and left in the normal flow above the content — so it
+   scrolls with what it is drawn on rather than being repositioned by hand
+   on every scroll event, and a mark stays on the paragraph it was drawn on.
+   Inert until the ✎ is pressed: a sheet of glass that always took clicks
+   would make the lesson underneath unclickable. */
+.paneMark{position:absolute;left:0;top:0;z-index:5;pointer-events:none;
+  touch-action:none}
+.paneMark.on{pointer-events:auto;cursor:crosshair}
+.pane[data-marking="1"] .paneHead{border-bottom-color:#ff3b30}
+.markBar{position:absolute;right:.4rem;bottom:.4rem;z-index:6;display:none;
+  gap:.25rem;padding:.3rem;border-radius:10px;background:#14181c;
+  border:1px solid #2c3238;box-shadow:0 8px 22px rgba(0,0,0,.5)}
+.markBar.on{display:flex}
+.markBar button{font:600 .62rem/1 inherit;color:#e8eef2;cursor:pointer;
+  background:transparent;border:1px solid transparent;border-radius:7px;
+  padding:.35rem .45rem;white-space:nowrap}
+.markBar .sw{width:1.1rem;height:1.1rem;border-radius:50%;padding:0;
+  border:2px solid transparent}
+.markBar .sw.sel{border-color:#e8eef2}
+.markBar button.sel{border-color:#ffb020;color:#ffb020}
 #panes.one .paneHead{display:none}
 /* Split, the head has to earn its height.
  *
@@ -413,6 +441,21 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .wwhere{position:absolute;right:.5rem;bottom:.5rem;font-size:.62rem;
   color:var(--muted);background:rgba(0,0,0,.35);border-radius:8px;
   padding:.15rem .4rem;pointer-events:none;font-variant-numeric:tabular-nums}
+
+/* The picture drawer. Over the surface, never a second row in the toolbar:
+   the bar is the tightest thing on a short pane and another row in it is
+   how the writing space ended up 452 pixels tall once already. Capped at
+   half the surface so there is always board visible behind it. */
+.wpic{position:absolute;left:.5rem;right:.5rem;top:.5rem;z-index:4;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:.5rem;max-height:52%;overflow-y:auto;
+  box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.wpic .row{display:flex;gap:.4rem;flex-wrap:wrap}
+.wpic input{flex:1 1 9rem;min-width:0}
+.wpic .muted{margin:.4rem 0 0;font-size:.7rem}
+.wpic figure{margin:.5rem 0 0}
+.wpic img{max-width:100%;max-height:9rem;border-radius:8px;display:block}
+.wpic figcaption{font-size:.65rem;color:var(--muted);margin-top:.25rem}
 
 /* ---- writing on top of whatever is on the board ------------------------
  *
@@ -1015,6 +1058,212 @@ function layout(){
   }
 }
 
+/* ---- a pen for one space -------------------------------------------------
+ *
+ * The board already has Ink: one sheet of glass over the whole screen. That
+ * is right for annotating the room's display and wrong the moment the board
+ * is split. A ring drawn round a term in the lesson on the left belongs to
+ * the lesson on the left — and on the glass it stayed where the glass was:
+ * it did not move when that pane scrolled, and it sat over the simulation
+ * when that pane was swapped to another tool.
+ *
+ * So each space gets its own. Three decisions worth stating.
+ *
+ * **The canvas is a child of the scrolling body, sized to its scrollHeight.**
+ * Not fixed and repositioned on scroll — in the flow, so the browser moves
+ * it with the content for free and a mark cannot lag a fast flick.
+ *
+ * **The strokes live on the pane, not on the element.** Panes are rebuilt
+ * whenever a tool changes or the board is split again, and marks that lived
+ * on the canvas would vanish every time.
+ *
+ * **Off means gone.** While the pen is on, that pane's glass takes every
+ * pointer event and nothing underneath can be clicked — necessary while
+ * marking up and intolerable otherwise.
+ */
+var MARK_COLOURS = ["#ff3b30", "#ffb020", "#34c759", "#3b9cff", "#ffffff"];
+
+function markToggle(i, btn){
+  var p = PANES[i];
+  if(!p) return;
+  if(p.marking){ markOff(i); } else { markOn(i); }
+  if(btn) btn.classList.toggle("on", !!PANES[i].marking);
+}
+
+function markOff(i){
+  var p = PANES[i];
+  if(!p) return;
+  p.marking = false;
+  var pane = el("panes").querySelector('.pane[data-i="' + i + '"]');
+  if(!pane) return;
+  pane.dataset.marking = 0;
+  var cv = pane.querySelector(".paneMark"), bar = pane.querySelector(".markBar");
+  if(cv) cv.classList.remove("on");
+  if(bar) bar.classList.remove("on");
+  var btn = pane.querySelector("[data-mark]");
+  if(btn) btn.classList.remove("on");
+}
+
+function markOn(i){
+  var p = PANES[i];
+  var pane = el("panes").querySelector('.pane[data-i="' + i + '"]');
+  if(!p || !pane) return;
+  var body = pane.querySelector(".paneBody");
+  if(!body) return;
+  p.marking = true;
+  p.marks = p.marks || [];
+  p.markColour = p.markColour || MARK_COLOURS[0];
+  p.markTool = p.markTool || "pen";
+  pane.dataset.marking = 1;
+  var btn = pane.querySelector("[data-mark]");
+  if(btn) btn.classList.add("on");
+
+  var cv = pane.querySelector(".paneMark");
+  if(!cv){
+    cv = document.createElement("canvas");
+    cv.className = "paneMark";
+    body.appendChild(cv);
+  }
+  var bar = pane.querySelector(".markBar");
+  if(!bar){
+    bar = document.createElement("div");
+    bar.className = "markBar";
+    bar.innerHTML =
+      MARK_COLOURS.map(function(c){
+        return '<button class="sw" data-mc="' + c + '" title="' + c +
+          '" style="background:' + c + '"></button>'; }).join("") +
+      '<button data-mt="pen" title="Pen">✎</button>' +
+      '<button data-mt="eraser" title="Rub out">⌫</button>' +
+      '<button data-mclear="1" title="Take every mark off">Clear</button>' +
+      '<button data-mdone="1" title="Put the pen down">Done</button>';
+    body.appendChild(bar);
+  }
+  cv.classList.add("on");
+  bar.classList.add("on");
+
+  var ctx = null, live = null, drawing = false;
+  var R = Math.min(window.devicePixelRatio || 1, 2);
+
+  function size(){
+    /* The scrollable extent, not the visible box. A canvas the height of the
+       window would end at the fold, and a mark made after scrolling would
+       have nowhere to land. */
+    var w = body.clientWidth, h = Math.max(body.scrollHeight, body.clientHeight);
+    if(cv.width === Math.round(w * R) && cv.height === Math.round(h * R)) return;
+    cv.width = Math.round(w * R);
+    cv.height = Math.round(h * R);
+    cv.style.width = w + "px";
+    cv.style.height = h + "px";
+    ctx = cv.getContext("2d");
+    ctx.setTransform(R, 0, 0, R, 0, 0);
+    paint();
+  }
+  function stroke(s){
+    if(!ctx) return;
+    ctx.save();
+    ctx.globalAlpha = s.t === "marker" ? 0.34 : 1;
+    ctx.strokeStyle = s.c;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3.2;
+    if(s.p.length === 1){
+      ctx.fillStyle = s.c;
+      ctx.beginPath();
+      ctx.arc(s.p[0][0], s.p[0][1], 1.8, 0, 6.29);
+      ctx.fill();
+    }else{
+      ctx.beginPath();
+      ctx.moveTo(s.p[0][0], s.p[0][1]);
+      for(var j = 1; j < s.p.length; j++) ctx.lineTo(s.p[j][0], s.p[j][1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function paint(){
+    if(!ctx) return;
+    ctx.clearRect(0, 0, cv.width / R, cv.height / R);
+    p.marks.forEach(stroke);
+    if(live) stroke(live);
+  }
+  /* Where the pointer is INSIDE the canvas, which is the same space the
+     marks are stored in. getBoundingClientRect already carries the pane's
+     scroll, so nothing here has to know about it. */
+  function at(e){
+    var r = cv.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+  function rub(q){
+    var before = p.marks.length;
+    p.marks = p.marks.filter(function(s){
+      return !s.p.some(function(pt){
+        return Math.abs(pt[0] - q[0]) < 20 && Math.abs(pt[1] - q[1]) < 20; });
+    });
+    if(p.marks.length !== before) paint();
+  }
+
+  size();
+  /* The content can grow after this — a lesson finishes rendering, an image
+     loads — and the canvas has to grow with it or marks below the old fold
+     are lost. */
+  if(window.ResizeObserver && !cv._ro){
+    cv._ro = new ResizeObserver(function(){ size(); });
+    cv._ro.observe(body);
+  }
+
+  cv.onpointerdown = function(e){
+    e.preventDefault();
+    drawing = true;
+    try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+    if(p.markTool === "eraser") return rub(at(e));
+    live = { c: p.markColour, t: p.markTool, p: [at(e)] };
+    paint();
+  };
+  cv.onpointermove = function(e){
+    if(!drawing) return;
+    e.preventDefault();
+    if(p.markTool === "eraser") return rub(at(e));
+    if(!live) return;
+    var held = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    var pts = (held && held.length) ? held : [e];
+    for(var j = 0; j < pts.length; j++) live.p.push(at(pts[j]));
+    paint();
+  };
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
+    cv.addEventListener(ev, function(){
+      if(!drawing) return;
+      drawing = false;
+      if(live && live.p.length) p.marks.push(live);
+      live = null;
+      paint();
+    });
+  });
+
+  bar.querySelectorAll("[data-mc]").forEach(function(b){
+    b.classList.toggle("sel", b.dataset.mc === p.markColour);
+    b.onclick = function(){
+      p.markColour = b.dataset.mc;
+      p.markTool = "pen";
+      bar.querySelectorAll("[data-mc]").forEach(function(o){
+        o.classList.toggle("sel", o === b); });
+      bar.querySelectorAll("[data-mt]").forEach(function(o){
+        o.classList.toggle("sel", o.dataset.mt === "pen"); });
+    };
+  });
+  bar.querySelectorAll("[data-mt]").forEach(function(b){
+    b.classList.toggle("sel", b.dataset.mt === p.markTool);
+    b.onclick = function(){
+      p.markTool = b.dataset.mt;
+      bar.querySelectorAll("[data-mt]").forEach(function(o){
+        o.classList.toggle("sel", o === b); });
+    };
+  });
+  bar.querySelector("[data-mclear]").onclick = function(){
+    p.marks = [];
+    paint();
+  };
+  bar.querySelector("[data-mdone]").onclick = function(){ markOff(i); };
+}
+
 function paintPanes(){
   var wrap = el("panes");
   /* `one` is recomputed here and `noheads` is not — it is a choice the
@@ -1066,6 +1315,19 @@ function paintPanes(){
           }).join("") +
         "</select>" +
         '<span class="grow"></span>' +
+        /* A pen for THIS space. The board has one big sheet of glass over
+           everything, which is right for annotating the room's screen and
+           wrong the moment the board is split: a ring drawn over the lesson
+           on the left belongs to the lesson on the left, and it followed
+           the glass instead — staying put when that pane scrolled and
+           sitting over the simulation when the pane was swapped. */
+        /* Not on the writing space: that IS a pen, with its own colours,
+           its own eraser and an endless surface behind it. A second sheet
+           of glass over it would take the pointer events the board needs
+           and leave a teacher unable to write on the writing space. */
+        (p.page === "write" ? "" :
+          '<button class="iconbtn" data-mark="' + i + '" ' +
+            'title="Draw on this space">✎</button>') +
         '<button class="iconbtn" data-shot="' + i + '" title="Screenshot this space">⛶</button>' +
         // Being wrong costs most here. A lesson on a classroom
         // display is read by thirty people at once, none of whom can
@@ -1148,6 +1410,16 @@ function wirePanes(){
   });
   wrap.querySelectorAll("[data-wrong]").forEach(function(b){
     b.onclick = function(){ reportWrong(+b.dataset.wrong); };
+  });
+  wrap.querySelectorAll("[data-mark]").forEach(function(b){
+    b.onclick = function(){ markToggle(+b.dataset.mark, b); };
+  });
+  /* A space that was being drawn on before this repaint gets its marks
+     back. Panes are rebuilt whenever a tool changes or the board is split
+     again, and the ink belongs to the space, not to the element. */
+  PANES.forEach(function(p, i){
+    if(p.marking && p.page !== "write") markOn(i);
+    else if(p.marking) p.marking = false;
   });
   wrap.querySelectorAll(".pane").forEach(function(p){
     p.addEventListener("pointerdown", function(){
@@ -2649,7 +2921,60 @@ function setGrid(on){
    halfway through an explanation should not come back to a blank board —
    nor to a different part of the canvas than the one they were looking at,
    so the window travels with the ink. */
-var BOARD_INK = { strokes: [], undone: [], view: null };
+var BOARD_INK = { strokes: [], undone: [], view: null, pics: [] };
+
+/* Pictures placed on the board, and the bytes behind them.
+ *
+ * A picture is { url, x, y, w, h } in board units — the same units the ink
+ * is in, so it pans, zooms and exports with everything else and needs no
+ * special case anywhere but the one place that draws it.
+ *
+ * The bytes are held separately and keyed by url, because the same diagram
+ * placed twice should be one download, and because an Image object cannot
+ * survive being written into the same structure the ink is kept in.
+ *
+ * They come through /api/craxlearn/picture rather than straight from
+ * Wikimedia for a reason that has nothing to do with politeness: a remote
+ * image drawn onto a canvas taints it, and a tainted canvas refuses toBlob.
+ * Dropping a diagram on the board would silently break Save to the class
+ * and Download — the two things a teacher does at the end of the lesson.
+ */
+var PICBYTES = {};
+function picLoad(url){
+  if(PICBYTES[url]) return PICBYTES[url];
+  var pr = (async function(){
+    var r = await fetch("/api/craxlearn/picture?url=" +
+                        encodeURIComponent(url),
+                        { headers: bhdr({}), credentials: "include" });
+    if(!r.ok){
+      var why = "That picture could not be fetched.";
+      try{ why = (await r.json()).detail || why; }catch(e){}
+      throw new Error(why);
+    }
+    var blob = await r.blob();
+    var img = new Image();
+    /* An object URL from our own origin. Revoked once the image has
+       decoded — holding it open leaks a blob per picture per lesson, and
+       revoking before decode gives a broken image on a slow board. */
+    var u = URL.createObjectURL(blob);
+    await new Promise(function(ok, no){
+      img.onload = ok;
+      img.onerror = function(){ no(new Error("The picture would not open.")); };
+      img.src = u;
+    });
+    URL.revokeObjectURL(u);
+    return img;
+  })();
+  /* The decoded image is hung on the promise itself, so the draw loop —
+     which runs sixty times a second and cannot await anything — can ask
+     "is it here yet" with one property read and skip it if not. */
+  pr.then(function(img){ pr.img = img; });
+  /* A failure must not be cached as a permanent one: the network comes
+     back, and a teacher pressing Place again deserves a second attempt. */
+  pr["catch"](function(){ delete PICBYTES[url]; });
+  PICBYTES[url] = pr;
+  return pr;
+}
 /* Open a saved file, carrying the board's token.
  *
  * The window is opened BEFORE the fetch, not after. A pop-up blocker allows
@@ -2814,6 +3139,21 @@ function write(){
           "space bar, to move around — the board does not end." +
         "</div>" +
         '<div class="wwhere" id="wWhere"></div>' +
+        /* The picture drawer, over the surface rather than under the bar.
+           The bar is already the tightest thing on a short pane; another
+           row in it is how the writing space became 452 pixels tall the
+           last time. Hidden until the 🖼 is pressed. */
+        '<div class="wpic" id="wPicBox" hidden>' +
+          '<div class="row">' +
+            '<input id="wPicQ" placeholder="the eye · a volcano · Saturn">' +
+            '<button class="btn" id="wPicGo">Find</button>' +
+            '<button class="btn ghost" id="wPicX">Close</button>' +
+          "</div>" +
+          '<div class="muted" id="wPicMsg">Public catalogues, with the ' +
+            "licence. Drag a placed picture to move it, or its bottom-right " +
+            "corner to resize. Writing goes on top.</div>" +
+          '<div id="wPicOut"></div>' +
+        "</div>" +
       "</div>" +
       /* The bar sits UNDER the surface, one rectangle, always there. A
          teacher at a board reaches down, not up: the top of a wall-mounted
@@ -2837,6 +3177,12 @@ function write(){
            contact point and a wall-mounted screen often has no keyboard, so
            two-finger pan and the space bar are both unavailable exactly
            where this matters most. */
+        /* A picture on the board, from the same open catalogues the search
+           tool uses. Next to the grid rather than out at the end: it is a
+           thing you put ON the board, like a shape, not a thing you do WITH
+           the board at the end of the lesson. */
+        '<button class="iconbtn" id="wPic" title="Put a picture on the board">' +
+          "🖼</button>" +
         '<button class="iconbtn" id="wGrid" title="Grid on or off">#</button>' +
         '<button class="iconbtn" id="wHand" title="Move around the board">✋</button>' +
         '<button class="iconbtn" id="wOut" title="Zoom out">−</button>' +
@@ -2888,6 +3234,16 @@ function write(){
      makes the exported picture sharp even when the pane was a quarter of a
      phone screen. */
   var strokes = BOARD_INK.strokes, undone = BOARD_INK.undone, live = null;
+
+  /* Arranging pictures is a MODE, and the drawer being open is what says so.
+     Hit-testing pictures while the pen is down would mean a teacher writing
+     across a diagram drags the diagram instead — so pictures are inert until
+     the 🖼 is pressed, and the pen is inert while it is. One lit button, one
+     answer to "what does dragging do right now". */
+  if(!BOARD_INK.pics) BOARD_INK.pics = [];
+  var picking = false;      // the drawer is open: drag arranges pictures
+  var picked = null;        // the one with the handle on it
+  var GRIP = 22;            // the resize corner, in screen pixels
 
   /* The window onto the plane.
    *
@@ -3029,6 +3385,40 @@ function write(){
     c.globalCompositeOperation = "source-over";
   }
 
+  /* Pictures, under the ink and over the grid.
+   *
+   * Under the ink deliberately: a teacher puts up a diagram of the eye and
+   * then labels it, and an eraser stroke must take the label back off
+   * without punching a hole through the diagram. Because the ink is
+   * composited on its own layer, that falls out for free — the eraser can
+   * only ever reach ink.
+   *
+   * `picked` is drawn with a handle at its bottom-right, and only while the
+   * drawer is open. A resize grip that is always on screen is a thing to
+   * catch a sleeve on during a lesson. */
+  function paintPics(c, scale, ox, oy, mark){
+    var list = BOARD_INK.pics;
+    for(var i = 0; i < list.length; i++){
+      var p = list[i];
+      var img = PICBYTES[p.url] && PICBYTES[p.url].img;
+      if(!img) continue;
+      var x = p.x * scale + ox, y = p.y * scale + oy;
+      var w2 = p.w * scale, h2 = p.h * scale;
+      try{ c.drawImage(img, x, y, w2, h2); }catch(e){ continue; }
+      if(mark && p === picked){
+        c.save();
+        c.strokeStyle = "#8fe3b0";
+        c.lineWidth = 2;
+        c.setLineDash([6, 4]);
+        c.strokeRect(x, y, w2, h2);
+        c.setLineDash([]);
+        c.fillStyle = "#8fe3b0";
+        c.fillRect(x + w2 - GRIP, y + h2 - GRIP, GRIP, GRIP);
+        c.restore();
+      }
+    }
+  }
+
   function redraw(){
     measure();
     var w = cv.width, h = cv.height;
@@ -3038,11 +3428,13 @@ function write(){
     ctx.fillStyle = BOARD_BG;
     ctx.fillRect(0, 0, w, h);
     if(gridOn()) paintGrid(ctx, w, h);
+    paintPics(ctx, VIEW.k, -VIEW.x * VIEW.k, -VIEW.y * VIEW.k, picking);
     paintInk(ink, strokes.concat(live ? [live] : []),
              VIEW.k, -VIEW.x * VIEW.k, -VIEW.y * VIEW.k, w, h);
     ctx.drawImage(inkc, 0, 0);
     var hint = wq("wHint");
-    if(hint) hint.hidden = strokes.length > 0 || !!live;
+    if(hint) hint.hidden = strokes.length > 0 || !!live ||
+                           BOARD_INK.pics.length > 0;
     var where = wq("wWhere");
     if(where){
       where.textContent = Math.round(VIEW.k / (w / BOARD_UNIT) * 100) + "%"
@@ -3056,16 +3448,25 @@ function write(){
      somebody mid-lesson. */
   function bounds(){
     var b = null;
+    function hit(x, y){
+      if(!b) b = [x, y, x, y];
+      else{
+        if(x < b[0]) b[0] = x;
+        if(y < b[1]) b[1] = y;
+        if(x > b[2]) b[2] = x;
+        if(y > b[3]) b[3] = y;
+      }
+    }
     strokes.forEach(function(s){
-      s.p.forEach(function(p){
-        if(!b) b = [p[0], p[1], p[0], p[1]];
-        else{
-          if(p[0] < b[0]) b[0] = p[0];
-          if(p[1] < b[1]) b[1] = p[1];
-          if(p[0] > b[2]) b[2] = p[0];
-          if(p[1] > b[3]) b[3] = p[1];
-        }
-      });
+      s.p.forEach(function(p){ hit(p[0], p[1]); });
+    });
+    /* Pictures count as something being on the board. Fit ignoring them
+       would scroll a labelled diagram off screen, and — worse — the empty
+       board guard reads this: a board holding only a picture would have
+       answered "there is nothing here yet" to Save to the class. */
+    BOARD_INK.pics.forEach(function(p){
+      hit(p.x, p.y);
+      hit(p.x + p.w, p.y + p.h);
     });
     return b;
   }
@@ -3196,6 +3597,7 @@ function write(){
      gesture. */
   var handing = false;          // the ✋ tool is held down
   var panning = null;           // an active drag: [px, py]
+  var dragPic = null;           // a picture being moved or resized
   var touches = {};             // live pointer ids, for the two-finger case
   var pinch = null;
 
@@ -3221,6 +3623,32 @@ function write(){
       panning = px(e);
       return;
     }
+
+    /* Arranging pictures, while the drawer is open. Topmost first, because
+       the last one placed is the one on top and therefore the one a finger
+       landing on the overlap meant. */
+    if(picking){
+      var q = at(e), grabbed = null;
+      for(var pi = BOARD_INK.pics.length - 1; pi >= 0; pi--){
+        var pp = BOARD_INK.pics[pi];
+        if(q[0] >= pp.x && q[0] <= pp.x + pp.w &&
+           q[1] >= pp.y && q[1] <= pp.y + pp.h){ grabbed = pp; break; }
+      }
+      picked = grabbed;
+      if(grabbed){
+        var g = GRIP / VIEW.k;      // the corner, in board units
+        dragPic = {
+          pic: grabbed,
+          from: q,
+          box: [grabbed.x, grabbed.y, grabbed.w, grabbed.h],
+          sizing: q[0] > grabbed.x + grabbed.w - g &&
+                  q[1] > grabbed.y + grabbed.h - g
+        };
+      }
+      redraw();
+      return;
+    }
+
     var hint = wq("wHint");
     if(hint) hint.hidden = true;
     live = { c: pen, e: erasing, w: size, p: [] };
@@ -3258,6 +3686,26 @@ function write(){
       return;
     }
 
+    if(dragPic){
+      var now = at(e);
+      var dx = now[0] - dragPic.from[0], dy = now[1] - dragPic.from[1];
+      var bx = dragPic.box, pic = dragPic.pic;
+      if(dragPic.sizing){
+        /* One corner, aspect kept. Two free axes on a board means a squashed
+           diagram nobody can undo, and the ratio came from the catalogue —
+           it is the picture's, not a preference. */
+        var ratio = bx[3] / bx[2];
+        var w2 = Math.max(20, bx[2] + Math.max(dx, dy / ratio));
+        pic.w = w2;
+        pic.h = w2 * ratio;
+      }else{
+        pic.x = bx[0] + dx;
+        pic.y = bx[1] + dy;
+      }
+      redraw();
+      return;
+    }
+
     if(!live) return;
     if(live.from){
       /* Redrawn from the two corners every time, so dragging back and forth
@@ -3283,6 +3731,7 @@ function write(){
       delete touches[e.pointerId];
       if(Object.keys(touches).length < 2) pinch = null;
       panning = null;
+      dragPic = null;
       if(!live) return;
       if(live.p.length > 1){
         delete live.from;
@@ -3343,6 +3792,121 @@ function write(){
     wq("wGrid").classList.toggle("on", gridOn());
     redraw();
   };
+  /* ---- a picture on the board ----
+   *
+   * Find it in the open catalogues, put it up, drag it where it belongs,
+   * write on top of it. The catalogue search is the one the board already
+   * has; what is new is that the result can leave the panel and land on the
+   * surface, which is the only place a class can see it.
+   */
+  function picSay(m){
+    var n = wq("wPicMsg");
+    if(n) n.textContent = m;
+  }
+  function picDrawer(on){
+    picking = !!on;
+    wq("wPicBox").hidden = !picking;
+    wq("wPic").classList.toggle("on", picking);
+    if(!picking) picked = null;
+    /* The pen has to be put down while pictures are being arranged, or a
+       drag both moves the diagram and draws a line across it. */
+    cv.style.cursor = picking ? "move" : (handing ? "grab" : "");
+    redraw();
+    if(picking) wq("wPicQ").focus();
+  }
+  wq("wPic").onclick = function(){ picDrawer(!picking); };
+  wq("wPicX").onclick = function(){ picDrawer(false); };
+
+  /* Placed at the middle of what the teacher is looking at, three fifths of
+     the way across it. Not at the origin: on an endless board the origin is
+     usually nowhere near the part being taught, and a picture placed off
+     screen reads as a button that did nothing. */
+  function picPlace(url){
+    picSay("Fetching it…");
+    picLoad(url).then(function(img){
+      var vw = cv.width / VIEW.k, vh = cv.height / VIEW.k;
+      var w2 = vw * 0.6;
+      var h2 = w2 * (img.naturalHeight / (img.naturalWidth || 1));
+      if(h2 > vh * 0.7){ h2 = vh * 0.7; w2 = h2 * ((img.naturalWidth || 1) /
+                                                   (img.naturalHeight || 1)); }
+      var pic = { url: url, x: VIEW.x + (vw - w2) / 2,
+                  y: VIEW.y + (vh - h2) / 2, w: w2, h: h2 };
+      BOARD_INK.pics.push(pic);
+      picked = pic;
+      redraw();
+      picSay("On the board. Drag it to move it, or its bottom-right corner " +
+             "to resize. Writing goes on top.");
+    })["catch"](function(e){
+      picSay(e.message || "That picture could not be fetched.");
+    });
+  }
+  function picResults(d){
+    var out = wq("wPicOut");
+    var h = "";
+    if(d.photo && d.photo.url){
+      h += '<figure><img src="' + esc(d.photo.url) + '" alt="">' +
+        "<figcaption>" + esc(d.photo.caption || "") +
+        (d.photo.author ? " · " + esc(d.photo.author) : "") +
+        (d.photo.license ? " · " + esc(d.photo.license) : "") +
+        "</figcaption>" +
+        '<div class="row" style="margin-top:.35rem">' +
+        '<button class="btn" data-place="' + esc(d.photo.url) + '">' +
+        "Put it on the board</button></div></figure>";
+    }else{
+      h += '<div class="muted" style="margin-top:.5rem">Nothing in the open ' +
+        "catalogues for that. Try the plain name of the thing rather than a " +
+        "question about it.</div>";
+    }
+    out.innerHTML = h;
+    out.querySelectorAll("[data-place]").forEach(function(b){
+      b.onclick = function(){ picPlace(b.dataset.place); };
+    });
+  }
+
+  var picRun = async function(){
+    var q = (wq("wPicQ").value || "").trim();
+    if(q.length < 2) return picSay("Type the name of the thing itself.");
+    picSay("Looking…");
+    wq("wPicOut").innerHTML = "";
+    try{
+      var d = await api.get("/api/craxlearn/search?q=" +
+                            encodeURIComponent(q));
+      picResults(d);
+      picSay(d.photo ? "From: " + (d.sources || []).join(", ")
+                     : "Public catalogues only, with the licence.");
+    }catch(e){ picSay(e.message || "That search did not come back."); }
+  };
+  wq("wPicGo").onclick = picRun;
+  wq("wPicQ").onkeydown = function(e){
+    if(e.key === "Enter") picRun();
+    /* Delete takes the selected picture off, but only when the box is not
+       the thing being typed into — otherwise backspacing a search term
+       removes the diagram behind it. */
+  };
+  /* Taking one off again. On the board rather than in the drawer, because
+     the thing being removed is on the board and a button beside a search
+     result would remove the wrong one once two are up. */
+  function picKey(e){
+    /* Self-removing, like the space bar's. A listener left on the document
+       by a pane that has been closed keeps a whole writing space alive and
+       eats Delete in every text box on the board. */
+    if(!document.getElementById("wCanvas")){
+      document.removeEventListener("keydown", picKey);
+      return;
+    }
+    if(!picking || !picked) return;
+    if(e.key !== "Delete" && e.key !== "Backspace") return;
+    var t = e.target;
+    if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    e.preventDefault();
+    var i = BOARD_INK.pics.indexOf(picked);
+    if(i >= 0) BOARD_INK.pics.splice(i, 1);
+    picked = null;
+    redraw();
+    picSay("Taken off the board.");
+  }
+  document.addEventListener("keydown", picKey);
+
   wq("wHand").onclick = function(){
     handing = !handing;
     wq("wHand").classList.toggle("on", handing);
@@ -3390,10 +3954,15 @@ function write(){
     redraw();
   };
   wq("wClear").onclick = function(){
-    if(strokes.length && !confirm("Rub out everything on the board?")) return;
+    if((strokes.length || BOARD_INK.pics.length) &&
+       !confirm("Rub out everything on the board?")) return;
     /* Clear is undoable: it is one tap away from a lesson's working. */
     undone.unshift.apply(undone, strokes.slice().reverse());
     strokes.length = 0;
+    /* Pictures go with it. Leaving them behind means Clear visibly does not
+       clear, and the count in the corner says 0 marks over a diagram. */
+    BOARD_INK.pics.length = 0;
+    picked = null;
     redraw();
   };
   /* A picture of the board — the working, not the browser chrome around it.
@@ -3454,6 +4023,11 @@ function write(){
     /* Ink on its own layer here too, for the same reason as on screen: an
        eraser stroke composited straight onto the background would punch a
        transparent hole through the saved picture. */
+    /* Pictures first, then ink over them — the same order as the screen, so
+       what is saved is what the room was looking at. Without the proxy this
+       drawImage would taint `out` and toBlob below would throw, which is
+       the whole reason the bytes come back through our own origin. */
+    paintPics(c, scale, (-b[0] + pad) * scale, (-b[1] + pad) * scale, false);
     var lay = document.createElement("canvas");
     lay.width = out.width;
     lay.height = out.height;

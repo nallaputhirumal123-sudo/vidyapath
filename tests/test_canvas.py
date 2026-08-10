@@ -54,7 +54,10 @@ ck("strokes are kept in world coordinates, not board units",
 ck("the window is an offset and a scale",
    "VIEW = { k: w / BOARD_UNIT, x: 0, y: 0 }" in SRC)
 ck("and it travels with the ink, so splitting a space comes back here",
-   "var BOARD_INK = { strokes: [], undone: [], view: null };" in SRC)
+   "var BOARD_INK = { strokes: [], undone: [], view: null, pics: [] };"
+   in SRC,
+   "pictures joined the ink here rather than living in the element, for the "
+   "same reason: rebuilding the panes must not take the diagram down")
 ck("a stroke that runs off the screen is NOT clamped to it",
    "Math.min(BOARD_W" not in SRC,
    "the clamp was the edge of the board, and there is no edge")
