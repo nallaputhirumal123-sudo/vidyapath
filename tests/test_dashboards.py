@@ -110,8 +110,14 @@ print("\nand a conversation stays in its subject")
 ck("the class screen reads one subject's thread",
    'api.get("/api/class/"+cid+"/discussion?subject="' in IDX)
 ck("and posts into it",
-   "parent_id:parentId||0, subject:discSubject()" in IDX,
+   "subject:discSubject()" in IDX,
    "a class's Physics questions are not the Maths teacher's to read")
+# This used to pin the whole argument list, "parent_id:parentId||0,
+# subject:discSubject()", and broke when the chat learned to reply to a
+# chosen message. The subject travelling with the post is the rule; which
+# parent it hangs from is not part of it.
+ck("and a reply hangs off the message that was chosen",
+   "parent_id:parentId||GCHAT.replyTo||0" in IDX)
 
 print("\nand every gate above has a wall behind it")
 # A drawn door and an open door are different questions, and this file only

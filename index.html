@@ -845,6 +845,55 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
    mark on the current one is a row you cannot read your place in. */
 .ask-samp.on{border-color:var(--accent);color:var(--accent)}
 .ask-samp{margin:0 6px 6px 0}
+
+/* ---- the subject's group chat ------------------------------------------
+ *
+ * This was a stack of question cards with replies indented under them, which
+ * is a forum. A class does not use a forum; thirty people who see each other
+ * every day use a group chat, and reading one is a skill every child in the
+ * room already has.
+ *
+ * So: oldest at the top, newest at the bottom, own messages on the right,
+ * the sender's name only when the sender changes, a date rule between days,
+ * and the composer pinned to the bottom where the thumb already is.
+ */
+.chat{display:flex;flex-direction:column;gap:2px;padding:10px 12px;
+  max-height:56vh;overflow-y:auto;overscroll-behavior:contain}
+.chat-day{align-self:center;margin:12px 0 8px;padding:3px 11px;
+  border-radius:999px;background:var(--panel2);color:var(--dim);
+  font-size:11.5px;font-weight:600}
+.chat-row{display:flex;max-width:100%}
+.chat-row.me{justify-content:flex-end}
+.chat-b{max-width:min(78%,560px);padding:7px 11px 5px;border-radius:14px;
+  background:var(--panel2);border:1px solid var(--line,#2a3340);
+  position:relative;word-break:break-word}
+/* The tail corners, the way every chat client marks who is speaking. */
+.chat-row:not(.me) .chat-b{border-bottom-left-radius:5px}
+.chat-row.me .chat-b{border-bottom-right-radius:5px;
+  background:color-mix(in srgb, var(--accent) 16%, var(--panel2));
+  border-color:color-mix(in srgb, var(--accent) 38%, var(--line,#2a3340))}
+.chat-who{font-size:11.5px;font-weight:700;color:var(--accent);
+  margin-bottom:2px}
+.chat-who .t{color:var(--ok);font-weight:600}
+.chat-txt{white-space:pre-wrap;font-size:14px;line-height:1.45}
+.chat-at{font-size:10.5px;color:var(--dim);text-align:right;margin-top:2px;
+  font-variant-numeric:tabular-nums}
+/* A reply quotes what it answers, rather than being indented under it.
+   Indentation nests; a chat is flat, and the quote is what carries the
+   thread — which is also what lets a reply be read on its own. */
+.chat-q{border-left:3px solid var(--accent);padding:3px 8px;margin-bottom:5px;
+  border-radius:5px;background:rgba(127,127,127,.12);font-size:12.5px;
+  color:var(--dim);max-height:3.2em;overflow:hidden}
+.chat-q b{display:block;color:var(--accent);font-size:11.5px}
+.chat-empty{color:var(--dim);font-size:13px;padding:18px 4px;text-align:center}
+.chat-bar{display:flex;gap:8px;padding:10px 12px;align-items:flex-end;
+  border-top:1px solid var(--line,#2a3340)}
+.chat-bar textarea{flex:1;min-height:38px;max-height:120px;resize:none}
+.chat-reply{display:flex;gap:8px;align-items:center;padding:6px 12px;
+  border-top:1px solid var(--line,#2a3340);font-size:12.5px;color:var(--dim)}
+.chat-reply b{color:var(--accent)}
+.chat-x{margin-left:auto;cursor:pointer;background:none;border:0;
+  color:var(--dim);font-size:15px;padding:0 4px}
 .ask-toggle{margin-left:auto;font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none}
 .ask-sw{width:38px;height:22px;border-radius:999px;background:#666;position:relative;transition:.2s;display:inline-block}
 .ask-sw.on{background:#8fe3b0}
@@ -6021,6 +6070,101 @@ async function renderClassSubjects(cid, className){
 
 /* One subject. Everything is filtered to it, because a student opening
    Physics should not be shown Monday's Maths worksheet. */
+/* ---- one subject's group chat -------------------------------------------
+ *
+ * The threads come back as questions each holding replies — a forum shape.
+ * A class is not a forum. Thirty people who see each other every day use a
+ * group chat, and every child in the room can already read one.
+ *
+ * Flattened to one chronological run, oldest first. A reply keeps its
+ * parent as a quote inside its own bubble rather than being indented under
+ * it: indentation nests without limit and stops fitting on a phone, while a
+ * quote carries the thread AND lets the reply be read on its own.
+ */
+const GCHAT = { replyTo: 0, replyText: "", replyWho: "" };
+
+function chatWhen(iso){
+  const d = new Date(iso);
+  return isNaN(d) ? "" : d.toLocaleTimeString([], {hour:"2-digit",
+                                                  minute:"2-digit"});
+}
+function chatDay(iso){
+  const d = new Date(iso);
+  if(isNaN(d)) return "";
+  const today = new Date(), y = new Date();
+  y.setDate(today.getDate() - 1);
+  const same = (a,b)=>a.toDateString()===b.toDateString();
+  if(same(d, today)) return "Today";
+  if(same(d, y)) return "Yesterday";
+  return d.toLocaleDateString([], {day:"numeric", month:"short",
+    year: d.getFullYear()===today.getFullYear()?undefined:"numeric"});
+}
+
+/* Every message in the subject, in the order they were said. */
+function chatFlatten(threads){
+  const out = [];
+  (threads||[]).forEach(t=>{
+    out.push(Object.assign({}, t, {quote:null}));
+    (t.replies||[]).forEach(r=>out.push(Object.assign({}, r,
+      {quote:{who:t.who, body:t.body}})));
+  });
+  /* The API sends threads newest-first so a forum can list them that way. A
+     chat reads the other way round, and a reply must never appear above the
+     message it answers. */
+  out.sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
+  return out;
+}
+
+function chatHTML(threads, opts){
+  opts = opts || {};
+  const msgs = chatFlatten(threads);
+  if(!msgs.length){
+    return `<div class="chat"><div class="chat-empty">No messages yet.${
+      opts.hint?"<br>"+esc(opts.hint):""}</div></div>`;
+  }
+  let day = "", lastWho = "", h = '<div class="chat" id="chatScroll">';
+  msgs.forEach(m=>{
+    const d = chatDay(m.at);
+    if(d && d !== day){
+      day = d;
+      h += `<div class="chat-day">${esc(d)}</div>`;
+      lastWho = "";              // a new day reintroduces everybody
+    }
+    const mine = !!m.mine;
+    /* The name only when the speaker changes — a run of six messages from
+       one person with the name over every one is a wall of their name. */
+    const showWho = !mine && m.who !== lastWho;
+    lastWho = mine ? " me" : m.who;
+    h += `<div class="chat-row ${mine?"me":""}"><div class="chat-b">
+      ${showWho?`<div class="chat-who">${esc(m.who)}${
+        m.from_staff?' <span class="t">· teacher</span>':""}</div>`:""}
+      ${m.quote?`<div class="chat-q"><b>${esc(m.quote.who)}</b>${
+        esc(String(m.quote.body||"").slice(0,140))}</div>`:""}
+      <div class="chat-txt">${esc(m.body)}</div>
+      <div class="chat-at">${esc(chatWhen(m.at))}${
+        opts.canDelete && (mine || opts.staff)
+          ? ` · <button class="chat-x" data-cls="discdel" data-id="${m.id}"
+                data-cid="${opts.cid}" title="Delete">🗑</button>`:""}</div>
+    </div></div>`;
+  });
+  return h + "</div>";
+}
+
+/* Reply-to state, and the strip above the composer that shows it. */
+function chatReplyBar(){
+  if(!GCHAT.replyTo) return "";
+  return `<div class="chat-reply">↩ replying to <b>${esc(GCHAT.replyWho)}</b>
+    — ${esc(GCHAT.replyText.slice(0,60))}
+    <button class="chat-x" data-cls="chatcancel" title="Cancel">✕</button></div>`;
+}
+
+/* Pinned to the bottom on every paint. A chat that opens at the top is a
+   chat you have to scroll before you can read the thing you came for. */
+function chatToEnd(){
+  const s = document.getElementById("chatScroll");
+  if(s) s.scrollTop = s.scrollHeight;
+}
+
 async function renderSubject(subject){
   SUBJ.open=subject;
   const cid=SUBJ.cid;
@@ -6078,40 +6222,61 @@ async function renderSubject(subject){
         :`<div style="color:var(--dim);font-size:13px">Nothing shared yet.</div>`}
     </div>
 
-    <div class="eyebrow">Questions the class asked</div>
-    <div class="card" style="padding:12px">
-      <div class="field" style="margin-bottom:8px">
-        <textarea id="sbjAsk" class="pj-note" style="width:100%;min-height:56px"
-          placeholder="Ask about ${esc(subject)}…"></textarea></div>
-      <button class="btn sm" data-cls="sbjask">Ask</button>
-      <div style="margin-top:10px">
-        ${threads.length?threads.map(t=>`<div style="padding:8px 0;
-          border-top:1px solid var(--line,#2a2a2a)">
-          <div style="white-space:pre-wrap">${esc(t.body)}</div>
-          <div style="font-size:11.5px;color:var(--dim)">${esc(t.who)}</div>
-          ${t.replies.map(r=>`<div style="margin:6px 0 0 14px;padding-left:9px;
-            border-left:2px solid var(--line,#2a2a2a)">
-            <div style="white-space:pre-wrap">${esc(r.body)}</div>
-            <div style="font-size:11.5px;color:${
-              r.from_staff?"var(--accent)":"var(--dim)"}">${esc(r.who)}${
-              r.from_staff?" · teacher":""}</div></div>`).join("")}
-        </div>`).join("")
-          :`<div style="color:var(--dim);font-size:13px">No questions yet.</div>`}
+    <div class="eyebrow">${esc(subject)} — class group</div>
+    <div class="card" style="padding:0;overflow:hidden">
+      ${chatHTML(threads, {cid:cid, canDelete:true,
+        hint:"Ask about "+subject+" here. Your class and the teacher of "+
+             "this subject can see it."})}
+      ${chatReplyBar()}
+      <div class="chat-bar">
+        <textarea id="sbjAsk" class="pj-note"
+          placeholder="Message ${esc(subject)}…"></textarea>
+        <button class="btn sm" data-cls="sbjask">Send</button>
       </div>
     </div>`;
+  chatToEnd();
+  /* Tapping a message answers it. A reply box under every message is a
+     forum; one composer and a chosen message is a chat, and it is the
+     gesture everybody already has. */
+  box.querySelectorAll(".chat-row:not(.me) .chat-b").forEach((b,i)=>{
+    b.style.cursor = "pointer";
+    b.onclick = e=>{
+      if(e.target.closest("[data-cls]")) return;
+      const msgs = chatFlatten(threads).filter(m=>!m.mine);
+      const m = msgs[i];
+      if(!m) return;
+      GCHAT.replyTo = m.id; GCHAT.replyWho = m.who; GCHAT.replyText = m.body;
+      renderSubject(subject);
+    };
+  });
+  const ta = document.getElementById("sbjAsk");
+  if(ta){
+    ta.focus();
+    /* Enter sends, shift+Enter is a new line — the one every chat uses.
+       On a phone the on-screen keyboard sends its own newline, so the
+       Send button stays as the reliable path. */
+    ta.onkeydown = e=>{
+      if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); subjAsk(); }
+    };
+  }
 }
 
 async function subjAsk(){
   const el=document.getElementById("sbjAsk");
   const body=(el&&el.value||"").trim();
-  if(!body){ toast("Type your question first."); return; }
+  if(!body){ toast("Type something first."); return; }
   try{
     await api.post("/api/class/"+SUBJ.cid+"/discussion",
-      {body:body, subject:SUBJ.open||""});
+      {body:body, subject:SUBJ.open||"",
+       /* When a message was chosen, this answers it — so it lands as a
+          reply under that question rather than starting a new one. */
+       parent_id: GCHAT.replyTo || 0});
   }catch(e){ toast(e.message); return; }
   if(el) el.value="";
+  GCHAT.replyTo = 0; GCHAT.replyWho = ""; GCHAT.replyText = "";
   await renderSubject(SUBJ.open);
-  toast("Asked. Your teacher will see it.");
+  /* No toast. In a chat the message appearing IS the confirmation, and a
+     banner over it every time is noise on the thing you just sent. */
 }
 
 async function renderClass(){
@@ -7542,34 +7707,33 @@ async function discPaint(cid){
   catch(e){ box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
     `${esc(e.message)}</div>`; return; }
   const threads=(d&&d.threads)||[];
-  if(!threads.length){
-    box.innerHTML=`<div style="color:var(--dim);font-size:13px">`+
-      `No questions yet.</div>`;
-    return;
-  }
-  const who=p=>`<span style="font-size:11.5px;color:${
-      p.from_staff?"var(--accent)":"var(--dim)"}">${esc(p.who)}${
-      p.from_staff?" · teacher":""}</span>`;
-  box.innerHTML=threads.map(t=>`
-    <div style="padding:9px 0;border-top:1px solid var(--line,#2a2a2a)">
-      <div style="white-space:pre-wrap">${esc(t.body)}</div>
-      <div class="row" style="gap:8px;align-items:center;margin-top:3px">
-        ${who(t)}
-        <button class="btn ghost sm" data-cls="discreply" data-id="${t.id}"
-          data-cid="${cid}">Reply</button>
-        ${(t.mine||CAN_MODERATE)?`<button class="btn ghost sm"
-          data-cls="discdel" data-id="${t.id}" data-cid="${cid}">Delete</button>`:""}
-      </div>
-      ${t.replies.map(r=>`<div style="margin:7px 0 0 16px;padding-left:10px;
-        border-left:2px solid var(--line,#2a2a2a)">
-        <div style="white-space:pre-wrap">${esc(r.body)}</div>
-        <div class="row" style="gap:8px;align-items:center;margin-top:2px">
-          ${who(r)}
-          ${(r.mine||CAN_MODERATE)?`<button class="btn ghost sm"
-            data-cls="discdel" data-id="${r.id}" data-cid="${cid}">Delete</button>`:""}
-        </div></div>`).join("")}
-      <div id="discReplyBox${t.id}"></div>
-    </div>`).join("");
+  /* The same chat the class sees, so a teacher answering knows exactly what
+     is on the pupils' screens. It was a forum on both sides and the two
+     halves did not even look alike. */
+  box.innerHTML = chatHTML(threads, {cid:cid, canDelete:true,
+                                     staff:CAN_MODERATE,
+                                     hint:"Nothing from this class yet."})
+    + chatReplyBar()
+    + `<div class="chat-bar">
+         <textarea id="discNew" class="pj-note"
+           placeholder="Message the class…"></textarea>
+         <button class="btn sm" data-cls="discask" data-id="${cid}">Send</button>
+       </div>`;
+  chatToEnd();
+  box.querySelectorAll(".chat-row:not(.me) .chat-b").forEach((b,i)=>{
+    b.style.cursor="pointer";
+    b.onclick=e=>{
+      if(e.target.closest("[data-cls]")) return;
+      const m=chatFlatten(threads).filter(x=>!x.mine)[i];
+      if(!m) return;
+      GCHAT.replyTo=m.id; GCHAT.replyWho=m.who; GCHAT.replyText=m.body;
+      discPaint(cid);
+    };
+  });
+  const ta=document.getElementById("discNew");
+  if(ta) ta.onkeydown=e=>{
+    if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); discAsk(cid,0,"discNew"); }
+  };
 }
 
 /* Whether the Delete button is drawn on somebody else's message. The server
@@ -7583,9 +7747,11 @@ async function discAsk(cid, parentId, boxId){
   if(!body){ toast("Type something first."); return; }
   try{
     await api.post("/api/class/"+cid+"/discussion",
-      {body:body, parent_id:parentId||0, subject:discSubject()});
+      {body:body, parent_id:parentId||GCHAT.replyTo||0,
+       subject:discSubject()});
   }catch(e){ toast(e.message); return; }
   if(el) el.value="";
+  GCHAT.replyTo=0; GCHAT.replyWho=""; GCHAT.replyText="";
   await discPaint(cid);
 }
 
@@ -8402,6 +8568,14 @@ document.addEventListener("click",e=>{
   else if(k==="discreply") discReply(id, cid);
   else if(k==="discsend") discAsk(cid, id, "discR"+id);
   else if(k==="discdel") discDel(id, cid);
+  /* Backing out of a reply. Without it the strip is a state you can enter
+     and not leave, and the next message goes under a question you had
+     stopped meaning to answer. */
+  else if(k==="chatcancel"){
+    GCHAT.replyTo=0; GCHAT.replyWho=""; GCHAT.replyText="";
+    if(SUBJ && SUBJ.open) renderSubject(SUBJ.open);
+    else if(cid) discPaint(cid);
+  }
   else if(k==="hstaffadd") schoolStaffAdd();
   else if(k==="stfix") staffFix(id, b.dataset.nm, b.dataset.ph==="1");
   /* The same flow, reached from the subject row — because that is the row
