@@ -1880,13 +1880,24 @@ function setJoinRole(role){
      whole class, so it opens one subject on one board and the server refuses
      it here — which the box now says, rather than leaving somebody typing it
      again. */
+  /* A button, not only a sentence.
+     This tab takes a code and a teacher who already has an account has no
+     business on it — the ten digits here are for becoming the school
+     administrator, once. Saying "use the Sign in tab instead" describes the
+     way out; it does not provide one, and somebody who has just been told
+     their code is wrong is not in the mood to hunt for a tab. */
   const hint=$("#jn_hint");
-  if(hint) hint.textContent = teacher
-    ? "The ten-digit code your school office was issued. If you already have "+
-      "an email and password, use the Sign in tab instead — a subject code "+
-      "(T-…) is for a classroom board and will not sign you in here."
+  if(hint) hint.innerHTML = teacher
+    ? "The ten-digit code your school office was issued — this is how "+
+      "somebody becomes the school administrator.<br>Already have an email "+
+      "and password? <a href='#' id='jn_toSignin' style='color:var(--accent)'>"+
+      "Sign in instead →</a><br>A subject code (T-…) is for a classroom "+
+      "board and will not sign you in here."
     : "The code your teacher gave you. You will tap your name next — there is "+
       "no password.";
+  const jump=$("#jn_toSignin");
+  if(jump) jump.onclick=e=>{ e.preventDefault(); gateTab("login");
+                             const f=$("#li_email"); if(f) f.focus(); };
   $("#jn_names").innerHTML="";
   authMsg("");
 }

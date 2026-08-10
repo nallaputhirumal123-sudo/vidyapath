@@ -78,8 +78,13 @@ ck("and nothing is left reading them", "jn_staff" not in _idx,
 ck("the sign-in form still has both", 'id="li_email"' in _idx
    and 'id="li_pw"' in _idx, "this is the one that signs people in")
 ck("and the join tab points staff at it",
-   "use the Sign in tab instead" in _idx,
+   "Sign in instead &rarr;" in _idx or "Sign in instead →" in _idx,
    "a teacher with a password needs telling where it goes")
+# That check used to look for the sentence "use the Sign in tab instead".
+# The sentence became a link, and the only remaining copy of those words in
+# the file was inside the code comment explaining WHY it became a link — so
+# the assertion went on passing while testing nothing a user can see. It
+# looks for the link's own text now.
 
 # The boxes went and the sign above them stayed.
 #
@@ -117,6 +122,23 @@ ck("and each row repeats it", "board code <b style=" in _idx,
 ck("with the sign-in said plainly beside it",
    "It is not a\n        sign-in — teachers sign in with their email and "
    "password." in _idx)
+# Telling somebody where to go is not the same as taking them there.
+#
+# The Teacher side of the code tab has no email box, correctly: it takes the
+# ten digits that make somebody the school administrator, once. But a teacher
+# who already has an account lands there, is refused, and is told to "use the
+# Sign in tab instead" — and somebody who has just been told their code is
+# wrong is not in the mood to go hunting for a tab.
+ck("the code tab offers a way to the sign-in, not just a mention of it",
+   "id='jn_toSignin'" in _idx)
+ck("which switches tabs and puts the cursor in the email box",
+   'gateTab("login");' in _idx and 'const f=$("#li_email"); if(f) f.focus();'
+   in _idx,
+   "landing on a tab with nothing focused is a second thing to work out")
+ck("and the ten digits still say what they are for",
+   "somebody becomes the school administrator" in _idx,
+   "otherwise the box reads as a teacher login that keeps refusing them")
+
 ck("and the pupils' code says whose it is",
    "for pupils, on the Join with code tab" in _idx,
    "a class code typed into the Teacher tab is the other half of the same "
