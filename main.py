@@ -3967,27 +3967,54 @@ def delete_assignment(aid: int, user: User = Depends(teacher_user),
 async def upload_pages(aid: int, files: list[UploadFile] = File(...),
                        user: User = Depends(teacher_user),
                        db: Session = Depends(get_db)):
-    """Turn uploaded page photos into a single PDF attached to the assignment."""
+    """Attach a PDF to an assignment, or photographed pages that become one.
+
+    Photos of a textbook page were the only thing accepted, on the reasoning
+    that a phone is what a teacher has in front of a book. True, and it
+    quietly excluded the commonest case in a school that already types its
+    worksheets: a PDF. She was told "No readable images were uploaded",
+    which describes what the server wanted rather than what she did wrong.
+
+    A PDF is stored as it is — re-rendering it through an image library
+    would flatten selectable text into a picture of text, which is worse for
+    a pupil reading it on a phone and useless to a screen reader.
+    """
     a = db.get(Assignment, aid)
     if not a:
         raise HTTPException(404, "Not found")
     _own_class(db, a.class_id, user)
+
+    raws = []
+    for f in files[:30]:
+        raw = await f.read()
+        if len(raw) > 12_000_000:
+            continue
+        raws.append((f.filename or "", raw))
+
+    # A PDF, recognised by its own first bytes rather than by the name or the
+    # content type the browser guessed — both are supplied by the caller.
+    pdf = next((r for _, r in raws if r[:5] == b"%PDF-"), None)
+    if pdf is not None:
+        a.pdf_data = base64.b64encode(pdf).decode()
+        a.pdf_name = f"{(a.title or 'assignment')[:40]}.pdf"
+        db.commit()
+        return {"ok": True, "pages": 0, "pdf_name": a.pdf_name}
+
     try:
         from PIL import Image
     except Exception:
         raise HTTPException(500, "Image support is not available on the server")
     images = []
-    for f in files[:30]:
-        raw = await f.read()
-        if len(raw) > 8_000_000:
-            continue
+    for _, raw in raws:
         try:
             im = Image.open(io.BytesIO(raw)).convert("RGB")
             images.append(im)
         except Exception:
             continue
     if not images:
-        raise HTTPException(400, "No readable images were uploaded")
+        raise HTTPException(
+            400, "Nothing readable was uploaded. A PDF, or photographs of "
+                 "the pages, both work.")
     buf = io.BytesIO()
     images[0].save(buf, format="PDF", save_all=True, append_images=images[1:])
     a.pdf_data = base64.b64encode(buf.getvalue()).decode()
@@ -8664,15 +8691,28 @@ def class_discussion_delete(cid: int, pid: int,
     #
     # _my_subjects answers the other question: None for the head and the
     # office, the subjects held for a teacher, and an empty set for a pupil.
-    teaches = _my_subjects(db, cid, user)
+    # Taking down somebody else's message belongs to the teacher of that
+    # subject, and to nobody else.
+    #
+    # _my_subjects answers None for the head and the office, meaning "reads
+    # everything" — and that was being spent here as "may delete anything".
+    # Reading a class's discussion is oversight, which a head is owed;
+    # removing a child's message from a lesson they do not teach is not the
+    # same act and was never asked for. A head who genuinely teaches the
+    # subject still holds it as a teacher, through the slot, and that is the
+    # right that applies.
+    #
+    # Platform admins keep it: that is the operator of the service, needed
+    # for a takedown nobody at the school will action.
+    held = _my_subjects(db, cid, user)
     if row.user_id != user.id:
         here = (row.subject or "").strip().lower()
-        may = (teaches is None) or bool(teaches) and (
-            not here or here in {str(s).strip().lower() for s in teaches})
+        mine = {str(s).strip().lower() for s in (held or [])}
+        may = user.is_admin or (bool(mine) and (not here or here in mine))
         if not may:
             raise HTTPException(
-                403, "That is somebody else's message, and it is in a "
-                     "subject you do not teach.")
+                403, "That is somebody else's message. The teacher of that "
+                     "subject can take it down, and so can whoever wrote it.")
     # A question takes its replies with it, or the class is left answering
     # something nobody can see.
     db.query(ClassPost).filter(ClassPost.class_id == cid,

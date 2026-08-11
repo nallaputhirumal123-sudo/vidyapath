@@ -8457,7 +8457,7 @@ async function renderTeacherClass(cid){
       </div>
       <div class="field"><label>Title</label><input id="asTitle" placeholder="e.g. Chapter 3 questions"/></div>
       <div class="field"><label>Questions / instructions</label><textarea id="asBody" class="pj-note" style="min-height:90px" placeholder="Type the questions students must answer…"></textarea></div>
-      <div class="field"><label>Or attach photos of book pages (become a PDF)</label><input type="file" id="asFiles" accept="image/*" multiple/></div>
+      <div class="field"><label>Or attach a PDF, or photos of book pages (which become one)</label><input type="file" id="asFiles" accept="application/pdf,image/*" multiple/></div>
       <button class="btn sm" data-cls="addasg" data-id="${cid}">Set assignment</button>
       <span id="asMsg" style="font-size:13px;color:var(--dim);margin-left:10px"></span>
     </div>`}
@@ -8483,10 +8483,16 @@ async function renderTeacherClass(cid){
   staffPaint(cid);
   staffPickFill();
   matPaint(cid);
-  /* A teacher of this class may take anybody's message down; the server
-     decides for real, this only avoids drawing a button that would be
-     refused. */
-  CAN_MODERATE=true;
+  /* Only the teacher of a subject may take somebody else's message down.
+     Not the office: reading a class's discussion is oversight and removing
+     a child's message from a lesson you do not teach is a different act.
+     Set from what this account actually holds here rather than assumed —
+     it was `= true` for anybody who opened a class page, and it is a
+     global, so it stayed true for the rest of the session afterwards.
+     The server decides for real; this only avoids drawing a button that
+     would be refused. */
+  CAN_MODERATE = !!(USER.is_admin
+                    || (TEACHER_CLASS && (TEACHER_CLASS.my_subjects||[]).length));
   discPaint(cid);
 }
 async function tcAddAsg(cid){
