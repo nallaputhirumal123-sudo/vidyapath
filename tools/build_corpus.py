@@ -125,13 +125,52 @@ def main():
     print(f"took {mins:.1f} minutes")
 
     ix.db.close()
+
+    # A SLICE MUST NOT REPLACE THE WHOLE THING.
+    #
+    # The swap below was written to survive a crash — a build that dies at
+    # hour two must not leave the app reading half a corpus. It does that.
+    # What it does not survive is a build that SUCCEEDS at being small:
+    # `--limit 3` finished cleanly, wrote 337 passages, and replaced a
+    # 12,289-passage corpus with them. Nothing failed, nothing warned, and
+    # the app came back up holding almost nothing.
+    #
+    # --limit and --subject exist to try the tool out, which is exactly when
+    # somebody has a real corpus in place and no reason to expect it to be
+    # thrown away. So a build that comes out dramatically smaller than what
+    # it would overwrite stops and says so, and says where its own output
+    # is, rather than making the decision itself. --fresh means the caller
+    # has decided, so it is honoured without argument.
+    if os.path.exists(FINAL) and not args.fresh:
+        try:
+            import sqlite3
+            old = sqlite3.connect(f"file:{FINAL}?mode=ro", uri=True)
+            had = old.execute("select count(*) from passages").fetchone()[0]
+            old.close()
+        except Exception:
+            had = 0
+        if had and ix.n < had * 0.9:
+            print(f"\nREFUSING to replace {FINAL}.")
+            print(f"  it holds {had:,} passages and this build made "
+                  f"{ix.n:,}.")
+            print(f"  the new one is at {temp}")
+            print("  a slice (--limit / --subject / --class) indexes only "
+                  "what it was asked for,")
+            print("  so writing it over a full corpus loses everything "
+                  "else. Pass --fresh if")
+            print("  that is what you want.")
+            return 1
+
     # Swapped in only now. A build that dies halfway must not leave the app
     # reading half a corpus while believing it is whole.
     if os.path.exists(FINAL):
         os.replace(FINAL, FINAL + ".old")
     os.replace(temp, FINAL)
     print(f"\nwrote {FINAL} — restart the app to pick it up")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    # The exit code matters now: a refused swap is a failure, and a caller
+    # that ignores it goes on to gzip and ship a corpus that was not written.
+    sys.exit(main() or 0)
