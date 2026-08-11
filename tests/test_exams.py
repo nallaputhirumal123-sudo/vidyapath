@@ -97,13 +97,39 @@ ck("EAMCET is findable by the name people say",
    "the exam was renamed EAPCET and nobody calls it that")
 
 print("\nsearch narrows as a teacher types")
-ck("one word finds a state", len(exams.search("telangana")) == 2)
-ck("two words narrow it", len(exams.search("telangana intermediate")) == 1,
-   "a search that grows as you type reads as broken")
 ck("nonsense finds nothing", exams.search("qwertyuiop") == [])
-ck("the kind filter holds",
-   all(s["kind"] == "state" for s in exams.search("", "state")))
 ck("jee finds both papers", len(exams.search("jee")) >= 2)
+ck("two words narrow it",
+   len(exams.search("intermediate", state="Telangana")) == 1,
+   "a search that grows as you type reads as broken")
+
+print("\na state board is reachable only by naming the state")
+ck("a half-typed state name reaches no state board",
+   not any(s.get("state") for s in exams.search("telang")),
+   "a partial name matching two states is exactly the confusion the gate "
+   "removes — the wrong state's paper is the same subject, the same year "
+   "and the wrong syllabus, and nothing on it says so")
+ck("but typing the whole name counts as choosing it",
+   len([s for s in exams.search("telangana") if s.get("state")]) == 2,
+   "a teacher who typed it in full has been unambiguous and should not be "
+   "told there is nothing there")
+ck("choosing it returns that state's boards",
+   len([s for s in exams.search(state="Telangana") if s.get("state")]) == 2)
+ck("and only that state's",
+   all(s["state"] == "Telangana"
+       for s in exams.search(state="Telangana") if s.get("state")))
+ck("CBSE is not gated on a state",
+   any(s["id"] == "cbse" for s in exams.search("cbse")),
+   "it is not a state thing and a teacher should not have to answer a "
+   "question that does not apply")
+ck("nor are the entrance exams",
+   any(s["id"] == "jee-main" for s in exams.search("", "entrance")))
+ck("every state with a board is offered",
+   len(exams.states()) >= 14 and "Kerala" in exams.states())
+ck("the screen says why it is asking",
+   "next state along" in IDX,
+   "a required field with no reason given is a required field people "
+   "work around")
 
 print("\nthe hosts resolve")
 bad = []
@@ -153,8 +179,36 @@ ck("the syllabus route exists", '@app.get("/api/exams/syllabus")' in MAIN)
 ck("an unknown exam is a 404, not an empty page",
    'raise HTTPException(404, "No syllabus held for that exam.")' in MAIN)
 ck("the page is routed", 'v.page==="exams"' in IDX)
-ck("a learner is offered it beside their class",
-   'staff ? "" : nav("exams"' in IDX)
+ck("a school's learner is offered it beside their class",
+   '(staff || !USER.at_school) ? ""' in IDX)
+
+print("\nand only to accounts a school issued")
+ck("the server decides who is at a school",
+   "def _at_school(db, user)" in MAIN)
+ck("a class login counts",
+   'if (getattr(user, "kind", "") or "") == "classcode":\n        return True'
+   in MAIN)
+ck("so does a learner inside an institution",
+   "_cl_boot.is_institution(_scope_of(db, user))" in MAIN)
+ck("and staff, who are at a school by definition",
+   "if teacher_row(user, db) is not None:\n        return True" in MAIN)
+for route in ("papers", "syllabus"):
+    ck(f"/api/exams/{route} refuses a personal account",
+       MAIN.split(f'@app.get("/api/exams/{route}")')[1]
+           .split("@app.")[0].count("_school_only(db, user)") == 1)
+for route in ("read", "solve"):
+    ck(f"/api/exams/{route} refuses one too",
+       MAIN.split(f'@app.post("/api/exams/{route}")')[1]
+           .split("\n@app.")[0].count("_school_only(db, user)") == 1)
+ck("refused, not merely hidden",
+   "#exams is five characters to guess" in IDX
+   and "#exams is five characters to guess" in MAIN,
+   "a menu item that is only hidden is a menu item")
+ck("the page itself will not open by typing the address",
+   'if(USER && (isStaff() || USER.at_school)) renderExams(); else '
+   'renderHome();' in IDX)
+ck("and the refusal says which account to use",
+   "Sign in with the account your school gave you." in MAIN)
 ck("a teacher is offered it, and the office is not",
    'if(teaching) h+=nav("exams"' in IDX,
    "a head who takes no class does not set a paper")

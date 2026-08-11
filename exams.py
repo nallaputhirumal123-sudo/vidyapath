@@ -199,18 +199,52 @@ def _hay(s):
                     ("name", "state", "kind", "id", "note")).lower()
 
 
-def search(q="", kind=""):
+def states():
+    """The states with a board here, in the order a list should read."""
+    return sorted({s["state"] for s in SOURCES if s.get("state")})
+
+
+def search(q="", kind="", state=""):
     """Official sources matching a teacher's words.
 
     Matched on every word, so "telangana intermediate" narrows and does not
     widen — a teacher typing more expects fewer results, and a search that
     grows as you type reads as broken.
+
+    **A state board is only reachable by naming the state.** Twenty-four of
+    them in one list is a wall a teacher scrolls past to find their own, and
+    the wrong state's paper is a genuinely costly mistake: a Class 10 paper
+    from the next state along is the same subject, the same year and the
+    wrong syllabus, and it does not announce itself. So the state is chosen
+    first and the boards for it are what comes back. CBSE, the entrance
+    exams and the international boards are not state things and are not
+    gated on one.
     """
-    want = [w for w in str(q or "").lower().split() if w]
+    typed = " ".join(str(q or "").split())
+    want = [w for w in typed.lower().split() if w]
     kind = str(kind or "").strip().lower()
+    state = " ".join(str(state or "").split())
+    # Typing the state's whole name counts as choosing it. Only the whole
+    # name: a partial one that matches two states is precisely the confusion
+    # the gate exists to remove, but a teacher who types "Kerala" in full
+    # has been unambiguous and should not be told there is nothing there.
+    if not state:
+        for real in states():
+            if typed.lower() == real.lower():
+                state = real
+                want = []
+                break
     out = []
     for s in SOURCES:
-        if kind and s.get("kind") != kind:
+        if s.get("state"):
+            # The gate. Chosen, not typed: a half-typed state name that
+            # happens to match two of them is exactly the confusion this
+            # exists to remove.
+            if not state or s["state"].lower() != state.lower():
+                continue
+        elif kind == "state":
+            continue
+        if kind and kind != "state" and s.get("kind") != kind:
             continue
         hay = _hay(s)
         if all(w in hay for w in want):

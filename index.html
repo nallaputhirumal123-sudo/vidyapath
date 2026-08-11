@@ -2305,8 +2305,15 @@ function renderNav(){
    /* Past papers and the entrance syllabus. A learner gets it beside their
       class because in Class 11 and 12 it IS the class; a teacher gets it
       under Manage, below. The office does not teach and does not sit an
-      entrance exam, so it is not offered one. */
-   + (staff ? "" : nav("exams","📝","Papers &amp; syllabus"))
+      entrance exam, so it is not offered one.
+
+      Only for an account a school issued. A board's past papers belong to a
+      classroom; somebody who signed up here on their own to learn Python
+      did not ask for a CBSE paper. The server refuses those routes on the
+      same test, so this is not the gate — it is not offering a door that
+      will not open. */
+   + ((staff || !USER.at_school) ? ""
+      : nav("exams","📝","Papers &amp; syllabus"))
    + (staff ? "" : nav("paths","🧭","Choose a path"))
    + (staff ? "" : nav("projects","🛠️","Projects"))
    + ((!staff || teaching) ? nav("ask","💬","Ask Axle anything") : "")
@@ -3242,7 +3249,8 @@ function renderResources(){
    One page for both, because a teacher looking for last year's paper and a
    candidate reading the JEE syllabus are usually the same conversation. The
    tab it opens on is the one that person is more likely to want. */
-let EXAMV = { tab: "", q: "", kind: "" };
+let EXAMV = { tab: "", q: "", kind: "", state: "" };
+let EXAM_STATES = [];
 
 function renderExams(){
   const staff = isStaff();
@@ -3260,11 +3268,14 @@ function renderExams(){
       : "Search your board's own past papers, and see what the entrance "
         + "exams ask beyond your school books."}</p>
     <div class="row" style="gap:8px;margin-bottom:16px">
-      ${tab("papers","Past papers")}${tab("syllabus","Entrance syllabus")}</div>
+      ${tab("papers","Past papers")}${tab("solve","Solve a paper")}${
+        tab("syllabus","Entrance syllabus")}</div>
     <div id="xBody">Loading…</div>`;
   $("#main").querySelectorAll("[data-xtab]").forEach(b =>
     b.onclick = () => { EXAMV.tab = b.dataset.xtab; renderExams(); });
-  if(EXAMV.tab === "papers") examPapers(); else examSyllabus();
+  if(EXAMV.tab === "papers")      examPapers();
+  else if(EXAMV.tab === "solve")  examSolve();
+  else                            examSyllabus();
 }
 
 const PAPER_KIND = [
@@ -3289,20 +3300,31 @@ async function examPapers(){
           <label for="xq">Board, state or exam</label>
           <input id="xq" value="${esc(EXAMV.q)}"
             placeholder="telangana · cbse · jee · eamcet"></div>
-        <div class="field" style="width:190px;margin-bottom:0">
+        <div class="field" style="width:180px;margin-bottom:0">
           <label for="xkind">Show</label>
           <select id="xkind">${PAPER_KIND.map(([v,l]) =>
             `<option value="${v}" ${EXAMV.kind===v?"selected":""}>${l}</option>`
             ).join("")}</select></div>
+        ${/* A state board is reachable only by choosing the state, never by
+              scrolling twenty-four of them. The wrong state's paper is the
+              same subject, the same year and the wrong syllabus, and it
+              does not announce itself. */""}
+        <div class="field" style="width:200px;margin-bottom:0">
+          <label for="xstate">State board — choose one</label>
+          <select id="xstate"><option value="">Not a state board</option>
+            ${EXAM_STATES.map(s => `<option value="${esc(s)}" ${
+              EXAMV.state===s?"selected":""}>${esc(s)}</option>`).join("")}
+          </select></div>
       </div>
     </div>
     <div id="xList">Loading…</div>`;
-  const q = $("#xq"), k = $("#xkind");
+  const q = $("#xq"), k = $("#xkind"), st = $("#xstate");
   /* Filtering as they type, because the whole list is thirty-odd rows and a
      teacher who has to press a button to see three of them will type the
      board name into a search engine instead. */
   q.oninput = () => { EXAMV.q = q.value; examPaperList(); };
   k.onchange = () => { EXAMV.kind = k.value; examPaperList(); };
+  st.onchange = () => { EXAMV.state = st.value; examPaperList(); };
   examPaperList();
 }
 
@@ -3312,16 +3334,28 @@ async function examPaperList(){
   let d;
   try{
     d = await api.get(`/api/exams/papers?q=${encodeURIComponent(EXAMV.q)}`
-      + `&kind=${encodeURIComponent(EXAMV.kind)}`);
+      + `&kind=${encodeURIComponent(EXAMV.kind)}`
+      + `&state=${encodeURIComponent(EXAMV.state)}`);
   }catch(e){
     box.innerHTML = `<div style="color:var(--dim)">${esc(e.message)}</div>`;
+    return;
+  }
+  /* The state list comes from the server, and the selector is drawn once it
+     has. Redrawn rather than patched in, so the chosen state survives. */
+  if(d.states && d.states.length && !EXAM_STATES.length){
+    EXAM_STATES = d.states;
+    examPapers();
     return;
   }
   const rows = (d && d.sources) || [];
   if(!rows.length){
     box.innerHTML = `<div class="card" style="padding:14px;color:var(--dim)">
-      Nothing matches that. Try the state's name on its own — a board is
-      often listed under a name nobody uses out loud.</div>`;
+      ${EXAMV.kind === "state" && !EXAMV.state
+        ? "Choose your state above. A paper from the next state along is "
+          + "the same subject and the same year on a different syllabus, "
+          + "and nothing on it says so."
+        : "Nothing matches that. Try the board's name on its own — a board "
+          + "is often listed under a name nobody uses out loud."}</div>`;
     return;
   }
   box.innerHTML = `
@@ -3336,6 +3370,195 @@ async function examPaperList(){
         <span class="ex">↗</span></a>`;
     }).join("")}</div></div>
     <p class="sub" style="margin-top:14px">${esc(d.note || "")}</p>`;
+}
+
+/* ---- Solve a paper -------------------------------------------------------
+
+   Upload a question paper and get every question worked through, then
+   download the whole thing as a PDF.
+
+   The PDF goes up as a PDF first, not as pictures of itself. A typed paper
+   carries its own text and reading it costs nothing; rasterising twenty
+   pages and sending them to a vision model is a bill for work the file had
+   already done. Only when the server says the pages carry no text — a scan,
+   a photograph — does the browser render them, because the browser is the
+   side with the PDF renderer.
+
+   The questions come back exactly as printed rather than as the solver
+   echoed them, so a teacher can see the paper was READ correctly before
+   trusting a single answer. That is the whole reason reading and solving
+   are two passes. */
+let SOLVED = null;
+
+function examSolve(){
+  $("#xBody").innerHTML = `
+    <div class="card" style="padding:14px;margin-bottom:16px">
+      <div style="font-weight:650">Upload a question paper</div>
+      <p style="margin:6px 0 0;font-size:13px;color:var(--dim)">
+        A PDF, or photographs of the pages. Every numbered question is
+        worked through and you can download the solved paper.</p>
+      <div class="field" style="margin:12px 0 0">
+        <input id="xf" type="file" accept="application/pdf,image/*" multiple>
+      </div>
+      <button class="btn" id="xgo" style="margin-top:10px">Solve it</button>
+      <div id="xstat" style="margin-top:10px;font-size:13px;
+        color:var(--dim)"></div>
+    </div>
+    <div id="xout"></div>`;
+  $("#xgo").onclick = examSolveGo;
+  if(SOLVED) examSolveShow(SOLVED);
+}
+
+async function examSolveGo(){
+  const inp = $("#xf"), stat = $("#xstat"), go = $("#xgo");
+  const picked = [...(inp.files || [])];
+  if(!picked.length){ stat.textContent = "Choose a paper first."; return; }
+  go.disabled = true;
+  $("#xout").innerHTML = "";
+  const say = t => { stat.textContent = t; };
+
+  const read = async (parts) => {
+    const fd = new FormData();
+    parts.forEach((p,i) => fd.append("files", p, p.name || `page${i+1}.png`));
+    return await api.upload("/api/exams/read", fd);
+  };
+
+  try{
+    const pdf = picked.length === 1 &&
+      /\.pdf$/i.test(picked[0].name || "") ? picked[0] : null;
+    let d;
+    if(pdf){
+      say("Reading the paper…");
+      try{
+        d = await read([pdf]);
+      }catch(e){
+        /* The server says the pages carry no text, so it is a scan or a
+           photograph. Render it here — the browser has pdf.js — and send
+           the pictures instead. One retry, not a loop. */
+        if(!/SCANNED/.test(e.message || "")) throw e;
+        say("It's a scan — rendering the pages…");
+        const imgs = await pdfPagesAsImages(pdf, 20);
+        say(`Reading ${imgs.length} page${imgs.length===1?"":"s"}…`);
+        d = await read(imgs);
+      }
+    }else{
+      say(`Reading ${picked.length} page${picked.length===1?"":"s"}…`);
+      d = await read(picked);
+    }
+
+    /* Solved a batch at a time, and drawn as each one lands.
+       A sixty-question paper is minutes of work. Asking for all of it in
+       one request means a browser that gives up at the end throws away
+       everything; asking ten at a time means a teacher watches it fill in,
+       and a batch that fails costs one batch. */
+    const asked = d.questions || [];
+    SOLVED = {caveat: d.caveat, found: asked.length, questions: [],
+              missing: []};
+    examSolveShow(SOLVED);
+    for(let i = 0; i < asked.length; i += 10){
+      const part = asked.slice(i, i + 10);
+      say(`Solving ${i+1}–${Math.min(i+10, asked.length)} of ${
+        asked.length}…`);
+      try{
+        const r = await api.post("/api/exams/solve", {questions: part});
+        SOLVED.questions.push(...(r.questions || []));
+        SOLVED.missing.push(...(r.missing || []));
+      }catch(e){
+        /* One bad batch is not a lost paper. Its numbers are recorded as
+           unanswered and the rest carries on — a teacher would rather have
+           fifty of sixty and know which ten are missing. */
+        SOLVED.missing.push(...part.map(q => q.n));
+      }
+      examSolveShow(SOLVED);
+    }
+    say(`Solved ${SOLVED.questions.length} of ${asked.length} questions.`);
+  }catch(e){
+    say(String(e.message || e).replace(/^SCANNED:\s*/, ""));
+  }finally{
+    go.disabled = false;
+  }
+}
+
+function examSolveShow(d){
+  const box = $("#xout");
+  if(!box) return;
+  const qs = d.questions || [];
+  box.innerHTML = `
+    <div class="row" style="gap:8px;align-items:center;margin-bottom:12px">
+      <div class="eyebrow" style="margin:0">${qs.length} worked
+        solution${qs.length===1?"":"s"}</div>
+      <div class="spacer"></div>
+      <button class="btn sm" id="xdl">Download the solved paper</button>
+    </div>
+    ${d.missing && d.missing.length ? `<div class="card"
+      style="padding:12px;margin-bottom:14px">⚠️ No answer came back for
+      question${d.missing.length===1?"":"s"} ${esc(d.missing.join(", "))}.
+      Run it again, or photograph ${d.missing.length===1?"that one":"those"}
+      on its own.</div>` : ""}
+    <p class="sub">${esc(d.caveat || "")}</p>
+    ${qs.map(q => `<div class="card" style="padding:14px;margin-bottom:12px">
+      <div style="font-weight:650">Q${esc(q.n)}${
+        q.marks ? ` <span style="font-weight:400;color:var(--dim)">· ${
+        q.marks} mark${q.marks===1?"":"s"}</span>` : ""}</div>
+      <div style="white-space:pre-wrap;margin-top:5px">${
+        mathText(esc(q.question||""))}</div>
+      ${(q.working||[]).length ? `<div style="margin-top:10px">${
+        q.working.map((w,i) => `<div style="display:flex;gap:9px;padding:3px 0">
+          <span style="color:var(--dim);flex:none">${i+1}.</span>
+          <span>${mathText(esc(w))}</span></div>`).join("")}</div>` : ""}
+      <div style="margin-top:10px;padding-top:9px;
+        border-top:1px solid var(--line,#2a2a2a)">
+        <b>Answer${q.choice ? " · " + esc(q.choice) : ""}:</b>
+        ${mathText(esc(q.answer||""))}</div>
+      ${/* Flagged by substituting the claimed root back into the equation
+            the working itself states — arithmetic, not an opinion. It is
+            shown because a wrong number a class copies down is the most
+            expensive thing on this page. */""}
+      ${(q.doubt||[]).length ? `<div style="margin-top:8px;font-size:12.5px;
+        color:var(--warn,#e0a030)">⚠️ Check this one: ${
+        esc(q.doubt.join("; "))}</div>` : ""}
+    </div>`).join("")}`;
+  $("#xdl").onclick = () => examSolvePdf(d);
+}
+
+/* The download is the deliverable — a teacher wants the solved paper on
+   paper. jsPDF's built-in fonts are Latin-1 only, so everything goes
+   through pdfSafe, which is why the working is written x^2 and sqrt(...)
+   rather than as typeset maths in the first place. */
+async function examSolvePdf(d){
+  await ensureJsPDF();
+  const doc = new window.jspdf.jsPDF({unit:"pt", format:"a4"});
+  const M = 48, W = 595 - M*2;
+  let y = M;
+  const page = (need) => { if(y + need > 842 - M){ doc.addPage(); y = M; } };
+  const line = (text, size, style, indent) => {
+    doc.setFont("helvetica", style||"normal"); doc.setFontSize(size);
+    const rows = doc.splitTextToSize(pdfSafe(text), W - (indent||0));
+    rows.forEach(r => { page(size + 4); doc.text(r, M + (indent||0), y);
+      y += size + 4; });
+  };
+  doc.setFont("helvetica","bold"); doc.setFontSize(17);
+  doc.text("Solved paper", M, y); y += 24;
+  line(d.caveat || "", 9, "italic", 0);
+  y += 10;
+  (d.questions||[]).forEach(q => {
+    page(70);
+    line(`Q${q.n}${q.marks ? `  [${q.marks} marks]` : ""}`, 12, "bold", 0);
+    line(q.question || "", 10.5, "normal", 0);
+    y += 3;
+    (q.working||[]).forEach((w,i) => line(`${i+1}. ${w}`, 10, "normal", 14));
+    y += 3;
+    line(`Answer${q.choice ? " ("+q.choice+")" : ""}: ${q.answer||""}`,
+         11, "bold", 0);
+    (q.doubt||[]).forEach(t => line("Check: " + t, 9, "italic", 14));
+    y += 12;
+  });
+  if(d.missing && d.missing.length){
+    page(40);
+    line("No answer was produced for: " + d.missing.join(", "), 10,
+         "italic", 0);
+  }
+  doc.save("solved-paper.pdf");
 }
 
 async function examSyllabus(){
@@ -12210,7 +12433,11 @@ function render(){
   else if(v.page==="resources"){
     if(USER && USER.craxlearn_only) renderHome(); else renderResources();
   }
-  else if(v.page==="exams")     renderExams();
+  /* Not by typing the address either. A menu item that is merely hidden is
+     a menu item, and #exams is five characters to guess. */
+  else if(v.page==="exams"){
+    if(USER && (isStaff() || USER.at_school)) renderExams(); else renderHome();
+  }
   else if(v.page==="ask")       renderAsk();
   else if(v.page==="sqlboard")  renderSqlBoard();
   else if(v.page==="scan")      renderScanner();

@@ -3130,6 +3130,36 @@ def _school_of(user: User, db: Session):
     return (t.school_id if t else 0) or 0
 
 
+def _at_school(db, user) -> bool:
+    """Is this account one a school issued, rather than a personal one?
+
+    True for a class login, for a learner inside an institution's scope, and
+    for staff. False for somebody who signed up here with their own email to
+    learn to code, which is a different product with different people behind
+    it.
+
+    Used to decide who is offered past papers and entrance syllabuses. Those
+    belong to a school's classroom: a school gave us their pupils, and the
+    board's own site is a place a teacher chose to send them. Somebody who
+    came here on their own to learn Python did not ask for a CBSE paper.
+
+    Admins pass, as everywhere — running the site means needing every
+    surface to debug it.
+    """
+    if user is None:
+        return False
+    if getattr(user, "is_admin", False):
+        return True
+    if (getattr(user, "kind", "") or "") == "classcode":
+        return True
+    if teacher_row(user, db) is not None:
+        return True
+    try:
+        return bool(_cl_boot.is_institution(_scope_of(db, user)))
+    except Exception:
+        return False
+
+
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = teacher_row(user, db)
@@ -3159,6 +3189,10 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         # The job half of the sidebar, or the absence of it. The server
         # refuses those routes either way; this is so the page does not
         # offer a door it knows will not open.
+        # Whether a school issued this account. Papers and entrance
+        # syllabuses are a classroom thing and are offered on that basis,
+        # not to somebody who signed up here on their own to learn to code.
+        "at_school": _at_school(db, user),
         "craxlearn_only": gate["only"],
         "craxlearn_why": gate["why"],
         "craxlearn_message": gate["message"],
@@ -5917,6 +5951,12 @@ FREE_TRIAL = {"resume_upload": 0, "match": 0, "extension": 0,
               # rather than being given away once. It had one free go, which
               # also meant a free account could reach the 3D scenes a course
               # carries; those are Pro, and now they are Pro by every route.
+              # One whole paper free. Solving sixty questions is many calls
+              # and it is the thing a school is buying, so it cannot be
+              # unlimited — but a teacher has to be able to run one real
+              # paper through it before believing any of it, and a
+              # description of what it does is not that.
+              "solve_paper": 1,
               "course": 0}
 
 
@@ -10620,8 +10660,24 @@ def curriculum_groups(group: str = ""):
     }
 
 
+def _school_only(db, user):
+    """Papers and syllabuses are for accounts a school issued.
+
+    Refused here rather than merely hidden from the menu. A menu item that
+    is only hidden is a menu item, and #exams is five characters to guess —
+    the same reason the job pages are closed by middleware and not by
+    leaving them off the sidebar.
+    """
+    if not _at_school(db, user):
+        raise HTTPException(
+            403, "Past papers and entrance syllabuses are part of a school's "
+                 "Craxlearn. Sign in with the account your school gave you.")
+
+
 @app.get("/api/exams/papers")
-def exam_papers(q: str = "", kind: str = ""):
+def exam_papers(q: str = "", kind: str = "", state: str = "",
+                user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
     """Where a board actually publishes its own question papers.
 
     A teacher asks for past papers by board and year, and the honest product
@@ -10632,18 +10688,27 @@ def exam_papers(q: str = "", kind: str = ""):
     board's own page, which is also the only copy certain to be the real
     paper with the board's own corrections in it.
 
-    Unauthenticated, like /api/curriculum/groups: it is a list of public
-    links and holds nothing about anybody.
+    For accounts a school issued. The links are public and hold nothing
+    about anybody, so this is not secrecy — it is who the thing is for. A
+    board's past papers belong to a classroom, and somebody who signed up
+    here on their own to learn Python did not ask for a CBSE paper.
     """
+    _school_only(db, user)
     try:
         import exams as _exams
-        found = _exams.search(q, kind)
+        found = _exams.search(q, kind, state)
+        all_states = _exams.states()
     except Exception as e:
         print(f"exam papers: {type(e).__name__}: {e}")
-        return {"sources": [], "note": "Not available."}
+        return {"sources": [], "states": [], "note": "Not available."}
     return {
         "sources": found,
         "total": len(_exams.SOURCES),
+        # A state board is reachable only by naming the state. The wrong
+        # state's paper is the same subject, the same year and the wrong
+        # syllabus, and it does not announce itself.
+        "states": all_states,
+        "state": state,
         # Said here so a renderer cannot drop it. "Past papers" means three
         # different things across these boards and a teacher should know
         # which one they are about to get.
@@ -10655,7 +10720,9 @@ def exam_papers(q: str = "", kind: str = ""):
 
 
 @app.get("/api/exams/syllabus")
-def exam_syllabus(exam: str = ""):
+def exam_syllabus(exam: str = "",
+                  user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
     """An entrance syllabus, and which of it the school books do not cover.
 
     A candidate already owns the school books. What they cannot see is the
@@ -10667,6 +10734,7 @@ def exam_syllabus(exam: str = ""):
     exam carries a link to the authority's own document as the thing that
     settles it.
     """
+    _school_only(db, user)
     try:
         import exams as _exams
         if not (exam or "").strip():
@@ -17590,6 +17658,7 @@ import maths as _maths                                              # noqa: E402
 import verify as _verify                                            # noqa: E402
 import quiz as _quiz                                                # noqa: E402
 import teachpdf as _teachpdf                                        # noqa: E402
+import solver as _solver                                            # noqa: E402
 import rag as _rag                                                  # noqa: E402
 import dimensions as _dimensions                                    # noqa: E402
 import wolfram as _wolfram                                          # noqa: E402
@@ -17688,6 +17757,199 @@ async def teach_from_pages(files: list[UploadFile] = File(...),
                     lesson=json.dumps(lesson)))
     db.commit()
     return {"lesson": lesson, "cached": False, "pages": len(pages)}
+
+
+@app.post("/api/exams/read")
+async def read_paper(files: list[UploadFile] = File(...),
+                     user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Read a question paper — the first half of solving one.
+
+    A teacher holds last year's paper and wants a worked solution for every
+    question: to set as practice, to check their own key against, to hand a
+    class after the test. A student holds the same paper and wants to know
+    whether what they did was right. Both were doing it one question at a
+    time through the scanner, which for a sixty-question paper is sixty
+    photographs.
+
+    Send the PDF and its text is read here, which costs nothing. Send page
+    images and they are read by sight, which is what a scanned or
+    photographed paper needs. The client picks, because it is the side with
+    the PDF renderer.
+
+    **Reading and solving are two passes and that is the point.** A model
+    asked to do both at once paraphrases question 14 into something easier
+    and then answers what it wrote. This pass only copies out what is on the
+    page and is told in as many words not to answer anything; the solving
+    pass never sees the image. It also makes the whole thing checkable — the
+    questions come back exactly as printed, so a teacher can see the reading
+    was right before trusting one answer.
+
+    **They are also two ROUTES, and that is about time rather than truth.** A
+    sixty-question paper is twenty page reads and six solving calls, which
+    is minutes — far past any sensible request deadline, and a browser that
+    gives up at the end has thrown away all of it. So the paper is read
+    here, and the client asks for the solutions a batch at a time, showing
+    them as they land.
+
+    Cached on the bytes. A department passing round the same paper, or a
+    class of thirty uploading it, is one reading.
+    """
+    raw_files = []
+    for f in files[:_solver.MAX_PAGES]:
+        raw = await f.read()
+        if raw and len(raw) <= 8_000_000:
+            raw_files.append((raw, (f.content_type or "").lower()))
+    if not raw_files:
+        raise HTTPException(400, "No readable pages were sent.")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    _school_only(db, user)
+    require_paid_or_trial(db, user, "solve_paper", "Solving a whole paper",
+                          "one free paper")
+
+    h = hashlib.sha256()
+    for raw, _ in raw_files:
+        h.update(raw)
+    qkey = f"readpaper|{h.hexdigest()[:32]}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    cached = _cached_json(db, row, need=None)
+    if cached:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {**cached, "cached": True}
+
+    _ai_enforce_limit(db, user)
+    try:
+        # The free path first. A typed PDF carries its own text, and reading
+        # it here costs nothing at all — sending twenty rasterised pages to
+        # a vision model to recover text the file already contains is a bill
+        # for work that was already done.
+        read = ""
+        one_pdf = (len(raw_files) == 1
+                   and (raw_files[0][1].startswith("application/pdf")
+                        or raw_files[0][0][:4] == b"%PDF"))
+        if one_pdf:
+            text = _teachpdf.extract(raw_files[0][0])
+            if not _teachpdf.looks_scanned(text):
+                read = text
+            else:
+                raise HTTPException(
+                    422, "SCANNED: that paper is a picture of a page, so it "
+                         "has no text to read. Send the pages as images.")
+        if not read:
+            seen = []
+            for i, (raw, _m) in enumerate(raw_files, 1):
+                got = await _ai_vision(_solver.READ, raw, "image/png", 2200)
+                if got and got.strip():
+                    seen.append(f"--- PAGE {i} ---\n{got.strip()}")
+            read = "\n\n".join(seen)
+        if not read.strip():
+            raise HTTPException(
+                422, "Nothing could be read off those pages. A sharper "
+                     "photograph, or a straighter scan, usually fixes it.")
+
+        asked = _solver.questions(read)
+        if not asked:
+            raise HTTPException(
+                422, "No numbered questions were found in that. This solves "
+                     "a question paper — for a chapter or a handout, use "
+                     "Turn a PDF into a lesson instead.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Read paper failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+
+    out = {
+        "questions": asked,
+        "pages": len(raw_files),
+        # Said by the server so it cannot be dropped by whoever renders it,
+        # and it goes onto the downloaded PDF as well as onto the screen.
+        "caveat": "Worked solutions, not a marking scheme. A board's own key "
+                  "allocates marks step by step and this does not know that "
+                  "allocation. Check it before a class copies it down.",
+    }
+    db.add(AskCache(qkey=qkey, subject="solve", level="read",
+                    question=f"{len(raw_files)} pages, {len(asked)} questions",
+                    lesson=json.dumps(out)))
+    db.commit()
+    _trial_consume(db, user, "solve_paper")
+    return {**out, "cached": False}
+
+
+class SolveBatch(BaseModel):
+    questions: list[dict] = []
+
+
+@app.post("/api/exams/solve")
+async def solve_batch(body: SolveBatch,
+                      user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Work through one batch of the questions /api/exams/read found.
+
+    A batch at a time rather than a paper at a time, because a paper at a
+    time is minutes inside one request: past any sensible deadline, and a
+    browser that gives up at the end has thrown away all of it. Ten is the
+    size where each answer still gets written out properly — twenty and the
+    later ones become "similarly to Q13".
+
+    Cached per batch on the questions themselves, so re-running a paper
+    after one bad batch pays only for that batch.
+    """
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    chunk = []
+    for q in (body.questions or [])[:_solver.BATCH]:
+        text = str((q or {}).get("text") or "").strip()[:2000]
+        n = str((q or {}).get("n") or "").strip()[:12]
+        if n and text:
+            marks = q.get("marks")
+            chunk.append({"n": n, "text": text,
+                          "marks": marks if isinstance(marks, int) else None})
+    if not chunk:
+        raise HTTPException(400, "No questions were sent.")
+    _school_only(db, user)
+    require_paid_or_trial(db, user, "solve_paper", "Solving a whole paper",
+                          "one free paper")
+
+    h = hashlib.sha256()
+    for q in chunk:
+        h.update((q["n"] + "|" + q["text"]).encode("utf-8", "replace"))
+    qkey = f"solvebatch|{h.hexdigest()[:32]}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    cached = _cached_json(db, row, need=None)
+    if cached:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {**cached, "cached": True}
+
+    _ai_enforce_limit(db, user)
+    try:
+        reply = _ai_json(await _ai_text(_solver.as_prompt(chunk), 9000,
+                                        json_mode=True))
+        solved = _solver.clean(reply, chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Solve batch failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not solved:
+        raise HTTPException(502, "That batch came back empty — try again.")
+    # Arithmetic checked rather than trusted: the claimed root goes back into
+    # the equation the working itself states. Free, deterministic, and the
+    # one place a confident wrong number does the most damage — a worked
+    # solution a class copies into their books.
+    _solver.verify(solved)
+    out = {"questions": solved,
+           # Named, not swallowed. A paper that comes back with fifty-eight
+           # of sixty answers silently is one handed out with two holes.
+           "missing": _solver.missing(chunk, solved)}
+    db.add(AskCache(qkey=qkey, subject="solve", level="batch",
+                    question=f"{len(chunk)} questions",
+                    lesson=json.dumps(out)))
+    db.commit()
+    return {**out, "cached": False}
 
 
 @app.post("/api/scan")

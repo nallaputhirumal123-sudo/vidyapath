@@ -415,7 +415,13 @@ TEACHING = ("/api/ask", "/api/board", "/api/class", "/api/course",
             # teacher's line back. Teaching: it is anchored to a class and a
             # subject and cannot exist without one, and a school that bought
             # only the teaching product must have it.
-            "/api/messages")
+            "/api/messages",
+            # Where a board publishes its own past papers, the entrance
+            # syllabuses, and solving an uploaded paper question by
+            # question. Teaching, and more than that: these routes refuse
+            # anyone whose account a school did NOT issue, which is the
+            # opposite direction of travel from the job half.
+            "/api/exams")
 unfiled = []
 for r_ in main.app.routes:
     p = getattr(r_, "path", "")

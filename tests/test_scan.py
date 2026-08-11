@@ -317,8 +317,15 @@ check("it does not invent a free go they never had",
 check("the scanner still has its free goes", m.FREE_TRIAL["scan"] == 3)
 check("every free-tier allowance is deliberate, not an oversight",
       set(m.FREE_TRIAL) == {"resume_upload", "match", "extension",
-                            "sql_explain", "scan", "course"},
+                            "sql_explain", "scan", "course", "solve_paper"},
       str(sorted(m.FREE_TRIAL)))
+# One whole paper, and it is a considered one rather than a copy of the
+# scanner's three. Solving sixty questions is many calls and it is the thing
+# a school is buying, so it cannot be unlimited — but a teacher has to run
+# one real paper through it before believing any of it, and a description of
+# what it does is not that.
+check("solving a paper gives exactly one free paper",
+      m.FREE_TRIAL["solve_paper"] == 1, str(m.FREE_TRIAL["solve_paper"]))
 
 # --------------------------------------------------------------------------
 print("\nUPSTREAM FAILURES ARE NOT THE USER'S FAULT")
