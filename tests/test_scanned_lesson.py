@@ -155,6 +155,38 @@ ck("and it is only reached when the PDF turns out to be a scan",
 ck("a failure there does not hide the original refusal",
    "if(!done && !SB.error) SB.error = e.message" in IDX)
 
+print("\nand the teacher's own desk, not only the board")
+# The board has taken scans since the day it was built. THIS screen — the
+# one a teacher actually prepares on, at a desk, with a keyboard and a file
+# browser, before the class arrives — refused everything but a typed PDF,
+# and admitted it in its own help text: "the only one that works on a scan"
+# was Keep it as it is. A photocopied chapter is what a great many schools
+# actually have, so the tool that turns a chapter into a lesson did not work
+# on the chapters those schools hold.
+DESK = IDX.split("async function prepDo(")[1].split("\nasync function")[0]
+ck("photographs of the pages are accepted there too",
+   'r=await asPages(pics);' in DESK,
+   "photographing a chapter is the way in for a school with no soft copy")
+ck("several at once, because a chapter is several photographs",
+   'data-prepfile="1" multiple' in IDX)
+ck("a scanned PDF falls back to its pages",
+   "const pages=await pdfPagesAsImages(file, 12);" in DESK)
+ck("only when it is genuinely a scan",
+   "/scan|almost no text|nothing readable/i.test(e.message" in DESK,
+   "a PDF with real text still takes the cheaper text path")
+ck("and a real failure is not swallowed by the fallback",
+   "throw e;" in DESK)
+ck("the help text no longer says scans are impossible",
+   "the only one that works on a scan" not in IDX,
+   "it said so truthfully and the truth has changed")
+ck("both routes are teacher-gated",
+   MAIN.split('@app.post("/api/teach/pdf")')[1].split(")")[0].count(
+       "_teacher_or_board") == 0
+   or "who=Depends(_teacher_or_board)" in MAIN)
+ck("writing a lesson is a teacher's tool, not a learner's",
+   MAIN.count("who=Depends(_teacher_or_board)") >= 2,
+   "it is the tool their school gave them and it costs a model call")
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\nPASSED {len(P)}   FAILED {len(F)}")
 sys.exit(1 if F else 0)

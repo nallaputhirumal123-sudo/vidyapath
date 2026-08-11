@@ -7151,8 +7151,12 @@ function prepToggle(cid, subject){
   if(!box.hidden){ box.hidden=true; return; }
   box.hidden=false;
   box.innerHTML=`
-    <div class="field"><label>A chapter, a worksheet, a past paper or a picture</label>
-      <input type="file" class="ask-input" data-prepfile="1"
+    <div class="field"><label>A chapter, a worksheet, a past paper or
+      photographs of the pages</label>
+      ${/* Several files, because photographing a chapter is several
+            photographs. One at a time meant a teacher with a photocopied
+            chapter had no way to write it up at all. */""}
+      <input type="file" class="ask-input" data-prepfile="1" multiple
         accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp"
         style="padding:8px"/></div>
     <div class="field"><label>What it is (optional)</label>
@@ -7165,17 +7169,18 @@ function prepToggle(cid, subject){
     </div>
     <div style="font-size:11.5px;color:var(--dim);margin-top:7px" data-prepmsg="1">
       <b>As it is</b> keeps the document unchanged — right for a worksheet, a
-      past paper or a diagram, and the only one that works on a scan.
-      <b>Written up</b> reads a PDF and turns it into short lines, from that
-      document only. Either way it lands on this subject's shelf, ready to
-      put up on the board.</div>`;
+      past paper or a diagram.
+      <b>Written up</b> turns it into short lines, from that document only —
+      a PDF, a scan of one, or photographs of the pages. Either way it lands
+      on this subject's shelf, ready to put up on the board.</div>`;
 }
 
 async function prepDo(cid, subject, how){
   const box=prepBox(cid, subject); if(!box) return;
   const msg=box.querySelector("[data-prepmsg]");
   const f=box.querySelector("[data-prepfile]");
-  const file=f&&f.files&&f.files[0];
+  const picked=[...((f&&f.files)||[])];
+  const file=picked[0];
   const title=(box.querySelector("[data-preptitle]")||{}).value||"";
   if(!file){ if(msg)msg.textContent="Choose a file first."; return; }
 
@@ -7194,16 +7199,49 @@ async function prepDo(cid, subject, how){
     return;
   }
 
-  if(!/\.pdf$/i.test(file.name||"")){
-    if(msg)msg.textContent="Writing one up reads a PDF. For anything else, "+
-      "keep it as it is.";
+  /* Three ways in, and a teacher should not have to know which they have.
+     A typed PDF is read as text, which costs nothing. A SCAN is a picture
+     of a page and carries no text, so its pages are rendered here — the
+     browser has pdf.js and the server does not — and read by sight.
+     Photographs of the pages skip straight to that.
+
+     The board has done this since the day it was built. This screen, which
+     is where a teacher actually prepares at a desk, refused everything but
+     a typed PDF and said so in its own help text: "the only one that works
+     on a scan" was Keep it as it is. A photocopied chapter is what a great
+     many schools actually have. */
+  const pics = picked.filter(f => /^image\//.test(f.type||"")
+    || /\.(png|jpe?g|webp)$/i.test(f.name||""));
+  const isPdf = /\.pdf$/i.test(file.name||"");
+  if(!isPdf && !pics.length){
+    if(msg)msg.textContent="Writing one up needs a PDF, a scan of one, or "+
+      "photographs of the pages. For anything else, keep it as it is.";
     return;
   }
   if(msg)msg.textContent="Reading it and writing the lesson — this takes a moment…";
+  const asPages = async (parts) => {
+    const fd=new FormData();
+    parts.forEach((p,i)=>fd.append("files", p, p.name||`page${i+1}.png`));
+    return await api.upload("/api/teach/pages", fd);
+  };
   let r;
   try{
-    const fd=new FormData(); fd.append("file", file);
-    r=await api.upload("/api/teach/pdf", fd);
+    if(!isPdf){
+      if(msg)msg.textContent=`Reading ${pics.length} page`+
+        `${pics.length===1?"":"s"} — this takes a moment…`;
+      r=await asPages(pics);
+    }else{
+      try{
+        const fd=new FormData(); fd.append("file", file);
+        r=await api.upload("/api/teach/pdf", fd);
+      }catch(e){
+        if(!/scan|almost no text|nothing readable/i.test(e.message||"")) throw e;
+        if(msg)msg.textContent="It's a scan — reading the pages…";
+        const pages=await pdfPagesAsImages(file, 12);
+        if(!pages.length) throw e;
+        r=await asPages(pages);
+      }
+    }
   }catch(e){ if(msg)msg.textContent=e.message; return; }
   const lesson=r.lesson||{};
   const name=lesson.title||(file.name||"Document").replace(/\.pdf$/i,"");
