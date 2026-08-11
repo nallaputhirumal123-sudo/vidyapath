@@ -80,5 +80,35 @@ sc = joined_css("scanner.js") or ""
 for sel in (".scwarn", ".scans"):
     check(f"scanner.js defines {sel}", sel + "{" in sc)
 
+# The wordmark, in both places it appears, broken in two different ways.
+#
+# The mark is display:block. In the top bar .tb-brand was a plain div with no
+# layout of its own, so the mark took a line to itself and "Craxle" dropped
+# underneath it — the logo sitting on the name at the top of every phone.
+#
+# In the sidebar .brand h1 was a flex row with gap:9px, meant to space the
+# mark from the name. But gap applies between EVERY pair of flex items, and
+# the name is two of them — the bare text "Crax" and the accented <span>le</span>
+# — so the same 9px opened up inside the word and it read "Crax le".
+#
+# Both are the same underlying mistake: the wordmark is text that happens to
+# contain an element, and it has to be laid out as one thing.
+print("\nthe wordmark is one word with a mark beside it")
+_idx = html.replace("\n", "")
+check("the top bar lays its brand out as a row",
+      ".topbar .tb-brand{font-weight:800;font-size:17px;display:flex;"
+      "    align-items:center;white-space:nowrap;min-width:0;line-height:1}"
+      in _idx,
+      "the mark is display:block, so with no row it takes a line to itself "
+      "and the name drops under it")
+check("and keeps the name whole when the bar is tight",
+      "white-space:nowrap" in html)
+check("the sidebar spaces the mark with a margin, not a gap",
+      "object-fit:cover;display:block;margin-right:9px}" in html,
+      "gap applies between every pair of flex items, and the name is two of "
+      "them — so it opened up inside the word and read 'Crax le'")
+check("and its gap is zero",
+      "display:flex;align-items:center;gap:0}" in html)
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)
