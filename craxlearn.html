@@ -1037,6 +1037,7 @@ var TOOL_NAMES = {
   inbox:"To review",
   sources:"Where answers come from", remote:"Remote",
   bring:"Saved for this subject", chapter:"Bring in a chapter",
+  pic:"A picture",
   assignment:"Assignment",
   student:"A student", review:"Reviewing"
 };
@@ -5257,7 +5258,13 @@ async function find(term){
         (d.photo.license ? " · " + esc(d.photo.license) : "") +
         (d.photo.page ? ' · <a href="' + esc(d.photo.page) +
           '" target="_blank" rel="noopener">source</a>' : "") +
-        "</div></div>";
+        "</div>" +
+        '<button class="btn" style="margin-top:.5rem" data-putpic="' +
+          esc(d.photo.url || "") + '" data-putcap="' +
+          esc([d.photo.caption, d.photo.author, d.photo.license]
+              .filter(Boolean).join(" · ")) + '">' +
+          "Put it on the board</button>" +
+        "</div>";
     }
     if(d.scene){
       h += '<div class="card" style="padding:.4rem"><div id="fScene" ' +
@@ -7353,6 +7360,7 @@ async function paint(page, arg){
   else if(page === "materials") return materials();
   else if(page === "bring")     return bring(arg);
   else if(page === "chapter")   return chapter();
+  else if(page === "pic")       return pic(arg);
   else if(page === "write")     return write();
   else if(page === "remote")    return remotePanel();
   else if(page === "calc")      return calc();
@@ -7383,6 +7391,44 @@ window.render = function(){ paint(VIEW.page, null); };
  * to six pictures and most searches want none of them. The server ships
  * them, so this is a local read and not a trip to ncert.nic.in — which is
  * the whole reason they are shipped, because that trip took 33 seconds. */
+/* ---------- put a found picture on the board -------------------------------
+ *
+ * Search the sources found the NCERT diagram, the NASA photograph, the
+ * measured 3D scene — and there was no way to put any of them ON the board.
+ * A teacher stood in front of a class looking at the right picture inside a
+ * search panel one column wide, with nothing to press.
+ *
+ * So every result gets the one button it was missing. Big, on its own, with
+ * the credit under it, because that is what a room at the back needs to see
+ * and the licence is what this tool promises in its own subtitle.
+ */
+function pic(arg){
+  var a = arg || {};
+  var m = main();
+  if(!a.src){
+    m.innerHTML = "<h1>A picture</h1>" +
+      '<div class="note">Nothing to show. Find one in Search the sources ' +
+      "and press Put it on the board.</div>";
+    return;
+  }
+  m.innerHTML =
+    '<div style="display:flex;flex-direction:column;height:100%;gap:.5rem">' +
+      '<img src="' + esc(a.src) + '" alt="" style="flex:1 1 auto;' +
+        'min-height:0;width:100%;object-fit:contain;border-radius:12px;' +
+        'background:#fff">' +
+      (a.caption
+        ? '<div class="muted" style="flex:0 0 auto">' + esc(a.caption) +
+          "</div>"
+        : "") +
+    "</div>";
+}
+
+/* Remembered through `go`, so splitting the screen or repainting comes back
+   to the same picture rather than to an empty box. */
+function putPic(src, caption){
+  go("pic", { src: src, caption: caption || "" });
+}
+
 async function bookPics(btn){
   var code = btn.dataset.bookpics;
   var box = el("bp_" + code);
@@ -7401,8 +7447,13 @@ async function bookPics(btn){
     box.innerHTML = pics.length
       ? '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">' +
         pics.map(function(p){
-          return '<img src="' + esc(p.src) + '" alt="" style="max-width:' +
-            'min(100%,22rem);border-radius:10px;background:#fff">';
+          return '<div style="max-width:min(100%,22rem)">' +
+            '<img src="' + esc(p.src) + '" alt="" style="width:100%;' +
+              'border-radius:10px;background:#fff">' +
+            '<button class="btn ghost" style="margin-top:.3rem;width:100%" ' +
+              'data-putpic="' + esc(p.src) + '" ' +
+              'data-putcap="NCERT - reproduced for teaching">' +
+              "Put it on the board</button></div>";
         }).join("") + "</div>" +
         '<div class="muted" style="font-size:.62rem;margin-top:.4rem">' +
         "NCERT · reproduced for teaching</div>"
@@ -7424,6 +7475,8 @@ document.addEventListener("click", function(e){
       { aid:b.dataset.review, sid:b.dataset.student });
   if((b = t.closest("[data-teach]")))  return go("board", b.dataset.teach);
   if((b = t.closest("[data-bookpics]"))) return bookPics(b);
+  if((b = t.closest("[data-putpic]")))
+    return putPic(b.dataset.putpic, b.dataset.putcap);
   if((b = t.closest("[data-openfile]"))) return openFile(b);
   if((b = t.closest("[data-go]")))     return go(b.dataset.go);
 });

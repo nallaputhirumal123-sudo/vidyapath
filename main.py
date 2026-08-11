@@ -10481,7 +10481,26 @@ async def craxlearn_search(q: str, user: User = Depends(board_or_reader)):
     chapters = []
     try:
         idx = _rag_index_only()
-        for h in (idx.search(q, 4) if idx else []):
+        hits = list(idx.search(q, 6)) if idx else []
+        # Only the ones that are really about this.
+        #
+        # A search for "rocket" came back with Class 9 Science on forces —
+        # which is right, a rocket is Newton's third law — and then Class 11
+        # Physics and Class 11 Maths on limits and derivatives, which are
+        # not. Three results where one was relevant reads as a broken search,
+        # and worse, it pushes the open catalogues off the screen: the NASA
+        # photograph of the thing they asked for is below the fold, under two
+        # chapters that have nothing to do with it.
+        #
+        # Relative to the best match rather than an absolute floor, because
+        # BM25 scores are not comparable between queries — a rare word scores
+        # high everywhere it appears and a common one scores low even in the
+        # chapter that is entirely about it. What IS comparable is the gap
+        # between the best hit and the rest of the same search.
+        best = max((h.get("score") or 0) for h in hits) if hits else 0
+        for h in hits:
+            if best and (h.get("score") or 0) < best * 0.85:
+                break
             code = (h.get("slug") or "").strip()
             title = (h.get("title") or "").strip()
             if code and title.startswith("Class ") and not any(

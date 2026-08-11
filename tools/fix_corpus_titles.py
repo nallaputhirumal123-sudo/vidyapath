@@ -118,6 +118,62 @@ def repair(title):
     return book.strip() or None
 
 
+# --------------------------------------------------------------------------
+# The second repair: titles that are not the chapter's name at all.
+#
+# The doubling above is one way an NCERT heading arrives wrong. A live search
+# for "rocket" showed three more, and between them they account for 92 of the
+# corpus's 317 NCERT chapter titles — nearly a third:
+#
+#   "Class 11 Physics: HAPTER IVE"   the drop cap on CHAPTER, lifted off by
+#                                    the extractor and placed elsewhere
+#   "Class 10 Mathematics: MATHEMATICS"   the running head at the top of the
+#                                    page, taken as the chapter's name
+#   "Class 10 Mathematics: REAL NUMBERS 1"   the page number, set on the
+#                                    heading's own line
+#
+# corpus.title_of now rejects all three, but that only helps a corpus built
+# again from four hundred PDFs, which is about three hours. The chapter's own
+# text is already here, so the title is re-derived from the first passage of
+# each chapter instead — the same function, on the same words, in a second.
+
+
+def _rederive(con):
+    """Re-read each chapter's title out of its own opening passage."""
+    import corpus as _corpus
+
+    rows = list(con.execute(
+        "select distinct slug, title from passages where title like 'Class %'"))
+    out = []
+    for slug, title in rows:
+        head = title.split(": ", 1)[1] if ": " in title else title
+        prefix = title[:len(title) - len(head)]
+        broken = bool(_corpus._DROPPED_CAP.match(head)
+                      or _corpus._SUBJECT_ALONE.match(head)
+                      or _corpus._PAGE_TAIL.search(head)
+                      or len(head) > 60)
+        if not broken:
+            continue
+        body = con.execute(
+            "select body from passages where slug = ? order by rowid limit 1",
+            (slug,)).fetchone()
+        if not body:
+            continue
+        fresh = _corpus.title_of(body[0])
+        # Only when it is actually better. A chapter whose opening passage
+        # does not carry its heading keeps the name it has: a wrong title is
+        # bad and an empty one is worse, because nothing then labels the
+        # source a model is quoting from.
+        if not fresh or fresh == head or len(fresh) < 3:
+            continue
+        if (_corpus._DROPPED_CAP.match(fresh)
+                or _corpus._SUBJECT_ALONE.match(fresh)
+                or _corpus._NOT_A_TITLE.match(fresh)):
+            continue
+        out.append((slug, title, prefix + fresh))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=CORPUS)
@@ -138,7 +194,13 @@ def main():
         if new and new != t:
             changes.append((t, new))
 
-    if not changes:
+    # ...and the ones where the string cannot be repaired because it was
+    # never the title: read those out of the chapter's own opening again.
+    sys.path.insert(0, HERE)
+    seen = {old for old, _ in changes}
+    by_slug = [row for row in _rederive(con) if row[1] not in seen]
+
+    if not changes and not by_slug:
         print("nothing to repair")
         return 0
 
@@ -146,17 +208,29 @@ def main():
         n = con.execute("select count(*) from passages where title = ?",
                         (old,)).fetchone()[0]
         print(f"  {n:5d}  {old[:52]!r}\n         -> {new[:52]!r}")
+    for slug, old, new in by_slug:
+        n = con.execute("select count(*) from passages where slug = ?",
+                        (slug,)).fetchone()[0]
+        print(f"  {n:5d}  {slug}  {old[:42]!r}\n         -> {new[:52]!r}")
 
+    total = len(changes) + len(by_slug)
     if args.dry:
-        print(f"\n{len(changes)} titles would change. Nothing written.")
+        print(f"\n{total} titles would change. Nothing written.")
         return 0
 
     for old, new in changes:
         con.execute("update passages set title = ? where title = ?",
                     (new, old))
+    # Keyed on the SLUG. Five different Class 12 Physics chapters are all
+    # called "Physics" right now, so matching on the title would give all
+    # five whichever name the last one produced — one wrong title replaced
+    # by a confidently wrong one, which is worse than leaving it alone.
+    for slug, _old, new in by_slug:
+        con.execute("update passages set title = ? where slug = ?",
+                    (new, slug))
     con.commit()
     con.close()
-    print(f"\n{len(changes)} titles repaired.")
+    print(f"\n{total} titles repaired.")
     return 0
 
 

@@ -222,7 +222,42 @@ def text_of(raw, max_chars=200_000):
 # is why the first substantial line is the least useful one in the file.
 _NOT_A_TITLE = re.compile(
     r"^\s*(?:chapter|unit|part|section|contents|index|appendix|"
-    r"answers?|exercises?|activity|figure|table|notes?)[\s\d.:-]*$", re.I)
+    r"answers?|exercises?|activity|figure|table|notes?)"
+    # The number that follows, in any of the three ways a book writes one.
+    # "[\s\d.:-]*" caught "Chapter 5" and "Chapter V" and missed
+    # "Chapter Five" — which is how the Class 12 Physics book writes every
+    # one of its headings, so five chapters were titled exactly that.
+    r"(?:[\s.:-]*(?:\d+|[IVXLivxl]+|one|two|three|four|five|six|seven|"
+    r"eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen))?"
+    r"[\s.:-]*$", re.I)
+
+# NCERT sets the first letter of "CHAPTER" and "UNIT" as a large drop cap,
+# and pdfplumber places that letter elsewhere on the page. What is left is
+# "HAPTER IVE" and "NIT", which look like content and are not — chapters
+# went into the index titled "Class 11 Physics: HAPTER IVE" and "Class 11
+# Biology: NIT", so a teacher searching "rocket" was shown three results
+# whose names told them nothing and one that read as a mistake.
+#
+# Written out rather than generated, because "NIT" is also a real word in a
+# biology book and only a whole-line match is safe.
+_DROPPED_CAP = re.compile(
+    r"^\s*(?:hapter|nit|ection|ppendix|xercises?|ontents)"
+    r"(?:\s+(?:ne|wo|hree|our|ive|ix|even|ight|ine|en|leven|welve"
+    r"|[IVXLivxl]+|\d+))?\s*$", re.I)
+
+# A chapter is not called "PHYSICS". The subject's own name, standing alone
+# as the running head at the top of every page, was taken as the title of
+# whichever chapter it appeared on — so "rocket" returned "Class 11 Physics:
+# PHYSICS", which tells a teacher nothing and reads as a broken result.
+_SUBJECT_ALONE = re.compile(
+    r"^\s*(?:physics|chemistry|biology|mathematics|maths|science|"
+    r"history|geography|civics|economics|accountancy|"
+    r"business\s+studies|political\s+science|english|hindi|sanskrit)"
+    r"\s*$", re.I)
+
+# "INTRODUCTION TO TRIGONOMETRY 113" — the running page number, set on the
+# same line as the heading, and indexed as part of the chapter's name.
+_PAGE_TAIL = re.compile(r"\s+\d{1,3}\s*$")
 
 
 _LEADING_NUMBER = re.compile(r"^\d+(?:\.\d+)?[\s.:)-]+")
@@ -256,7 +291,13 @@ def title_of(text, fallback=""):
     """
     lines = [ln.strip() for ln in (text or "").splitlines()[:60]]
     for i, ln in enumerate(lines):
+        # The running page number set on the heading's own line.
+        ln = _PAGE_TAIL.sub("", ln).strip()
         if not (3 <= len(ln) <= 80) or _NOT_A_TITLE.match(ln):
+            continue
+        # "HAPTER IVE" and "NIT": the word with its drop cap lifted off by
+        # the extractor. Furniture, exactly like the word it used to be.
+        if _DROPPED_CAP.match(ln) or _SUBJECT_ALONE.match(ln):
             continue
         # "retpahC" — one chapter set the word Chapter as rotated sidebar
         # text, and it comes out of the PDF backwards. It is furniture either
@@ -292,6 +333,15 @@ def title_of(text, fallback=""):
             continues = _CONTINUES.match(nxt)
             if not (continues or tail.endswith((",", ":", "-", "—"))
                     or _UNFINISHED.search(tail)):
+                break
+            # A heading set in capitals does not continue into a line that
+            # is not. "LAWS OF MOTION" ran on into "In the preceding chapter
+            # we described…" purely because that sentence opens with "In",
+            # which the continuation rule reads as the rest of a heading.
+            if tail.isupper() and not nxt.isupper():
+                break
+            # And a heading does not continue into a finished sentence.
+            if nxt.endswith("."):
                 break
             if nxt.lower() == nxt and not continues:
                 break
