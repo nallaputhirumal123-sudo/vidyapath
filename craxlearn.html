@@ -3057,17 +3057,34 @@ function picLoad(url){
       throw new Error(why);
     }
     var blob = await r.blob();
+    /* An ImageBitmap, which OWNS its pixels.
+     *
+     * This decoded an <img> from an object URL and revoked the URL straight
+     * after. That looked correct — the image had loaded, so the URL had
+     * done its job — and it produced a picture that vanished while a
+     * teacher was drawing and came back a moment later. A browser is free
+     * to discard a decoded bitmap under memory pressure and re-fetch it
+     * from the element's src, and the src was a blob URL that no longer
+     * existed. Every redraw during a stroke is a chance to hit that.
+     *
+     * An ImageBitmap has no src to go back to: the pixels are held, so
+     * drawImage cannot fail. Not revoking would have worked too and would
+     * have leaked one blob per picture per lesson on a board that stays
+     * open all day. */
+    if(window.createImageBitmap){
+      try{ return await createImageBitmap(blob); }
+      catch(e){ /* fall through to the element */ }
+    }
     var img = new Image();
-    /* An object URL from our own origin. Revoked once the image has
-       decoded — holding it open leaks a blob per picture per lesson, and
-       revoking before decode gives a broken image on a slow board. */
     var u = URL.createObjectURL(blob);
     await new Promise(function(ok, no){
       img.onload = ok;
       img.onerror = function(){ no(new Error("The picture would not open.")); };
       img.src = u;
     });
-    URL.revokeObjectURL(u);
+    /* Kept, deliberately: see above. The board holds a handful of pictures
+       in a lesson, and a live one must not lose the bytes behind it. */
+    img._blobUrl = u;
     return img;
   })();
   /* The decoded image is hung on the promise itself, so the draw loop —
@@ -4060,9 +4077,13 @@ function write(){
     picLoad(url).then(function(img){
       var vw = cv.width / VIEW.k, vh = cv.height / VIEW.k;
       var w2 = vw * 0.6;
-      var h2 = w2 * (img.naturalHeight / (img.naturalWidth || 1));
-      if(h2 > vh * 0.7){ h2 = vh * 0.7; w2 = h2 * ((img.naturalWidth || 1) /
-                                                   (img.naturalHeight || 1)); }
+      /* An ImageBitmap reports width/height; an <img> reports naturalWidth.
+         Reading only the second gives NaN for the bitmap and a picture with
+         no size at all. */
+      var iw = img.naturalWidth || img.width || 1;
+      var ih = img.naturalHeight || img.height || 1;
+      var h2 = w2 * (ih / iw);
+      if(h2 > vh * 0.7){ h2 = vh * 0.7; w2 = h2 * (iw / ih); }
       var pic = { url: url, x: VIEW.x + (vw - w2) / 2,
                   y: VIEW.y + (vh - h2) / 2, w: w2, h: h2 };
       BOARD_INK.pics.push(pic);

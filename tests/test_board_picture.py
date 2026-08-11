@@ -107,10 +107,24 @@ ck("carrying the board's token", "headers: bhdr({})" in SRC)
 ck("and the reason is written where the next person will look",
    "taints it" in SRC and "toBlob" in SRC,
    "this looks like a pointless hop until you know what it is for")
-ck("the object URL is released after the image has decoded",
-   "URL.revokeObjectURL(u);" in SRC,
-   "revoking before decode gives a broken image on a slow board; never "
-   "revoking leaks one per picture per lesson")
+# The picture used to vanish mid-stroke and come back.
+#
+# It decoded an <img> from an object URL and revoked the URL straight after,
+# which looks right — the image had loaded, so the URL had done its job. A
+# browser is free to discard a decoded bitmap under memory pressure and
+# re-fetch it from the element's src, and that src no longer existed. Every
+# redraw during a stroke is another chance to hit it, which is exactly when
+# a teacher noticed.
+ck("the bytes are held as an ImageBitmap, which owns its pixels",
+   "return await createImageBitmap(blob);" in SRC,
+   "there is no src to go back to, so drawImage cannot fail")
+ck("with the element kept as a fallback, and its URL NOT revoked",
+   "img._blobUrl = u;" in SRC,
+   "leaking one blob per picture beats a picture that disappears")
+ck("and the size is read in a way that works for both",
+   "var iw = img.naturalWidth || img.width || 1;" in SRC,
+   "an ImageBitmap has width; an <img> has naturalWidth — reading only one "
+   "gives NaN and a picture with no size")
 ck("a failure is not cached as permanent",
    'pr["catch"](function(){ delete PICBYTES[url]; });' in SRC,
    "the network comes back, and Place pressed again deserves a real second "

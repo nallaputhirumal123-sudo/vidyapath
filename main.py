@@ -28,7 +28,7 @@ import hmac
 import time
 import asyncio
 import httpx
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 from fastapi import (FastAPI, Depends, HTTPException, Request, Response, status,
                      UploadFile, File, Form, BackgroundTasks)
 from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
@@ -4038,7 +4038,7 @@ def get_assignment_pdf(aid: int, user: User = Depends(current_user),
         raise HTTPException(403, "Not allowed")
     data = base64.b64decode(a.pdf_data)
     return RawResponse(content=data, media_type="application/pdf",
-                       headers={"Content-Disposition": f'inline; filename="{a.pdf_name or "assignment.pdf"}"'})
+                       headers=_disposition(a.pdf_name or "assignment.pdf"))
 
 
 # ---- schedule (list, editable, deletable) ----
@@ -4688,6 +4688,27 @@ def _aware(d):
     if d is None:
         return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+def _disposition(name, how="inline"):
+    """A Content-Disposition a real filename can survive.
+
+    HTTP headers are latin-1. A filename with an em dash in it — which is
+    what this product names things with, "Worksheet — marked.pdf" — raises
+    UnicodeEncodeError while BUILDING the response, so the download is a 500
+    with no clue in it. Any Indian-language filename does the same, which is
+    worse and likelier: a teacher uploading a chapter named in Tamil got a
+    file that could never be opened again.
+
+    RFC 5987: an ASCII fallback for anything old, and filename* with the
+    real name percent-encoded as UTF-8 for everything since about 2011.
+    """
+    raw = (name or "file")[:120]
+    ascii_name = raw.encode("ascii", "replace").decode("ascii")
+    ascii_name = ascii_name.replace('"', "'").replace("\\", "_") or "file"
+    return {"Content-Disposition":
+            f'{how}; filename="{ascii_name}"; '
+            f"filename*=UTF-8''{quote(raw, safe='')}"}
 
 
 def _money(paise, currency="INR"):
@@ -7149,8 +7170,7 @@ def notice_file(nid: int, user: User = Depends(current_user),
         raise HTTPException(500, "That file is stored damaged")
     return Response(
         content=raw, media_type=n.mime or "application/octet-stream",
-        headers={"Content-Disposition":
-                 f'inline; filename="{(n.file_name or "notice")[:80]}"'})
+        headers=_disposition((n.file_name or "notice")[:80], "inline"))
 
 
 class AssignIn(BaseModel):
@@ -8894,8 +8914,7 @@ def material_file(request: Request, mid: int,
         raise HTTPException(500, "That file is stored damaged")
     return Response(
         content=raw, media_type=m.mime or "application/octet-stream",
-        headers={"Content-Disposition":
-                 f'inline; filename="{(m.file_name or "material")[:80]}"'})
+        headers=_disposition((m.file_name or "material")[:80], "inline"))
 
 
 @app.delete("/api/teacher/material/{mid}")
@@ -9794,8 +9813,7 @@ def craxlearn_board_material_file(mid: int, class_id: int = 0,
         raise HTTPException(500, "That file is stored damaged")
     return Response(
         content=raw, media_type=m.mime or "application/octet-stream",
-        headers={"Content-Disposition":
-                 f'inline; filename="{(m.file_name or "document")[:80]}"'})
+        headers=_disposition((m.file_name or "document")[:80], "inline"))
 
 
 # ---- the phone as a remote control ---------------------------------------
@@ -19206,13 +19224,17 @@ def invite_download(invite_id: int, file_id: int,
     # Always as an attachment, always our own content type — never the one the
     # uploader claimed, and never inline. An inline render of user-supplied
     # bytes on our own origin is the whole risk here.
-    safe = _re.sub(r'[^A-Za-z0-9._ -]', "_", row.filename or "file")[:120]
+    # Through the same helper as everything else, so a name in Hindi or Tamil
+    # survives instead of arriving as a row of underscores. It could not
+    # raise here — the name was stripped to ASCII first — but stripping is
+    # not the same as carrying it, and RFC 5987 carries it.
+    head = _disposition(row.filename or "file", "attachment")
+    head.update({"X-Content-Type-Options": "nosniff",
+                 "Content-Security-Policy": "default-src 'none'"})
     return RawResponse(
         content=base64.b64decode(row.data or ""),
         media_type=mime,
-        headers={"Content-Disposition": f'attachment; filename="{safe}"',
-                 "X-Content-Type-Options": "nosniff",
-                 "Content-Security-Policy": "default-src 'none'"})
+        headers=head)
 
 
 @app.get("/api/invites/unread")

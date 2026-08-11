@@ -510,6 +510,34 @@ _SPACE = re.compile(
     r"hurricane|cyclone|monsoon|glacier|volcano|earth observation)\b", re.I)
 
 
+async def _nasa_asset(client, nasa_id):
+    """The renditions NASA really holds for one item, best usable first.
+
+    /asset/{id} lists them. Preferring the largest would put a 20MB TIFF of
+    a nebula on a school connection, so "large" and "medium" come first and
+    "orig" is the fallback — it is often the only one there.
+    """
+    try:
+        r = await client.get(f"https://images-api.nasa.gov/asset/{nasa_id}",
+                             timeout=TIMEOUT, headers={"User-Agent": UA})
+        if r.status_code != 200:
+            return ""
+        hrefs = [str(i.get("href") or "") for i in
+                 ((r.json() or {}).get("collection") or {}).get("items") or []]
+    except Exception:
+        return ""
+    hrefs = ["https://" + h[len("http://"):] if h.startswith("http://") else h
+             for h in hrefs]
+    hrefs = [h for h in hrefs
+             if h.startswith("https://images-assets.nasa.gov/")
+             and h.lower().rsplit(".", 1)[-1] in ("jpg", "jpeg", "png")]
+    for want in ("~large.", "~medium.", "~orig."):
+        for h in hrefs:
+            if want in h:
+                return h
+    return hrefs[0] if hrefs else ""
+
+
 async def _from_nasa(client, topic):
     """A NASA photograph. Public domain: no credit required."""
     if not _SPACE.search(topic or ""):
@@ -529,12 +557,24 @@ async def _from_nasa(client, topic):
         data = (it.get("data") or [{}])[0]
         for link in links:
             href = str(link.get("href") or "")
+            # http on some rows, https on others; the board only fetches
+            # https, and it is the same file either way.
+            if href.startswith("http://images-assets.nasa.gov/"):
+                href = "https://" + href[len("http://"):]
             if not href.startswith("https://images-assets.nasa.gov/"):
                 continue
-            # "~thumb" is a postage stamp; ask for the medium rendition.
-            href = href.replace("~thumb.", "~medium.").replace(
-                "~small.", "~medium.")
-            return {"url": href, "width": 800,
+            # "~thumb" is a postage stamp, so a bigger rendition is worth
+            # asking for — but ONLY one that exists.
+            #
+            # This rewrote every link to "~medium", which is a convention
+            # and not a guarantee: PIA01973 has ~orig and ~thumb and no
+            # ~medium at all, so the invented URL was a 403 from S3 and the
+            # board said "that picture could not be fetched" about a
+            # photograph it had just offered. Ask NASA which renditions the
+            # item actually has, and take the best real one.
+            item_id = str(data.get("nasa_id") or "").strip()
+            better = await _nasa_asset(client, item_id) if item_id else ""
+            return {"url": better or href, "width": 800,
                     "caption": str(data.get("title") or "")[:120],
                     "author": "", "license": "", "page": ""}
     return {}

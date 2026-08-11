@@ -100,5 +100,37 @@ ck("and a blocked CDN says so rather than showing an empty pane",
    "The PDF viewer could not load" in SRC
    and "The PDF writer could not load" in SRC)
 
+print("\nthe marked copy comes back as a markable PDF")
+# The cycle a teacher actually does: open, mark, save, open again, mark
+# again. It works because the saved file keeps a .pdf name, which is what
+# the Open button reads to decide whether it opens in the pane.
+ck("the saved copy is named as a PDF",
+   '" — marked.pdf"' in BOARD,
+   "the Open button decides from the name, then confirms from the bytes")
+ck("so it reopens in the pane rather than a window",
+   "/\.pdf$/i.test(m.file_name" in BOARD)
+
+print("\nand a filename that is not English does not break the download")
+# Found by doing the round trip: HTTP headers are latin-1, and the header
+# was built with an f-string. "Worksheet — marked.pdf" — the name this
+# product itself writes — raised UnicodeEncodeError while BUILDING the
+# response, so the download was a 500 with nothing in it to read. Any
+# Hindi, Tamil or Sanskrit filename did the same, which is worse and far
+# likelier: a teacher uploading a chapter named in her own language got a
+# file that could never be opened again.
+MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+ck("one helper builds every Content-Disposition",
+   "def _disposition(name, how=" in MAIN)
+ck("with an ASCII fallback for old clients",
+   'ascii_name = raw.encode("ascii", "replace").decode("ascii")' in MAIN)
+ck("and the real name percent-encoded as UTF-8",
+   "filename*=UTF-8''{quote(raw, safe='')}" in MAIN,
+   "RFC 5987 — what every browser since about 2011 reads")
+ck("no route still builds that header by hand",
+   'f\'inline; filename="{' not in MAIN
+   and 'f\'attachment; filename="{' not in MAIN,
+   "one left behind is one 500 nobody sees until a teacher uses their own "
+   "language")
+
 print(f"\nPASSED {P}   FAILED {F}")
 sys.exit(1 if F else 0)
