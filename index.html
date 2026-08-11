@@ -991,6 +991,15 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 /* Prose, so a lesson reads as something written rather than as a list of
    assertions. The lead is the sentence somebody reads if they read one. */
 .sb-p{margin:0 0 .72em;line-height:1.62;max-width:62ch}
+/* A table from a document, on the pupil's screen. Scrolls inside its own
+   box so a wide one never makes the page scroll sideways on a phone. */
+.sb-tablewrap{overflow-x:auto;margin:.6em 0 .9em;max-width:100%}
+.sb-table{border-collapse:collapse;font-size:.95em}
+.sb-table th,.sb-table td{border:1px solid var(--line,#2a3340);
+  padding:.35em .6em;text-align:left;vertical-align:top}
+.sb-table th{background:var(--panel2);font-weight:700}
+.sb-figure{border-left:3px solid var(--accent);padding:.3em .7em;
+  margin:.5em 0 .8em;color:var(--dim);font-size:.96em}
 .sb-lead{font-size:1.09em;line-height:1.58;color:var(--text)}
 .sb-h{font-size:.78em;letter-spacing:.1em;text-transform:uppercase;
   color:#8fe3b0;margin:1.35em 0 .45em;font-weight:700}
@@ -4686,8 +4695,55 @@ function stepLinesHTML(text){
   };
   const isItem = ln => /^\s*(?:[-•*]\s+|\d+[.)]\s+)/.test(ln);
 
+  /* A table stays a table here too.
+   *
+   * The board learned this first: teachpdf hands a real table over as
+   * "TABLE:" and one row per line with " | " between the columns, and a
+   * step that printed it verbatim showed a wall of vertical bars — the one
+   * shape a table exists to avoid. The board and this screen render the
+   * same lessons, so a table that draws correctly in a classroom and as
+   * pipes on a pupil's phone is worse than either alone.
+   *
+   * Done as a pre-pass rather than inside the map, because a table spans
+   * several lines and the map decides one line at a time. */
+  const out = [];
+  let table = null;
+  const shutTable = () => {
+    if(!table) return;
+    const rows = table; table = null;
+    if(!rows.length) return;
+    const head = rows[0], rest = rows.slice(1);
+    out.push(`<div class="sb-tablewrap"><table class="sb-table"><thead><tr>` +
+      head.map(c => `<th>${mathText(esc(c))}</th>`).join("") +
+      `</tr></thead><tbody>` +
+      rest.map(r => `<tr>` + r.map(c => `<td>${mathText(esc(c))}</td>`)
+        .join("") + `</tr>`).join("") + `</tbody></table></div>`);
+  };
+
   let lead = true;
-  return lines.map(ln => {
+  lines.forEach(ln => {
+    if(/^TABLE:\s*$/i.test(ln)){ shutTable(); table = []; return; }
+    if(table !== null){
+      if(ln.indexOf("|") >= 0){
+        table.push(ln.split("|").map(c => c.trim()));
+        return;
+      }
+      shutTable();
+    }
+    /* A figure the document had and we cannot redraw. Named, with the
+       labels printed on it, so a class can find it — rather than silence,
+       which does not tell them it was there. */
+    if(/^FIGURE:\s*/i.test(ln)){
+      out.push(`<div class="sb-figure">${
+        mathText(esc(ln.replace(/^FIGURE:\s*/i, "")))}</div>`);
+      return;
+    }
+    out.push(stepLine(ln));
+  });
+  shutTable();
+  return out.join("");
+
+  function stepLine(ln){
     const html = mathText(esc(ln).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"));
     if(isItem(ln)){
       const body = mathText(esc(ln.replace(/^\s*(?:[-•*]\s+|\d+[.)]\s+)/, ""))
@@ -4699,7 +4755,7 @@ function stepLinesHTML(text){
     const cls = lead ? "sb-p sb-lead" : "sb-p";
     lead = false;
     return `<p class="${cls}">${html}</p>`;
-  }).join("");
+  }
 }
 
 /* The document's own pictures, on the step they belong to.
