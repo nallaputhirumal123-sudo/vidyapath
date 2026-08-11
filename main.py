@@ -17453,6 +17453,94 @@ import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402
 
 
+@app.post("/api/teach/pages")
+async def teach_from_pages(files: list[UploadFile] = File(...),
+                           who=Depends(_teacher_or_board),
+                           db: Session = Depends(get_db)):
+    """A scanned or photographed chapter, turned into a lesson.
+
+    /api/teach/pdf reads a PDF's TEXT, so a scan — which is a picture of a
+    page and carries none — was refused: "that PDF has almost no text in it,
+    try Scan a problem". A photocopied chapter is what a great many schools
+    actually have, and being told to photograph it one problem at a time is
+    not an answer for a thirty-page handout.
+
+    The pages arrive here already rasterised, because the browser has a PDF
+    renderer and the server does not. Adding one server-side means PyMuPDF —
+    a fifty-megabyte wheel and a native library — on a deployment that has
+    to keep booting; pdf.js is already loaded on the board for marking a PDF
+    up, and rendering there costs nothing and no new dependency.
+
+    Cached on the bytes of the pages together, exactly as /api/scan is
+    cached on one image: a department passing round the same photocopy is
+    one reading, not one per teacher.
+    """
+    user, grant = who
+    if grant is not None:
+        user = db.get(User, grant["teacher_id"]) if grant["teacher_id"] else None
+        if user is None:
+            raise HTTPException(
+                403, "No teacher is on this subject yet, so there is nobody "
+                     "to make a lesson as. Ask the office to assign one.")
+    pages = []
+    for f in files[:12]:          # a chapter, not a textbook
+        raw = await f.read()
+        if raw and len(raw) <= 8_000_000:
+            pages.append(raw)
+    if not pages:
+        raise HTTPException(400, "No readable pages were sent.")
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+
+    h = hashlib.sha256()
+    for p in pages:
+        h.update(p)
+    digest = h.hexdigest()[:32]
+    qkey = f"teachpages|{digest}"[:500]
+    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+    cached = _cached_json(db, row)
+    if cached:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"lesson": cached, "cached": True, "pages": len(pages)}
+
+    _ai_enforce_limit(db, user)
+    # Read page by page, then taught as one.
+    #
+    # One call per page rather than one call with twelve images: a model
+    # given a dozen pages at once summarises the pile and loses the order,
+    # and the order is the lesson. Reading is also the part that must not
+    # invent — so each page is asked only for what is ON it.
+    seen = []
+    try:
+        for i, raw in enumerate(pages, 1):
+            txt = await _ai_vision(_teachpdf.READ_PAGE, raw, "image/png", 1800)
+            if txt and txt.strip():
+                seen.append(f"--- PAGE {i} ---\n{txt.strip()}")
+        if not seen:
+            raise HTTPException(
+                422, "Nothing could be read off those pages. A sharper "
+                     "photograph, or a straighter scan, usually fixes it.")
+        prompt = ("THE DOCUMENT:\n" + "\n\n".join(seen) + "\n\n"
+                  + _teachpdf.PROMPT)
+        lesson = _clean_board(_ai_json(await _ai_text(prompt, 9000,
+                                                      json_mode=True)),
+                              _teachpdf.title_of("\n".join(seen)))
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Teach-from-pages failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not lesson.get("steps"):
+        raise HTTPException(502, "That came back empty — try again.")
+
+    db.add(AskCache(qkey=qkey, subject="teach", level="pages",
+                    question=f"{len(pages)} scanned pages",
+                    lesson=json.dumps(lesson)))
+    db.commit()
+    return {"lesson": lesson, "cached": False, "pages": len(pages)}
+
+
 @app.post("/api/scan")
 async def scan(image: UploadFile = File(...),
                user: User = Depends(current_user),

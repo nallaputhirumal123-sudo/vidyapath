@@ -431,3 +431,30 @@ class _ImageOnPage:
                 img.convert("RGB").save(buf, "PNG")
             self._data = buf.getvalue()
         return self._data
+
+
+# Reading ONE scanned page. Not teaching it — that comes after, from all the
+# pages together, so this must not summarise, reorder or improve anything.
+#
+# A scan is a photograph of a page: the model is the only thing that can read
+# it, and the one job it must do faithfully is transcription. Every failure
+# this guards against is the same failure — a model that decides it knows the
+# subject and writes what a page like this usually says, rather than what
+# this page does say. That is invisible on a board and lands in an exam.
+READ_PAGE = """Read this page of a school document and write out what is on it.
+
+TRANSCRIBE, do not explain and do not summarise. Somebody else will teach
+from what you write; if you leave something out it cannot be taught, and if
+you add something it will be taught as though the book said it.
+
+- Keep every heading, number, formula, date and definition exactly as printed.
+- Keep the order of the page.
+- A table stays a table: write it as TABLE: then one row per line, columns
+  separated by " | ", including the header row.
+- A diagram or graph: write FIGURE: and one line saying what it shows, with
+  any axis labels, units and values that are printed on it.
+- A question or exercise: write it out in full, with its number.
+- If part of the page is unreadable, write [unclear] there. Do not guess at
+  it, and do not fill the gap from what you know about the subject.
+- No preamble, no commentary. The transcription only.
+"""

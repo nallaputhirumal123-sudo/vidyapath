@@ -3943,6 +3943,51 @@ function sbPdfCloseView(){
   w.remove();
 }
 
+/* A PDF's pages as PNGs, rendered here.
+ *
+ * Only used when a document turns out to be a scan — a photograph of a
+ * page, carrying no text for the server to read. The renderer is pdf.js,
+ * already loaded for marking a PDF up on the board, so this needs no new
+ * dependency on either side.
+ *
+ * Capped at twelve pages and rendered at a middling scale on purpose: each
+ * page becomes one vision call, so an uncapped upload is an unbounded bill,
+ * and a page rendered at three times the size costs the same to read while
+ * taking four times as long to send from a school connection.
+ */
+async function pdfPagesAsImages(file, cap){
+  const lib = await (async()=>{
+    if(window.pdfjsLib) return window.pdfjsLib;
+    await new Promise((res,rej)=>{
+      const s=document.createElement("script");
+      s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+      s.onload=res; s.onerror=()=>rej(new Error(
+        "The PDF reader could not load — this network may be blocking it."));
+      document.head.appendChild(s);
+    });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    return window.pdfjsLib;
+  })();
+  const buf = await file.arrayBuffer();
+  const doc = await lib.getDocument({data:new Uint8Array(buf)}).promise;
+  const out = [];
+  for(let n=1; n<=Math.min(doc.numPages, cap||12); n++){
+    const page = await doc.getPage(n);
+    const base = page.getViewport({scale:1});
+    /* About 1600px on the long edge: enough for a model to read printed
+       text and a hand-written formula, and small enough to upload. */
+    const scale = Math.min(2.2, 1600 / Math.max(base.width, base.height));
+    const vp = page.getViewport({scale:scale});
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    await page.render({canvasContext:cv.getContext("2d"), viewport:vp}).promise;
+    const blob = await new Promise(r=>cv.toBlob(r, "image/png"));
+    if(blob) out.push(blob);
+  }
+  return out;
+}
+
 async function sbPdfLesson(file){
   sbPdfClose();
   if(!file) return;
@@ -3957,7 +4002,33 @@ async function sbPdfLesson(file){
     SB.lesson=r.lesson;
     SB.topic=(r.lesson&&r.lesson.title)||file.name;
     SB.i=0; SB.trail=[];
-  }catch(e){ SB.error=e.message||"That PDF would not turn into a lesson."; }
+  }catch(e){
+    /* A scan has no text in it, so reading the PDF cannot work — but the
+       pages are pictures, and pictures can be read. The server refuses with
+       422 and says so; rather than hand that back to a teacher holding a
+       photocopied chapter, the pages are rendered here and sent as images.
+       Rendering happens in the browser because the browser has a PDF
+       renderer and the server does not. */
+    const scanned = /scan|almost no text|nothing readable/i.test(e.message||"");
+    let done = false;
+    if(scanned){
+      try{
+        SB.error = "";
+        const pages = await pdfPagesAsImages(file, 12);
+        if(pages.length){
+          const fd2 = new FormData();
+          pages.forEach((b,i)=>fd2.append("files", b, `page${i+1}.png`));
+          const r2 = await api.upload("/api/teach/pages", fd2);
+          SB.lesson=r2.lesson;
+          SB.topic=(r2.lesson&&r2.lesson.title)||file.name;
+          SB.i=0; SB.trail=[];
+          done = true;
+        }
+      }catch(e2){ SB.error = e2.message || "Those pages could not be read."; }
+    }
+    if(!done && !SB.error) SB.error = e.message ||
+      "That PDF would not turn into a lesson.";
+  }
   SB.busy=false;
   sbPaint();
   sbMountScene();
