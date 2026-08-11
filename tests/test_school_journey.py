@@ -152,8 +152,8 @@ must("their password signs them in", r.status_code == 200, r.text[:110])
 must("as the person the office made",
      (r.json() or {}).get("name") == "Ravi (teacher)", r.text[:110])
 r = TestClient(main.app).post("/api/auth/code", json={"code": SUBJ_CODE})
-check("and the subject code does NOT — it is for a board",
-      r.status_code == 403, f"got {r.status_code}")
+check("and so does the subject code — one code, both jobs",
+      r.status_code == 200, f"got {r.status_code}")
 
 print("\n8. and does the day's work")
 r = teacher.post(f"/api/teacher/class/{CID}/assignment",

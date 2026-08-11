@@ -107,15 +107,25 @@ ck("each with its own code",
 ck("and the codes are shown, not hidden",
    all(p.get("code") for p in posts), str(posts)[:140])
 
-print("\nbut the code itself signs nobody in")
+print("\nand the code signs its own teacher in")
+# One code, both jobs. This was refused for a while on the grounds that a
+# code read off a wall is not a credential — true, and it left a teacher
+# holding only a code with no way in at all: refused here, told to use an
+# email and password nobody had issued her, and round again. The cost is
+# real and is answered by the code being rotatable; the loop was not
+# answerable at all.
 fresh()
-r = TestClient(main.app).post("/api/auth/code", json={"code": slotA["code"]})
-ck("a subject code is refused at the sign-in", r.status_code == 403,
-   f"got {r.status_code}: {r.text[:100]}")
-ck("and is told where it actually goes", "board" in r.text.lower(),
+signin = TestClient(main.app)
+r = signin.post("/api/auth/code", json={"code": slotA["code"]})
+ck("a subject code signs in the teacher on it", r.status_code == 200,
+   f"got {r.status_code}: {r.text[:110]}")
+ck("it says which subject it was", (r.json() or {}).get("subject"),
    r.text[:110])
-ck("no session came out of it",
-   TestClient(main.app).get("/api/auth/me").status_code == 401)
+ck("and a session really came out of it",
+   signin.get("/api/auth/me").status_code == 200)
+ck("but only for somebody who is not signed in as anyone else",
+   TestClient(main.app).get("/api/auth/me").status_code == 401,
+   "a fresh client still has no session of its own")
 
 print("\nwhat it DOES open, and the shape of what that buys")
 fresh()

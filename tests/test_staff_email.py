@@ -93,13 +93,14 @@ fresh = TestClient(main.app)
 r = fresh.post("/api/auth/login", json={"email": GOOD, "password": PW2})
 ck("THE ACCOUNT CAN ACTUALLY SIGN IN, with what it was given",
    r.status_code == 200, r.text[:130])
-# And its subject code is not a second way into it. That is a board code: it
-# names one room and one subject, and a whole class reads it off the wall.
+# And its subject code is a second way into it, deliberately. The address and
+# password remain the stronger one — and the only one that still works when
+# the code is rotated — but a teacher holding only a code is not left outside.
 main._CODE_TRIES.clear(); main._CODE_FAILS.clear()
-ck("its subject code is NOT a way into the account",
+ck("its subject code is also a way in",
    TestClient(main.app).post(
        "/api/auth/code",
-       json={"code": _slot["code"]}).status_code == 403)
+       json={"code": _slot["code"]}).status_code == 200)
 ck("and it is a teacher",
    bool(fresh.get("/api/auth/me").json().get("is_teacher")))
 ck("and it is the account the office made",

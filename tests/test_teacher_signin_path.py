@@ -9,12 +9,16 @@ when it breaks halfway.
     the office puts her on a subject    ->  the subject knows her
     the office issues her a password    ->  she can sign in
     she signs in                        ->  she lands on what she teaches
-    the subject's code opens a board    ->  and signs nobody in
+    the subject's code opens a board    ->  and signs her in too
 
-The last line is the one that has caused the most confusion, and it is
-correct. A subject code is chalked up and read by a whole class; a credential
-every child in the room holds is not a credential. So it opens a board and
-identity comes from the email and password the office issued.
+That last line went back and forth and has settled. The code is chalked up
+and read by a whole class, so whoever holds it can become that teacher —
+a real cost, written down in sign_in_with_code. It is accepted because the
+alternative was tested and was worse: a teacher given only a code was
+refused, told to use an email and password nobody had issued her, and had
+no way in at all. She went round that loop instead of teaching. The answer
+to the cost is that the code rotates, and that email and password still
+exist and are still stronger.
 
 What this is really guarding is the join between the two halves. A teacher
 who signs in and sees no classes is indistinguishable, from her side, from a
@@ -143,11 +147,19 @@ room = r.json() if r.status_code == 200 else {}
 ck("with her name on it", (room.get("teacher") or "") == "Path Teacher",
    room.get("teacher"))
 ck("and a board token rather than a session", bool(room.get("board_token")))
-r = board.post("/api/auth/code", json={"code": code})
-ck("the same code is refused as a sign-in", r.status_code >= 400,
-   "it is read off a wall by a whole class")
-ck("and says where it does work",
-   "board" in r.text.lower() or "classroom" in r.text.lower(), r.text[:140])
+# The same code signs her in. One code, both jobs — restored after the
+# refusal left a teacher holding only a code with no way in at all, going
+# round a loop instead of teaching. The trade is written down in
+# sign_in_with_code and answered by the code being rotatable.
+signin = TestClient(main.app)
+r = signin.post("/api/auth/code", json={"code": code})
+ck("the same code signs its teacher in", r.status_code == 200, r.text[:140])
+ck("as the teacher on that subject",
+   (r.json() or {}).get("name") == "Path Teacher", r.text[:140])
+ck("and it names the class and subject it belongs to",
+   (r.json() or {}).get("subject") == "Biology", r.text[:140])
+ck("she lands on her classes",
+   signin.get("/api/teacher/classes").status_code == 200)
 
 print("\nthe office can see, and repair, how she gets in")
 r = office.get("/api/head/overview")

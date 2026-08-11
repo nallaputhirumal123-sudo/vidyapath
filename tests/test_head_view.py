@@ -193,5 +193,45 @@ r = rival.patch(f"/api/teacher/roster/{rid}", json={"name": "Hijacked"})
 check("nor rename a child in it", r.status_code in (403, 404),
       f"got {r.status_code}")
 
+# The head could reach a class's work and could not see it.
+#
+# Reported as "admin can't see the group messages, and the class submissions
+# too". The routes allowed all of it the whole time — submissions came back
+# 200 with the pupil's answer in them, the discussion came back with its
+# threads. Only the SCREEN refused: the class page gates its Study material,
+# Classroom discussion and Assignments behind `TEACHES`, and teaches() is
+# "staff and not the office", so the head — who IS the office — fell out of
+# every one of them. A school administrator opening a class saw a register
+# and nothing else.
+#
+# That is the worst shape for a permission bug: nothing is refused, nothing
+# is logged, and the person affected is the one who cannot be told to check
+# their access. Pinned on both sides — the routes stay open, and the screen
+# now draws them.
+import io as _io                                             # noqa: E402
+import os as _os                                             # noqa: E402
+_IDX = _io.open(_os.path.join(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__))), "index.html"), encoding="utf-8").read()
+
+print("\nthe school admin can SEE a class's work, not only reach it")
+check("the class page has a rule for what both roles see",
+      "const SEES_WORK = TEACHES || OFFICE;" in _IDX,
+      "teaches() excludes the office by design; that is right for the "
+      "controls and wrong for the material")
+check("and the work block is drawn on it, not on TEACHES",
+      "${SEES_WORK ? `\n    <div class=\"eyebrow\">Study material</div>"
+      in _IDX,
+      "this block holds the material, the discussion and the assignments")
+check("teaches() still means what it meant, for the controls",
+      "function teaches(){ return isStaff() && !isOffice(); }" in _IDX,
+      "a teacher must still not be shown the office's forms")
+
+print("\nand the routes were never the thing refusing")
+head_sub = head.get(f"/api/teacher/assignment/{AID}/submissions") \
+    if "AID" in dir() else None
+if head_sub is not None:
+    check("the head reads submissions", head_sub.status_code == 200,
+          str(head_sub.status_code))
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)

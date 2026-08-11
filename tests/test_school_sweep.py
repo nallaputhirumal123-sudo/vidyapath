@@ -239,11 +239,27 @@ ck("and reach its own class's material",
    "listed here so a change of answer is noticed")
 
 print("\n  and what it may not")
-r = board.post("/api/auth/code", json={"code": scode})
-ck("the same code is refused as a sign-in", r.status_code >= 400,
-   "it is read off a wall by a whole class")
-ck("and says where it does work",
-   "board" in r.text.lower() or "classroom" in r.text.lower(), r.text[:120])
+# One code, both jobs. It opens the subject on a board AND signs its
+# teacher in — restored deliberately after the refusal left a teacher who
+# held only a code with no way in at all. The trade is written down in
+# sign_in_with_code: the code is read off a wall, so whoever holds it can
+# become that teacher, and the answer is that it rotates.
+signin = TestClient(main.app)
+r = signin.post("/api/auth/code", json={"code": scode})
+ck("the same code signs its teacher in", r.status_code == 200, r.text[:120])
+ck("as the teacher the office put on it",
+   (r.json() or {}).get("name") == "Sweep Teacher", r.text[:120])
+ck("and she lands on her classes",
+   signin.get("/api/teacher/classes").status_code == 200)
+r = office.post(f"/api/head/slot/{slot.id}/rotate")
+ck("rotating the code issues a new one", r.status_code == 200, r.text[:90])
+fresh = (r.json() or {}).get("code") or ""
+ck("and the old one stops working",
+   TestClient(main.app).post("/api/auth/code",
+                             json={"code": scode}).status_code >= 400,
+   "this is the move when a code has been up on a board all term")
+ck("while the new one works", fresh.startswith("T-") and fresh != scode,
+   fresh)
 other = main.Klass(name=f"other {u}", school_id=sc.id,
                    join_code=main._gen_join_code(db), teacher_id=orow.id)
 db.add(other)

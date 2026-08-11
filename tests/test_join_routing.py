@@ -107,37 +107,27 @@ ck("and the config reply cannot switch them back on over the code tab",
    "/api/auth/config settles after the tab is chosen, so it would have "
    "re-shown them on a deep link straight to the code tab")
 
-# A code shown beside a teacher's name that refuses to sign them in.
+# One code per subject, and it does both jobs.
 #
-# The dashboard headed these "Subjects & teacher codes" and printed one next
-# to each teacher. They are BOARD codes: they open a subject on a classroom
-# screen and sign nobody in, deliberately, because a whole class reads one
-# off a wall and it must not be a credential. But the label invited the
-# obvious thing to try, and the obvious thing to try is refused — which
-# reads as broken rather than as designed.
-ck("the heading says what the code opens",
-   "board codes</div>" in _idx)
-ck("and each row repeats it", "board code <b style=" in _idx,
-   "a teacher reads the row, not the heading")
-ck("with the sign-in said plainly beside it",
-   "It is not a\n        sign-in — teachers sign in with their email and "
-   "password." in _idx)
-# Telling somebody where to go is not the same as taking them there.
-#
-# The Teacher side of the code tab has no email box, correctly: it takes the
-# ten digits that make somebody the school administrator, once. But a teacher
-# who already has an account lands there, is refused, and is told to "use the
-# Sign in tab instead" — and somebody who has just been told their code is
-# wrong is not in the mood to go hunting for a tab.
-ck("the code tab offers a way to the sign-in, not just a mention of it",
-   "id='jn_toSignin'" in _idx)
-ck("which switches tabs and puts the cursor in the email box",
-   'gateTab("login");' in _idx and 'const f=$("#li_email"); if(f) f.focus();'
-   in _idx,
-   "landing on a tab with nothing focused is a second thing to work out")
-ck("and the ten digits still say what they are for",
-   "somebody becomes the school administrator" in _idx,
-   "otherwise the box reads as a teacher login that keeps refusing them")
+# This went back and forth. The code opens the subject on a classroom board
+# AND signs in the teacher who holds it. Refusing the second half was correct
+# in isolation — a code chalked up and read by a room is not a credential —
+# and in practice it left a teacher with a code, no password, and no way in,
+# told to use an email nobody had issued her. The cost is answered by the
+# code being rotatable; the loop was not answerable at all.
+ck("the heading no longer calls them board codes only",
+   "Subjects &amp; their\n        codes" in _idx)
+ck("the line under it says the code does both",
+   "and it signs its teacher in" in _idx)
+ck("and points at the way to replace one that has been up too long",
+   "the\n        old one stops working at once" in _idx,
+   "rotation is the whole answer to a code a room can read")
+ck("each row says both ways in",
+   "signs in with this code, or as " in _idx,
+   "the code is the one she will use; the address is the stronger one and "
+   "the only one that survives the code being rotated while she is out")
+ck("and an unclaimed subject says what to do about it",
+   "put a teacher on this subject and the code signs them in" in _idx)
 
 ck("and the pupils' code says whose it is",
    "for pupils, on the Join with code tab" in _idx,

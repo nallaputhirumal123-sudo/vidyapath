@@ -1925,35 +1925,30 @@ function setJoinRole(role){
     b.classList.toggle("on", b.dataset.jrole===JOIN_ROLE));
   const teacher = JOIN_ROLE==="teacher";
   const code=$("#jn_code");
-  /* Ten digits, and only that.
-     The placeholder read "T-4M2X or 4820561973" — it showed, as an example
-     of what to type, the exact thing the server refuses here, with the line
-     underneath explaining that it is refused. A box that demonstrates the
-     wrong answer wins against a sentence that describes it, every time; this
-     is what invited a subject code into this field in the first place. */
-  if(code) code.placeholder = teacher ? "4820561973" : "VP-7K3Q";
+  /* Both codes a member of staff can hold, because both work here again.
+     T-… is a subject's, and it is the same code that opens that subject on
+     a classroom board — one code, both jobs. The ten digits are the school
+     office's, for whoever becomes the administrator. */
+  if(code) code.placeholder = teacher ? "T-4M2X or 4820561973" : "VP-7K3Q";
   /* A pupil signs in with a code and no password — the register row IS the
      credential, and there is nothing to phish or reset.
 
-     A member of staff does not. The ten-digit code the office was issued
-     still works here, once, because that is how somebody BECOMES the school
-     admin. A subject code does not: it is read off a classroom board by a
-     whole class, so it opens one subject on one board and the server refuses
-     it here — which the box now says, rather than leaving somebody typing it
-     again. */
-  /* A button, not only a sentence.
-     This tab takes a code and a teacher who already has an account has no
-     business on it — the ten digits here are for becoming the school
-     administrator, once. Saying "use the Sign in tab instead" describes the
-     way out; it does not provide one, and somebody who has just been told
-     their code is wrong is not in the mood to hunt for a tab. */
+     A member of staff has two codes that work here. Their subject's T-…,
+     which signs them in and is the same code that opens that subject on a
+     classroom board; and the office's ten digits, once, for whoever becomes
+     the school administrator.
+
+     The link to the email sign-in stays. It is the stronger way in and a
+     school that wants only that can use it — but it is now an alternative
+     rather than the only door, which is what left a teacher holding a code
+     going round in a circle. */
   const hint=$("#jn_hint");
   if(hint) hint.innerHTML = teacher
-    ? "The ten-digit code your school office was issued — this is how "+
-      "somebody becomes the school administrator.<br>Already have an email "+
-      "and password? <a href='#' id='jn_toSignin' style='color:var(--accent)'>"+
-      "Sign in instead →</a><br>A subject code (T-…) is for a classroom "+
-      "board and will not sign you in here."
+    ? "Your subject code (T-…) signs you in, and it is the same code that "+
+      "opens that subject on a classroom board. The ten-digit code is the "+
+      "school office's, for whoever becomes the administrator.<br>Have an "+
+      "email and password? <a href='#' id='jn_toSignin' style='color:"+
+      "var(--accent)'>Sign in instead →</a>"
     : "The code your teacher gave you. You will tap your name next — there is "+
       "no password.";
   const jump=$("#jn_toSignin");
@@ -7576,22 +7571,28 @@ async function renderHead(){
            now, and each row repeats it, because a teacher reads the row
            and not the heading. -->
       <div class="eyebrow" style="margin:14px 0 6px">Subjects &amp; their
-        board codes</div>
+        codes</div>
       <div style="color:var(--dim);font-size:12px;margin:-2px 0 8px">
-        A board code opens that subject on a classroom board. It is not a
-        sign-in — teachers sign in with their email and password.</div>
+        One code per subject. It opens that subject on a classroom board,
+        <b style="color:var(--text)">and it signs its teacher in</b> — so a
+        teacher needs only this. Press <b style="color:var(--text)">New
+        code</b> to replace one that has been up on a board too long; the
+        old one stops working at once.</div>
       ${(c.subjects||[]).length?c.subjects.map(s=>`<div class="pj-step" style="align-items:center">
         <div style="flex:1;min-width:0"><b>${esc(s.subject)}</b> —
-          board code <b style="color:var(--accent);letter-spacing:1px">${esc(s.code)}</b>
+          code <b style="color:var(--accent);letter-spacing:1px">${esc(s.code)}</b>
           ${s.teacher?`· <span style="color:var(--ok)">${esc(s.teacher)}</span>`:`· <span style="color:var(--dim)">not claimed yet</span>`}
-          <!-- How she actually gets in, on the row that raised the question.
-               A board code beside a teacher's name reads as her sign-in;
-               printing the real one next to it settles that at the point of
-               confusion instead of on the staff screen further down. -->
+          <!-- Both ways in, on the row where somebody asks. The code is the
+               one a teacher will actually use; the address is the stronger
+               one and the only one that works if the code is rotated while
+               she is out. Saying only one of them is what sent a teacher
+               round in a circle. -->
           ${s.teacher_id?`<div style="color:var(--dim);font-size:12px;margin-top:2px">
-            signs in as ${s.teacher_email
+            signs in with this code, or as ${s.teacher_email
               ?`<b style="color:var(--text)">${esc(s.teacher_email)}</b> with their password`
-              :`<span style="color:var(--warn,#e6a545)">no address yet — press Sign-in details</span>`}</div>`:""}</div>
+              :`<span style="color:var(--warn,#e6a545)">no address yet — press Sign-in details</span>`}</div>`:
+            `<div style="color:var(--dim);font-size:12px;margin-top:2px">
+              put a teacher on this subject and the code signs them in</div>`}</div>
         ${s.teacher_id?`<button class="btn sm ghost" data-cls="hslotsign"
           data-id="${s.teacher_id}" data-nm="${esc(s.teacher)}"
           data-ph="${placeholderAddress(s.teacher_email)?"1":"0"}"
@@ -8335,6 +8336,17 @@ async function renderTeacherClass(cid){
      the office sees. Neither is a permission — the routes are. */
   const TEACHES = teaches();
   const OFFICE = isOffice() || USER.is_admin;
+  /* And what BOTH have to see.
+     Separating the two roles over-corrected: teaches() is "staff and not the
+     office", so the head — who is the office — fell out of every block it
+     guarded. That block holds the study material, the class's assignments
+     and the subject group chat, so a school administrator opening a class
+     saw a register and nothing else: not the work set, not who had handed
+     in what, not a word the class had said. The server allowed all three
+     the whole time; only the screen refused, which is the worst way for a
+     permission to be wrong because there is nothing to read in a log.
+     A head is answerable for exactly this material. */
+  const SEES_WORK = TEACHES || OFFICE;
   const head=asg.map(a=>`<th title="${esc(a.title)}" style="font-size:11px;padding:5px 4px">${esc((a.subject||a.title).slice(0,10))}</th>`).join("");
   const rrows=roster.length?roster.map(s=>`<tr>
       <td style="padding:6px">${esc(s.name)}</td>
@@ -8398,7 +8410,7 @@ async function renderTeacherClass(cid){
       <div id="rosterList">Loading…</div>
     </div>`}
 
-    ${TEACHES ? `
+    ${SEES_WORK ? `
     <div class="eyebrow">Study material</div>
     <p class="sub" style="margin:-2px 0 8px">Chapters, slides, a link — things
       to read, not work to hand in. Material outlives the homework it was

@@ -101,6 +101,16 @@ if not JWT_SECRET:
     JWT_SECRET = "dev-only-insecure-secret-change-me"
     print("WARNING: JWT_SECRET not set — using an insecure development value.")
 
+# Which edition this deployment is. Read HERE, at the top, because things
+# further down have to answer differently because of it — Google sign-in is
+# switched off a dozen lines below, and a flag defined after its first reader
+# is a flag that silently does nothing.
+#
+#   in  (default)  craxle.com — learning and the job board, India
+#   us             learncraxle.com — US schools, and nothing else
+EDITION = env("EDITION", "in").strip().lower()
+US_EDITION = EDITION in ("us", "usa")
+
 ADMIN_EMAIL = env("ADMIN_EMAIL").lower()
 if "${{" in ADMIN_EMAIL:
     ADMIN_EMAIL = ""
@@ -117,7 +127,18 @@ if "${{" in GOOGLE_CLIENT_ID:
 GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET")
 if "${{" in GOOGLE_CLIENT_SECRET:
     GOOGLE_CLIENT_SECRET = ""
-GOOGLE_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+# Never on the US edition, whatever keys happen to be set.
+#
+# Two reasons, and the second is the one that decides it. A school product
+# that says it does not hand children's data around should not put a third
+# party in the sign-in path at all. And practically: OAuth redirect URIs are
+# registered per domain, so a new front door means new console configuration
+# before the button can work — a button that is present and fails is worse
+# than one that was never offered. Email, password and class codes cover
+# every role here: the office issues addresses, pupils use a code and no
+# password at all.
+GOOGLE_ENABLED = (not US_EDITION) and bool(
+    GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 # Optional explicit public URL for the OAuth redirect; else derived per-request.
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL").rstrip("/")
 
@@ -1506,10 +1527,9 @@ app = FastAPI(title="Craxle", docs_url="/api/docs", redoc_url=None)
 # about.
 import craxlearn as _cl_boot                                        # noqa: E402
 
-# Which edition this deployment is.
-#
-#   in  (default)  craxle.com — learning and the job board, India
-#   us             learncraxle.com — US schools, and nothing else
+# EDITION and US_EDITION are read at the top of this file, beside the other
+# environment variables, because Google sign-in is switched off by US_EDITION
+# a dozen lines after JWT_SECRET — long before here.
 #
 # The US edition is its OWN deployment with its own database, and that is not
 # a preference. A US school's pupils must not have rows in a database built
@@ -1521,9 +1541,6 @@ import craxlearn as _cl_boot                                        # noqa: E402
 #
 # It implies CRAXLEARN_ONLY rather than being a second way to say it: one
 # switch that can be forgotten is better than two that can disagree.
-EDITION = env("EDITION", "in").strip().lower()
-US_EDITION = EDITION in ("us", "usa")
-
 CRAXLEARN_ONLY = US_EDITION or env("CRAXLEARN_ONLY", "0").strip().lower() in (
     "1", "true", "yes", "on")
 
@@ -7976,18 +7993,23 @@ def craxlearn_code(body: CodeIn, request: Request,
 @app.post("/api/auth/code")
 def sign_in_with_code(body: CodeIn, response: Response, request: Request,
                       db: Session = Depends(get_db)):
-    """The ten-digit code that makes somebody a school administrator.
+    """Signing in with a code. Two kinds of code arrive here.
 
-    One code, one person, handed over once. It carries its own identity — the
-    name the platform admin issued it in — and it is not written on anything
-    a room can read.
+    **Ten digits** — the school administrator's. One code, one person, handed
+    over once, carrying the name the platform admin issued it in, and never
+    written on anything a room can read.
 
-    A SUBJECT code is refused here on purpose. It used to sign in as the
-    teacher the school had put on that subject, and the whole design of a
-    subject code is that a board can be told which room it is in, which means
-    the code is chalked up, read out and passed around a class. A credential
-    that every child in the room holds is not a credential. It opens a board,
-    through /api/craxlearn/room, and identity comes from signing in.
+    **T-XXXX** — a subject's. It signs in the teacher the school put on that
+    subject, and it is the SAME code that opens that subject on a classroom
+    board. One code, both jobs, which is what a teacher can actually hold.
+
+    The second one is a real trade and it is made deliberately. The code is
+    chalked up and read by a room, so whoever has it can become that teacher.
+    Set against that: a teacher who is given only a code, refused here, and
+    told to use an email and password nobody has issued her has no way in at
+    all, and goes round that loop instead of teaching. The mitigation is that
+    the code rotates — "New code" on the subject's row — and that email and
+    password remain available and remain stronger.
 
     Rate-limited on the same counters as the register, because guessing at
     this is guessing at a way into a school.
@@ -8047,33 +8069,48 @@ def sign_in_with_code(body: CodeIn, response: Response, request: Request,
             404, "No subject or school has that code. A pupil's class code "
                  "goes in the class sign-in, not here.")
 
-    # A SUBJECT code opens a board. It is not a way into an account.
+    # A SUBJECT code signs its teacher in. One code, both jobs.
     #
-    # This used to hand back a full session on the teacher the school had put
-    # on that subject, and the cost was written down at the time: whoever
-    # holds the code IS that teacher. What that sentence skates over is where
-    # the code lives. It is read off a classroom board, chalked up, passed
-    # down a row, printed on a timetable — by design, because a board has to
-    # be told which room it is standing in and that is what the code is FOR.
-    # Every child in the room has it.
+    # This was refused for a while and the reasoning still stands on its own
+    # terms: the code is read off a classroom board, chalked up, passed down
+    # a row — by design, because a board has to be told which room it is in.
+    # Whoever holds it can become that teacher, and the session is not scoped
+    # to the classroom; it is the account, with every class and register on it.
     #
-    # And the session it handed out was not scoped to the classroom. It was
-    # the teacher's own account: every class they teach, every register,
-    # every mark, every subject's discussion, and Ask Axle billed to them.
+    # It is restored because the alternative was worse in practice, which is
+    # the test that counts. A teacher held one code. She typed it here, was
+    # refused and told to sign in with an email and password she had never
+    # been given, and the only way out was for somebody else to open the
+    # school screen and issue one. She went round that loop instead of
+    # teaching. A safe door nobody can open is not a safe door; it is a wall
+    # with a sign on it.
     #
-    # So the code buys exactly what it is for and nothing else — the board
-    # token from /api/craxlearn/room, which names one class and one subject
-    # and unlocks the routes that file a lesson into them. Identity comes
-    # from signing in, which is a teacher's email and their own password.
+    # Two things keep the risk answerable rather than theoretical:
     #
-    # Refused rather than quietly redirected: somebody typing a code here has
-    # been told to, by a timetable or a colleague, and needs to know where it
-    # actually goes.
+    #   * the code rotates. "New code" on the subject's row issues a fresh
+    #     one and the old one stops working, which is the move when a code
+    #     has been up on a board all term.
+    #   * email and password still exist and are still stronger. A school
+    #     that wants them uses Fix sign-in and stops handing the code out.
+    #
+    # An UNCLAIMED subject is refused rather than inventing somebody. There
+    # is no name to create an account under, and a code that made a new
+    # half-identity every time it was typed is the mistake the register
+    # already taught once.
+    holder = db.get(User, slot.teacher_id) if slot.teacher_id else None
+    if holder is not None and holder.is_active:
+        k = db.get(Klass, slot.class_id)
+        set_session(response, holder, db)
+        return {"ok": True, "kind": "teacher", "name": holder.name,
+                "subject": slot.subject or "",
+                "class": (k.name if k else ""),
+                "school": (k.school if k and k.school else ""),
+                "returning": True}
+
     raise HTTPException(
-        403, "That is a board code. It opens its subject on a classroom "
-             "board — go to the board and enter it there. To reach your own "
-             "classes, sign in with your email and password; your school "
-             "office issues the password.")
+        409, "No teacher is on that subject yet. Ask your school office to "
+             "put you on it — then this code signs you in, and it opens the "
+             "same subject on a classroom board.")
 
 
 class ClaimIn(BaseModel):

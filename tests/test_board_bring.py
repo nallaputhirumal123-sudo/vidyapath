@@ -210,9 +210,10 @@ _slot = (db.query(main.SubjectSlot)
                    main.SubjectSlot.subject == "Science").first())
 db.refresh(_slot)
 r = TestClient(main.app).post("/api/auth/code", json={"code": _slot.code})
-ck("their subject code does NOT sign anybody in", r.status_code == 403,
+ck("their subject code signs that teacher in", r.status_code == 200,
    f"got {r.status_code}: {r.text[:90]}")
-ck("and says where it does work", "board" in r.text.lower(), r.text[:90])
+ck("as the teacher who holds the subject",
+   (r.json() or {}).get("name") == "Bring Teacher", r.text[:90])
 r = tch.post("/api/craxlearn/board/file",
              files={"file": ("notes.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"),
                              "image/png")},
