@@ -14,10 +14,12 @@ is discarded rather than shown bare.
 The network tests are skipped when there is no connection: a test that fails
 on a train is a test people learn to ignore.
 """
+import io
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 import images                                      # noqa: E402
 
 PASS = FAIL = SKIP = 0
@@ -184,8 +186,16 @@ else:
           "nasa" in got["a lunar eclipse"].get("url", ""),
           got["a lunar eclipse"].get("caption", ""))
 
-print(f"\nPASSED {PASS}   FAILED {FAIL}" + (f"   SKIPPED {SKIP}" if SKIP else ""))
-sys.exit(1 if FAIL else 0)
+# ---------------------------------------------------------------------------
+# Everything below this line calls ck(), and ck() has never existed.
+#
+# That is not a naming slip, it is the evidence: this half of the file sat
+# after a sys.exit() at line 188, so it was written, reviewed and committed
+# without being executed once. Had it ever run it would have died on the
+# first call. A test that cannot run is worse than no test — it is a claim
+# on the file that nobody has checked, and there are ninety-five lines of
+# them here covering the picture scoring that a classroom actually sees.
+ck = check
 
 
 # ---------------------------------------------------------------------------
@@ -236,3 +246,58 @@ ck("nor is an aircraft carrier",
    "it shares 'aircraft' and is an entirely different object")
 ck("but epicyclic gearing is", images.relevant("aircraft gearbox",
                                                "Epicyclic gearing"))
+
+# --------------------------------------------------------------------------
+print("\nwhich engine, which cell — the half that says WHICH one")
+# Reported from a live board. head_noun("rocket engine") is "engine", and
+# that was the whole test — so a diesel engine, a steam engine and Search
+# engine optimisation all counted as answers to "rocket engine". The same
+# failure runs through most of what a school asks for a picture of: plant
+# cell, blood cell and nerve cell all reduce to "cell", so a lesson on the
+# plant cell could be illustrated with a red blood cell.
+#
+# It is the argument the head-noun rule already makes — the wrong machine
+# teaches the wrong machine — applied to the other half of the phrase.
+ck("a compound's modifier is found",
+   images.modifiers("rocket engine") == ["rocket"])
+ck("and a plain phrase has none",
+   images.modifiers("refraction of light") == [],
+   "it is about refraction, full stop; nothing qualifies it")
+ck("a generic tail is not a modifier",
+   images.modifiers("plant cell structure") == ["plant"])
+
+_FLOOR = images.SCORE_FLOOR
+ck("a rocket engine is shown",
+   images.score("rocket engine", "Rocket engine test firing") >= _FLOOR)
+ck("and so is a named one",
+   images.score("rocket engine", "V2 rocket engine nozzle") >= _FLOOR)
+for _wrong in ("Diesel engine cutaway", "Steam engine",
+               "Internal combustion engine", "Search engine optimisation"):
+    ck(f"{_wrong!r} is not a rocket engine",
+       images.score("rocket engine", _wrong) < _FLOOR)
+
+ck("a plant cell is shown",
+   images.score("plant cell", "Plant cell diagram") >= _FLOOR)
+for _wrong in ("Red blood cell", "Animal cell", "Nerve cell"):
+    ck(f"{_wrong!r} is not a plant cell",
+       images.score("plant cell", _wrong) < _FLOOR,
+       "a biology lesson illustrated with the wrong cell is worse than one "
+       "with no picture at all")
+
+# A penalty and not a veto, which is the whole reason it is a number.
+ck("an article can still answer without carrying the modifier",
+   images.score("Newton's laws of motion", "Laws of motion") >= _FLOOR,
+   "that IS the right picture; it keeps enough of the rest of the query to "
+   "survive the deduction, where 'Steam engine' does not")
+ck("and refraction is untouched",
+   images.score("refraction of light", "Refraction") >= _FLOOR)
+
+# The summary and the exit live HERE, at the end.
+#
+# They used to sit at line 188 with ninety-five lines of tests after them,
+# so everything below — the whole of the Wikimedia scoring, the head-noun
+# rules and the compound-modifier checks — was written, committed, and never
+# once executed. A test that cannot run is worse than no test: it is a claim
+# on the file that nobody has checked.
+print(f"\nPASSED {PASS}   FAILED {FAIL}" + (f"   SKIPPED {SKIP}" if SKIP else ""))
+sys.exit(1 if FAIL else 0)

@@ -234,6 +234,41 @@ def head_noun(query: str) -> str:
     return words[-1] if words else ""
 
 
+def modifiers(query: str) -> list:
+    """The words that say WHICH one, in a compound noun phrase.
+
+    A rocket engine is a kind of engine, and "rocket" is the half that says
+    which kind. head_noun() returns "engine", so a search for "rocket
+    engine" was judged on "engine" alone — and a diesel engine, a steam
+    engine and Search engine optimisation all counted as answers to it.
+
+    The same failure across most of what a school asks for a picture of:
+    plant cell, blood cell and nerve cell all reduce to "cell", so a lesson
+    on the plant cell could be illustrated with a red blood cell. That is
+    the same argument the head-noun rule already makes — the wrong machine
+    teaches the wrong machine — applied to the other half of the phrase.
+
+    Only what qualifies the head inside its own noun phrase: the segment
+    before any preposition, minus generic tails, minus the head itself. So
+    "refraction of light" has none (it is about refraction, full stop), and
+    "the structure of a plant cell" has "plant".
+    """
+    t = " " + " ".join(str(query or "").lower().split()) + " "
+    before = t
+    for sep in (" of ", " in ", " for ", " with ", " from ", " about ",
+                " between ", " during ", " under "):
+        if sep in t:
+            head_side = head_noun(query)
+            first, rest = t.split(sep)[0], t.split(sep, 1)[1]
+            # Whichever side the head came from is the side that owns it.
+            before = rest if head_side and head_side in rest else first
+            break
+    words = [w for w in re.findall(r"[a-z0-9]+", before)
+             if len(w) > 2 and w not in _STOP and w not in _GENERIC_TAIL]
+    head = head_noun(query)
+    return [w for w in words if w != head]
+
+
 def score(query: str, title: str) -> float:
     """How well an article title answers a query. 0 means not at all.
 
@@ -280,7 +315,21 @@ def score(query: str, title: str) -> float:
     # A title made almost entirely of the query's own words is the article
     # about exactly that thing.
     focus = hit / float(len(t_words))
-    return 1.0 + covered * 2.0 + focus
+    got = 1.0 + covered * 2.0 + focus
+
+    # The half of a compound that says WHICH one. Missing it costs enough to
+    # drop a short, confident title below the floor: "Diesel engine cutaway"
+    # for "rocket engine" scored 2.33 and was shown.
+    #
+    # A penalty and not a veto, deliberately. "Newton's laws of motion" has
+    # "newton" as its modifier and the article called "Laws of motion" is
+    # the right picture without carrying the name — it keeps enough of the
+    # rest of the query to survive the deduction, where "Steam engine" does
+    # not.
+    mods = modifiers(query)
+    if mods and not any(_matches(m, t_words) for m in mods):
+        got -= 1.0
+    return got
 
 
 # Below this a candidate is not worth showing. The head noun alone scores
