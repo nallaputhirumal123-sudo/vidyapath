@@ -760,6 +760,7 @@ window.esc = function (s) {
 <script src="lab.js?v=c536df7feb"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
+<script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="scanner.js?v=f62f1b0eb8"></script>
 <script>
@@ -5102,51 +5103,21 @@ async function track(id){
   if(ex) ex.onclick = function(){ go("exam", id); };
 }
 
-/* Python runs through Pyodide, JavaScript through the browser itself.
- * Both fail out loud: a lab that silently does nothing is a lesson a
- * learner decides is broken and skips. */
-var PY = null, PY_FAILED = false;
-async function pyodide(){
-  if(PY) return PY;
-  if(PY_FAILED) return null;
-  try{
-    if(!window.loadPyodide){
-      await new Promise(function(res, rej){
-        var s = document.createElement("script");
-        s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js";
-        s.onload = res;
-        s.onerror = rej;
-        document.head.appendChild(s);
-      });
-    }
-    PY = await window.loadPyodide({
-      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/" });
-    return PY;
-  }catch(e){ PY_FAILED = true; return null; }
-}
-
+/* Learner code runs in a sandboxed frame, never on the board's own page.
+ *
+ * It used to run here — `new Function(code)()`, and Pyodide loaded into this
+ * window — which is the board's origin. This page can hold a board token and
+ * is often on a machine signed in as the teacher for that period, so a
+ * fetch with credentials from an exercise box acted as them: the register,
+ * the marks, the subject's discussion. The person typing into that box is a
+ * pupil at the front of the room.
+ *
+ * sandbox.js runs it in an iframe with allow-scripts and no same-origin, so
+ * there is no cookie, no reachable API and no parent document. Printing,
+ * loops and maths all still work, which is what a lesson asks for.
+ */
 async function runCode(lang, code){
-  if(lang === "js"){
-    var out = [];
-    var log = console.log;
-    console.log = function(){ out.push([].slice.call(arguments).join(" ")); };
-    try{ new Function(code)(); }
-    catch(e){ out.push(String(e)); }
-    finally{ console.log = log; }
-    return out.join("\n") || "(nothing printed)";
-  }
-  var py = await pyodide();
-  if(!py){
-    return "Python could not start on this board. It is downloaded from a " +
-           "public CDN — this board may be offline or the network may be " +
-           "blocking it.";
-  }
-  py.runPython("import sys, io\n_b = io.StringIO()\nsys.stdout = _b\nsys.stderr = _b");
-  try{ py.runPython(code); }
-  catch(e){ py.runPython("import traceback; traceback.print_exc()"); }
-  return py.runPython(
-    "sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__\n_b.getvalue()")
-    || "(nothing printed)";
+  return await Sandbox.run(lang === "js" ? "js" : "py", code);
 }
 
 async function lesson(arg){

@@ -1282,6 +1282,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
+<script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="lab.js?v=c536df7feb"></script>
 <script src="bot.js?v=176bf0cdda"></script>
@@ -1582,42 +1583,24 @@ function evalCheck(spec, output){
 
 /* ===================== RUNTIMES ===================== */
 let pyodide=null, pyFailed=false;
-async function ensurePy(){
-  if(pyodide) return pyodide;
-  if(pyFailed) return null;
-  try{
-    if(!window.loadPyodide){
-      await new Promise((res,rej)=>{
-        const s=document.createElement("script");
-        s.src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js";
-        s.onload=res;s.onerror=rej;document.head.appendChild(s);
-      });
-    }
-    pyodide=await window.loadPyodide({indexURL:"https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"});
-    return pyodide;
-  }catch(e){ pyFailed=true; return null; }
-}
+/* Learner code runs in a sandboxed frame, never in this page.
+ *
+ * It used to run here: `new Function(code)()` and Pyodide in this window,
+ * which is this origin — the session cookie, every API route, and the DOM.
+ * A fetch with credentials:"include" from an exercise box acts as whoever
+ * is signed in, and on a classroom machine that is the teacher. sandbox.js
+ * gives it an opaque origin instead, where none of that exists.
+ *
+ * These two keep their old signatures so every caller is unchanged; only
+ * where the code executes has moved.
+ */
 async function runPython(code){
-  const py=await ensurePy();
-  if(!py) throw new Error("OFFLINE");
-  py.runPython("import sys, io\n_buf = io.StringIO()\nsys.stdout = _buf\nsys.stderr = _buf");
-  try{ py.runPython(code); }
-  catch(err){
-    py.runPython("sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__");
-    return {out:"",err:String(err).split("\n").filter(l=>l.trim()).slice(-4).join("\n")};
-  }
-  const out=py.runPython("sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__\n_buf.getvalue()");
-  return {out:String(out),err:null};
+  const out = await Sandbox.run("py", code);
+  if(/^Python could not start here/.test(out)) throw new Error("OFFLINE");
+  return {out:String(out), err:null};
 }
-function runJS(code){
-  return new Promise(resolve=>{
-    let out="";
-    const log=(...a)=>{out+=a.map(v=>typeof v==="string"?v:(()=>{try{return JSON.stringify(v)}catch(e){return String(v)}})()).join(" ")+"\n";};
-    try{
-      new Function("console",`"use strict";\n${code}`)({log,error:log,warn:log,info:log});
-      setTimeout(()=>resolve({out,err:null}),400);
-    }catch(e){ resolve({out,err:e.name+": "+e.message}); }
-  });
+async function runJS(code){
+  return {out:String(await Sandbox.run("js", code)), err:null};
 }
 
 /* ===================== HELPERS ===================== */
@@ -2437,12 +2420,19 @@ function renderNav(){
     <div style="padding:0 20px 18px"><div class="bar"><i style="width:${pct}%"></i></div>
     <div style="font-size:11.5px;color:var(--dim);margin-top:7px">${totalDone()} of ${totalLessons()} lessons · ${pct}%</div></div>`;
 
-  /* Game Studio and All resources are learner things too. A school admin
-     opening this menu to check a fee should not be offered a game engine. */
+  /* Game Studio is a learner thing; a school admin opening this menu to
+     check a fee should not be offered a game engine.
+
+     All resources is NOT offered to a school's pupils at all. It is a list
+     of every video and outside reference across the whole platform — the
+     open internet, one tap from a child's timetable, with nothing between
+     them and it. A school gave us their class; what a pupil sees here
+     should be what their teacher put in front of them, which is the
+     subject page. Their own teacher can still hand them any of it. */
   if(!staff){
     h+=`<div class="navsec">More</div>`
      + nav("studio","🎮","Game Studio")
-     + nav("resources","🔗","All resources");
+     + (USER.craxlearn_only?"":nav("resources","🔗","All resources"));
   }
 
   if(USER.is_teacher||USER.is_admin){
@@ -8401,7 +8391,7 @@ async function renderTeacherClass(cid){
       first needed for, so it lives here rather than as an assignment.</p>
     <div class="card" style="padding:12px;margin-bottom:18px">
       <div id="matList" style="margin-bottom:10px">Loading…</div>
-      <div class="two">
+      ${!TEACHES ? "" : `<div class="two">
         <div class="field"><label>What it is</label>
           <input id="matTitle" class="ask-input"
             placeholder="e.g. Chapter 4 — Light"/></div>
@@ -8415,7 +8405,7 @@ async function renderTeacherClass(cid){
       <div class="field"><label>Why they should read it (optional)</label>
         <input id="matNote" class="ask-input"
           placeholder="e.g. Read before Friday's test"/></div>
-      <button class="btn sm" data-cls="matadd" data-id="${cid}">Add material</button>
+      <button class="btn sm" data-cls="matadd" data-id="${cid}">Add material</button>`}
     </div>
 
     <div class="eyebrow">Classroom discussion</div>
@@ -8430,10 +8420,10 @@ async function renderTeacherClass(cid){
         <select id="discSubject" class="ask-input">${
           d.my_subjects.map(x=>`<option>${esc(x)}</option>`).join("")}</select>
       </div>`:""}
-      <div class="field">
+      ${!TEACHES ? "" : `<div class="field">
         <textarea id="discNew" class="pj-note" style="width:100%;min-height:62px"
           placeholder="Ask something, or say what the class got stuck on…"></textarea></div>
-      <button class="btn sm" data-cls="discask" data-id="${cid}">Post</button>
+      <button class="btn sm" data-cls="discask" data-id="${cid}">Post</button>`}
       <div id="discList" style="margin-top:12px">Loading…</div>
     </div>
 
@@ -8454,7 +8444,7 @@ async function renderTeacherClass(cid){
           <button class="btn sm ghost" data-cls="delasg" data-id="${a.id}" data-cid="${cid}">Remove</button></div>
       </div></div>`).join(""):`<div class="card" style="color:var(--dim)">No assignments yet.</div>`}
 
-    <div class="card" style="margin:14px 0"><b>New assignment</b>
+    ${!TEACHES ? "" : `<div class="card" style="margin:14px 0"><b>New assignment</b>
       ${(d.my_subjects&&d.my_subjects.length&&!d.is_head)?`<div style="font-size:12.5px;color:var(--dim);margin-top:4px">You teach <b style="color:var(--accent)">${esc(d.my_subjects.join(", "))}</b> here. <button class="btn ghost sm" data-cls="reqnew" style="margin-left:6px">Request another subject</button></div>`:""}
       <div class="two" style="margin-top:8px">
         <div class="field"><label>Subject</label>
@@ -8470,7 +8460,7 @@ async function renderTeacherClass(cid){
       <div class="field"><label>Or attach photos of book pages (become a PDF)</label><input type="file" id="asFiles" accept="image/*" multiple/></div>
       <button class="btn sm" data-cls="addasg" data-id="${cid}">Set assignment</button>
       <span id="asMsg" style="font-size:13px;color:var(--dim);margin-left:10px"></span>
-    </div>
+    </div>`}
 
     <div class="card"><b>📅 Class schedule</b>
       <div style="margin-top:8px">${sched.length?sched.map(s=>`<div class="pj-step" style="align-items:center">
@@ -8480,7 +8470,7 @@ async function renderTeacherClass(cid){
         <div class="field"><label>Day / slot</label><input id="scDay" placeholder="e.g. Monday"/></div>
         <div class="field"><label>What happens</label><input id="scText" placeholder="e.g. Chapter 3, then practice"/></div>
       </div>
-      <button class="btn sm" data-cls="addsched" data-id="${cid}">Add to schedule</button>
+      ${!TEACHES ? "" : `<button class="btn sm" data-cls="addsched" data-id="${cid}">Add to schedule</button>`}
     </div>
     ` : `<div class="card" style="color:var(--dim)">
         Study material, the class discussion, assignments and the timetable
@@ -11752,7 +11742,12 @@ function render(){
   else if(v.page==="messages")  renderMessages();
   else if(v.page==="paths")     renderPaths();
   else if(v.page==="projects")  renderProjects();
-  else if(v.page==="resources") renderResources();
+  /* Not for a school's pupils, and not by typing the address either. A menu
+     item that is merely hidden is a menu item, and #resources is four
+     characters to guess. */
+  else if(v.page==="resources"){
+    if(USER && USER.craxlearn_only) renderHome(); else renderResources();
+  }
   else if(v.page==="ask")       renderAsk();
   else if(v.page==="sqlboard")  renderSqlBoard();
   else if(v.page==="scan")      renderScanner();

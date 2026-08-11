@@ -1906,6 +1906,31 @@ def _unseeded_curriculum():
     return out
 
 
+def _links(items):
+    """One shape for a video or a reference, whatever the file called it.
+
+    curriculum.json and stage4 write {"t": ..., "u": ...}; stage5, stage6 and
+    stage7 write {"title": ..., "url": ...}. Everything that reads them reads
+    t and u, so twenty-seven references across Deep Learning, NLP, AI in the
+    Cloud and the Capstone rendered as the word "undefined" wrapped in a link
+    to nowhere — a list of empty rows on a page whose whole content is links.
+
+    Normalised on the way IN, so the page, the PDF and the board all get the
+    same answer and no future file can reintroduce it by picking either name.
+    Anything without both a title and a URL is dropped rather than shown as a
+    blank row: an entry nobody can click is not an entry.
+    """
+    out = []
+    for it in (items or []):
+        if not isinstance(it, dict):
+            continue
+        t = (it.get("t") or it.get("title") or "").strip()
+        u = (it.get("u") or it.get("url") or "").strip()
+        if t and u:
+            out.append({"t": t, "u": u})
+    return out
+
+
 def _seed_file(db, filename, audience, position_offset):
     """Load one curriculum file into the database. Returns tracks added."""
     path = BASE_DIR / filename
@@ -1938,8 +1963,8 @@ def _seed_file(db, filename, audience, position_offset):
                 slug=l["id"], track_id=track.id, title=l["title"],
                 mins=l.get("mins", 20), lang=l.get("lang", "read"),
                 content=l.get("content", ""),
-                videos=json.dumps(l.get("videos", [])),
-                refs=json.dumps(l.get("refs", [])),
+                videos=json.dumps(_links(l.get("videos"))),
+                refs=json.dumps(_links(l.get("refs"))),
                 lab=json.dumps(l.get("lab", {})),
                 exercises=json.dumps(l.get("exercises", [])),
                 worksheet=json.dumps(l.get("worksheet", [])),
@@ -5178,8 +5203,14 @@ def serialise_track(t: Track, include_unpublished=False):
         "lessons": [{
             "id": l.slug, "title": l.title, "mins": l.mins, "lang": l.lang,
             "content": l.content,
-            "videos": json.loads(l.videos or "[]"),
-            "refs": json.loads(l.refs or "[]"),
+            # Normalised on the way out as well as in. Seeding skips a track
+            # that already exists, so every database seeded before _links
+            # existed still holds the {"title","url"} rows that rendered as
+            # "undefined" — and those are the live ones. Doing it here fixes
+            # them without a migration and without re-seeding anybody's
+            # curriculum.
+            "videos": _links(json.loads(l.videos or "[]")),
+            "refs": _links(json.loads(l.refs or "[]")),
             "lab": json.loads(l.lab or "{}"),
             "exercises": json.loads(l.exercises or "[]"),
             "worksheet": json.loads(l.worksheet or "[]"),
