@@ -39,6 +39,28 @@ ACCOUNTANCY_11_12 = ["Class 11 Accountancy", "Class 12 Accountancy"]
 BUSINESS_12 = ["Class 12 Business Studies"]
 CIVICS_11_12 = ["Class 11 Political Science", "Class 12 Political Science"]
 
+# The humanities. Absent until now, along with the books behind them — a
+# centre asking "do you cover History?" was told about Physics.
+#
+# Listed exactly as the corpus titles them, and `coverage` marks each one
+# present or absent by reading the corpus itself, so a book that did not
+# ingest shows as missing rather than as a claim.
+HISTORY_11_12 = ["Class 11 History", "Class 12 History"]
+GEOGRAPHY_11_12 = ["Class 11 Geography", "Class 12 Geography"]
+
+# School social science, which NCERT splits three ways up to Class 8 and
+# Class 10 — and publishes as ONE integrated book for Classes 6, 7 and 9
+# under the 2024 and 2025 syllabus. Both shapes are named, because both are
+# what a school actually has on the shelf this year.
+SOCIAL_6_10 = [
+    "Class 6 Social Science", "Class 7 Social Science",
+    "Class 9 Social Science",
+    "Class 7 History", "Class 7 Geography", "Class 7 Civics",
+    "Class 8 History", "Class 8 Geography", "Class 8 Civics",
+    "Class 10 History", "Class 10 Geography", "Class 10 Civics",
+    "Class 10 Economics",
+]
+
 
 # ---------------------------------------------------------------------------
 # The international boards, and the honest limit on what can be claimed.
@@ -167,12 +189,29 @@ GROUPS = [
                     "Internal assessment", "IB past papers"],
     },
     {
+        # The arts stream, which had no group at all. HEC is what a
+        # Telangana or Andhra intermediate college calls it, and until the
+        # history and geography books were ingested there was nothing to
+        # put behind the name.
+        "id": "hec",
+        "name": "HEC",
+        "long": "History, Economics, Civics",
+        "note": "Intermediate first and second year. Civics is the NCERT "
+                "Political Science books. The Class 11 and 12 History and "
+                "Geography books are held in full.",
+        "books": HISTORY_11_12 + ECONOMICS_11_12 + CIVICS_11_12
+                 + GEOGRAPHY_11_12,
+        "missing": [],
+    },
+    {
         "id": "foundation",
         "name": "Foundation",
-        "long": "Classes 6 to 10, Maths and Science",
+        "long": "Classes 6 to 10 — Maths, Science and Social Science",
         "note": "What a centre teaches before the group is chosen, and what "
-                "school tuition covers.",
-        "books": MATHS_6_10 + SCIENCE_6_10,
+                "school tuition covers. Social Science is three books a year "
+                "up to Class 10, and one integrated book for Classes 6, 7 "
+                "and 9 under the new syllabus — both are held.",
+        "books": MATHS_6_10 + SCIENCE_6_10 + SOCIAL_6_10,
         "missing": [],
     },
 ]

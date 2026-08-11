@@ -24,6 +24,12 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORPUS = os.path.join(HERE, "corpus.db")
+# At import time, not inside main(). repair() runs before main() reached its
+# own sys.path line, so "import corpus" in there raised ImportError, the
+# except swallowed it, and a guard I had just written silently did nothing —
+# which is how "II-traP" got written into the corpus anyway.
+sys.path.insert(0, HERE)
+import corpus as _c                                          # noqa: E402
 
 
 def _collapse_word(word, k):
@@ -102,10 +108,24 @@ def repair(title):
     raw = str(title or "")
     book, _, chapter = raw.partition(":")
     chapter = chapter.strip()
+    # Furniture that reads as content, in either direction. Checked BEFORE
+    # the readable() shortcut: "II-traP" is Part-II set as rotated sidebar
+    # text, and it passes readable() — it has a vowel, no tripled letters and
+    # three characters — so the shortcut returned None and left it in place.
+    if _c._NOT_A_TITLE.match(chapter) or _c._NOT_A_TITLE.match(chapter[::-1]):
+        return book.strip() or None
     if not chapter or readable(chapter):
         return None
 
     fixed = undouble(chapter)
+    # Furniture, forwards or backwards.
+    #
+    # "II-traP" survived readable() — it has vowels, no tripled letters, and
+    # is three characters long — and it is "Part-II" set as rotated sidebar
+    # text, which comes out of the PDF reversed. A chapter titled "II-traP"
+    # is worse than one titled after its book, because it looks like content.
+    if _c._NOT_A_TITLE.match(fixed) or _c._NOT_A_TITLE.match(fixed[::-1]):
+        return book.strip() or None
     if readable(fixed):
         # NCERT sets headings in capitals; keep the words, not the shouting.
         if fixed.isupper():
@@ -152,12 +172,30 @@ def _rederive(con):
                       or _corpus._SUBJECT_ALONE.match(head)
                       or _corpus._PAGE_TAIL.search(head)
                       or len(head) > 60)
-        if not broken:
-            continue
         body = con.execute(
             "select body from passages where slug = ? order by rowid limit 1",
             (slug,)).fetchone()
         if not body:
+            continue
+
+        # A real chapter name, printed backwards.
+        #
+        # NCERT sets some headings as rotated sidebar text and pdfplumber
+        # returns those reversed, so Class 10 Civics ch 1 was titled
+        # "ycarcomeD". Every earlier rule looks for furniture or for noise;
+        # this is neither, which is why it survived all of them — it is the
+        # right word, mirrored.
+        #
+        # Confirmed against the chapter's own text rather than guessed: the
+        # reversal is only accepted if the word it produces actually appears
+        # in the chapter, which no accident of letters is going to satisfy.
+        back = head[::-1].strip()
+        if (len(back) > 3 and back.lower() != head.lower()
+                and back.lower() in (body[0] or "").lower()
+                and head.lower() not in (body[0] or "").lower()):
+            out.append((slug, title, prefix + back))
+            continue
+        if not broken:
             continue
         fresh = _corpus.title_of(body[0])
         # Only when it is actually better. A chapter whose opening passage
@@ -196,7 +234,6 @@ def main():
 
     # ...and the ones where the string cannot be repaired because it was
     # never the title: read those out of the chapter's own opening again.
-    sys.path.insert(0, HERE)
     seen = {old for old, _ in changes}
     by_slug = [row for row in _rederive(con) if row[1] not in seen]
 
