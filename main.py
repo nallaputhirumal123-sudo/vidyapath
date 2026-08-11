@@ -101,16 +101,6 @@ if not JWT_SECRET:
     JWT_SECRET = "dev-only-insecure-secret-change-me"
     print("WARNING: JWT_SECRET not set — using an insecure development value.")
 
-# Which edition this deployment is. Read HERE, at the top, because things
-# further down have to answer differently because of it — Google sign-in is
-# switched off a dozen lines below, and a flag defined after its first reader
-# is a flag that silently does nothing.
-#
-#   in  (default)  craxle.com — learning and the job board, India
-#   us             learncraxle.com — US schools, and nothing else
-EDITION = env("EDITION", "in").strip().lower()
-US_EDITION = EDITION in ("us", "usa")
-
 ADMIN_EMAIL = env("ADMIN_EMAIL").lower()
 if "${{" in ADMIN_EMAIL:
     ADMIN_EMAIL = ""
@@ -127,18 +117,7 @@ if "${{" in GOOGLE_CLIENT_ID:
 GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET")
 if "${{" in GOOGLE_CLIENT_SECRET:
     GOOGLE_CLIENT_SECRET = ""
-# Never on the US edition, whatever keys happen to be set.
-#
-# Two reasons, and the second is the one that decides it. A school product
-# that says it does not hand children's data around should not put a third
-# party in the sign-in path at all. And practically: OAuth redirect URIs are
-# registered per domain, so a new front door means new console configuration
-# before the button can work — a button that is present and fails is worse
-# than one that was never offered. Email, password and class codes cover
-# every role here: the office issues addresses, pupils use a code and no
-# password at all.
-GOOGLE_ENABLED = (not US_EDITION) and bool(
-    GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+GOOGLE_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 # Optional explicit public URL for the OAuth redirect; else derived per-request.
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL").rstrip("/")
 
@@ -1617,21 +1596,7 @@ app = FastAPI(title="Craxle", docs_url="/api/docs", redoc_url=None)
 # about.
 import craxlearn as _cl_boot                                        # noqa: E402
 
-# EDITION and US_EDITION are read at the top of this file, beside the other
-# environment variables, because Google sign-in is switched off by US_EDITION
-# a dozen lines after JWT_SECRET — long before here.
-#
-# The US edition is its OWN deployment with its own database, and that is not
-# a preference. A US school's pupils must not have rows in a database built
-# around resumes and employers, an Indian class code must never open a US
-# classroom, and "we do not hold your children's data" has to be true of the
-# server and not only of the screens. The comment below about keeping this to
-# a host list rather than a second deployment is right for two front doors on
-# one product in one country; it stops being right at a border.
-#
-# It implies CRAXLEARN_ONLY rather than being a second way to say it: one
-# switch that can be forgotten is better than two that can disagree.
-CRAXLEARN_ONLY = US_EDITION or env("CRAXLEARN_ONLY", "0").strip().lower() in (
+CRAXLEARN_ONLY = env("CRAXLEARN_ONLY", "0").strip().lower() in (
     "1", "true", "yes", "on")
 
 # Hostnames that ARE the school app, on a deployment that also serves the job
@@ -1706,8 +1671,6 @@ REQUIRE_DOB = env("REQUIRE_DOB", "1").strip().lower() in (
     "1", "true", "yes", "on")
 if CRAXLEARN_ONLY:
     print(f"  {_cl_boot.NAME} only — the job board is not served here")
-if US_EDITION:
-    print("  US edition — learncraxle.com; the board is at /board")
 
 
 def _learning_only(db, user):
@@ -2268,14 +2231,7 @@ def _seed_with_retries():
           "you can reach /api/status, but content will be unavailable.")
 
 
-# The crawler, off on the US edition and not merely unused.
-#
-# Every route that reads a job is already unreachable there, so leaving the
-# crawl running would fetch postings nobody can see and write them into a US
-# school's database — which is the one thing that edition promises it does
-# not do. A switch nobody has to remember to set.
-JOBS_ENABLED = (not US_EDITION) and env(
-    "JOBS_ENABLED", "1") not in ("0", "false", "no")
+JOBS_ENABLED = env("JOBS_ENABLED", "1") not in ("0", "false", "no")
 
 
 @app.on_event("startup")
@@ -2839,13 +2795,7 @@ def auth_config(db: Session = Depends(get_db)):
                    db.query(School).order_by(School.name).all()]
     except Exception:
         schools = []
-    # The edition, so the SIGNED-OUT page knows what it is. /api/me carries
-    # craxlearn_only for somebody who has signed in, and the landing page —
-    # the first thing a US school's parent ever sees — is exactly the screen
-    # nobody has signed in on yet. It advertised the job board.
-    return {"google_enabled": GOOGLE_ENABLED, "schools": schools,
-            "edition": "us" if US_EDITION else "in",
-            "jobs": not CRAXLEARN_ONLY}
+    return {"google_enabled": GOOGLE_ENABLED, "schools": schools}
 
 
 def _redirect_uri(request: Request) -> str:
@@ -21129,28 +21079,10 @@ def index(request: Request):
     # the two — the cookie is set without a domain attribute, so it is
     # host-only, and signing in at one is not signing in at the other. For a
     # board at the front of a classroom that is the behaviour you want.
-    # The US edition is a school's whole site, not a board — teachers plan on
-    # it, pupils hand work in on it, and the classroom screen has its own
-    # address at /board. Putting the board at the root there would mean every
-    # teacher who typed learncraxle.com landed on a code prompt.
-    if US_EDITION:
-        return FileResponse(BASE_DIR / "index.html")
     if CRAXLEARN_ONLY or _is_school_host(request):
         return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
 
-
-@app.get("/board")
-def board_page():
-    """The classroom screen, at an address somebody can read off a wall.
-
-    /craxlearn is the name the product grew up with and it still works. This
-    is the one written on a laminated card taped to the board — shorter, and
-    it says what the thing in front of you is rather than what the company
-    calls it. Served on every edition so one set of instructions is true
-    everywhere.
-    """
-    return FileResponse(BASE_DIR / "craxlearn.html")
 
 
 @app.get("/terms")
