@@ -86,5 +86,31 @@ for absent in ("photosynthesis", "aircraft gearbox", "", None, "   "):
     check(f"{str(absent)[:20]!r} is not an orbit topic",
           orbits.clean(absent) == {})
 
+# --------------------------------------------------------------------------
+print("\nMercury the metal is not Mercury the planet")
+# Reported from a live classroom board: a teacher typed "mercury liquid"
+# into 3D structures and was shown the Solar System. The planet matched, and
+# the word saying WHICH mercury was meant was thrown away.
+#
+# A chemistry class asks for mercury far more often than an astronomy one
+# does, and Earth collides twice over — an earth wire, the earth's crust. So
+# a planet name arriving with a word that plainly belongs to another subject
+# is not a request for an orbit. Nothing comes back rather than the wrong
+# picture, and the caller goes on to the molecule and lattice paths, which
+# is where liquid mercury belongs.
+for topic in ("mercury liquid", "liquid mercury", "mercury metal",
+              "mercury thermometer", "mercury poisoning", "mercury vapour",
+              "the atomic structure of mercury", "earth wire", "earthing",
+              "the earth's crust", "saturn the roman god"):
+    check(f"{topic!r} is not an orbit topic", orbits.find(topic) is None)
+
+# ...and the sky still works, which is the half a filter like this breaks.
+for topic in ("mercury", "mercury orbit", "orbit of mercury around the sun",
+              "earth", "the earth and the moon", "the solar system",
+              "inner planets", "jupiter"):
+    check(f"{topic!r} still is one", orbits.find(topic) is not None)
+check("the whole system is still eight bodies",
+      len(orbits.find("the solar system")["bodies"]) == 8)
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)

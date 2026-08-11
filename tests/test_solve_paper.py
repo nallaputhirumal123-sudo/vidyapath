@@ -119,6 +119,13 @@ ck("working is required where there is working",
 ck("units are carried through", "carry units through" in SOLVE1)
 ck("a gap is preferred to a guess",
    "wrong answer stated confidently is worse than a gap" in SOLVE1)
+ck("every step says why, not only what",
+   "Every step says WHY, not only what" in SOLVE1,
+   "'divide both sides by 2' is a keystroke; the reason is the thing a "
+   "student can use on the next question")
+ck("a multiple choice is worked, not reverse-engineered",
+   "Never reason backwards from an option" in SOLVE1,
+   "'(D) is 481, which matches' is how a wrong option gets justified")
 ck("an ungiven figure is not invented",
    "Do not invent the figure" in SOLVE1)
 ck("maths is written so it reads on paper",
@@ -144,6 +151,12 @@ ck("the question shown is the one the paper had, not the echo",
    got[1]["question"] == qs[0]["text"],
    "the echo is where a question quietly becomes an easier question")
 ck("marks come from the paper too", got[1]["marks"] == 3)
+ck("and so does the number, whatever the model calls it",
+   [g["n"] for g in solver.clean(
+       {"questions": [{"n": "Q2", "answer": "60 km/h"}]}, qs)] == ["2"],
+   "a model asked about question 2 answers 'Q2' often enough that a real "
+   "solved paper came back headed QQ2 — and 'Q2' matches nothing the "
+   "reading pass found, so the solution vanishes")
 ck("the multiple-choice letter is kept", got[2]["choice"] == "C")
 ck("an answer with no working is still an answer",
    len(solver.clean({"questions": [{"n": "9", "answer": "42"}]},
@@ -178,6 +191,114 @@ ck("an answer with no equation in it is not judged",
 ck("and the screen shows the flag",
    "Check this one:" in IDX)
 
+print("\na real CBSE paper, which broke all of this")
+# A bilingual Applied Mathematics paper, run through the live product. Four
+# separate faults, and the first is the one that matters: CBSE typesets its
+# Hindi in a legacy non-Unicode font, so pdfplumber returns the glyph bytes
+# as Latin letters — "1 km H$s Xm¡S> _|, {IbmS>r P". The file HAS text, so
+# the cheap path was taken, and a model handed mojibake does not refuse it.
+# It invented a question and answered the one it invented, and the solved
+# paper came back with a confident final answer to something that is not on
+# the paper.
+import teachpdf                                    # noqa: E402
+MOJI = ("1 km H$s Xm¡S> _|, {IbmS>r P, {IbmS>r Q H$mo 18 _rQ>a `m 9 goH§$S> "
+        "go ham XoVm h¡ & Xm¡S nyar H$aZo Ho$ {bE P H$m g_` `m h¡ ? "
+        "àíZ -nÌ _| 38 àíZ h¢ & g^r àíZ A{Zdm`© h¢ & `h àíZ -nÌ nm±M "
+        "IÊS>m| _| {d^m{OV h¡ – H$, I, J, K Ed§ L> & IÊS> H$ _| àíZ "
+        "g§»`m 1 go 18 VH$ ~hþ{dH$ënr` VWm àíZ g§»`m 19 Ed & H¡$ëHw$boQ>a "
+        "H$m Cn`moJ d{O©V h¡ & Bg IÊS> _| ~hþ{dH$ënr` àíZ h¢ Am¡a CÎma &")
+ENGLISH_MATHS = (
+    "In Section A, Questions no. 1 to 18 are multiple choice questions. "
+    "Find the value of x if 2x + 3 = 11 and show your working clearly. "
+    "Show that (a+b)^2 = a^2 + 2ab + b^2 for all real a and b. "
+    "The set {1, 2, 3} has 8 subsets in total. If x < y and y < z then "
+    "x < z. A car travels 120 km in 2 hours; find its average speed. "
+    "Evaluate the integral of x^2 dx between 0 and 3, and state Bayes "
+    "theorem. The probability of an event lies between 0 and 1 always.")
+ck("mojibake is recognised as not being language",
+   teachpdf.garbled(MOJI),
+   "the file has text, so nothing downstream could tell it was not English")
+ck("and ordinary maths in English is not",
+   not teachpdf.garbled(ENGLISH_MATHS),
+   "a paper full of x^2, {1,2} and a<b must not be sent down the "
+   "expensive path by a checker that cries wolf")
+ck("real Unicode Hindi is not either",
+   not teachpdf.garbled(
+       "यह प्रश्न पत्र पांच खंडों में विभाजित है और सभी प्रश्न "
+       "अनिवार्य हैं। एक कार 120 किलोमीटर की दूरी 2 घंटे में तय करती "
+       "है। उसकी औसत चाल ज्ञात कीजिए। कैलकुलेटर का उपयोग वर्जित है। "
+       "प्रत्येक प्रश्न के लिए एक अंक निर्धारित किया गया है यहाँ।"),
+   "properly encoded Devanagari arrives as Devanagari and is fine")
+ck("a short line is never called garbled",
+   not teachpdf.garbled("H$s Xm¡S> {IbmS>r"),
+   "too little to measure a proportion on is not evidence")
+ck("and such a paper is sent to be read by sight instead",
+   "legacy font" in MAIN and MAIN.count("SCANNED:") == 2,
+   "the pages carry Devanagari that a vision model reads properly")
+
+print("\nthe instructions are not questions")
+GENERAL = """(i) This question paper contains 38 questions, all compulsory.
+(ii) This question paper is divided into five Sections A, B, C, D and E.
+(iii) In Section A, Questions no. 1 to 18 are multiple choice questions.
+1. In a 1 km race, player P beats player Q by 18 metres. Find the time.
+2. If x > y and z < 0, then which of the following is true here?
+(i) This question paper contains 38 questions, all compulsory.
+(ii) This question paper is divided into five Sections A, B, C, D and E.
+"""
+gen = solver.questions(GENERAL)
+ck("a paper's General Instructions are dropped",
+   [q["n"] for q in gen] == ["1", "2"],
+   "they are a numbered list of sentences and parsed as nine questions — "
+   "twice over on a bilingual paper")
+ck("including the set printed after question 1 in the other language",
+   not any(q["n"] == "i" for q in gen),
+   "a positional rule kept those, which is how the live paper got them")
+ck("a paper numbered in romans throughout keeps every one",
+   [q["n"] for q in solver.questions(
+       "i. Define osmosis clearly.\nii. Name the capital of Assam.\n"
+       "iii. State Ohm's law now.")] == ["i", "ii", "iii"],
+   "there is no arabic numbering for the rule to key on, so nothing is "
+   "an instruction")
+ck("instructions numbered 1, 2, 3 are dropped too",
+   [q["n"] for q in solver.questions(
+       "\n".join([
+           "GENERAL INSTRUCTIONS",
+           "1. This question paper contains 38 questions, all compulsory.",
+           "2. The paper is divided into five sections A, B, C, D and E.",
+           "SECTION A",
+           "1. In a 1 km race, P beats Q by 18 metres. Find the time.",
+           "2. If x > y and z < 0, which of the following is true?",
+       ]))] == ["1", "2"],
+   "some state boards number their instructions in arabic, which the "
+   "roman rule cannot catch and which is otherwise indistinguishable "
+   "from question 1")
+ck("the reading pass is told they are not questions",
+   "The General Instructions are not questions" in SOLVE1 + READ1
+   and "NOT A QUESTION" in READ1)
+ck("and told a bilingual paper is one paper",
+   "A bilingual paper is one paper" in READ1,
+   "otherwise it renumbers the second language as new questions")
+ck("and a roman SUB-part is untouched",
+   [q["n"] for q in solver.questions(
+       "7 (ii) Balance the equation for burning magnesium.")] == ["7 (ii)"])
+
+print("\na bilingual paper is one paper, not two")
+BOTH = """1. एक कार 120 किलोमीटर की दूरी 2 घंटे में तय करती है।
+2. `{X x > y VWm z < 0 hmo Vmo H$m¡Z-gm ghr h¡ ?
+1. A car travels 120 km in 2 hours. Find its average speed.
+2. If x > y and z < 0, which of the following is true?
+"""
+both = solver.questions(BOTH)
+ck("each number appears once", [q["n"] for q in both] == ["1", "2"],
+   "every question is printed in Hindi and again in English, so a "
+   "38-question paper parsed as 76 and hit the cap")
+ck("and the readable copy is the one kept",
+   "x > y and z < 0" in both[1]["text"],
+   "when one half extracts as mojibake, keeping the first would keep the "
+   "broken one")
+ck("when both halves read properly the paper's own order wins",
+   "किलोमीटर" in both[0]["text"])
+
 print("\nany paper, however it numbers itself")
 MIXED = """1. Define osmosis.
 (2 marks)
@@ -185,23 +306,20 @@ MIXED = """1. Define osmosis.
 (3) Who wrote the Indian Constitution's preamble? 2 marks
 Q4. Explain the water cycle.
 Q.5 State Ohm's law.
-I. Describe the causes of the Revolt of 1857.
-ii) Compare a metal and a non-metal.
 12(a) Find the area of a circle of radius 7 cm.
 7 (ii) Balance the equation: H2 + O2 -> H2O
 """
 mix = solver.questions(MIXED)
-ck("every numbering style a paper uses is read", len(mix) == 9,
+ck("every numbering style a paper uses is read", len(mix) == 7,
    str([q["n"] for q in mix]))
 ck("the number is the paper's own, not renumbered",
-   [q["n"] for q in mix] == ["1", "2", "3", "4", "5", "I", "ii",
-                             "12(a)", "7 (ii)"],
+   [q["n"] for q in mix] == ["1", "2", "3", "4", "5", "12(a)", "7 (ii)"],
    "renumbering a paper is how a solution ends up filed against the wrong "
    "question")
 ck("marks are read however the paper prints them",
    [q["marks"] for q in mix[:3]] == [2, 1, 2],
    "(2 marks), [1] and a bare '2 marks' are all the same instruction")
-ck("a sub-part is its own question", mix[7]["n"] == "12(a)")
+ck("a sub-part is its own question", mix[5]["n"] == "12(a)")
 
 print("\nand papers that are not mathematics")
 ck("the solver is told a paper is usually not maths",

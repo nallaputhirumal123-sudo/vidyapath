@@ -147,6 +147,30 @@ body{background-color:var(--bg)!important}
   display:flex;align-items:center;justify-content:center;padding:0 5px;
   border:2px solid var(--bg)}
 @media print{#themeFab,#msgFab{display:none}}
+/* The solved paper, printed by the browser rather than drawn by jsPDF —
+   the only way an Indian-language paper keeps its words, since jsPDF's
+   built-in fonts are Latin-1 and drop every one of them. Black on white
+   because this is going on paper and a staff room does not want the dark
+   theme rendered in toner. */
+#xPrint{display:none}
+@media print{
+  body.printing>*{display:none !important}
+  body.printing #xPrint{display:block !important;color:#000;background:#fff;
+    font:12pt/1.5 Georgia,"Times New Roman",serif;padding:0;margin:0}
+  body.printing #xPrint h1{font-size:19pt;margin:0 0 4pt}
+  body.printing #xPrint h2{font-size:13pt;margin:0 0 3pt}
+  body.printing #xPrint .pcav{font-style:italic;font-size:9.5pt;
+    margin:0 0 14pt}
+  /* A question and its answer do not get split across a page break if
+     they can be kept together — a worked solution continued overleaf is
+     read as two half-answers. */
+  body.printing #xPrint .pq{break-inside:avoid;page-break-inside:avoid;
+    margin:0 0 14pt}
+  body.printing #xPrint .pqt{white-space:pre-wrap;margin:0 0 5pt}
+  body.printing #xPrint ol,body.printing #xPrint ul{margin:4pt 0 4pt 20pt}
+  body.printing #xPrint .pnote{font-size:9.5pt;font-style:italic;margin:3pt 0}
+  @page{margin:16mm}
+}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);
@@ -3489,7 +3513,14 @@ function examSolveShow(d){
       <div class="eyebrow" style="margin:0">${qs.length} worked
         solution${qs.length===1?"":"s"}</div>
       <div class="spacer"></div>
-      <button class="btn sm" id="xdl">Download the solved paper</button>
+      ${/* Named for what it actually does. An Indian-language paper is
+             printed by the browser, because jsPDF's fonts are Latin-1 and
+             would silently delete every word of it — so the teacher gets
+             their own Save-as-PDF dialog and should not be surprised by
+             it. */""}
+      <button class="btn sm" id="xdl">${nonLatin(d)
+        ? "Print or save the solved paper"
+        : "Download the solved paper"}</button>
     </div>
     ${d.missing && d.missing.length ? `<div class="card"
       style="padding:12px;margin-bottom:14px">⚠️ No answer came back for
@@ -3556,11 +3587,80 @@ function solvedCard(q){
   </div>`;
 }
 
+/* Does this paper contain anything jsPDF cannot print?
+ *
+ * pdfSafe DELETES every character outside Latin-1 — that is what makes the
+ * maths symbols safe, and it means a Hindi, Telugu or Tamil paper would
+ * download with its questions and answers simply gone. Blank, not wrong,
+ * which is the kind of failure nobody notices until a class has it. */
+function nonLatin(d){
+  return (d.questions||[]).some(q =>
+    /* Escaped rather than written as literal characters: the low bound
+       is a space, and a space at the start of a character range is the
+       thing an editor or a formatter silently eats. It became a NUL
+       here, which is an invalid range, which threw a SyntaxError that
+       took the whole page down — not just the download. */
+    /[^ -ÿ]/.test((q.question||"") + (q.answer||"")
+      + (q.working||[]).join("")));
+}
+
+/* Printed by the browser instead, which has the fonts.
+ *
+ * jsPDF's built-in fonts are Latin-1 and embedding a Devanagari one means
+ * shipping a megabyte of font per script this product serves — Hindi,
+ * Telugu, Tamil, Bengali, Marathi. The browser already has all of them and
+ * already writes PDFs, so an Indian-language paper goes out through Print,
+ * where the teacher picks "Save as PDF" and gets every glyph correctly
+ * shaped, including the conjuncts a subset font tends to break. */
+function examSolvePrint(d){
+  const q = (d.questions||[]);
+  let host = document.getElementById("xPrint");
+  if(!host){
+    host = document.createElement("div");
+    host.id = "xPrint";
+    document.body.appendChild(host);
+  }
+  host.innerHTML = `<h1>Solved paper</h1>
+    <p class="pcav">${esc(d.caveat||"")}</p>
+    ${q.map(x => `<div class="pq">
+      <h2>Q${esc(x.n)}${x.marks ? ` — ${x.marks} mark${
+        x.marks===1?"":"s"}` : ""}</h2>
+      <div class="pqt">${esc(x.question||"")}</div>
+      ${x.kind === "written"
+        ? `<p>${esc(x.answer||"")}</p><ul>${(x.working||[]).map(w =>
+            `<li>${esc(w)}</li>`).join("")}</ul>`
+        : `<ol>${(x.working||[]).map(w => `<li>${esc(w)}</li>`).join("")}</ol>
+           <p><b>Answer${x.choice ? " ("+esc(x.choice)+")" : ""}:</b> ${
+             esc(x.answer||"")}</p>`}
+      ${x.key ? `<p class="pnote">${x.agrees === true
+        ? `Matches the paper's key (${esc(x.key)}).`
+        : x.agrees === false
+        ? `The paper's key says ${esc(x.key)} — worth checking which is right.`
+        : `The paper's key gives ${esc(x.key)}.`}</p>` : ""}
+      ${(x.doubt||[]).map(t => `<p class="pnote">Check: ${esc(t)}</p>`).join("")}
+    </div>`).join("")}
+    ${d.missing && d.missing.length ? `<p class="pnote">No answer was
+      produced for: ${esc(d.missing.join(", "))}</p>` : ""}`;
+  document.body.classList.add("printing");
+  const done = () => {
+    document.body.classList.remove("printing");
+    window.removeEventListener("afterprint", done);
+  };
+  window.addEventListener("afterprint", done);
+  window.print();
+  // Safari and some Android browsers never fire afterprint.
+  setTimeout(done, 60000);
+}
+
 /* The download is the deliverable — a teacher wants the solved paper on
    paper. jsPDF's built-in fonts are Latin-1 only, so everything goes
    through pdfSafe, which is why the working is written x^2 and sqrt(...)
    rather than as typeset maths in the first place. */
 async function examSolvePdf(d){
+  /* A paper in an Indian language goes out through the browser's own PDF
+     writer. jsPDF would hand back a document with every question and every
+     answer deleted, which is a worse failure than refusing. */
+  if(nonLatin(d)) return examSolvePrint(d);
   await ensureJsPDF();
   const doc = new window.jspdf.jsPDF({unit:"pt", format:"a4"});
   const M = 48, W = 595 - M*2;

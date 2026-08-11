@@ -139,6 +139,57 @@ def extract(raw):
 extract.last = {"pages_read": 0, "pages_total": 0, "complete": True}
 
 
+# Text that came out of the file but is not language.
+#
+# CBSE typesets its Hindi in a legacy non-Unicode font — Kruti Dev and its
+# relatives, which predate Devanagari in Unicode and map each glyph onto a
+# Latin byte. pdfplumber faithfully returns those bytes, so a bilingual
+# paper comes back as "1 km H$s Xm¡S> _|, {IbmS>r P" and nothing downstream
+# can tell that it is not English.
+#
+# That is worse than unreadable. The file HAS text, so the cheap text path
+# is taken, and a model handed the mojibake does not refuse it — it invents
+# a plausible question and answers the thing it invented. On a real CBSE
+# Applied Maths paper it produced a worked solution to a question that does
+# not exist, with a confident final answer.
+#
+# The tell is a symbol wedged inside a word: H$s, Xm¡S>, {IbmS>r, àíZ-nÌ.
+# Real English does not do that, and neither does properly encoded
+# Devanagari, which arrives as Devanagari.
+_GLYPH = re.compile(r"[A-Za-z¡-ÿ][$<>{}|~^\\¡-¿]"
+                    r"|[$<>{}|~^\\][A-Za-z]")
+_WORD = re.compile(r"\S+")
+
+
+def glyph_ratio(text):
+    """How much of this text has punctuation wedged inside its words.
+
+    The raw measure behind `garbled`, exposed because comparing two texts
+    is a different question from judging one. Deciding whether a whole
+    document is mojibake needs a threshold and enough words to measure on;
+    choosing between the Hindi and English copies of the SAME question needs
+    only to know which of the two is worse, and those are often a line long.
+    """
+    words = _WORD.findall(str(text or ""))
+    if not words:
+        return 0.0
+    return sum(1 for w in words if _GLYPH.search(w)) / len(words)
+
+
+def garbled(text, threshold=0.18):
+    """Is this text a legacy-font encoding rather than language?
+
+    Measured on the proportion of whitespace-separated tokens that mix
+    letters with the punctuation those fonts use as glyph codes. A threshold
+    rather than any occurrence, because a maths paper legitimately contains
+    x^2, {1,2} and a<b, and a checker that cries wolf on those would send
+    every algebra paper down the expensive path.
+    """
+    if len(_WORD.findall(str(text or ""))) < 40:
+        return False
+    return glyph_ratio(text) > threshold
+
+
 def looks_scanned(text, pages_hint=1):
     """Did this PDF have almost no text in it?
 

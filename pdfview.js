@@ -159,5 +159,9 @@
     return out;
   }
 
-  global.PdfView = { open: open, save: save, shown: shown };
+  // `lib` is exported so the board can rasterise a scanned chapter into
+  // pages without fetching a second copy of pdf.js. The loader is already
+  // here, it caches, and the server has no PDF renderer and should not grow
+  // one — a fifty-megabyte wheel on a deployment that has to keep booting.
+  global.PdfView = { open: open, save: save, shown: shown, lib: pdfjs };
 })(window);

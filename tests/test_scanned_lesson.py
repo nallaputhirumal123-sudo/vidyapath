@@ -130,14 +130,34 @@ ck("and marks what it cannot read instead of guessing",
    "a model filling a blur from its own knowledge is the failure that "
    "reaches an exam")
 
-print("\none call per page, in order, and a cap on both")
-ck("pages are read one at a time",
-   "for i, raw in enumerate(pages, 1):" in MAIN,
-   "a dozen images in one call gets summarised and loses the order")
+print("\none call per page, in order, and a whole chapter of them")
+ck("each page is still its own call",
+   "_read_one(i, raw) for i, raw in enumerate(pages, 1)" in MAIN,
+   "a pile of images in one call gets summarised and loses the order, and "
+   "the order is the lesson")
+ck("but they are read together, not one after another",
+   "await asyncio.gather(" in MAIN and "asyncio.Semaphore(TEACH_READ_AT_ONCE)"
+   in MAIN,
+   "forty pages in sequence is forty round trips end to end and outlives "
+   "any request deadline — which is why the cap used to be twelve")
+ck("bounded, so a chapter is not forty simultaneous requests",
+   "TEACH_READ_AT_ONCE" in MAIN and 'env("TEACH_READ_AT_ONCE"' in MAIN)
+ck("and put back in page order whichever finished first",
+   "sorted(done, key=lambda x: x[0])" in MAIN,
+   "they no longer arrive in the order they were sent, and the order IS "
+   "the lesson")
 ck("the order is carried into the teaching prompt",
    'f"--- PAGE {i} ---' in MAIN)
-ck("no more than twelve pages", "files[:12]" in MAIN,
-   "each page is a model call, so uncapped is an unbounded bill")
+ck("a whole chapter fits now, not twelve pages of one",
+   "files[:TEACH_MAX_PAGES]" in MAIN and 'env("TEACH_MAX_PAGES", "40")'
+   in MAIN)
+ck("still a number rather than unlimited",
+   "TEACH_MAX_PAGES = int(" in MAIN,
+   "a request has to end, and a textbook uploaded whole is a bill nobody "
+   "agreed to")
+ck("and settable per deployment without a code change",
+   MAIN.count('env("TEACH_MAX_PAGES"') == 1,
+   "a school that photographs long chapters raises it themselves")
 ck("and the whole set is cached together",
    'qkey = f"teachpages|{digest}"' in MAIN,
    "a department passing round one photocopy is one reading")

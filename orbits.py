@@ -18,6 +18,7 @@ over T squared is one for every planet, which is both a test of these numbers
 and the thing a lesson on orbits is usually about.
 """
 import math
+import re
 
 # name -> (semi-major axis in AU, orbital period in years, equatorial radius
 #          in km, colour)
@@ -73,10 +74,34 @@ def _body(name):
     }
 
 
+# Mercury is a planet and it is also a metal, and a chemistry class asks for
+# it far more often than an astronomy one does. "mercury liquid" drew the
+# Solar System, because the planet matched and the word that said which
+# mercury was meant was thrown away.
+#
+# Earth is the same collision twice over — an earth wire, the earth's crust —
+# and Saturn, Jupiter and Neptune turn up in mythology and in brand names.
+# So a planet name arriving with a word that plainly belongs to another
+# subject is not a request for an orbit, and this returns nothing rather
+# than the wrong picture. Nothing is the honest answer: the caller then
+# tries the molecule and lattice paths, which is where liquid mercury
+# actually belongs.
+_NOT_SKY = re.compile(
+    r"\b(liquid|metal|metallic|element|elemental|atom|atomic|isotope|"
+    r"thermometer|barometer|amalgam|poison\w*|toxic\w*|vapou?r|"
+    r"boiling|melting|freezing|density|viscosity|conduct\w*|"
+    r"symbol|periodic|valency|oxide|chloride|sulphide|sulfide|"
+    r"compound|molecule|molecular|bond\w*|lattice|crystal|"
+    r"wire|earthing|earthed|crust|mantle|soil|"
+    r"god|goddess|myth\w*|roman|greek)\b", re.I)
+
+
 def find(topic):
     """The measured bodies for this topic, or nothing."""
     t = " ".join(str(topic or "").lower().split())
     if not t:
+        return None
+    if _NOT_SKY.search(t):
         return None
 
     named = [p for p in PLANETS if p in t]

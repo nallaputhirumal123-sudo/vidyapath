@@ -5959,6 +5959,19 @@ FREE_TRIAL = {"resume_upload": 0, "match": 0, "extension": 0,
               "solve_paper": 1,
               "course": 0}
 
+# A whole chapter, not twelve pages of one.
+#
+# The cap was twelve because each page is a model call and a loop over
+# forty of them, one after another, outlived any request deadline long
+# before the bill became the problem. Reading them a few at a time fixes
+# the deadline, so the cap can be what a chapter actually is. It is still a
+# number rather than "unlimited": a request has to end, and a textbook
+# uploaded whole is a bill nobody agreed to. Both are settable per
+# deployment, so a school that photographs long chapters can raise it
+# without a code change.
+TEACH_MAX_PAGES = int(env("TEACH_MAX_PAGES", "40") or 40)
+TEACH_READ_AT_ONCE = max(1, int(env("TEACH_READ_AT_ONCE", "5") or 5))
+
 
 def _trial_used(db, user, key):
     row = db.query(Note).filter(Note.user_id == user.id,
@@ -17701,7 +17714,7 @@ async def teach_from_pages(files: list[UploadFile] = File(...),
                 403, "No teacher is on this subject yet, so there is nobody "
                      "to make a lesson as. Ask the office to assign one.")
     pages = []
-    for f in files[:12]:          # a chapter, not a textbook
+    for f in files[:TEACH_MAX_PAGES]:
         raw = await f.read()
         if raw and len(raw) <= 8_000_000:
             pages.append(raw)
@@ -17725,16 +17738,33 @@ async def teach_from_pages(files: list[UploadFile] = File(...),
     _ai_enforce_limit(db, user)
     # Read page by page, then taught as one.
     #
-    # One call per page rather than one call with twelve images: a model
-    # given a dozen pages at once summarises the pile and loses the order,
+    # One call per page rather than one call with forty images: a model
+    # given a pile of pages at once summarises the pile and loses the order,
     # and the order is the lesson. Reading is also the part that must not
     # invent — so each page is asked only for what is ON it.
+    #
+    # Read together rather than one after another, which is what makes a
+    # whole chapter possible at all. Forty pages in sequence is forty round
+    # trips end to end and outlives any request deadline; a few at a time it
+    # is a wait a teacher will sit through. Bounded, because unbounded means
+    # forty simultaneous requests and a rate limit — and they are put back
+    # into page order afterwards whichever finished first, because the order
+    # IS the lesson.
     seen = []
     try:
-        for i, raw in enumerate(pages, 1):
-            txt = await _ai_vision(_teachpdf.READ_PAGE, raw, "image/png", 1800)
-            if txt and txt.strip():
-                seen.append(f"--- PAGE {i} ---\n{txt.strip()}")
+        gate = asyncio.Semaphore(TEACH_READ_AT_ONCE)
+
+        async def _read_one(i, raw):
+            async with gate:
+                txt = await _ai_vision(_teachpdf.READ_PAGE, raw,
+                                       "image/png", 1800)
+            return i, (txt or "").strip()
+
+        done = await asyncio.gather(
+            *[_read_one(i, raw) for i, raw in enumerate(pages, 1)])
+        for i, txt in sorted(done, key=lambda x: x[0]):
+            if txt:
+                seen.append(f"--- PAGE {i} ---\n{txt}")
         if not seen:
             raise HTTPException(
                 422, "Nothing could be read off those pages. A sharper "
@@ -17838,12 +17868,26 @@ async def read_paper(files: list[UploadFile] = File(...),
                         or raw_files[0][0][:4] == b"%PDF"))
         if one_pdf:
             text = _teachpdf.extract(raw_files[0][0])
-            if not _teachpdf.looks_scanned(text):
-                read = text
-            else:
+            if _teachpdf.looks_scanned(text):
                 raise HTTPException(
                     422, "SCANNED: that paper is a picture of a page, so it "
                          "has no text to read. Send the pages as images.")
+            # Text came out, and it is not language.
+            #
+            # CBSE typesets its Hindi in a legacy non-Unicode font, so a
+            # bilingual paper extracts as "1 km H$s Xm¡S> _|, {IbmS>r P".
+            # The file HAS text, so the cheap path was taken — and a model
+            # handed mojibake does not refuse it. It invents a plausible
+            # question and answers the one it invented, which is how a real
+            # paper came back with a confident worked solution to a question
+            # that does not exist. Read by sight instead: the pages carry
+            # Devanagari a vision model reads properly.
+            if _teachpdf.garbled(text):
+                raise HTTPException(
+                    422, "SCANNED: that paper's text is in a legacy font "
+                         "and does not come out as words. Send the pages as "
+                         "images.")
+            read = text
         if not read:
             seen = []
             for i, (raw, _m) in enumerate(raw_files, 1):

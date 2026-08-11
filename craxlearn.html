@@ -797,7 +797,7 @@ window.esc = function (s) {
 <script src="lab.js?v=c536df7feb"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
-<script src="pdfview.js?v=22ef484122"></script>
+<script src="pdfview.js?v=3185d0ebef"></script>
 <script src="mathtext.js?v=1aa34be247"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
@@ -1036,7 +1036,7 @@ var TOOL_NAMES = {
   materials:"Study material", roster:"Class register", roll:"Your classes",
   inbox:"To review",
   sources:"Where answers come from", remote:"Remote",
-  bring:"Saved for this subject",
+  bring:"Saved for this subject", chapter:"Bring in a chapter",
   assignment:"Assignment",
   student:"A student", review:"Reviewing"
 };
@@ -1372,6 +1372,11 @@ function paintPanes(){
                now would only put three tools in the menu that answer "sign
                in first" — on a screen that cannot sign in at all. */
             if(ACCOUNT_TOOLS.indexOf(k) >= 0) return false;
+            /* Writing a chapter up costs a model call per page and is the
+               tool a school gave its staff. A coded board counts — that is
+               the teacher, at the front of the room, with no keyboard to
+               sign in from. A pupil's own session does not. */
+            if(k === "chapter" && !chapCan()) return false;
             /* Each tool names its own fields by id, so two copies of one
                tool would both write into the same boxes. Home is exempt:
                it has nothing to type into. */
@@ -2215,6 +2220,8 @@ var TILES = [
     sub:"Write queries against a real database and see what comes back." },
   { page:"bring",  ic:"📄", name:"Saved for this subject",
     sub:"The lessons, documents and pictures kept for this class. Put one up." },
+  { page:"chapter", ic:"📷", name:"Bring in a chapter",
+    sub:"Photograph the pages or choose a PDF. It is written up as a lesson and shown to you first." },
   { page:"remote", ic:"📱", name:"Remote",
     sub:"Drive this board from your phone, so you can teach facing the room." }
 ];
@@ -2432,14 +2439,18 @@ function home(){
    * Practice surfaces stay off, for the same reason they are off for a
    * signed-in teacher: working through a course at your own pace is what a
    * pupil does at their own desk. */
-  var offer = OPEN
+  var offer = (OPEN
     ? TILES.filter(function(t){
         if(OPEN_TOOLS.indexOf(t.page) >= 0 || t.page === "remote") return true;
         if(!boarded()) return false;
         return PRACTICE_TILES.indexOf(t.page) < 0;
       })
     : TILES.filter(function(t){
-        return !(teacher && PRACTICE_TILES.indexOf(t.page) >= 0); });
+        return !(teacher && PRACTICE_TILES.indexOf(t.page) >= 0); })
+    /* Writing a chapter up is a teacher's tool and costs a model call per
+       page. A tile that opens a page saying so is still a tile. */
+    ).filter(function(t){
+      return t.page !== "chapter" || chapCan(); });
   h += '<div class="eyebrow">Teaching</div><div class="tiles">' +
        offer.map(tile).join("") + "</div>";
   /* And what has already been kept for this subject, on the home screen
@@ -6776,6 +6787,340 @@ async function teach(){
   paintLesson();
 }
 
+/* Put a lesson we already hold onto the board, without asking for it again.
+ *
+ * `teach()` builds one from a question; this installs one that already
+ * exists — a chapter that was read, previewed, and approved. Through the
+ * same renderer, deliberately: a preview drawn by different code is a
+ * preview of something else, and the point of previewing is that what the
+ * room sees is what was looked at. */
+async function lessonPut(L, topic){
+  if(!L) return;
+  PANES[LIVE] = { page:"board", arg:topic, flex: PANES[LIVE].flex };
+  VIEW.page = "board";
+  window.S.view = VIEW;
+  DRAW = LIVE;
+  var head = document.querySelector('[data-pick="' + LIVE + '"]');
+  if(head && TOOL_NAMES["board"]) head.value = "board";
+  // Awaited, because #bOut does not exist until the page has drawn itself.
+  await board(topic);
+  LESSON = { raw: L, topic: topic, title: L.title || topic,
+             pages: lessonPages(L, topic), at: 0,
+             view: lessonView(), tail: "" };
+  paintLesson();
+}
+
+/* ---------- a chapter, written up, previewed before anybody sees it -------
+ *
+ * Preparing a lesson belongs at a desk and mostly still happens there. But a
+ * teacher standing at the board with a photocopied chapter and no soft copy
+ * of it has nowhere else to go, and telling them to walk to a laptop is not
+ * an answer at the moment they need it.
+ *
+ * **Nothing reaches the room until it is looked at.** This is the whole
+ * reason it is a separate screen rather than a button that starts teaching.
+ * A model reads a photograph of a page and writes a lesson from it, and it
+ * can misread a page — and the failure lands on a screen thirty children are
+ * reading. So what comes back is shown HERE first, in this panel, and the
+ * board keeps showing whatever it was showing. Then: put it up, write it
+ * again, change the words, or throw it away.
+ *
+ * Teachers only. It costs a model call per page and it is the tool a school
+ * gave its staff; a board with a subject code counts, because that is the
+ * same teacher standing at the front of the room with no keyboard to sign
+ * in from.
+ */
+var CHAP = { files: [], lesson: null, busy: false, edit: false, msg: "" };
+
+function chapCan(){
+  return boarded() || (ME && isTeacher());
+}
+
+function chapter(){
+  var m = main();
+  if(!chapCan()){
+    m.innerHTML = "<h1>Bring in a chapter</h1>" +
+      '<div class="note">Writing a chapter up as a lesson is a teacher\'s ' +
+      "tool. Open this board with your subject code, or sign in with the " +
+      "account your school gave you.</div>";
+    return;
+  }
+  m.innerHTML = "<h1>Bring in a chapter</h1>" +
+    '<div class="note">Photograph the pages, or choose a PDF. It is read ' +
+    "and written up as a lesson — and you see it here first. Nothing goes " +
+    "on the board until you put it there." +
+    '<div class="muted">Any number of pages. Each one is read on its own, ' +
+    "so the order is kept.</div></div>" +
+    '<div id="chapPick"></div><div id="chapOut"></div>';
+  chapPaintPick();
+  chapPaintOut();
+}
+
+function chapPaintPick(){
+  var host = el("chapPick");
+  if(!host) return;
+  /* Two inputs, not one. `capture` asks the phone or tablet for its camera
+     directly, which is the whole point at a board: a teacher holding the
+     book photographs it where they stand, page after page. The other is the
+     file browser, for a PDF or for pictures already taken. */
+  host.innerHTML =
+    '<div class="card">' +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<label class="btn">📷 Photograph a page' +
+          '<input type="file" accept="image/*" capture="environment" ' +
+            'id="chapCam" multiple hidden></label>' +
+        '<label class="btn ghost">📄 Choose a PDF or pictures' +
+          '<input type="file" id="chapFile" hidden multiple ' +
+            'accept="application/pdf,image/*"></label>' +
+        (CHAP.files.length
+          ? '<button class="btn ghost" id="chapClear">Start again</button>'
+          : "") +
+        '<div style="flex:1"></div>' +
+        (CHAP.files.length
+          ? '<button class="btn" id="chapGo"' +
+            (CHAP.busy ? " disabled" : "") + ">" +
+            (CHAP.busy ? "Reading…" : "Write it up") + "</button>"
+          : "") +
+      "</div>" +
+      (CHAP.files.length ? chapStrip() : "") +
+      (CHAP.msg ? '<div class="muted" style="margin-top:.5rem">' +
+        esc(CHAP.msg) + "</div>" : "") +
+    "</div>";
+  var cam = el("chapCam"), fil = el("chapFile");
+  if(cam) cam.onchange = function(){ chapAdd(cam.files); cam.value = ""; };
+  if(fil) fil.onchange = function(){ chapAdd(fil.files); fil.value = ""; };
+  var clr = el("chapClear");
+  if(clr) clr.onclick = function(){
+    CHAP.files = []; CHAP.lesson = null; CHAP.msg = "";
+    chapPaintPick(); chapPaintOut();
+  };
+  var go = el("chapGo");
+  if(go) go.onclick = chapWrite;
+  Array.prototype.forEach.call(host.querySelectorAll("[data-chapdel]"),
+    function(b){
+      b.onclick = function(){
+        CHAP.files.splice(+b.dataset.chapdel, 1);
+        chapPaintPick();
+      };
+    });
+}
+
+/* The pages so far, in order, each removable.
+ *
+ * A teacher photographing eight pages of a book will take a bad one, and
+ * finding out only after it has been read and charged for is the wrong
+ * moment. The thumbnails are object URLs, revoked when the strip is
+ * redrawn, because a board can stay open all day. */
+var CHAP_URLS = [];
+function chapStrip(){
+  CHAP_URLS.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
+  CHAP_URLS = [];
+  return '<div style="display:flex;gap:.5rem;flex-wrap:wrap;' +
+    'margin-top:.6rem">' + CHAP.files.map(function(f, i){
+      var pic = /^image\//.test(f.type || "");
+      var u = pic ? URL.createObjectURL(f) : "";
+      if(u) CHAP_URLS.push(u);
+      return '<div style="position:relative;width:5.5rem">' +
+        (pic
+          ? '<img src="' + u + '" alt="" style="width:100%;height:7rem;' +
+            'object-fit:cover;border-radius:8px;display:block">'
+          : '<div style="width:100%;height:7rem;border-radius:8px;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'background:var(--panel2,#1b1b1b);font-size:1.6rem">📄</div>') +
+        '<div class="muted" style="text-align:center;font-size:.7rem">' +
+          (i + 1) + "</div>" +
+        '<button class="btn ghost" data-chapdel="' + i + '" ' +
+          'title="Remove this page" style="position:absolute;top:.2rem;' +
+          'right:.2rem;padding:0 .35rem;line-height:1.4">×</button>' +
+        "</div>";
+    }).join("") + "</div>";
+}
+
+function chapAdd(list){
+  Array.prototype.forEach.call(list || [], function(f){ CHAP.files.push(f); });
+  CHAP.msg = "";
+  chapPaintPick();
+}
+
+async function chapWrite(){
+  if(CHAP.busy || !CHAP.files.length) return;
+  CHAP.busy = true; CHAP.msg = "Reading the pages…"; chapPaintPick();
+  var pdf = CHAP.files.length === 1 &&
+    /\.pdf$/i.test(CHAP.files[0].name || "") ? CHAP.files[0] : null;
+  var send = async function(parts){
+    var fd = new FormData();
+    parts.forEach(function(p, i){
+      fd.append("files", p, p.name || ("page" + (i + 1) + ".png"));
+    });
+    return await window.bapi.send("/api/teach/pages", fd);
+  };
+  try{
+    var d;
+    if(pdf){
+      try{
+        var one = new FormData();
+        one.append("file", pdf);
+        d = await window.bapi.send("/api/teach/pdf", one);
+      }catch(e){
+        /* A scan carries no text, so its pages are rendered here and read
+           by sight. pdfview.js already loads pdf.js for marking PDFs up, so
+           there is nothing new to fetch. */
+        if(!/scan|almost no text|nothing readable/i.test(e.message || ""))
+          throw e;
+        CHAP.msg = "It is a scan — rendering the pages…"; chapPaintPick();
+        d = await send(await chapPdfPages(pdf));
+      }
+    }else{
+      d = await send(CHAP.files);
+    }
+    CHAP.lesson = d.lesson || null;
+    CHAP.msg = d.cached
+      ? "Read before, so this one was free. Have a look before you put it up."
+      : "Read. Have a look before you put it up.";
+  }catch(e){
+    CHAP.lesson = null;
+    CHAP.msg = e.message || "Those pages could not be read.";
+  }finally{
+    CHAP.busy = false;
+    chapPaintPick();
+    chapPaintOut();
+  }
+}
+
+/* A scanned PDF, page by page, as pictures. The board already carries
+   pdf.js for marking a PDF up, and rendering here costs nothing and adds no
+   dependency — the server has no PDF renderer and should not grow one. */
+async function chapPdfPages(file){
+  var lib = window.pdfjsLib;
+  if(!lib && window.PdfView && PdfView.lib) lib = await PdfView.lib();
+  if(!lib) throw new Error("This scan could not be rendered here.");
+  var buf = await file.arrayBuffer();
+  var doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+  var out = [];
+  for(var i = 1; i <= doc.numPages; i++){
+    var page = await doc.getPage(i);
+    var base = page.getViewport({ scale: 1 });
+    var scale = Math.min(2.2, 1600 / Math.max(base.width, base.height));
+    var v = page.getViewport({ scale: scale });
+    var cv = document.createElement("canvas");
+    cv.width = Math.round(v.width); cv.height = Math.round(v.height);
+    await page.render({ canvasContext: cv.getContext("2d"),
+                        viewport: v }).promise;
+    var blob = await new Promise(function(res){
+      cv.toBlob(res, "image/png");
+    });
+    if(blob) out.push(new File([blob], "page" + i + ".png",
+                               { type: "image/png" }));
+  }
+  return out;
+}
+
+/* The preview, and the four things a teacher can do with it.
+ *
+ * Read it, put it up, write it again, or change the words. Editing is the
+ * one that matters most: a model reading a photograph of a page gets a
+ * heading wrong now and then, and a teacher who can fix the line in five
+ * seconds will use this, where one who has to accept it or throw it away
+ * will not. */
+function chapPaintOut(){
+  var host = el("chapOut");
+  if(!host) return;
+  var L = CHAP.lesson;
+  if(!L){ host.innerHTML = ""; return; }
+  var steps = L.steps || [];
+  host.innerHTML =
+    '<div class="eyebrow">Not on the board yet — this is a preview</div>' +
+    '<div class="card">' +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<button class="btn" id="chapUp">📺 Put it on the board</button>' +
+        '<button class="btn ghost" id="chapEdit">' +
+          (CHAP.edit ? "Done editing" : "✏️ Change the words") + "</button>" +
+        '<button class="btn ghost" id="chapRedo">↻ Write it again</button>' +
+        '<button class="btn ghost" id="chapDrop">Throw it away</button>' +
+      "</div>" +
+      '<div class="muted" style="margin-top:.5rem">Whatever is on the ' +
+        "board now stays there until you press Put it on the board." +
+      "</div>" +
+    "</div>" +
+    (CHAP.edit ? chapEditor(L, steps) : chapReader(L, steps));
+  var up = el("chapUp");
+  if(up) up.onclick = function(){
+    /* Whatever is in the edit boxes, not what the model wrote — a teacher
+       who fixes a heading and presses this straight away should get their
+       heading. */
+    if(CHAP.edit) chapTake();
+    lessonPut(CHAP.lesson, CHAP.lesson.title || "Chapter");
+  };
+  var ed = el("chapEdit");
+  if(ed) ed.onclick = function(){
+    if(CHAP.edit) chapTake();
+    CHAP.edit = !CHAP.edit;
+    chapPaintOut();
+  };
+  var rd = el("chapRedo");
+  if(rd) rd.onclick = function(){ CHAP.lesson = null; chapWrite(); };
+  var dp = el("chapDrop");
+  if(dp) dp.onclick = function(){
+    CHAP.lesson = null; CHAP.edit = false;
+    CHAP.msg = "Thrown away. The pages are still here if you want another go.";
+    chapPaintPick(); chapPaintOut();
+  };
+}
+
+function chapReader(L, steps){
+  return '<div class="card"><h2 style="margin:.2rem 0 .6rem">' +
+    esc(L.title || "Untitled") + "</h2>" +
+    steps.map(function(s, i){
+      var lines = [].concat(s.t || []);
+      return '<div style="margin:.7rem 0">' +
+        '<div style="font-weight:650">' + (i + 1) + ". " +
+          esc(s.h || "") + "</div>" +
+        lines.map(function(t){
+          return '<div style="margin-left:1rem">' + esc(t) + "</div>";
+        }).join("") + "</div>";
+    }).join("") +
+    (L.takeaway ? '<div class="muted" style="margin-top:.8rem">' +
+      esc(L.takeaway) + "</div>" : "") + "</div>";
+}
+
+function chapEditor(L, steps){
+  return '<div class="card">' +
+    '<div class="field"><label>Title</label>' +
+    '<input id="chapTitle" style="width:100%" value="' +
+      esc(L.title || "") + '"></div>' +
+    steps.map(function(s, i){
+      var lines = [].concat(s.t || []);
+      return '<div style="margin:.7rem 0">' +
+        '<input data-chaph="' + i + '" style="width:100%;font-weight:650" ' +
+          'value="' + esc(s.h || "") + '" placeholder="Heading">' +
+        '<textarea data-chapt="' + i + '" rows="' +
+          Math.max(2, lines.length) + '" style="width:100%;margin-top:.3rem" ' +
+          'placeholder="One idea per line">' +
+          esc(lines.join("\n")) + "</textarea></div>";
+    }).join("") +
+    '<div class="muted">One idea per line — the board draws a line at a ' +
+    "time, and a paragraph in one box is a paragraph on the screen.</div>" +
+    "</div>";
+}
+
+/* Read the edits back out of the boxes. Called before the editor is closed
+   and before anything is put up, so a teacher who edits and presses Put it
+   on the board straight away gets what they typed rather than what the
+   model wrote. */
+function chapTake(){
+  if(!CHAP.lesson) return;
+  var t = el("chapTitle");
+  if(t) CHAP.lesson.title = t.value;
+  (CHAP.lesson.steps || []).forEach(function(s, i){
+    var h = document.querySelector('[data-chaph="' + i + '"]');
+    var b = document.querySelector('[data-chapt="' + i + '"]');
+    if(h) s.h = h.value;
+    if(b) s.t = b.value.split("\n").filter(function(x){
+      return x.trim() !== "";
+    });
+  });
+}
+
 /* ---------- bringing a document into the lesson ----------
  *
  * A teacher standing at the board has the chapter they are about to teach,
@@ -7007,6 +7352,7 @@ async function paint(page, arg){
   else if(page === "inbox")     return inbox();
   else if(page === "materials") return materials();
   else if(page === "bring")     return bring(arg);
+  else if(page === "chapter")   return chapter();
   else if(page === "write")     return write();
   else if(page === "remote")    return remotePanel();
   else if(page === "calc")      return calc();

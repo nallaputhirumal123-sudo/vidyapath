@@ -68,8 +68,21 @@ Copy any table, data or values a question depends on. If a question refers
 to a figure or diagram you cannot read as text, write:
 [figure: <what it appears to show>]
 
-Copy section headings and instructions ("Answer any five", "All questions
-carry equal marks") on their own line.
+**The General Instructions are not questions.** Every board paper opens
+with a numbered list — "(i) This question paper contains 38 questions.
+(ii) It is divided into five Sections." — and those are about the paper,
+not things to answer. Never write one as Q<number>. Put them, and any
+section heading or rubric ("Answer any five", "All questions carry equal
+marks"), under a line reading exactly:
+
+NOT A QUESTION
+
+and start numbering only where the paper's own questions start.
+
+**A bilingual paper is one paper.** If the same question is printed in two
+languages, write it once, in the language it is printed in first, with the
+number the paper gives it. Do not renumber the second language's copy as
+new questions.
 
 If the page carries an ANSWER KEY — a list of correct options, or answers
 printed at the end — copy it under a line reading exactly:
@@ -93,6 +106,12 @@ is, and set "kind" to say which:
       rule before using it, carry units through, round only at the end and
       say what you rounded to.
 
+      Every step says WHY, not only what. "Divide both sides by 2" is a
+      keystroke; "divide both sides by 2 to leave x on its own" is the
+      reason a student can use on the next question. Somebody who was
+      stuck on this should be able to see the exact step where they went
+      wrong and what they should have thought.
+
   "written" — history, civics, literature, geography, biology theory, an
       explanation, a definition, a comparison, an essay. The ANSWER IS THE
       WRITING. Write what a student should actually put on the page, in
@@ -100,8 +119,11 @@ is, and set "kind" to say which:
       they should write, and not a hint. Never answer a "describe the causes
       of..." question with a single line.
 
-  "choice" — multiple choice. Give the letter AND why it is right, and say
-      briefly why the tempting wrong option is wrong.
+  "choice" — multiple choice. Do the work that finds the answer, the same
+      way you would if no options were printed; then give the letter, and
+      say briefly why the tempting wrong option is tempting and wrong.
+      Never reason backwards from an option — "(D) is 481, which matches"
+      is not a solution, and it is how a wrong option gets justified.
 
 **Length follows the marks.** A 1-mark question gets one sentence. A 2-mark
 question gets two or three. A 5-mark question gets five or six points or a
@@ -253,6 +275,112 @@ def answer_key(text):
     return out
 
 
+_ROMAN = re.compile(r"^[ivxl]{1,5}$", re.I)
+# Where a paper says, in its own words, that what follows is not a question.
+# The reading pass is told to write NOT A QUESTION; a paper read as text has
+# no reading pass, so its own heading is used instead.
+_NOT_Q = re.compile(
+    r"^\s*(?:NOT A QUESTION"
+    r"|general\s+instructions?"
+    r"|सामान्य\s*निर"
+    r"्देश)\s*[:.\-–—]?\s*$", re.I)
+# ...and where it stops: the first real question, or a section heading.
+_SECTION = re.compile(r"^\s*(?:section|part|खण्ड|"
+                      r"भाग)\b", re.I)
+
+
+def _strip_rubric(lines):
+    """Drop the block a paper marks as not being questions.
+
+    Belt and braces with the roman-numeral rule below, and it catches what
+    that rule cannot: instructions numbered 1, 2, 3, which some state boards
+    do, and which are otherwise indistinguishable from question 1.
+
+    The block ends at a section heading or at the first line that is not
+    part of the list, so a paper whose questions begin immediately after the
+    instructions loses nothing.
+    """
+    out, skipping = [], False
+    for ln in lines:
+        if _NOT_Q.match(ln):
+            skipping = True
+            continue
+        if skipping:
+            if _SECTION.match(ln):
+                skipping = False
+            else:
+                m = _start_of(ln)
+                # A numbered item is more instructions; anything else has
+                # ended the list.
+                if m or not ln.strip():
+                    continue
+                skipping = False
+        out.append(ln)
+    return out
+
+
+def _drop_instructions(qs):
+    """The General Instructions are a numbered list and are not questions.
+
+    Every board paper opens with them — "(i) This question paper contains 38
+    questions. (ii) It is divided into five Sections..." — and to a regular
+    expression they are indistinguishable from questions, because they are a
+    numbered list of sentences. On a real CBSE paper they arrived as nine
+    phantom questions, twice over in a bilingual one, and were duly sent off
+    to be solved.
+
+    The rule that separates them: a paper that numbers its questions in
+    arabic does not also number questions in bare romans. It uses romans for
+    the instructions, and for sub-parts — and a sub-part parses as "7 (ii)",
+    which is arabic at the top level and is left alone.
+
+    Positional would be wrong, and was: a bilingual paper prints the
+    instructions twice, so the English set arrives AFTER question 1 of the
+    Hindi half and a "drop until the first arabic question" rule keeps all
+    nine of them. A paper genuinely numbered i, ii, iii throughout has no
+    arabic questions at all, so nothing is dropped from it.
+    """
+    if not any(q["n"][:1].isdigit() for q in qs):
+        return qs
+    return [q for q in qs if not _ROMAN.match(q["n"])]
+
+
+def _dedupe(qs):
+    """One entry per question number, keeping the readable one.
+
+    A CBSE paper is bilingual: every question is printed in Hindi and again
+    in English, so a 38-question paper parses as 76 and the second half is
+    the first half again. Worse, the Hindi is typeset in a legacy font that
+    extracts as mojibake — so the pair is one unreadable copy and one good
+    one.
+
+    Keeping the first would keep the broken half. Keeping the readable one
+    is right in both directions: when the extraction is clean, both copies
+    read properly and the paper's own order wins; when it is not, the half
+    that survived is the half that gets solved.
+    """
+    seen, out = {}, []
+    for q in qs:
+        key = " ".join(q["n"].split()).lower()
+        if key not in seen:
+            seen[key] = len(out)
+            out.append(q)
+            continue
+        kept = out[seen[key]]
+        try:
+            import teachpdf
+        except Exception:
+            continue
+        # Compared, not judged. "Is this document mojibake" needs a
+        # threshold and enough words to measure on; "which of these two
+        # copies of one question is the better one" only needs to know which
+        # is worse, and a question is often a single line.
+        if teachpdf.glyph_ratio(q["text"]) < \
+                teachpdf.glyph_ratio(kept["text"]):
+            out[seen[key]] = q
+    return out
+
+
 def questions(text):
     """The questions a read pass found, as {n, text, marks}.
 
@@ -274,7 +402,7 @@ def questions(text):
         if _KEY_HEAD.match(line):
             stop = i
             break
-    for line in lines[:stop]:
+    for line in _strip_rubric(lines[:stop]):
         raw = line.rstrip()
         if not raw.strip():
             continue
@@ -300,6 +428,8 @@ def questions(text):
         cur["text"] += "\n" + raw.strip()
     if cur:
         out.append(cur)
+    out = _drop_instructions(out)
+    out = _dedupe(out)
     # A paper with one enormous "question" is a page that was not read as a
     # paper at all — prose, a syllabus, a letter. Better to say so than to
     # hand back one answer to a document.
@@ -360,7 +490,11 @@ def _one(item, asked):
                 else "written")
     out = {
         "kind": kind,
-        "n": n,
+        # The paper's number, not the model's echo of it. Asked for question
+        # 2, models answer "n": "Q2" often enough that a real solved paper
+        # came back headed "QQ2" — and worse, "Q2" no longer matches "2", so
+        # nothing the reading pass found lines up with it.
+        "n": (asked or {}).get("n") or n,
         # The question as the READING pass copied it, not as the solving
         # pass echoed it back. The echo is where a question quietly becomes
         # an easier question, and the whole point of two passes is that the
@@ -392,7 +526,14 @@ def clean(raw, chunk):
         items = raw.get("questions") or raw.get("answers") or []
     elif isinstance(raw, list):
         items = raw
-    by_n = {str(q["n"]).strip().lower(): q for q in chunk}
+    # Both "2" and "q2" point at question 2, because a model asked about Q2
+    # answers with either and a solution filed under a name nothing matches
+    # is a solution that vanishes.
+    by_n = {}
+    for q in chunk:
+        key = str(q["n"]).strip().lower()
+        by_n[key] = q
+        by_n.setdefault("q" + key, q)
     out = []
     for it in items if isinstance(items, list) else []:
         # A model that returns a list of strings, or a null in the middle of
