@@ -1314,6 +1314,33 @@ def send_email(to: str, subject: str, body: str):
 # teacher can explain in a sentence.
 MAX_DEVICES = int(env("MAX_DEVICES", "1") or 1)
 
+# Staff are not the sharing risk, and the limit was punishing them for it.
+#
+# Every word of the reasoning above is about a class account: thirty children
+# with one code between them. A teacher is the opposite case. She plans at her
+# desk, checks a register on her phone and signs in on the computer wired to
+# the board — three devices in one morning, all hers, and at one device each
+# one silently ended the last. She entered the address and password the office
+# gave her and the screen said she was not signed in, which reads as a broken
+# password rather than as a rule.
+#
+# So the cap is per role: the sharing rule stays exactly as it was for pupils,
+# and staff get enough devices to do the job. Still a cap — an account passed
+# around a staffroom is a different problem, but it is not this one.
+MAX_DEVICES_STAFF = int(env("MAX_DEVICES_STAFF", "4") or 4)
+
+
+def _device_cap(user, db) -> int:
+    """How many devices this account may hold at once."""
+    try:
+        if user.is_admin or teacher_row(user, db) is not None:
+            return max(MAX_DEVICES, MAX_DEVICES_STAFF)
+    except Exception:
+        # Never let a lookup failure lock somebody out; fall back to the
+        # stricter number, which is the safe direction.
+        pass
+    return MAX_DEVICES
+
 
 def _sessions(user) -> list:
     return [s for s in (user.session_token or "").split(",") if s]
@@ -1327,7 +1354,7 @@ def make_token(user: User, db: Session = None) -> str:
     """
     fresh = secrets.token_urlsafe(18)
     if db is not None:
-        keep = ([fresh] + _sessions(user))[:MAX_DEVICES]
+        keep = ([fresh] + _sessions(user))[:_device_cap(user, db)]
         user.session_token = ",".join(keep)
         user.session_seen_at = now()
         db.commit()
@@ -1367,13 +1394,17 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     # stored token, so they keep working until their next sign-in.
     if (user.session_token and not user.is_admin
             and payload.get("st") not in _sessions(user)):
+        # The message has to state the number that actually applied, which is
+        # the role's cap and not the global one — a teacher told "one device
+        # at a time" while holding four is being told something untrue.
+        cap = _device_cap(user, db)
         raise HTTPException(
             401, ("Signed out because this account was used to sign in "
                   "somewhere else. One device at a time — sign in again "
                   "here to use this one."
-                  if MAX_DEVICES == 1 else
+                  if cap == 1 else
                   f"Signed out because this account is in use on more than "
-                  f"{MAX_DEVICES} devices. Craxle allows {MAX_DEVICES} at a "
+                  f"{cap} devices. Craxle allows {cap} at a "
                   f"time — sign in again here to use this one."))
     # touch last_seen at most once a minute
     try:
@@ -1475,7 +1506,25 @@ app = FastAPI(title="Craxle", docs_url="/api/docs", redoc_url=None)
 # about.
 import craxlearn as _cl_boot                                        # noqa: E402
 
-CRAXLEARN_ONLY = env("CRAXLEARN_ONLY", "0").strip().lower() in (
+# Which edition this deployment is.
+#
+#   in  (default)  craxle.com — learning and the job board, India
+#   us             learncraxle.com — US schools, and nothing else
+#
+# The US edition is its OWN deployment with its own database, and that is not
+# a preference. A US school's pupils must not have rows in a database built
+# around resumes and employers, an Indian class code must never open a US
+# classroom, and "we do not hold your children's data" has to be true of the
+# server and not only of the screens. The comment below about keeping this to
+# a host list rather than a second deployment is right for two front doors on
+# one product in one country; it stops being right at a border.
+#
+# It implies CRAXLEARN_ONLY rather than being a second way to say it: one
+# switch that can be forgotten is better than two that can disagree.
+EDITION = env("EDITION", "in").strip().lower()
+US_EDITION = EDITION in ("us", "usa")
+
+CRAXLEARN_ONLY = US_EDITION or env("CRAXLEARN_ONLY", "0").strip().lower() in (
     "1", "true", "yes", "on")
 
 # Hostnames that ARE the school app, on a deployment that also serves the job
@@ -1550,6 +1599,8 @@ REQUIRE_DOB = env("REQUIRE_DOB", "1").strip().lower() in (
     "1", "true", "yes", "on")
 if CRAXLEARN_ONLY:
     print(f"  {_cl_boot.NAME} only — the job board is not served here")
+if US_EDITION:
+    print("  US edition — learncraxle.com; the board is at /board")
 
 
 def _learning_only(db, user):
@@ -2110,7 +2161,14 @@ def _seed_with_retries():
           "you can reach /api/status, but content will be unavailable.")
 
 
-JOBS_ENABLED = env("JOBS_ENABLED", "1") not in ("0", "false", "no")
+# The crawler, off on the US edition and not merely unused.
+#
+# Every route that reads a job is already unreachable there, so leaving the
+# crawl running would fetch postings nobody can see and write them into a US
+# school's database — which is the one thing that edition promises it does
+# not do. A switch nobody has to remember to set.
+JOBS_ENABLED = (not US_EDITION) and env(
+    "JOBS_ENABLED", "1") not in ("0", "false", "no")
 
 
 @app.on_event("startup")
@@ -2608,7 +2666,13 @@ def auth_config(db: Session = Depends(get_db)):
                    db.query(School).order_by(School.name).all()]
     except Exception:
         schools = []
-    return {"google_enabled": GOOGLE_ENABLED, "schools": schools}
+    # The edition, so the SIGNED-OUT page knows what it is. /api/me carries
+    # craxlearn_only for somebody who has signed in, and the landing page —
+    # the first thing a US school's parent ever sees — is exactly the screen
+    # nobody has signed in on yet. It advertised the job board.
+    return {"google_enabled": GOOGLE_ENABLED, "schools": schools,
+            "edition": "us" if US_EDITION else "in",
+            "jobs": not CRAXLEARN_ONLY}
 
 
 def _redirect_uri(request: Request) -> str:
@@ -20789,9 +20853,28 @@ def index(request: Request):
     # the two — the cookie is set without a domain attribute, so it is
     # host-only, and signing in at one is not signing in at the other. For a
     # board at the front of a classroom that is the behaviour you want.
+    # The US edition is a school's whole site, not a board — teachers plan on
+    # it, pupils hand work in on it, and the classroom screen has its own
+    # address at /board. Putting the board at the root there would mean every
+    # teacher who typed learncraxle.com landed on a code prompt.
+    if US_EDITION:
+        return FileResponse(BASE_DIR / "index.html")
     if CRAXLEARN_ONLY or _is_school_host(request):
         return FileResponse(BASE_DIR / "craxlearn.html")
     return FileResponse(BASE_DIR / "index.html")
+
+
+@app.get("/board")
+def board_page():
+    """The classroom screen, at an address somebody can read off a wall.
+
+    /craxlearn is the name the product grew up with and it still works. This
+    is the one written on a laminated card taped to the board — shorter, and
+    it says what the thing in front of you is rather than what the company
+    calls it. Served on every edition so one set of instructions is true
+    everywhere.
+    """
+    return FileResponse(BASE_DIR / "craxlearn.html")
 
 
 @app.get("/terms")

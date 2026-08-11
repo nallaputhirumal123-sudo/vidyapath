@@ -1108,8 +1108,13 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 
     <section class="lsec" id="join">
       <p class="lquote" style="text-align:center;margin-bottom:22px">
-        <span>Get cracked by Craxle.</span>
-        <small>Free to browse every job and match your resume.</small></p>
+        <span id="joinPitch">Get cracked by Craxle.</span>
+        <!-- Rewritten on the US edition. This is the first screen a school's
+             parent ever sees and it advertised a job board — on a product
+             sold to them for teaching thirteen-year-olds, where the job half
+             is not merely hidden but not served at all. -->
+        <small id="joinPitchSub">Free to browse every job and match your
+          resume.</small></p>
       <div class="authcard">
         <div class="tabs">
           <button class="tab on" id="tabLogin">Sign in</button>
@@ -2275,6 +2280,17 @@ fetch("/api/version").then(r=>r.json()).then(v=>{
 
 // Show the Google button + school list when the server provides them.
 api.get("/api/auth/config").then(c=>{
+  /* The US edition is a school product and nothing else — the job half is
+     not served there at all, so the sign-in page must not open by offering
+     it. Driven by the server's answer rather than by the hostname, because
+     the hostname is a header and this decides what the page claims to be. */
+  if(c && (c.edition === "us" || c.jobs === false)){
+    const t = $("#joinPitch"), s = $("#joinPitchSub");
+    if(t) t.textContent = "Learn it properly.";
+    if(s) s.textContent = "Your school's classes, lessons and work — in one "
+                        + "place, on any device.";
+    document.title = "Craxle for schools";
+  }
   if(c && c.google_enabled){
     GOOGLE_ON = true;
     const on = !$("#tabJoin") || !$("#tabJoin").classList.contains("on");
