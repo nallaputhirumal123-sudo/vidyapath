@@ -17864,6 +17864,12 @@ async def read_paper(files: list[UploadFile] = File(...),
     out = {
         "questions": asked,
         "pages": len(raw_files),
+        # The paper's own answer key, where it printed one. It is the
+        # closest thing to a ground truth this feature ever gets, so every
+        # answer it covers is reported against it — agreement and
+        # disagreement alike, because a printed key can be wrong too and the
+        # teacher looking at both is the right person to decide.
+        "key": _solver.answer_key(read),
         # Said by the server so it cannot be dropped by whoever renders it,
         # and it goes onto the downloaded PDF as well as onto the screen.
         "caveat": "Worked solutions, not a marking scheme. A board's own key "
@@ -17880,6 +17886,7 @@ async def read_paper(files: list[UploadFile] = File(...),
 
 class SolveBatch(BaseModel):
     questions: list[dict] = []
+    key: dict = {}
 
 
 @app.post("/api/exams/solve")
@@ -17941,6 +17948,8 @@ async def solve_batch(body: SolveBatch,
     # one place a confident wrong number does the most damage — a worked
     # solution a class copies into their books.
     _solver.verify(solved)
+    _solver.against_key(solved, {str(k): str(v)[:2].upper()
+                                 for k, v in (body.key or {}).items()})
     out = {"questions": solved,
            # Named, not swallowed. A paper that comes back with fifty-eight
            # of sixty answers silently is one handed out with two holes.

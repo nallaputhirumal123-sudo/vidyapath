@@ -124,6 +124,31 @@ check("and the Updates screen is not staff-only",
       and "if(USER.is_teacher) h+=nav(\"notices\"" not in clients,
       "everybody who can be sent an update needs somewhere to read one")
 
+print("\nevery sidebar button actually goes somewhere")
+# The same bug, three times now. A page gets a nav item, a router branch and
+# a hash entry — and the click handler, which is a long else-if chain in a
+# different part of the file, is forgotten. An unmatched name falls off the
+# end of that chain in silence: no error, no navigation, the view left
+# exactly as it was. To the person using it the button is simply dead, and
+# nothing in the console says why.
+#
+# "net" was fixed with a comment above it explaining this. "exams" broke the
+# same way anyway. A comment is not a test.
+IDX = io.open("index.html", encoding="utf-8").read()
+drawn = set(re.findall(r'data-nav="([a-z]+)"', IDX))
+drawn |= set(re.findall(r'nav\("([a-z]+)"', IDX))
+# Not pages: these are handled in the same chain but mean "do a thing".
+drawn -= {"clearpath", "setpath"}
+handled = set(re.findall(r'n==="([a-z]+)"', IDX))
+routed = set(re.findall(r'v\.page==="([a-z]+)"', IDX))
+dead = sorted(drawn - handled)
+check("every nav item is wired to the click handler", not dead,
+      ", ".join(dead) + " — drawn in the sidebar, and clicking does nothing"
+      if dead else "")
+unrouted = sorted(drawn - routed)
+check("and every one has a branch in the router", not unrouted,
+      ", ".join(unrouted) if unrouted else "")
+
 print("\nthe allowlist stays honest")
 stale = [p for p in ALLOWED if not any(p == r[1] for r in api_routes)]
 check("nothing in it has been deleted from main.py", not stale,

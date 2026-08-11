@@ -47,6 +47,9 @@ import solver                                      # noqa: E402
 IDX = io.open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
 MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
 P, F = [], []
+# Prompt text is wrapped for reading; compare it the way a model receives it.
+READ1 = " ".join(solver.READ.split())
+SOLVE1 = " ".join(solver.SOLVE.split())
 
 
 def ck(name, cond, why=""):
@@ -98,10 +101,10 @@ ck("prose with no numbered questions returns nothing",
 print("\nreading is told not to answer")
 for phrase in ("Do not answer them", "EXACTLY as printed",
                "Write nothing else"):
-    ck("the read prompt says: " + phrase.lower(), phrase in solver.READ)
+    ck("the read prompt says: " + phrase.lower(), phrase in READ1)
 ck("and not to make a question easier",
    "a question you make easier is a question the paper does not contain"
-   in " ".join(solver.READ.split()))
+   in READ1)
 ck("the read prompt is never given a JSON shape to fill",
    "{" not in solver.READ,
    "a model handed a schema invents entries to fill it, and an invented "
@@ -110,16 +113,16 @@ ck("the read prompt is never given a JSON shape to fill",
 
 print("\nsolving answers what was actually asked")
 ck("it is told to answer the question written",
-   "Answer the question that is written, not a similar one" in solver.SOLVE)
-ck("working is required, not optional",
-   "A final answer with no steps is not a solution" in solver.SOLVE)
-ck("units are carried through", "Carry units through" in solver.SOLVE)
+   "Answer the question that is written, not a similar one" in SOLVE1)
+ck("working is required where there is working",
+   "there is working to show. Show it" in SOLVE1)
+ck("units are carried through", "carry units through" in SOLVE1)
 ck("a gap is preferred to a guess",
-   "wrong answer stated confidently is worse than a gap" in solver.SOLVE)
+   "wrong answer stated confidently is worse than a gap" in SOLVE1)
 ck("an ungiven figure is not invented",
-   "Do not invent the figure" in solver.SOLVE)
+   "Do not invent the figure" in SOLVE1)
 ck("maths is written so it reads on paper",
-   "No LaTeX commands" in solver.SOLVE,
+   "No LaTeX commands" in SOLVE1,
    "the download is a PDF in a Latin-1 font; typeset commands arrive as "
    "commands")
 
@@ -174,6 +177,126 @@ ck("an answer with no equation in it is not judged",
                                   "answer": "Argon", "working": []}])[0])
 ck("and the screen shows the flag",
    "Check this one:" in IDX)
+
+print("\nany paper, however it numbers itself")
+MIXED = """1. Define osmosis.
+(2 marks)
+2) Name the capital of Assam. [1]
+(3) Who wrote the Indian Constitution's preamble? 2 marks
+Q4. Explain the water cycle.
+Q.5 State Ohm's law.
+I. Describe the causes of the Revolt of 1857.
+ii) Compare a metal and a non-metal.
+12(a) Find the area of a circle of radius 7 cm.
+7 (ii) Balance the equation: H2 + O2 -> H2O
+"""
+mix = solver.questions(MIXED)
+ck("every numbering style a paper uses is read", len(mix) == 9,
+   str([q["n"] for q in mix]))
+ck("the number is the paper's own, not renumbered",
+   [q["n"] for q in mix] == ["1", "2", "3", "4", "5", "I", "ii",
+                             "12(a)", "7 (ii)"],
+   "renumbering a paper is how a solution ends up filed against the wrong "
+   "question")
+ck("marks are read however the paper prints them",
+   [q["marks"] for q in mix[:3]] == [2, 1, 2],
+   "(2 marks), [1] and a bare '2 marks' are all the same instruction")
+ck("a sub-part is its own question", mix[7]["n"] == "12(a)")
+
+print("\nand papers that are not mathematics")
+ck("the solver is told a paper is usually not maths",
+   "A paper is not always mathematics, and most are not" in SOLVE1)
+ck("a written answer is the writing, not a description of it",
+   "not a description of what they should write" in SOLVE1
+   and "ANSWER IS THE WRITING" in SOLVE1,
+   "answering 'describe the causes of' with a hint is not an answer a "
+   "student can hand in")
+ck("length follows the marks",
+   "Length follows the marks" in SOLVE1
+   and "too short for its marks is a wrong answer" in SOLVE1)
+ck("history, civics and literature are named",
+   "history, civics, literature" in SOLVE1)
+ck("and it answers in the language the question is in",
+   "Answer in the language the question is written in" in SOLVE1)
+essay = solver.clean({"questions": [{
+    "n": "1", "kind": "written",
+    "answer": "The Revolt of 1857 had military, political and economic "
+              "causes.",
+    "working": ["The greased cartridge was the immediate trigger.",
+                "The Doctrine of Lapse annexed Indian states.",
+                "Heavy land revenue impoverished the peasantry."]}]},
+    [{"n": "1", "text": "Describe the causes of the Revolt of 1857.",
+      "marks": 5}])
+ck("a written answer keeps its kind", essay[0]["kind"] == "written")
+ck("a long answer is not truncated to fit algebra steps",
+   len(solver.clean({"questions": [{"n": "1", "kind": "written",
+                                    "answer": "x",
+                                    "working": ["p"] * 20}]},
+                    [{"n": "1", "text": "?", "marks": 10}])[0]["working"])
+   == 20,
+   "a ten-mark answer is legitimately a dozen points")
+ck("the kind is inferred when the model forgets to say",
+   solver.clean({"questions": [{"n": "1", "answer": "Argon",
+                                "choice": "C"}]},
+                [{"n": "1", "text": "?", "marks": 1}])[0]["kind"] == "choice")
+ck("and prose is not mistaken for a calculation",
+   solver.clean({"questions": [{"n": "1", "answer": "Dispersal by wind.",
+                                "working": ["Seeds are light."]}]},
+                [{"n": "1", "text": "?", "marks": 2}])[0]["kind"]
+   == "written")
+ck("the screen lays the three out differently",
+   'const written = q.kind === "written";' in IDX
+   and 'written?"•":(i+1)+"."' in IDX,
+   "a written answer set out as Step 1, Step 2 reads as broken")
+ck("and so does the PDF", 'if(q.kind === "written"){' in IDX)
+
+print("\nthe paper's own answer key, where it printed one")
+KEYED = PAGE + """
+ANSWER KEY
+1 C
+2. A
+3 - D
+"""
+key = solver.answer_key(KEYED)
+ck("a printed key is read", key == {"1": "C", "2": "A", "3": "D"}, str(key))
+ck("several to a line works too",
+   solver.answer_key("ANSWER KEY\n1 C  2 A  3 D  4 B")
+   == {"1": "C", "2": "A", "3": "D", "4": "B"},
+   "a key is usually printed compactly to save paper")
+ck("a paper's own options are NOT mistaken for a key",
+   solver.answer_key(PAGE) == {},
+   "'(A) Oxygen' under question 3 looks exactly like a key line, and a key "
+   "built out of the options would disagree with every answer and say so "
+   "confidently")
+ck("only what is below the heading counts",
+   "1" not in solver.answer_key("Q1. Which is a noble gas?\n(A) Oxygen"))
+ck("the key is not swallowed into the questions",
+   [q["n"] for q in solver.questions(KEYED)] == ["1", "2", "3", "4"],
+   "everything below an ANSWER KEY heading is the key, not question five")
+ck("the reading pass is told to copy a key if there is one",
+   "ANSWER KEY" in READ1 and "no answers of your own" in READ1)
+
+agreed = [{"n": "1", "choice": "C", "answer": "Argon", "working": []},
+          {"n": "2", "choice": "B", "answer": "Nitrogen", "working": []},
+          {"n": "9", "choice": "A", "answer": "?", "working": []}]
+solver.against_key(agreed, {"1": "C", "2": "A"})
+ck("an answer that matches the key says so", agreed[0]["agrees"] is True)
+ck("one that disagrees says that too, with the key's letter",
+   agreed[1]["agrees"] is False and agreed[1]["key"] == "A",
+   "a printed key can be wrong; showing both is what lets a teacher decide")
+ck("a question the key does not cover is left alone",
+   "key" not in agreed[2] and "agrees" not in agreed[2])
+ck("no key, no claims",
+   all("key" not in q for q in solver.against_key(
+       [{"n": "1", "choice": "C", "answer": "x", "working": []}], {})))
+ck("the key travels with the batch", '"key": _solver.answer_key(read)' in MAIN
+   and "key: dict = {}" in MAIN and "key: SOLVED.key" in IDX)
+ck("the screen shows agreement and disagreement differently",
+   "Matches the paper's own answer key" in IDX
+   and "printed keys are wrong too" in IDX)
+ck("and the PDF prints it as well",
+   "The paper's key says ${q.key}" in IDX,
+   "the PDF is what leaves the building")
 
 print("\nbatched, because a paper at a time is minutes")
 ck("ten at a time", solver.BATCH == 10,

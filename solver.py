@@ -51,10 +51,15 @@ Copy the questions EXACTLY as printed. Do not answer them. Do not simplify
 them, shorten them, or rewrite them in your own words — a question you make
 easier is a question the paper does not contain.
 
-For every question on the page write:
+Papers are numbered every possible way: 1. / 1) / (1) / Q1 / Q.1 / I. / i) /
+and sub-parts like 3(a) or 3 (ii). Whatever the paper uses, renumber nothing:
+write the number the paper prints, in this shape:
 
-Q<number>. <the question, word for word>
+Q<number as printed>. <the question, word for word>
 [marks: <n>]        (only if the paper prints marks for it)
+
+So a sub-part printed as 3 (b) is written Q3(b). A question numbered in Roman
+numerals stays in Roman numerals.
 
 Keep multiple-choice options exactly as printed, each on its own line:
 (A) ... (B) ... (C) ... (D) ...
@@ -63,25 +68,54 @@ Copy any table, data or values a question depends on. If a question refers
 to a figure or diagram you cannot read as text, write:
 [figure: <what it appears to show>]
 
-Copy section headings and instructions (\"Answer any five\", \"All questions
-carry equal marks\") on their own line.
+Copy section headings and instructions ("Answer any five", "All questions
+carry equal marks") on their own line.
 
-Write nothing else. No commentary, no answers, no summary."""
+If the page carries an ANSWER KEY — a list of correct options, or answers
+printed at the end — copy it under a line reading exactly:
+
+ANSWER KEY
+
+and then one per line as: <number> <letter or short answer>
+
+Write nothing else. No commentary, no answers of your own, no summary."""
 
 SOLVE = """You are writing the worked solutions to a school question paper.
 
-For EVERY question given below, produce a complete, correct solution a
-student can follow and a teacher can put in front of a class.
+For EVERY question given below, produce a complete, correct answer a student
+can follow and a teacher can put in front of a class.
 
-Rules:
+**Answer each question the way its own subject is answered.** A paper is not
+always mathematics, and most are not. Decide which of these each question
+is, and set "kind" to say which:
+
+  "calculation" — there is working to show. Show it. State the formula or
+      rule before using it, carry units through, round only at the end and
+      say what you rounded to.
+
+  "written" — history, civics, literature, geography, biology theory, an
+      explanation, a definition, a comparison, an essay. The ANSWER IS THE
+      WRITING. Write what a student should actually put on the page, in
+      full sentences and in the right order — not a description of what
+      they should write, and not a hint. Never answer a "describe the causes
+      of..." question with a single line.
+
+  "choice" — multiple choice. Give the letter AND why it is right, and say
+      briefly why the tempting wrong option is wrong.
+
+**Length follows the marks.** A 1-mark question gets one sentence. A 2-mark
+question gets two or three. A 5-mark question gets five or six points or a
+full paragraph; an 8- or 10-mark question gets a structured answer with a
+short opening, the substance in ordered points, and a closing line. If no
+marks are printed, judge from the question: "define" is short, "discuss" is
+long. An answer that is too short for its marks is a wrong answer in an exam
+hall, however true it is.
+
+Also:
 - Answer the question that is written, not a similar one.
-- Show the working. A final answer with no steps is not a solution.
-- State the formula or rule before using it, once, in the step that uses it.
-- Carry units through the working and put them on the final answer.
-- For multiple choice, give the letter AND why it is right.
-- Round only at the end, and say what you rounded to.
-- If a question depends on a figure you were not given, say exactly that in
-  the answer and solve as far as the text allows. Do not invent the figure.
+- Answer in the language the question is written in.
+- If a question depends on a figure you were not given, say exactly that and
+  answer as far as the text allows. Do not invent the figure.
 - If a question cannot be answered from what is here, say so plainly. A
   wrong answer stated confidently is worse than a gap.
 
@@ -92,20 +126,131 @@ Return JSON only:
 
 {"questions": [
   {"n": "1",
-   "question": "<the question, as given to you>",
+   "kind": "calculation",
    "marks": 2,
    "choice": "B",
-   "answer": "<the final answer, one line>",
-   "working": ["<step>", "<step>", "..."]}
+   "answer": "<the answer a student writes on the page>",
+   "working": ["<step, point or paragraph>", "..."]}
 ]}
 
-"marks" only if the paper gave them. "choice" only for multiple choice.
-Every question you were given must appear, in the same order, with the same
-number. Never merge two questions into one."""
+For "calculation", "working" is the steps and "answer" is the final result.
+For "written", "working" is the points of the answer in order and "answer"
+is the opening statement the points expand on — put the substance in
+"working", not a summary of it.
+For "choice", "answer" is the option's text and "choice" is its letter.
 
-_Q = re.compile(r"^\s*Q?\s*(\d+[a-z]?(?:\s*\([a-z ivx]+\))?)\s*[.)]\s*(.+)$",
-                re.I)
-_MARKS = re.compile(r"\[?\s*marks?\s*[:=]\s*(\d+)\s*\]?", re.I)
+"marks" only if the paper gave them. Every question you were given must
+appear, with the same number the paper printed. Never merge two questions."""
+
+# Every numbering scheme a paper in this country actually uses. Q1 / Q.1 /
+# 1. / 1) / (1) / I. / iii) / 12(a) / 4 (ii). The number is captured as the
+# paper prints it, because renumbering a paper is how a solution ends up
+# filed against the wrong question.
+# The number itself: 12, iii, (3), and with a sub-part — 12(a), 7 (ii).
+_NUM = (r"\(?(?:\d{1,3}|[ivxlIVXL]{1,5})\)?"
+        r"(?:\s*\(\s*(?:[a-hj-z]|[ivx]{1,4})\s*\))?")
+# Two ways a question starts, and the difference is what is allowed to
+# separate the number from the words.
+#
+# With a "Q" in front, a bare space is enough — "Q.5 State Ohm's law" is
+# unambiguous. Without one it must be punctuated, because "1947 saw the
+# partition" is a sentence and not question 1947.
+_Q_LOOSE = re.compile(r"^\s*Q\s*\.?\s*(" + _NUM + r")\s*[.)\]:—–-]?\s+(.+)$")
+# A bracketed sub-part is its own punctuation: "12(a) Find the area" needs no
+# full stop after it to be unmistakably a question.
+_Q_PART = re.compile(
+    r"^\s*((?:\d{1,3}|[ivxlIVXL]{1,5})\s*\(\s*(?:[a-hj-z]|[ivx]{1,4})\s*\))"
+    r"\s*[.)\]:—–-]?\s+(.+)$")
+_Q_STRICT = re.compile(r"^\s*(" + _NUM + r")\s*[.)\]:—–-]\s+(.+)$")
+
+
+def _start_of(line):
+    """(number, rest) if this line begins a question, else None.
+
+    Tried in order of how unambiguous the marker is. A bare number needs
+    punctuation after it, because "1947 saw the partition of India" is a
+    sentence and not question 1947.
+    """
+    return (_Q_LOOSE.match(line) or _Q_PART.match(line)
+            or _Q_STRICT.match(line))
+
+
+def _number(raw):
+    """The number as printed, with a wrapping bracket pair removed.
+
+    "(3)" is question 3 written in brackets; "12(a)" is question 12 part a
+    and the brackets are part of its name. Stripping every bracket would
+    turn the second into "12a", which is not what the paper says.
+    """
+    n = " ".join(str(raw or "").split())
+    if n.startswith("(") and n.count("(") == 1:
+        # "(3)" — and "(3" when the closing bracket was taken as the
+        # separator by whichever pattern matched first.
+        n = n[1:].rstrip(")").strip()
+    return n
+# [marks: 3] as the reading pass writes it, and every way a paper prints it:
+# (3 marks) / [3] / 3M / — 3 marks
+_MARKS = re.compile(
+    r"(?:\[\s*marks?\s*[:=]\s*(\d{1,3})\s*\]"
+    r"|[\[(]\s*(\d{1,3})\s*(?:marks?|m)\s*[\])]"
+    r"|[\[(]\s*(\d{1,3})\s*[\])]\s*$"
+    r"|(\d{1,3})\s*marks?\s*$)", re.I)
+
+
+def _marks_in(line):
+    m = _MARKS.search(line)
+    if not m:
+        return None
+    for g in m.groups():
+        if g:
+            try:
+                return int(g)
+            except ValueError:
+                return None
+    return None
+
+
+_KEY_HEAD = re.compile(r"^\s*(?:answer\s*key|answers?|key)\s*[:.]?\s*$", re.I)
+# "1 C" / "1. C" / "1-C" / "1) (C)" / "12 : b" — one per line, and also
+# several to a line, which is how a key is usually printed to save paper.
+_KEY_PAIR = re.compile(
+    r"(?:^|[\s,;|])\(?(\d{1,3})\)?\s*[.):\-–—]?\s*\(?([A-Da-d])\)?"
+    r"(?=$|[\s,;|])")
+
+
+def answer_key(text):
+    """The paper's own answer key, if it printed one: {number: letter}.
+
+    Read only from BELOW an "answer key" heading. A paper's own
+    multiple-choice options — "(A) Oxygen" under question 3 — look exactly
+    like a key line to a regular expression, and a key assembled out of the
+    options would disagree with every answer and say so confidently, which
+    is worse than having no key at all.
+    """
+    lines = str(text or "").splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if _KEY_HEAD.match(line):
+            start = i + 1
+            break
+    if start is None:
+        return {}
+    out = {}
+    for line in lines[start:]:
+        if _KEY_HEAD.match(line):
+            continue
+        if line.strip().startswith("--- PAGE"):
+            continue
+        found = _KEY_PAIR.findall(line)
+        if not found and line.strip():
+            # A line of prose ends the key. Keys are terse by nature, and
+            # reading past the end of one picks up whatever came next.
+            if len(line.split()) > 8:
+                break
+            continue
+        for n, letter in found:
+            out.setdefault(n, letter.upper())
+    return out
 
 
 def questions(text):
@@ -115,33 +260,42 @@ def questions(text):
     not be given a shape to fill — a model handed a schema starts inventing
     entries to fill it, and an invented question on a paper a class is about
     to sit is the one failure that cannot be allowed.
+
+    Numbering is taken as the paper prints it, in any of the schemes papers
+    actually use, because renumbering a paper is how a solution ends up
+    filed against the wrong question.
     """
     out = []
     cur = None
-    for line in str(text or "").splitlines():
+    stop = None
+    lines = str(text or "").splitlines()
+    for i, line in enumerate(lines):
+        # Everything below an answer-key heading is the key, not questions.
+        if _KEY_HEAD.match(line):
+            stop = i
+            break
+    for line in lines[:stop]:
         raw = line.rstrip()
         if not raw.strip():
             continue
         if raw.strip().startswith("--- PAGE"):
             continue
-        m = _Q.match(raw)
+        m = _start_of(raw)
         if m and len(m.group(2).strip()) > 3:
             if cur:
                 out.append(cur)
-            cur = {"n": m.group(1).strip(), "text": m.group(2).strip(),
-                   "marks": None}
+            body = m.group(2).strip()
+            cur = {"n": _number(m.group(1)), "text": body,
+                   "marks": _marks_in(body)}
             continue
         if cur is None:
             continue
-        mk = _MARKS.search(raw)
-        if mk and len(raw.strip()) <= 20:
-            # A bare "[marks: 3]" line belongs to the question above it; a
-            # long line that happens to mention marks is part of the
-            # question and is kept as text.
-            try:
-                cur["marks"] = int(mk.group(1))
-            except ValueError:
-                pass
+        mk = _marks_in(raw)
+        if mk is not None and len(raw.strip()) <= 20:
+            # A bare "[marks: 3]" or "(5 marks)" line belongs to the
+            # question above it; a long line that happens to mention marks
+            # is part of the question and is kept as text.
+            cur["marks"] = mk
             continue
         cur["text"] += "\n" + raw.strip()
     if cur:
@@ -179,8 +333,21 @@ def _one(item, asked):
     working = item.get("working")
     if isinstance(working, str):
         working = [working]
-    working = [str(w).strip() for w in (working or []) if str(w).strip()][:14]
+    # Twenty-four, not fourteen. A ten-mark "discuss the causes of" answer is
+    # legitimately a dozen points, and truncating it to fit a limit set for
+    # algebra steps hands a student an answer that would lose half its marks.
+    working = [str(w).strip() for w in (working or []) if str(w).strip()][:24]
+    kind = str(item.get("kind") or "").strip().lower()
+    if kind not in ("calculation", "written", "choice"):
+        # Inferred rather than defaulted. Which of the three this is decides
+        # how the answer is laid out on screen and in the PDF, and a written
+        # answer rendered as numbered algebra steps reads as broken.
+        kind = ("choice" if item.get("choice")
+                else "calculation" if re.search(r"[=+×÷^√]|\d\s*/\s*\d",
+                                                " ".join(working) + answer)
+                else "written")
     out = {
+        "kind": kind,
         "n": n,
         # The question as the READING pass copied it, not as the solving
         # pass echoed it back. The echo is where a question quietly becomes
@@ -226,6 +393,30 @@ def clean(raw, chunk):
         if got:
             out.append(got)
     return out
+
+
+def against_key(solved, key):
+    """Say whether each answer agrees with the paper's own printed key.
+
+    The key is the paper's, not ours, and it is the closest thing to a
+    ground truth this whole feature ever gets — so where one exists it is
+    reported plainly on every question it covers, agreement and disagreement
+    alike. A disagreement is not automatically our error: keys are printed
+    wrong, and a teacher looking at both is the right person to decide.
+    Which is exactly why both are shown rather than one being silently
+    preferred.
+    """
+    if not key:
+        return solved
+    for s in solved:
+        want = key.get(str(s["n"]).strip())
+        if not want:
+            continue
+        s["key"] = want
+        mine = (s.get("choice") or "").strip().upper()
+        if mine:
+            s["agrees"] = (mine == want)
+    return solved
 
 
 def missing(asked, solved):

@@ -2044,7 +2044,7 @@ async function logout(){
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
   "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
   "notices", "fees", "attend", "learners", "tmsgs", "asking",
-  "resume", "plans", "hiring", "studio"]);
+  "resume", "plans", "hiring", "studio", "exams"]);
 
 function restoreView(){
   // An employer account has no learner pages, so a stale hash must not put
@@ -3453,14 +3453,15 @@ async function examSolveGo(){
        and a batch that fails costs one batch. */
     const asked = d.questions || [];
     SOLVED = {caveat: d.caveat, found: asked.length, questions: [],
-              missing: []};
+              missing: [], key: d.key || {}};
     examSolveShow(SOLVED);
     for(let i = 0; i < asked.length; i += 10){
       const part = asked.slice(i, i + 10);
       say(`Solving ${i+1}–${Math.min(i+10, asked.length)} of ${
         asked.length}…`);
       try{
-        const r = await api.post("/api/exams/solve", {questions: part});
+        const r = await api.post("/api/exams/solve",
+          {questions: part, key: SOLVED.key});
         SOLVED.questions.push(...(r.questions || []));
         SOLVED.missing.push(...(r.missing || []));
       }catch(e){
@@ -3495,30 +3496,64 @@ function examSolveShow(d){
       question${d.missing.length===1?"":"s"} ${esc(d.missing.join(", "))}.
       Run it again, or photograph ${d.missing.length===1?"that one":"those"}
       on its own.</div>` : ""}
+    ${Object.keys(d.key||{}).length ? `<p class="sub">📋 This paper printed
+      its own answer key, so every multiple-choice answer below is checked
+      against it.</p>` : ""}
     <p class="sub">${esc(d.caveat || "")}</p>
-    ${qs.map(q => `<div class="card" style="padding:14px;margin-bottom:12px">
-      <div style="font-weight:650">Q${esc(q.n)}${
-        q.marks ? ` <span style="font-weight:400;color:var(--dim)">· ${
-        q.marks} mark${q.marks===1?"":"s"}</span>` : ""}</div>
-      <div style="white-space:pre-wrap;margin-top:5px">${
-        mathText(esc(q.question||""))}</div>
-      ${(q.working||[]).length ? `<div style="margin-top:10px">${
-        q.working.map((w,i) => `<div style="display:flex;gap:9px;padding:3px 0">
-          <span style="color:var(--dim);flex:none">${i+1}.</span>
-          <span>${mathText(esc(w))}</span></div>`).join("")}</div>` : ""}
+    ${qs.map(q => solvedCard(q)).join("")}`;
+  $("#xdl").onclick = () => examSolvePdf(d);
+}
+
+/* One question, laid out the way its own subject is answered.
+
+   A history paper is not an algebra paper. Numbered steps are right for
+   working and wrong for "describe the causes of the revolt" — a written
+   answer set out as Step 1, Step 2 reads as broken, and the substance of
+   that answer IS the points, not the one-line summary above them. So the
+   three kinds are drawn differently and the written one leads with its
+   points. */
+function solvedCard(q){
+  const written = q.kind === "written";
+  const rows = (q.working||[]).map((w,i) => `<div style="display:flex;
+      gap:9px;padding:${written?"5px":"3px"} 0">
+    <span style="color:var(--dim);flex:none">${written?"•":(i+1)+"."}</span>
+    <span>${mathText(esc(w))}</span></div>`).join("");
+  /* The paper's own key, where it printed one. Both are shown rather than
+     one silently preferred: a printed key can be wrong too, and a teacher
+     looking at both is the right person to decide which. */
+  const key = !q.key ? "" : (q.agrees === true
+    ? `<div style="margin-top:8px;font-size:12.5px;color:var(--ok,#3fb27f)">
+        ✔ Matches the paper's own answer key (${esc(q.key)}).</div>`
+    : q.agrees === false
+    ? `<div style="margin-top:8px;font-size:12.5px;color:var(--warn,#e0a030)">
+        ⚠️ The paper's key says ${esc(q.key)}. Worth checking which is
+        right — printed keys are wrong too.</div>`
+    : `<div style="margin-top:8px;font-size:12.5px;color:var(--dim)">
+        The paper's key gives ${esc(q.key)} for this one.</div>`);
+  return `<div class="card" style="padding:14px;margin-bottom:12px">
+    <div style="font-weight:650">Q${esc(q.n)}${
+      q.marks ? ` <span style="font-weight:400;color:var(--dim)">· ${
+      q.marks} mark${q.marks===1?"":"s"}</span>` : ""}</div>
+    <div style="white-space:pre-wrap;margin-top:5px">${
+      mathText(esc(q.question||""))}</div>
+    ${written ? `
+      <div style="margin-top:10px">${mathText(esc(q.answer||""))}</div>
+      ${rows ? `<div style="margin-top:8px">${rows}</div>` : ""}`
+    : `
+      ${rows ? `<div style="margin-top:10px">${rows}</div>` : ""}
       <div style="margin-top:10px;padding-top:9px;
         border-top:1px solid var(--line,#2a2a2a)">
         <b>Answer${q.choice ? " · " + esc(q.choice) : ""}:</b>
-        ${mathText(esc(q.answer||""))}</div>
-      ${/* Flagged by substituting the claimed root back into the equation
-            the working itself states — arithmetic, not an opinion. It is
-            shown because a wrong number a class copies down is the most
-            expensive thing on this page. */""}
-      ${(q.doubt||[]).length ? `<div style="margin-top:8px;font-size:12.5px;
-        color:var(--warn,#e0a030)">⚠️ Check this one: ${
-        esc(q.doubt.join("; "))}</div>` : ""}
-    </div>`).join("")}`;
-  $("#xdl").onclick = () => examSolvePdf(d);
+        ${mathText(esc(q.answer||""))}</div>`}
+    ${key}
+    ${/* Flagged by substituting the claimed root back into the equation the
+          working itself states — arithmetic, not an opinion. Shown because
+          a wrong number a class copies down is the most expensive thing on
+          this page. */""}
+    ${(q.doubt||[]).length ? `<div style="margin-top:8px;font-size:12.5px;
+      color:var(--warn,#e0a030)">⚠️ Check this one: ${
+      esc(q.doubt.join("; "))}</div>` : ""}
+  </div>`;
 }
 
 /* The download is the deliverable — a teacher wants the solved paper on
@@ -3537,19 +3572,41 @@ async function examSolvePdf(d){
     rows.forEach(r => { page(size + 4); doc.text(r, M + (indent||0), y);
       y += size + 4; });
   };
+  const qs = d.questions || [];
   doc.setFont("helvetica","bold"); doc.setFontSize(17);
-  doc.text("Solved paper", M, y); y += 24;
+  doc.text("Solved paper", M, y); y += 22;
+  line(`${qs.length} question${qs.length===1?"":"s"}`
+    + (Object.keys(d.key||{}).length
+       ? ", checked against the paper's own answer key" : ""),
+    10, "normal", 0);
+  y += 4;
   line(d.caveat || "", 9, "italic", 0);
   y += 10;
-  (d.questions||[]).forEach(q => {
+  qs.forEach(q => {
     page(70);
     line(`Q${q.n}${q.marks ? `  [${q.marks} marks]` : ""}`, 12, "bold", 0);
     line(q.question || "", 10.5, "normal", 0);
     y += 3;
-    (q.working||[]).forEach((w,i) => line(`${i+1}. ${w}`, 10, "normal", 14));
-    y += 3;
-    line(`Answer${q.choice ? " ("+q.choice+")" : ""}: ${q.answer||""}`,
-         11, "bold", 0);
+    /* Laid out the way its own subject is answered. Numbered steps are
+       right for working and wrong for "describe the causes of" — and for a
+       written answer the substance is the points, so they come after the
+       opening line rather than under a heading called Answer. */
+    if(q.kind === "written"){
+      line(q.answer || "", 11, "normal", 0);
+      (q.working||[]).forEach(w => line("• " + w, 10.5, "normal", 14));
+    }else{
+      (q.working||[]).forEach((w,i) => line(`${i+1}. ${w}`, 10, "normal", 14));
+      y += 3;
+      line(`Answer${q.choice ? " ("+q.choice+")" : ""}: ${q.answer||""}`,
+           11, "bold", 0);
+    }
+    if(q.key){
+      line(q.agrees === true
+        ? `Matches the paper's key (${q.key}).`
+        : q.agrees === false
+        ? `The paper's key says ${q.key} — worth checking which is right.`
+        : `The paper's key gives ${q.key}.`, 9, "italic", 14);
+    }
     (q.doubt||[]).forEach(t => line("Check: " + t, 9, "italic", 14));
     y += 12;
   });
@@ -3557,6 +3614,14 @@ async function examSolvePdf(d){
     page(40);
     line("No answer was produced for: " + d.missing.join(", "), 10,
          "italic", 0);
+  }
+  /* Page numbers, added at the end because the count is not known until
+     then. A twelve-page solved paper that comes apart on a staff-room desk
+     is worth the four lines. */
+  const total = doc.getNumberOfPages();
+  for(let p = 1; p <= total; p++){
+    doc.setPage(p); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+    doc.text(`${p} of ${total}`, 595 - M, 842 - 24, {align:"right"});
   }
   doc.save("solved-paper.pdf");
 }
@@ -12533,6 +12598,10 @@ document.addEventListener("click",e=>{
      Nothing errored: an unmatched name falls off the end of the chain and
      leaves the view untouched, so the click was simply swallowed. */
   else if(n==="net")       S.view={page:"net"};
+  /* And the same again. The nav item was drawn, the router had a branch for
+     it, and clicking did nothing at all — an unmatched name falls off the
+     end of this chain silently. Adding a page means adding it here too. */
+  else if(n==="exams")     S.view={page:"exams"};
   else if(n==="class")     S.view={page:"class"};
   else if(n==="careers")   S.view={page:"careers"};
   else if(n==="resume")    S.view={page:"resume"};
