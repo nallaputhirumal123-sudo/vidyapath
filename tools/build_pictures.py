@@ -93,8 +93,16 @@ def main():
         try:
             found = teachpdf.pictures(raw)
         except Exception as e:
-            print(f"  {code}: {type(e).__name__}")
-            found = []
+            # Not marked done, for the same reason a failed download is not.
+            #
+            # This used to fall through to the INSERT below, so a chapter
+            # whose images need a codec pypdf has not got — several Class 8
+            # Civics chapters raise DependencyError on JPEG 2000 — was
+            # recorded as a chapter successfully found to have no pictures.
+            # The next run skipped it, and the hole was permanent and
+            # silent. Install the codec, run again, and it is picked up.
+            print(f"  {code}: {type(e).__name__} — left for a later run")
+            continue
         rows = []
         for p in found[:corpus.PIC_PER_CHAPTER]:
             try:
