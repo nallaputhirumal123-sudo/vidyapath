@@ -135,6 +135,22 @@ db.commit()
 t.post("/api/class/join", json={"code": hc})
 cid = t.post("/api/teacher/class", json={"name": f"7-C {u}"}).json()["id"]
 
+# The office creates the class; a SUBJECT TEACHER holds the conversation.
+# This used to post as the head, which worked while the office could read and
+# write every thread in the school. It no longer can — running the school and
+# teaching a lesson are separate jobs — so the thread needs the person it
+# actually belongs to.
+tpw = t.post("/api/head/staff",
+             json={"name": "Bio Teacher", "email": f"bio{u}@example.com",
+                   "role": "teacher"}).json().get("temporary_password")
+brow = db.query(main.User).filter(
+    main.User.email == f"bio{u}@example.com").first()
+t.post("/api/head/assign", json={"class_id": cid, "subject": "Biology",
+                                 "user_id": brow.id})
+t = TestClient(main.app)
+t.post("/api/auth/login", json={"email": f"bio{u}@example.com",
+                                "password": tpw})
+
 r = t.post(f"/api/class/{cid}/discussion",
            json={"body": "Welcome to Biology.", "subject": "Biology"})
 ck("a message posts", r.status_code == 200, r.text[:80])

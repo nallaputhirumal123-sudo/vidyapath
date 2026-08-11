@@ -214,10 +214,12 @@ _IDX = _io.open(_os.path.join(_os.path.dirname(_os.path.dirname(
     _os.path.abspath(__file__))), "index.html"), encoding="utf-8").read()
 
 print("\nthe school admin can SEE a class's work, not only reach it")
-check("the class page has a rule for what both roles see",
-      "const SEES_WORK = TEACHES || OFFICE;" in _IDX,
-      "teaches() excludes the office by design; that is right for the "
-      "controls and wrong for the material")
+check("the class page keeps the two jobs apart",
+      "const SEES_WORK = TEACHES;" in _IDX,
+      "this briefly read TEACHES || OFFICE — asked for, then corrected by "
+      "the school: an administrator runs the school, its subjects and who "
+      "teaches what; a lesson's work and its conversation belong to the "
+      "class and that subject's teacher")
 check("and the work block is drawn on it, not on TEACHES",
       "${SEES_WORK ? `\n    <div class=\"eyebrow\">Study material</div>"
       in _IDX,

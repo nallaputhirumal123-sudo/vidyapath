@@ -1151,7 +1151,27 @@ function markOn(i){
        window would end at the fold, and a mark made after scrolling would
        have nowhere to land. */
     var w = body.clientWidth, h = Math.max(body.scrollHeight, body.clientHeight);
-    if(cv.width === Math.round(w * R) && cv.height === Math.round(h * R)) return;
+    /* The context FIRST, before any early return.
+     *
+     * markOn() runs again every time the pen is picked up — press Done,
+     * press the pencil, and this whole closure is rebuilt with ctx null.
+     * The canvas element survives, so the second time round its size still
+     * matches and the check below returned before ctx was ever fetched:
+     * every later stroke went into a null context and the board looked
+     * broken. That is the "I press the pencil again and cannot write".
+     *
+     * Fetching a 2d context twice for the same canvas returns the same
+     * object, so there is nothing to save by skipping it. Only the resize
+     * work below is worth guarding, because setting cv.width clears the
+     * canvas — doing that on every pen-up would rub out the marks. */
+    if(!ctx){
+      ctx = cv.getContext("2d");
+      ctx.setTransform(R, 0, 0, R, 0, 0);
+    }
+    if(cv.width === Math.round(w * R) && cv.height === Math.round(h * R)){
+      paint();          /* the marks are still ours to draw */
+      return;
+    }
     cv.width = Math.round(w * R);
     cv.height = Math.round(h * R);
     cv.style.width = w + "px";
@@ -1236,15 +1256,23 @@ function markOn(i){
     for(var j = 0; j < pts.length; j++) live.p.push(at(pts[j]));
     paint();
   };
-  ["pointerup", "pointercancel", "pointerleave"].forEach(function(ev){
-    cv.addEventListener(ev, function(){
-      if(!drawing) return;
-      drawing = false;
-      if(live && live.p.length) p.marks.push(live);
-      live = null;
-      paint();
-    });
-  });
+  /* Assigned, not added.
+   *
+   * markOn() runs again every time the pen is picked up, and
+   * addEventListener stacks: after three presses, one pen-up ran three
+   * handlers from three dead closures, each pushing the same stroke and
+   * repainting. onpointerdown and onpointermove above are assignments and
+   * so replace cleanly; these have to behave the same way. */
+  var lift = function(){
+    if(!drawing) return;
+    drawing = false;
+    if(live && live.p.length) p.marks.push(live);
+    live = null;
+    paint();
+  };
+  cv.onpointerup = lift;
+  cv.onpointercancel = lift;
+  cv.onpointerleave = lift;
 
   bar.querySelectorAll("[data-mc]").forEach(function(b){
     b.classList.toggle("sel", b.dataset.mc === p.markColour);

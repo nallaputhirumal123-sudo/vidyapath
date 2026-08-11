@@ -9042,17 +9042,28 @@ def _discussion_scope(db, cid, user):
 
     Three answers, and the order matters:
 
-      * the head, and the office, see everything — they are responsible for
-        the whole school and cannot supervise what they cannot read;
       * a child in the class sees every subject their class is taught,
         because those are their own lessons;
-      * everybody else is staff, and sees the subjects they hold here.
+      * staff see the subjects they hold here, and only those;
+      * the office is staff who hold nothing, so the office sees nothing.
+
+    That last line was the opposite until now: the head and the office read
+    every thread in the school, on the reasoning that they cannot supervise
+    what they cannot read. The school's own answer is that the two jobs are
+    separate — an administrator runs the school, its subjects, who teaches
+    what and what is announced; a subject's discussion is between a class
+    and the teacher of that subject. A child asking a question in a lesson
+    is not writing to the administration, and thirty children being read by
+    somebody they have never been taught by is not oversight.
+
+    A platform admin keeps it, because that is the operator of the service
+    rather than anybody at the school.
 
     Membership is checked before the subject slots rather than after, because
     a teacher who is also enrolled somewhere must not have their own class's
     threads narrowed to the subjects they teach in it.
     """
-    if user.is_admin or is_head(user, db):
+    if user.is_admin:
         return None
     if (db.query(ClassMember)
           .filter(ClassMember.class_id == cid,

@@ -8,8 +8,8 @@ right test for study material and the wrong one for a conversation.
 
 Three answers, and this pins all three:
 
-  * the head and the office see everything — they are responsible for the
-    school and cannot supervise what they cannot read;
+  * the head and the office see NONE of it — they run the school, its
+    subjects and who teaches what; a lesson's conversation is not theirs;
   * a child sees every subject their own class is taught;
   * a teacher sees the subjects they hold in that class, and no others.
 
@@ -145,13 +145,24 @@ ck("both threads are theirs to see",
 ck("and they can read a subject they were answered in",
    kid.get(f"/api/class/{CID}/discussion?subject=Science").status_code == 200)
 
-print("\nthe head sees everything, because they answer for it")
+print("\nthe head sees NONE of it, because the two jobs are separate")
+# This read the other way — the head saw every thread in the school, on the
+# reasoning that they cannot supervise what they cannot read. The school's
+# own answer is that an administrator runs the school, its subjects and who
+# teaches what, while a subject's discussion is between a class and the
+# teacher of that subject. A child asking a question in a lesson is not
+# writing to the administration, and thirty children being read by somebody
+# who has never taught them is not oversight.
 d = head.get(f"/api/class/{CID}/discussion").json()
 bodies = bodies_in(d)
-ck("every subject", f"what is a prime {st}" in bodies
-   and f"why is the sky blue {st}" in bodies, bodies[:130])
-ck("including one filtered by subject",
-   head.get(f"/api/class/{CID}/discussion?subject=Science").status_code == 200)
+ck("no subject's thread reaches the office",
+   f"what is a prime {st}" not in bodies
+   and f"why is the sky blue {st}" not in bodies, bodies[:130])
+ck("and asking for one by name is refused outright",
+   head.get(f"/api/class/{CID}/discussion?subject=Science").status_code == 403)
+ck("while the school itself is still theirs to run",
+   head.get("/api/head/overview").status_code == 200,
+   "classrooms, subjects, who teaches what and what is announced")
 
 print("\nand nobody outside the class gets in at all")
 out, _ = account("out", "Outsider W")
