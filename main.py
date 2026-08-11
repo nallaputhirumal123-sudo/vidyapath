@@ -1443,11 +1443,32 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not user or not user.is_active:
         raise HTTPException(401, "Account not available")
     # One login per account, to stop one subscription covering several people.
-    # Admins are exempt: running the site means being signed in on several
-    # browsers at once, and locking yourself out of your own admin panel is a
-    # cost with no benefit. Accounts created before this existed have no
-    # stored token, so they keep working until their next sign-in.
-    if (user.session_token and not user.is_admin
+    #
+    # Admins used to be exempt from this check outright, because running the
+    # site means several browsers at once and being kicked out of your own
+    # admin panel is a cost with no benefit. That exemption is gone, and it
+    # had to go: it made the token unkillable. Signing out removes it from
+    # the list, which is what ends a session for everybody else — and for an
+    # admin the check that reads the list was skipped, so the cookie went on
+    # working and sign-out was the one thing on this product that did not do
+    # what it said.
+    #
+    # What the exemption was FOR is now handled properly by _device_cap: an
+    # administrator is staff, so they hold four devices rather than one and
+    # are not pushed off by their own second browser. The rule and the reason
+    # finally match, instead of one being suspended to paper over the other.
+    #
+    # Accounts created before any of this have no stored token and keep
+    # working until their next sign-in.
+    # Keyed on the TOKEN carrying an `st`, not on the user still having one.
+    #
+    # This read `if user.session_token and ...`, which is falsy the moment
+    # the list empties — and signing out on your only device empties it. So
+    # the last sign-out turned the check off and left the token it had just
+    # revoked working perfectly. The guard was there for accounts minted
+    # before any of this existed; those have no `st` in their payload, which
+    # is the thing to test, and it does not change when somebody signs out.
+    if (payload.get("st")
             and payload.get("st") not in _sessions(user)):
         # The message has to state the number that actually applied, which is
         # the role's cap and not the global one — a teacher told "one device
@@ -2731,7 +2752,39 @@ def auth_reset(body: ResetIn, response: Response, db: Session = Depends(get_db))
 
 
 @app.post("/api/auth/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response,
+           db: Session = Depends(get_db)):
+    """Sign out, and mean it on the server as well as in the browser.
+
+    This deleted the cookie and nothing else, so the token in it stayed
+    valid: anything holding a copy — another browser, a machine somebody
+    walked away from, a cookie captured earlier — went on working after the
+    person believed they had signed out. On a computer at the front of a
+    classroom, used by whoever is teaching that period, that is the case
+    that matters.
+
+    Only THIS device's token is dropped. Signing out on a phone must not
+    end the session on the laptop; that is what a device list is for.
+
+    Deliberately takes no `current_user`: an expired, forged or already
+    invalid cookie must still be deleted rather than answering 401 and
+    leaving somebody stuck on a screen with no way out.
+    """
+    tok = request.cookies.get("vp_session", "")
+    if tok:
+        try:
+            payload = jwt.decode(tok, JWT_SECRET, algorithms=["HS256"])
+            u = db.get(User, int(payload.get("sub") or 0))
+            mine = payload.get("st") or ""
+            if u is not None and mine:
+                left = [s for s in _sessions(u) if s != mine]
+                if len(left) != len(_sessions(u)):
+                    u.session_token = ",".join(left)
+                    db.commit()
+        except Exception:
+            # A cookie we cannot read is a cookie with no session behind it.
+            # Nothing to revoke, and the delete below still has to happen.
+            pass
     response.delete_cookie("vp_session", path="/")
     return {"ok": True}
 
