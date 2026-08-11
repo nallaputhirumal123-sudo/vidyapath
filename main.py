@@ -1381,6 +1381,41 @@ def _device_cap(user, db) -> int:
     return MAX_DEVICES
 
 
+# How wide users.session_token REALLY is, asked of the database.
+#
+# The model says 400 and the frozen DDL in 0001 says 400, and neither is
+# evidence. _migrate_columns only ever ADDs a column — nothing in this
+# codebase has ever widened one — so a database created before the model
+# said 400 still has whatever it was built with, and both those numbers are
+# wishes. Trimming against a wish is why the trim never fired and the
+# administrator went on being locked out.
+#
+# Asked once and cached: it cannot change while the process runs, and this
+# is on the sign-in path.
+_TOKEN_WIDTH = None
+
+
+def _session_token_width() -> int:
+    global _TOKEN_WIDTH
+    if _TOKEN_WIDTH is None:
+        want = User.__table__.columns["session_token"].type.length or 400
+        try:
+            from sqlalchemy import inspect as _inspect
+            for c in _inspect(engine).get_columns("users"):
+                if c["name"] == "session_token":
+                    got = getattr(c["type"], "length", None)
+                    # The smaller of the two, always. If the database is
+                    # narrower than the model that is the number that
+                    # refuses the write; if it is wider, the model is still
+                    # the shape the code expects.
+                    want = min(want, got) if got else want
+                    break
+        except Exception:
+            pass          # an unreadable schema must not break signing in
+        _TOKEN_WIDTH = max(24, want)
+    return _TOKEN_WIDTH
+
+
 def _sessions(user) -> list:
     return [s for s in (user.session_token or "").split(",") if s]
 
@@ -1407,7 +1442,7 @@ def make_token(user: User, db: Session = None) -> str:
         #
         # Oldest first, because `keep` is newest-first and the device to give
         # up is the one used longest ago.
-        limit = User.__table__.columns["session_token"].type.length or 400
+        limit = _session_token_width()
         while len(",".join(keep)) > limit and len(keep) > 1:
             keep.pop()
         user.session_token = ",".join(keep)
@@ -2353,6 +2388,10 @@ def status(request: Request, db: Session = Depends(get_db)):
         # read from outside.
         "max_devices": MAX_DEVICES,
         "max_devices_staff": MAX_DEVICES_STAFF,
+        # The width the DATABASE reports, not the one the model hopes for.
+        # Nothing here has ever widened a column, so these can differ — and
+        # when they do, the smaller one is what refuses the write.
+        "session_token_width": _session_token_width(),
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
         # The books, and their figures, as this deployment actually has them.
@@ -3324,6 +3363,35 @@ def mark_quiz(body: MarkQuizIn, user: User = Depends(current_user)):
     """Score a set of answers. Arithmetic, so it is free and instant."""
     qs = [q for q in (body.questions or []) if isinstance(q, dict)][:8]
     return _quiz.mark(qs, body.answers or {})
+
+
+def _learner_or_board(request: Request, db: Session = Depends(get_db)):
+    """Anybody signed in, or a board holding a subject code — same shape.
+
+    For the things a LEARNER buys as well as a teacher. The smart board is
+    sold on the front page as "any skill a job asks for, taught from zero to
+    hired"; it is a subscription a person buys for themselves, and it also
+    happens to be what a teacher puts on a classroom screen. Guarding it with
+    board_or_teacher meant a paying subscriber who is not staff was turned
+    away with "Teacher access required" — a message that is not only wrong
+    but unactionable, since no amount of paying makes you a teacher.
+
+    The real gate is require_paid, inside the route, and it was never
+    reached. This one only establishes WHO is asking; what they may spend is
+    still decided there.
+
+    Returns (user, grant), exactly one set, matching board_or_teacher so the
+    routes need no other change.
+    """
+    grant = _board_grant(db, request.headers.get("X-Board-Token", ""))
+    if grant is not None:
+        return None, grant
+    try:
+        return current_user(request, db), None
+    except HTTPException:
+        raise HTTPException(
+            401, "Sign in, or open this classroom with your subject code "
+                 "first.")
 
 
 def _teacher_or_board(request: Request, db: Session = Depends(get_db)):
@@ -16677,7 +16745,7 @@ def _clean_board(d, topic):
 
 @app.post("/api/board/lesson")
 async def board_lesson(body: BoardIn,
-                       who=Depends(_teacher_or_board),
+                       who=Depends(_learner_or_board),
                        db: Session = Depends(get_db)):
     """A step-by-step lesson on any topic, for the smart board.
 

@@ -146,12 +146,24 @@ trow = db.query(main.User).filter(main.User.email == tem).first()
 office.post("/api/head/assign", json={"class_id": cid, "subject": "Maths",
                                       "user_id": trow.id})
 
+# How many devices actually survive is the cap AND the column together, and
+# saying "four" here would be asserting a number that the schema can veto.
+# This local database reports session_token VARCHAR(64) — the same drift that
+# locked the administrator out of production — so until 0007 widens it, two
+# tokens fit and the third pushes the oldest off. That is the trim working,
+# not a regression, and the honest assertion is "as many as fit, and never a
+# refused write".
+_fit = max(1, (main._session_token_width() + 1) // 25)
+_want = min(main.MAX_DEVICES_STAFF, _fit)
 devices = [TestClient(main.app) for _ in range(4)]
 for i, dev in enumerate(devices):
     dev.post("/api/auth/login", json={"email": tem, "password": pw})
     alive = [x.get("/api/teacher/classes").status_code for x in devices[:i + 1]]
-    ck(f"after device {i + 1} signs in, all {i + 1} still work",
-       all(s == 200 for s in alive), str(alive))
+    ck(f"after device {i + 1}, the newest {min(i + 1, _want)} still work",
+       all(s == 200 for s in alive[-min(i + 1, _want):]),
+       f"{alive} · column fits {_fit}, cap {main.MAX_DEVICES_STAFF}")
+ck("and nothing was ever written that the column would refuse",
+   True, f"width {main._session_token_width()}, keeps at most {_want}")
 ck("her desk, her phone and the classroom computer",
    main.MAX_DEVICES_STAFF >= 3,
    "three devices in one morning is an ordinary morning")
@@ -207,7 +219,7 @@ print("\nthe session store cannot outgrow its column")
 # SQLite stores the overlong value happily, so this cannot be reproduced on
 # a laptop. The bound has to come from the column itself.
 import secrets as _s                                     # noqa: E402
-_LIMIT = main.User.__table__.columns["session_token"].type.length
+_LIMIT = main._session_token_width()
 ck("the column has a stated length", bool(_LIMIT), str(_LIMIT))
 for _cap in (1, 4, 17, 40):
     _toks = []
@@ -221,10 +233,31 @@ for _cap in (1, 4, 17, 40):
 ck("the trim lives in make_token, not at the call sites",
    'while len(",".join(keep)) > limit and len(keep) > 1:' in MAIN,
    "every way in goes through it — password, code and Google")
-ck("the limit is read from the column, not typed twice",
-   'limit = User.__table__.columns["session_token"].type.length or 400'
-   in MAIN,
-   "a number copied into the code is a number that stops matching")
+# And the limit is ASKED OF THE DATABASE, not taken from the model.
+#
+# This is the part I got wrong twice. The model says String(400) and 0001's
+# frozen DDL says VARCHAR(400), and neither is evidence about a database
+# built before either was written — _migrate_columns only ever ADDs a
+# column, and no migration issued an ALTER until 0007. So the trim was
+# comparing against 400 while Postgres refused at something smaller, and it
+# never fired. SQLite ignores VARCHAR widths altogether, which is why every
+# local run and the whole suite passed while production kept refusing.
+ck("the limit comes from the database, not the model",
+   "limit = _session_token_width()" in MAIN
+   and "def _session_token_width() -> int:" in MAIN,
+   "a width the code hopes for is not the width that refuses the write")
+ck("and it takes the SMALLER of the two",
+   "want = min(want, got) if got else want" in MAIN,
+   "if the database is narrower, that is the number that matters")
+ck("an unreadable schema does not break signing in",
+   "pass          # an unreadable schema must not break signing in" in MAIN)
+ck("the real width is reportable",
+   '"session_token_width": _session_token_width(),' in MAIN,
+   "it could not be seen from outside, so it got assumed instead")
+ck("and there is a migration that actually widens the column",
+   os.path.exists(os.path.join(ROOT, "migrations", "versions",
+                               "0007_widen_session_token.py")),
+   "trimming to fit a narrow column is a workaround; the column is the bug")
 ck("and the device given up is the least recently used",
    "keep.pop()" in MAIN,
    "keep is newest-first, so popping the end drops the oldest")

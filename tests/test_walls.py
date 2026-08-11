@@ -179,9 +179,26 @@ refused("no PDF written up as a lesson",
 refused("no Ask Axle", OFFICE.post("/api/ask",
                                    json={"question": "what is refraction",
                                          "subject": "Science"}))
-refused("no lesson on the board", OFFICE.post("/api/board/lesson",
-                                              json={"topic": "refraction",
-                                                    "level": "Intermediate"}))
+# /api/board/lesson is NOT one of these walls, and used to be by accident.
+#
+# It was guarded with board_or_teacher, so anyone who was not staff was told
+# "Teacher access required" — including a paying Axle Pro subscriber, who
+# cannot become a teacher by paying more. The smart board is sold on the
+# front page to learners; the gate that belongs on it is require_paid, and
+# that gate was never reached.
+#
+# With a SESSION it reads no class, no register and no subject: it makes a
+# lesson and bills the person who asked. The wall this suite is about is the
+# office reaching into a classroom's data, and every one of those refusals
+# above and below still stands. With a BOARD TOKEN it is still charged to
+# the teacher the school put on that subject, which is checked in
+# test_code_login.
+_r = OFFICE.post("/api/board/lesson",
+                 json={"topic": "refraction", "level": "Intermediate"})
+ck("a lesson on the board is a paid feature, not a teaching permission",
+   _r.status_code not in (401, 403),
+   f"got {_r.status_code}: {_r.text[:90]} — 403 here means a subscriber is "
+   f"being told to become a teacher")
 # And it keeps everything it is actually for, or the wall is a wall in the
 # wrong place. A principal who cannot see their own school is not secured.
 ck("the office still runs the school",
