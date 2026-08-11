@@ -6473,7 +6473,13 @@ function lessonPages(L, topic){
   }
 
   (L.steps || []).forEach(function(st, i){
+    // A step's lines arrive as an array from the server, which is what
+    // lessonProse wants — but handing that array to a function expecting
+    // text lets JavaScript stringify it, and Array.toString joins on commas.
+    // A chapter written up on this board came out as "...source is small.,It
+    // is soft when..." with a comma welded between two sentences.
     var body = typeof st === "string" ? st : (st.t || "");
+    if(Array.isArray(body)) body = body.join("\n");
     var figs = [];
     var h = '<div class="card"><div class="lstep"><b>' + (i + 1) + "</b>" +
       "<span>of " + ((L.steps || []).length || 1) +
@@ -6810,7 +6816,14 @@ async function lessonPut(L, topic){
   var head = document.querySelector('[data-pick="' + LIVE + '"]');
   if(head && TOOL_NAMES["board"]) head.value = "board";
   // Awaited, because #bOut does not exist until the page has drawn itself.
-  await board(topic);
+  //
+  // With NO topic, deliberately. board(topic) does not merely draw the ask
+  // panel — given a topic it goes on to teach it, which is a model call for
+  // a lesson we are already holding. Passing the chapter's title through
+  // here threw the previewed lesson away and asked the board to invent a
+  // new one about the same words; on a board with no key configured it
+  // replaced the preview with "The AI tutor is not switched on".
+  await board("");
   LESSON = { raw: L, topic: topic, title: L.title || topic,
              pages: lessonPages(L, topic), at: 0,
              view: lessonView(), tail: "" };
