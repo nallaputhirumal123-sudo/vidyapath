@@ -208,6 +208,20 @@ def _rederive(con):
                 or _corpus._SUBJECT_ALONE.match(fresh)
                 or _corpus._NOT_A_TITLE.match(fresh)):
             continue
+        # Only when it is a HEADING, and only when it is shorter.
+        #
+        # Some chapters open on prose because their heading is set as
+        # artwork and never reaches the text layer at all. Re-deriving those
+        # returns "Renuka was excited. Shrikant Uncl..." — the chapter's
+        # first line, which is not its name. Swapping one run-on for a
+        # slightly longer run-on is churn, not repair.
+        #
+        # A heading is one phrase: it does not contain a sentence boundary,
+        # and re-reading should make the title shorter rather than longer.
+        # Where neither holds, the existing title stays and the chapter is
+        # left verbose, which is honest and is where this stops.
+        if len(fresh) >= len(head) or re.search(r"[.!?]\s+[A-Z]", fresh):
+            continue
         out.append((slug, title, prefix + fresh))
     return out
 

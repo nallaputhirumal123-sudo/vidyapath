@@ -365,7 +365,14 @@ def title_of(text, fallback=""):
             # going, because "MATHEMATICS" is short — and swallowed the first
             # sentence of the chapter.
             tail = " ".join(parts).rstrip()
-            if not nxt or len(nxt) > 60 or _NOT_A_TITLE.match(nxt):
+            # 40, not 60. A heading's second line is a fragment — "Refl
+            # ections", "to a Healthy Body", "TRIGONOMETRY". A chapter's
+            # first line of prose is a line of prose, and at 60 one fitted:
+            # "Light: Shadows and Refl ections" ran on into "In the Western
+            # Ghat region of Maharashtra, Keshav spends" because that is 55
+            # characters and opens with "In", which the continuation rule
+            # reads as the rest of a heading.
+            if not nxt or len(nxt) > 40 or _NOT_A_TITLE.match(nxt):
                 break
             # A line beginning "to", "of", "and" is the rest of the heading
             # above it: "Mindful Eating: A Path" / "to a Healthy Body".
