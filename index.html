@@ -3453,7 +3453,7 @@ async function examSolveGo(){
        and a batch that fails costs one batch. */
     const asked = d.questions || [];
     SOLVED = {caveat: d.caveat, found: asked.length, questions: [],
-              missing: [], key: d.key || {}};
+              missing: [], key: d.key || {}, paper: d.paper || ""};
     examSolveShow(SOLVED);
     for(let i = 0; i < asked.length; i += 10){
       const part = asked.slice(i, i + 10);
@@ -3461,7 +3461,7 @@ async function examSolveGo(){
         asked.length}…`);
       try{
         const r = await api.post("/api/exams/solve",
-          {questions: part, key: SOLVED.key});
+          {paper: SOLVED.paper, questions: part, key: SOLVED.key});
         SOLVED.questions.push(...(r.questions || []));
         SOLVED.missing.push(...(r.missing || []));
       }catch(e){

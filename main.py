@@ -17805,20 +17805,27 @@ async def read_paper(files: list[UploadFile] = File(...),
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
     _school_only(db, user)
-    require_paid_or_trial(db, user, "solve_paper", "Solving a whole paper",
-                          "one free paper")
 
     h = hashlib.sha256()
     for raw, _ in raw_files:
         h.update(raw)
-    qkey = f"readpaper|{h.hexdigest()[:32]}"[:500]
+    digest = h.hexdigest()[:32]
+    qkey = f"readpaper|{digest}"[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     cached = _cached_json(db, row, need=None)
+    # Before the paywall, deliberately. A paper already read costs nothing to
+    # hand back, and a teacher who spent their free go on this very paper
+    # being unable to open it again would read as the product taking the
+    # thing it just sold them.
     if cached:
         row.hits = (row.hits or 0) + 1
         db.commit()
         return {**cached, "cached": True}
 
+    # The free paper is spent here, on the reading, and the batches that
+    # solve it are let through on the receipt this returns.
+    require_paid_or_trial(db, user, "solve_paper", "Solving a whole paper",
+                          "one free paper")
     _ai_enforce_limit(db, user)
     try:
         # The free path first. A typed PDF carries its own text, and reading
@@ -17864,6 +17871,11 @@ async def read_paper(files: list[UploadFile] = File(...),
     out = {
         "questions": asked,
         "pages": len(raw_files),
+        # The receipt. The free go is spent HERE, on the paper, and the
+        # batches that solve it are authorised by quoting this back — see
+        # the note on /api/exams/solve for why that is the only way one
+        # free paper can mean one free paper.
+        "paper": digest,
         # The paper's own answer key, where it printed one. It is the
         # closest thing to a ground truth this feature ever gets, so every
         # answer it covers is reported against it — agreement and
@@ -17885,6 +17897,8 @@ async def read_paper(files: list[UploadFile] = File(...),
 
 
 class SolveBatch(BaseModel):
+    # Which paper these questions came off. Not decoration — see below.
+    paper: str = Field(default="", max_length=64)
     questions: list[dict] = []
     key: dict = {}
 
@@ -17903,6 +17917,20 @@ async def solve_batch(body: SolveBatch,
 
     Cached per batch on the questions themselves, so re-running a paper
     after one bad batch pays only for that batch.
+
+    **The free paper is charged for at /api/exams/read, not here, and this
+    route is authorised by proving the paper was read.** Charging here as
+    well made one free paper mean no free paper at all: reading spent the
+    single allowance, and then the first batch of the very paper it had
+    just given away was refused for having spent it. So the batch quotes
+    the receipt the read returned, and the questions it sends must actually
+    be on that paper.
+
+    That check is doing a second job. Without it this is a route that takes
+    arbitrary text and returns whatever a model says about it — free-form
+    model access with somebody else's key, reachable by anybody with a
+    school account. Tying every batch to a paper that was read, and paid
+    for, closes that as a side effect of closing the first hole.
     """
     if not ASK_ENABLED:
         raise HTTPException(503, "The AI tutor is not switched on")
@@ -17917,8 +17945,33 @@ async def solve_batch(body: SolveBatch,
     if not chunk:
         raise HTTPException(400, "No questions were sent.")
     _school_only(db, user)
-    require_paid_or_trial(db, user, "solve_paper", "Solving a whole paper",
-                          "one free paper")
+
+    # The receipt, and what it is a receipt FOR. A paper that was never read
+    # here cannot be solved here, and questions that are not on the paper
+    # named are not solved either — otherwise the paper reference is a
+    # password rather than a bill, and one real paper would buy unlimited
+    # questions about anything at all.
+    paper = re.sub(r"[^0-9a-f]", "", (body.paper or "").lower())[:32]
+    read_row = (db.query(AskCache)
+                  .filter(AskCache.qkey == f"readpaper|{paper}").first()
+                if paper else None)
+    on_paper = set()
+    if read_row is not None:
+        try:
+            for q in (json.loads(read_row.lesson) or {}).get("questions", []):
+                on_paper.add(_solver.fingerprint(q.get("n"), q.get("text")))
+        except Exception:
+            on_paper = set()
+    if not on_paper:
+        raise HTTPException(
+            400, "Upload the paper first — solving works on a paper that "
+                 "has been read.")
+    stray = [q["n"] for q in chunk
+             if _solver.fingerprint(q["n"], q["text"]) not in on_paper]
+    if stray:
+        raise HTTPException(
+            400, "Those questions are not on the paper that was read. "
+                 "Upload the paper again.")
 
     h = hashlib.sha256()
     for q in chunk:

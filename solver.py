@@ -306,6 +306,18 @@ def questions(text):
     return out[:MAX_QUESTIONS]
 
 
+def fingerprint(n, text):
+    """A question's identity, for checking it is on the paper it claims.
+
+    Whitespace-insensitive, because the question travels to the browser as
+    JSON and back and a rewrapped line is the same question. Not
+    case-folded: a chemistry paper's Mg and mg are different things, and a
+    check that cannot tell them apart is not much of a check.
+    """
+    return " ".join(str(n or "").split()) + "\x1f" + \
+        " ".join(str(text or "").split())
+
+
 def batches(qs, size=BATCH):
     for i in range(0, len(qs), size):
         yield qs[i:i + size]

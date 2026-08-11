@@ -312,6 +312,49 @@ ck("one failed batch does not lose the paper",
    "SOLVED.missing.push(...part.map(q => q.n));" in IDX,
    "a teacher would rather have fifty of sixty and know which ten")
 
+print("\none free paper, and it has to actually be one whole paper")
+# This was broken and shipped. The read spent the single free go, and then
+# the first batch of the very paper it had just given away re-checked the
+# same allowance and was refused — so one free paper meant no free paper at
+# all. The free go is charged once, on the read, and the batches that solve
+# it are let through on the receipt the read hands back.
+ck("the allowance is one paper", '"solve_paper": 1' in MAIN)
+read_src = MAIN.split('@app.post("/api/exams/read")')[1].split("\n@app.")[0]
+solve_src = MAIN.split('@app.post("/api/exams/solve")')[1].split("\n@app.")[0]
+ck("it is spent on the read", "require_paid_or_trial" in read_src
+   and '_trial_consume(db, user, "solve_paper")' in read_src)
+ck("and NOT charged a second time per batch",
+   "require_paid_or_trial" not in solve_src,
+   "charging both is what made one free paper mean none: reading spent the "
+   "go, and the first batch of that same paper was refused for having "
+   "spent it")
+ck("a paper already read is handed back without paying again",
+   read_src.index("if cached:") < read_src.index("require_paid_or_trial"),
+   "a teacher unable to reopen the paper they spent their free go on "
+   "reads as the product taking back the thing it just sold them")
+ck("the read returns a receipt", '"paper": digest,' in read_src)
+ck("and the browser quotes it on every batch",
+   "paper: SOLVED.paper" in IDX and 'paper: str = Field(' in MAIN)
+
+print("\nand the receipt is a bill, not a password")
+ck("a batch for a paper never read is refused",
+   "Upload the paper first" in solve_src)
+ck("questions that are not on that paper are refused too",
+   "Those questions are not on the paper that was read" in solve_src,
+   "otherwise one real paper buys unlimited questions about anything, "
+   "which is free-form model access on somebody else's key")
+ck("the paper id cannot be anything but a digest",
+   'r"[^0-9a-f]", "", (body.paper or "").lower())[:32]' in solve_src)
+ck("questions are matched on their identity, not their whitespace",
+   "def fingerprint(" in io.open(os.path.join(ROOT, "solver.py"),
+                                 encoding="utf-8").read(),
+   "a question rewrapped by a round trip through JSON is the same question")
+ck("and identity is case-sensitive",
+   solver.fingerprint("1", "Mg burns") != solver.fingerprint("1", "mg burns"),
+   "a chemistry paper's Mg and mg are different things")
+ck("but not whitespace-sensitive",
+   solver.fingerprint("1", "a  b\nc") == solver.fingerprint(" 1 ", "a b c"))
+
 print("\nthe cheap path is tried first")
 ck("a typed PDF is read as text, not photographed",
    "_teachpdf.extract(raw_files[0][0])" in MAIN
@@ -323,7 +366,8 @@ ck("only a scan goes to the vision model",
 ck("and the browser renders it, because it has the renderer",
    "if(!/SCANNED/.test(e.message || \"\")) throw e;" in IDX)
 ck("reading is cached on the bytes",
-   'f"readpaper|{h.hexdigest()[:32]}"' in MAIN,
+   'digest = h.hexdigest()[:32]' in MAIN
+   and 'qkey = f"readpaper|{digest}"' in MAIN,
    "a class of thirty uploading the same paper is one reading")
 ck("each batch is cached on its own questions",
    'f"solvebatch|{h.hexdigest()[:32]}"' in MAIN,
