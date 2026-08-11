@@ -1286,7 +1286,8 @@ LAST_GOOGLE = {"ok": None, "at": None, "error": "", "google_said": "",
 # server error" is the least informative screen this product can produce,
 # and the traceback behind it lives in a container log nobody has open when
 # a school telephones.
-LAST_ERROR = {"at": None, "path": "", "method": "", "error": "", "where": ""}
+LAST_ERROR = {"at": None, "path": "", "method": "", "error": "", "where": "",
+              "pgcode": "", "column": "", "table": ""}
 
 
 def send_email(to: str, subject: str, body: str):
@@ -2293,7 +2294,12 @@ def status(request: Request, db: Session = Depends(get_db)):
         # is what tells you where to look, and it is not anybody's data.
         "last_error": ({"at": LAST_ERROR["at"], "path": LAST_ERROR["path"],
                         "method": LAST_ERROR["method"],
-                        "type": (LAST_ERROR["error"] or "").split(":")[0]}
+                        "type": (LAST_ERROR["error"] or "").split(":")[0],
+                        # The database's own code, and the column it named.
+                        # An error number is not data.
+                        "pgcode": LAST_ERROR["pgcode"],
+                        "table": LAST_ERROR["table"],
+                        "column": LAST_ERROR["column"]}
                        if LAST_ERROR["at"] else None),
         # Same reasoning for the sign-in that cannot report itself.
         "google_last": ({"at": LAST_GOOGLE["at"], "ok": LAST_GOOGLE["ok"],
@@ -21055,10 +21061,22 @@ def server_error(request: Request, exc):
     Read it at /api/admin/last-error, signed in as an admin.
     """
     import traceback
+    # The database's own code for what went wrong, when there is one.
+    #
+    # A SQLAlchemy DataError says only "a value did not fit"; psycopg2 knows
+    # WHICH kind — 22001 string too long, 22007 bad datetime, 22003 numeric
+    # out of range — and, when the server tells it, the table and column.
+    # None of that is user data, so it can be read without signing in, which
+    # matters when the account that cannot sign in is the admin.
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
     LAST_ERROR.update({
         "at": now().isoformat(),
         "path": str(request.url.path),
         "method": request.method,
+        "pgcode": getattr(orig, "pgcode", "") or "",
+        "column": getattr(diag, "column_name", "") or "",
+        "table": getattr(diag, "table_name", "") or "",
         "error": f"{type(exc).__name__}: {exc}"[:400],
         # The last few frames are where it actually broke; the top of the
         # stack is always the same server plumbing.
