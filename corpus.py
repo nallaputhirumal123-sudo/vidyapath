@@ -107,6 +107,50 @@ BOOKS = [
     ("leac2", 12, "Accountancy", 6),
     ("lebs1", 12, "Business Studies", 8),
     ("lebs2", 12, "Business Studies", 3),
+    # History, Geography and Civics — the whole social science half, which
+    # was simply absent.
+    #
+    # "The Mughal empire" matched a Class 11 Economics chapter, because there
+    # was nothing else for it to match: the corpus held science, maths and
+    # commerce and no history at all. A search that returns the wrong subject
+    # confidently is worse than one that returns nothing, and this is half of
+    # what a school teaches.
+    #
+    # Every prefix below was probed against ncert.nic.in and every chapter
+    # count is the last chapter that answers — and then each book was
+    # identified by READING its own first page, because the codes do not say
+    # what they hold and guessing is how Geography gets labelled History. I
+    # had jess1 down as History from the naming pattern; its first page is
+    # about resources and the environment, so it is Geography, and jess3 is
+    # the one that opens on Frédéric Sorrieu in 1848.
+    #
+    # Class 6, 7 and 9 are the new integrated books NCERT published in 2024
+    # and 2025 — one Social Science volume rather than three — so they are
+    # labelled as that rather than split into subjects they no longer have.
+    ("fees1", 6, "Social Science", 14),
+    ("gees1", 7, "Social Science", 12),
+    ("gess1", 7, "History", 8),
+    ("gess2", 7, "Geography", 7),
+    ("gess3", 7, "Civics", 8),
+    ("hess2", 8, "History", 8),
+    ("hess3", 8, "Civics", 8),
+    ("hess4", 8, "Geography", 5),
+    ("iest1", 9, "Social Science", 9),
+    ("jess1", 10, "Geography", 7),
+    ("jess2", 10, "Economics", 5),
+    ("jess3", 10, "History", 5),
+    ("jess4", 10, "Civics", 5),
+    ("kehs1", 11, "History", 7),
+    ("kegy1", 11, "Geography", 6),
+    ("kegy2", 11, "Geography", 14),
+    ("kegy3", 11, "Geography", 6),
+    ("lehs1", 12, "History", 4),
+    ("lehs2", 12, "History", 4),
+    ("lehs3", 12, "History", 4),
+    ("legy1", 12, "Geography", 8),
+    ("legy2", 12, "Geography", 9),
+    ("legy3", 12, "Geography", 4),
+
     ("keps1", 11, "Political Science", 8),
     ("kepy1", 11, "Political Science", 8),
     ("leps1", 12, "Political Science", 7),
