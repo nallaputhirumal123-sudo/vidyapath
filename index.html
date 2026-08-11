@@ -2302,6 +2302,11 @@ function renderNav(){
       find is a private line nobody uses. */
    + nav("messages","✉️","Messages")
    + (staff ? "" : nav("class","🎓","My class"))
+   /* Past papers and the entrance syllabus. A learner gets it beside their
+      class because in Class 11 and 12 it IS the class; a teacher gets it
+      under Manage, below. The office does not teach and does not sit an
+      entrance exam, so it is not offered one. */
+   + (staff ? "" : nav("exams","📝","Papers &amp; syllabus"))
    + (staff ? "" : nav("paths","🧭","Choose a path"))
    + (staff ? "" : nav("projects","🛠️","Projects"))
    + ((!staff || teaching) ? nav("ask","💬","Ask Axle anything") : "")
@@ -2364,6 +2369,10 @@ function renderNav(){
        no screen, so a child's question sat unread because their teacher had
        no page on which to see it. */
     if(USER.is_teacher) h+=nav("tmsgs","✉️","Student messages");
+    /* Every board's own past-paper page, searchable, and the entrance
+       syllabuses. Teaching, not administration — a head who takes no class
+       does not set a paper. */
+    if(teaching) h+=nav("exams","📝","Papers &amp; syllabus");
     /* What the class has been asking. This was a tool on the classroom
        board — a screen thirty students look at — which is both the wrong
        audience and the one place on that board that read a craxle.com
@@ -3211,6 +3220,180 @@ function renderResources(){
         ...(l.videos||[]).map(v=>`<a class="reslink" href="${v.u}" target="_blank" rel="noopener"><span>📺</span><span>${esc(v.t)}</span><span class="ex">video ↗</span></a>`),
         ...(l.refs||[]).map(r=>`<a class="reslink" href="${r.u}" target="_blank" rel="noopener"><span>📄</span><span>${esc(r.t)}</span><span class="ex">↗</span></a>`)
       ]).join("")}</div></div>`).join("")}`;
+}
+
+/* ===================== PAST PAPERS AND ENTRANCE SYLLABUS ==================
+
+   Two things asked for constantly and needing opposite treatment.
+
+   Past papers are NOT held. Every board owns the copyright in its own
+   question papers, and the sites that stack up thousands of them do it
+   without permission — a school that buys a product built on those inherits
+   the problem. So this is a directory: board, what is actually published
+   there, and one tap to the board's own page. That page is also the only
+   copy certainly the real paper, correctly printed, with the board's own
+   corrections in it.
+
+   The syllabus half is the opposite. An authority publishes a topic list
+   precisely so candidates can study it, and repeating it is the intended
+   use. The bit that earns the page is the DIFFERENCE — which units the exam
+   adds on top of the school books a candidate already owns.
+
+   One page for both, because a teacher looking for last year's paper and a
+   candidate reading the JEE syllabus are usually the same conversation. The
+   tab it opens on is the one that person is more likely to want. */
+let EXAMV = { tab: "", q: "", kind: "" };
+
+function renderExams(){
+  const staff = isStaff();
+  /* Papers first for everybody. A student revising and a teacher setting a
+     paper want the same thing and neither should have to find a tab for
+     it — the syllabus is one tap away and is the slower read. */
+  if(!EXAMV.tab) EXAMV.tab = "papers";
+  const tab = (n,l) => `<button class="btn sm ${EXAMV.tab===n?"":"ghost"}"
+    data-xtab="${n}">${l}</button>`;
+  $("#main").innerHTML = `
+    <div class="h1">📝 Papers &amp; syllabus</div>
+    <p class="sub">${staff
+      ? "Where each board publishes its own question papers, and what an "
+        + "entrance exam asks beyond the school books."
+      : "Search your board's own past papers, and see what the entrance "
+        + "exams ask beyond your school books."}</p>
+    <div class="row" style="gap:8px;margin-bottom:16px">
+      ${tab("papers","Past papers")}${tab("syllabus","Entrance syllabus")}</div>
+    <div id="xBody">Loading…</div>`;
+  $("#main").querySelectorAll("[data-xtab]").forEach(b =>
+    b.onclick = () => { EXAMV.tab = b.dataset.xtab; renderExams(); });
+  if(EXAMV.tab === "papers") examPapers(); else examSyllabus();
+}
+
+const PAPER_KIND = [
+  ["", "Everything"], ["national","National boards"], ["state","State boards"],
+  ["entrance","Entrance exams"], ["international","International"],
+];
+/* Said in the teacher's words, not the board's. "Specimen" on its own reads
+   as a synonym for "past paper" to somebody who has not been caught by it,
+   and being caught by it costs a free period. */
+const PAPER_KEPT = {
+  free:     ["✅", "Past papers published free"],
+  specimen: ["📄", "Specimen papers only — not the papers sat"],
+  login:    ["🔒", "Only for registered centres"],
+};
+
+async function examPapers(){
+  const box = $("#xBody");
+  box.innerHTML = `
+    <div class="card" style="padding:12px;margin-bottom:14px">
+      <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="flex:1;min-width:210px;margin-bottom:0">
+          <label for="xq">Board, state or exam</label>
+          <input id="xq" value="${esc(EXAMV.q)}"
+            placeholder="telangana · cbse · jee · eamcet"></div>
+        <div class="field" style="width:190px;margin-bottom:0">
+          <label for="xkind">Show</label>
+          <select id="xkind">${PAPER_KIND.map(([v,l]) =>
+            `<option value="${v}" ${EXAMV.kind===v?"selected":""}>${l}</option>`
+            ).join("")}</select></div>
+      </div>
+    </div>
+    <div id="xList">Loading…</div>`;
+  const q = $("#xq"), k = $("#xkind");
+  /* Filtering as they type, because the whole list is thirty-odd rows and a
+     teacher who has to press a button to see three of them will type the
+     board name into a search engine instead. */
+  q.oninput = () => { EXAMV.q = q.value; examPaperList(); };
+  k.onchange = () => { EXAMV.kind = k.value; examPaperList(); };
+  examPaperList();
+}
+
+async function examPaperList(){
+  const box = $("#xList");
+  if(!box) return;
+  let d;
+  try{
+    d = await api.get(`/api/exams/papers?q=${encodeURIComponent(EXAMV.q)}`
+      + `&kind=${encodeURIComponent(EXAMV.kind)}`);
+  }catch(e){
+    box.innerHTML = `<div style="color:var(--dim)">${esc(e.message)}</div>`;
+    return;
+  }
+  const rows = (d && d.sources) || [];
+  if(!rows.length){
+    box.innerHTML = `<div class="card" style="padding:14px;color:var(--dim)">
+      Nothing matches that. Try the state's name on its own — a board is
+      often listed under a name nobody uses out loud.</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="res"><div class="reslist">${rows.map(s => {
+      const [ic, kept] = PAPER_KEPT[s.papers] || PAPER_KEPT.free;
+      return `<a class="reslink" href="${esc(s.url)}" target="_blank"
+        rel="noopener" style="align-items:flex-start">
+        <span>${ic}</span>
+        <span><b>${esc(s.name)}</b>
+          <div style="font-size:12px;color:var(--dim);margin-top:2px">
+            ${esc(kept)}${s.note ? " · " + esc(s.note) : ""}</div></span>
+        <span class="ex">↗</span></a>`;
+    }).join("")}</div></div>
+    <p class="sub" style="margin-top:14px">${esc(d.note || "")}</p>`;
+}
+
+async function examSyllabus(){
+  const box = $("#xBody");
+  let d;
+  try{ d = await api.get("/api/exams/syllabus"); }
+  catch(e){
+    box.innerHTML = `<div style="color:var(--dim)">${esc(e.message)}</div>`;
+    return;
+  }
+  const list = (d && d.exams) || [];
+  box.innerHTML = `<div class="row" style="gap:8px;flex-wrap:wrap;
+      margin-bottom:16px">
+    ${list.map(e => `<button class="btn sm ghost" data-xexam="${esc(e.id)}"
+      style="text-align:left"><b>${esc(e.name)}</b>
+      <span style="opacity:.7"> · ${e.units} topics</span></button>`).join("")}
+    </div><div id="xSyl"></div>`;
+  box.querySelectorAll("[data-xexam]").forEach(b =>
+    b.onclick = () => examSyllabusOne(b.dataset.xexam));
+  if(list.length) examSyllabusOne(list[0].id);
+}
+
+async function examSyllabusOne(id){
+  const box = $("#xSyl");
+  if(!box) return;
+  box.innerHTML = "Loading…";
+  let e;
+  try{ e = await api.get(`/api/exams/syllabus?exam=${encodeURIComponent(id)}`); }
+  catch(err){
+    box.innerHTML = `<div style="color:var(--dim)">${esc(err.message)}</div>`;
+    return;
+  }
+  const extra = (e.subjects||[]).reduce((a,s)=>a+(s.extra||0),0);
+  box.innerHTML = `
+    <div class="card" style="padding:14px;margin-bottom:16px">
+      <div style="font-weight:650;font-size:16px">${esc(e.name)}</div>
+      <div style="font-size:12.5px;color:var(--dim);margin-top:2px">
+        Set by ${esc(e.who)}</div>
+      <p style="margin:10px 0 0">${esc(e.note||"")}</p>
+      ${e.built_on ? `<p style="margin:8px 0 0;font-size:13px">
+        <b>Built on:</b> ${esc(e.built_on)}</p>` : ""}
+      ${/* The link is the thing that settles it, so it is not a footnote.
+            A topic list in a file goes stale silently and an authority
+            revises these; a candidate must be able to check. */""}
+      <a class="btn sm" style="margin-top:12px" href="${esc(e.syllabus_url)}"
+        target="_blank" rel="noopener">The official syllabus ↗</a>
+    </div>
+    ${extra ? `<p class="sub">⭐ marks a topic your school books do not
+      cover — that is what this exam adds on top of them.</p>`
+      : `<p class="sub">Every topic here is in the school books you already
+      have. What this exam adds is depth and speed, not new material.</p>`}
+    ${(e.subjects||[]).map(s => `
+      <div class="eyebrow">${esc(s.name)}</div>
+      <div class="card" style="padding:12px;margin-bottom:16px">
+        ${s.units.map(u => `<div style="padding:5px 0;display:flex;gap:8px">
+          <span style="width:16px;flex:none">${u.extra ? "⭐" : "·"}</span>
+          <span>${esc(u.unit)}</span></div>`).join("")}
+      </div>`).join("")}`;
 }
 
 /* ===================== ASK VIDYA ANYTHING ===================== */
@@ -12027,6 +12210,7 @@ function render(){
   else if(v.page==="resources"){
     if(USER && USER.craxlearn_only) renderHome(); else renderResources();
   }
+  else if(v.page==="exams")     renderExams();
   else if(v.page==="ask")       renderAsk();
   else if(v.page==="sqlboard")  renderSqlBoard();
   else if(v.page==="scan")      renderScanner();

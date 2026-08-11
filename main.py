@@ -10620,6 +10620,66 @@ def curriculum_groups(group: str = ""):
     }
 
 
+@app.get("/api/exams/papers")
+def exam_papers(q: str = "", kind: str = ""):
+    """Where a board actually publishes its own question papers.
+
+    A teacher asks for past papers by board and year, and the honest product
+    is a directory rather than a library. Every board owns the copyright in
+    its papers; the sites that hold thousands of them do so without
+    permission, and a school that buys a product built on those inherits the
+    problem. So nothing is hosted and nothing is scraped — this points at the
+    board's own page, which is also the only copy certain to be the real
+    paper with the board's own corrections in it.
+
+    Unauthenticated, like /api/curriculum/groups: it is a list of public
+    links and holds nothing about anybody.
+    """
+    try:
+        import exams as _exams
+        found = _exams.search(q, kind)
+    except Exception as e:
+        print(f"exam papers: {type(e).__name__}: {e}")
+        return {"sources": [], "note": "Not available."}
+    return {
+        "sources": found,
+        "total": len(_exams.SOURCES),
+        # Said here so a renderer cannot drop it. "Past papers" means three
+        # different things across these boards and a teacher should know
+        # which one they are about to get.
+        "note": "These are the boards' own pages. Nothing is copied here — "
+                "a board owns its question papers. 'Specimen' means the "
+                "board publishes sample papers rather than the sat ones, "
+                "and 'login' means papers go only to registered centres.",
+    }
+
+
+@app.get("/api/exams/syllabus")
+def exam_syllabus(exam: str = ""):
+    """An entrance syllabus, and which of it the school books do not cover.
+
+    A candidate already owns the school books. What they cannot see is the
+    difference — the units the exam adds on top — so every unit carries a
+    flag for that, and the flag is the point of the page.
+
+    Nothing here is a claim about a particular year. Authorities revise these
+    and a list in a file goes stale without saying so, which is why every
+    exam carries a link to the authority's own document as the thing that
+    settles it.
+    """
+    try:
+        import exams as _exams
+        if not (exam or "").strip():
+            return {"exams": _exams.exam_list()}
+        got = _exams.syllabus(exam)
+    except Exception as e:
+        print(f"exam syllabus: {type(e).__name__}: {e}")
+        return {"exams": []}
+    if not got:
+        raise HTTPException(404, "No syllabus held for that exam.")
+    return got
+
+
 @app.get("/api/craxlearn/sources")
 def craxlearn_sources():
     """Where the answers come from, with licences. Open to anybody.
