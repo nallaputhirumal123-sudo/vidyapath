@@ -180,7 +180,7 @@ ck("an unknown exam is a 404, not an empty page",
    'raise HTTPException(404, "No syllabus held for that exam.")' in MAIN)
 ck("the page is routed", 'v.page==="exams"' in IDX)
 ck("a school's learner is offered it beside their class",
-   '(staff || !USER.at_school) ? ""' in IDX)
+   'canSeePapers() ? nav("exams"' in IDX)
 
 print("\nand only to accounts a school issued")
 ck("the server decides who is at a school",
@@ -205,13 +205,22 @@ ck("refused, not merely hidden",
    and "#exams is five characters to guess" in MAIN,
    "a menu item that is only hidden is a menu item")
 ck("the page itself will not open by typing the address",
-   'if(USER && (isStaff() || USER.at_school)) renderExams(); else '
-   'renderHome();' in IDX)
+   "if(canSeePapers()) renderExams(); else renderHome();" in IDX)
 ck("and the refusal says which account to use",
    "Sign in with the account your school gave you." in MAIN)
-ck("a teacher is offered it, and the office is not",
-   'if(teaching) h+=nav("exams"' in IDX,
-   "a head who takes no class does not set a paper")
+ck("a teacher is NOT offered it, nor an admin",
+   'if(!USER || isStaff()) return false;' in IDX,
+   "they run the school, assign the roles and post the updates; they do "
+   "not sit a board paper — and it was in an admin's sidebar and then "
+   "refused them when they pressed Solve, which is the worst of both")
+ck("a personal account gets it on Pro",
+   'USER.plan !== "free"' in IDX)
+ck("and the server refuses staff rather than only hiding it",
+   'teacher_row(user, db) is not None:' in MAIN
+   and "sitting the exam" in MAIN,
+   "a hidden menu item is a menu item")
+ck("a personal account on Pro is let through server-side too",
+   'plan_of(user) != "free"' in MAIN)
 ck("the paper search opens first for both of them",
    'if(!EXAMV.tab) EXAMV.tab = "papers";' in IDX,
    "a student revising and a teacher setting a paper want the same thing; "

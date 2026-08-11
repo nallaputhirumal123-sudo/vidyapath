@@ -10700,10 +10700,43 @@ def _school_only(db, user):
     the same reason the job pages are closed by middleware and not by
     leaving them off the sidebar.
     """
-    if not _at_school(db, user):
+    # The person sitting the exam, and nobody else.
+    #
+    # Not a teacher and not an admin: they run the school, assign the roles
+    # and post the updates. This was in an admin's sidebar and then refused
+    # them when they pressed Solve, which is the worst of both — offered and
+    # then denied.
+    #
+    # A school's own pupil is in because their school bought it. Somebody
+    # who signed up here on their own is in on Pro. Refused here and not
+    # only hidden in the menu, because a hidden menu item is a menu item.
+    if getattr(user, "is_admin", False) or teacher_row(user, db) is not None:
         raise HTTPException(
-            403, "Past papers and entrance syllabuses are part of a school's "
-                 "Craxlearn. Sign in with the account your school gave you.")
+            403, "Past papers and entrance syllabuses are for the student "
+                 "sitting the exam. A teaching or office account does not "
+                 "carry them.")
+    if _at_school(db, user) or plan_of(user) != "free":
+        return
+    # Say what was actually seen.
+    #
+    # An account whose sidebar shows the Admin panel — so is_admin is true —
+    # was refused here, and _at_school returns True for an admin on the
+    # first line. Reproducing it locally gave 200. Guessing twice is how the
+    # device-cap lockout went, so this reports the three facts the decision
+    # was made on instead: whether it is an admin, whether it is staff, and
+    # what scope it resolved to.
+    try:
+        why = (f"admin={bool(getattr(user, 'is_admin', False))} "
+               f"kind={getattr(user, 'kind', '') or '-'} "
+               f"staff={teacher_row(user, db) is not None} "
+               f"scope={_scope_of(db, user)}")
+    except Exception as e:
+        why = f"could not be determined: {type(e).__name__}"
+    print(f"exams refused user {user.id}: {why}")
+    raise HTTPException(
+        403, "Past papers and entrance syllabuses are part of a school's "
+             "Craxlearn. Sign in with the account your school gave you. "
+             f"[{why}]")
 
 
 @app.get("/api/exams/papers")

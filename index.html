@@ -1571,6 +1571,17 @@ function isOffice(){
       && (USER.role === "head" || USER.role === "schooladmin");
 }
 function isStaff(){ return !!USER && !!(USER.is_teacher || USER.is_admin); }
+/* Who Papers & syllabus is for: the person sitting the exam.
+   Not a teacher and not an admin — they run the school, assign the roles
+   and post the updates; they do not sit a board paper. It was in the admin
+   sidebar and then refused them when they pressed Solve, which is the worst
+   of both.
+   A school's own pupil gets it because their school bought it. Somebody who
+   signed up here on their own gets it on Pro. */
+function canSeePapers(){
+  if(!USER || isStaff()) return false;
+  return !!USER.at_school || (!!USER.plan && USER.plan !== "free");
+}
 function teaches(){ return isStaff() && !isOffice(); }
 
 const PATH_PRESETS=[
@@ -2336,8 +2347,7 @@ function renderNav(){
       did not ask for a CBSE paper. The server refuses those routes on the
       same test, so this is not the gate — it is not offering a door that
       will not open. */
-   + ((staff || !USER.at_school) ? ""
-      : nav("exams","📝","Papers &amp; syllabus"))
+   + (canSeePapers() ? nav("exams","📝","Papers &amp; syllabus") : "")
    + (staff ? "" : nav("paths","🧭","Choose a path"))
    + (staff ? "" : nav("projects","🛠️","Projects"))
    + ((!staff || teaching) ? nav("ask","💬","Ask Axle anything") : "")
@@ -2403,7 +2413,6 @@ function renderNav(){
     /* Every board's own past-paper page, searchable, and the entrance
        syllabuses. Teaching, not administration — a head who takes no class
        does not set a paper. */
-    if(teaching) h+=nav("exams","📝","Papers &amp; syllabus");
     /* What the class has been asking. This was a tool on the classroom
        board — a screen thirty students look at — which is both the wrong
        audience and the one place on that board that read a craxle.com
@@ -3290,8 +3299,7 @@ function renderExams(){
      find that out after uploading their paper and waiting.
      The server refuses it either way; this is not the gate, it is not
      showing a door that will not open. */
-  const canSolve = staff || (USER.plan && USER.plan !== "free");
-  if(EXAMV.tab === "solve" && !canSolve) EXAMV.tab = "papers";
+  const canSolve = true;   // only a learner who may be here gets this far
   const tab = (n,l) => `<button class="btn sm ${EXAMV.tab===n?"":"ghost"}"
     data-xtab="${n}">${l}</button>`;
   $("#main").innerHTML = `
@@ -12778,7 +12786,7 @@ function render(){
   /* Not by typing the address either. A menu item that is merely hidden is
      a menu item, and #exams is five characters to guess. */
   else if(v.page==="exams"){
-    if(USER && (isStaff() || USER.at_school)) renderExams(); else renderHome();
+    if(canSeePapers()) renderExams(); else renderHome();
   }
   else if(v.page==="ask")       renderAsk();
   else if(v.page==="sqlboard")  renderSqlBoard();
