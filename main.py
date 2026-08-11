@@ -1271,6 +1271,23 @@ if MAIL_PROVIDER == "resend" and any(d in MAIL_FROM.lower() for d in _FREE_MAIL)
 # them impossible to debug, so the last one is kept here for the admin.
 LAST_MAIL = {"ok": None, "to": "", "at": None, "error": ""}
 
+# The last Google sign-in attempt, and why it did not work.
+#
+# Same reasoning as LAST_MAIL. A sign-in that fails at the token exchange
+# gives the user one sentence that fits four unrelated causes, and the word
+# that separates them is in Google's reply — which went to stdout and nowhere
+# a person could look. Holds no secret: an error class, Google's own message,
+# and the redirect_uri that was sent, which is the commonest thing to be
+# wrong and the one thing you cannot check without seeing it.
+LAST_GOOGLE = {"ok": None, "at": None, "error": "", "google_said": "",
+               "redirect_uri": ""}
+
+# The last unhandled 500, for the same reason. A browser showing "Internal
+# server error" is the least informative screen this product can produce,
+# and the traceback behind it lives in a container log nobody has open when
+# a school telephones.
+LAST_ERROR = {"at": None, "path": "", "method": "", "error": "", "where": ""}
+
 
 def send_email(to: str, subject: str, body: str):
     """Send one plain-text email. Never raises into the request.
@@ -2749,7 +2766,29 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             info.raise_for_status()
             profile = info.json()
     except Exception as e:
-        print(f"Google sign-in failed: {type(e).__name__}: {e}")
+        # Keep WHY, where somebody can read it without the server log.
+        #
+        # "Google sign-in failed" is what the user sees and it is not a
+        # diagnosis: the same sentence covers a redirect URI that is not
+        # registered, a client secret that has been rotated, a code that was
+        # already used, and Google being unreachable. The real answer is one
+        # word in Google's own reply — redirect_uri_mismatch, invalid_client,
+        # invalid_grant — and until now it existed only in a Railway log.
+        #
+        # The redirect_uri is recorded beside it because a mismatch is the
+        # commonest cause and is impossible to diagnose without seeing the
+        # exact string that was sent. No secret is stored here.
+        detail = ""
+        body = getattr(getattr(e, "response", None), "text", "")
+        if body:
+            detail = str(body)[:300]
+        LAST_GOOGLE.update({
+            "ok": False, "at": now().isoformat(),
+            "error": f"{type(e).__name__}: {e}"[:300],
+            "google_said": detail,
+            "redirect_uri": _redirect_uri(request),
+        })
+        print(f"Google sign-in failed: {type(e).__name__}: {e} {detail}")
         return RedirectResponse("/?error=google_failed")
 
     email = (profile.get("email") or "").lower().strip()
@@ -2779,6 +2818,9 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    LAST_GOOGLE.update({"ok": True, "at": now().isoformat(), "error": "",
+                        "google_said": "",
+                        "redirect_uri": _redirect_uri(request)})
     resp = RedirectResponse("/")
     set_session(resp, user, db)
     resp.delete_cookie("g_state", path="/")
@@ -11479,6 +11521,35 @@ async def ai_models(user: User = Depends(admin_user)):
     return {"ok": True, "current": GEMINI_MODEL,
             "current_is_available": any(d["in_use"] for d in usable),
             "count": len(usable), "models": usable}
+
+
+@app.get("/api/auth/google/selftest")
+def google_selftest(user: User = Depends(admin_user)):
+    """Admin-only: why the last Google sign-in did not work.
+
+    The same shape as /api/ai/selftest and for the same reason — the user's
+    message ("Google sign-in failed") covers four unrelated causes and names
+    none of them. Google's own reply does:
+
+        redirect_uri_mismatch  the URI below is not registered in the console
+        invalid_client         the client id or secret is wrong or rotated
+        invalid_grant          the code was already used, or expired
+        (a connect error)      the server could not reach Google at all
+
+    Sign in as an admin and open this. It holds no secret — the client id is
+    already public in the sign-in redirect, and the secret is never stored.
+    """
+    return {
+        "enabled": GOOGLE_ENABLED,
+        "client_id_set": bool(GOOGLE_CLIENT_ID),
+        "client_secret_set": bool(GOOGLE_CLIENT_SECRET),
+        # Whether the app derives its address or is told it. When this is
+        # empty the redirect_uri comes from the Host header, and a request
+        # that arrives on www when the console has the apex (or the reverse)
+        # produces exactly one symptom: redirect_uri_mismatch.
+        "public_base_url": PUBLIC_BASE_URL or "(not set — derived from Host)",
+        "last_attempt": LAST_GOOGLE,
+    }
 
 
 @app.get("/api/ai/selftest")
@@ -20949,6 +21020,41 @@ def craxlearn_page():
     from showing it, and the person who finds that bug is a child.
     """
     return FileResponse(BASE_DIR / "craxlearn.html")
+
+
+@app.exception_handler(500)
+def server_error(request: Request, exc):
+    """Keep the last unhandled error where an operator can read it.
+
+    "Internal server error" is what the browser shows and it says nothing.
+    The traceback goes to the container's log, which is exactly what nobody
+    has to hand when a school rings up — and it is the difference between
+    "one account cannot sign in" and knowing which line, on which path, for
+    which user id.
+
+    Recorded, not returned: the response stays the same two words, because
+    a stack trace in a browser is somebody else's map of the building.
+    Read it at /api/admin/last-error, signed in as an admin.
+    """
+    import traceback
+    LAST_ERROR.update({
+        "at": now().isoformat(),
+        "path": str(request.url.path),
+        "method": request.method,
+        "error": f"{type(exc).__name__}: {exc}"[:400],
+        # The last few frames are where it actually broke; the top of the
+        # stack is always the same server plumbing.
+        "where": "".join(traceback.format_tb(exc.__traceback__)[-4:])[-1200:],
+    })
+    print(f"500 on {request.method} {request.url.path}: "
+          f"{type(exc).__name__}: {exc}")
+    return JSONResponse({"detail": "Internal server error"}, status_code=500)
+
+
+@app.get("/api/admin/last-error")
+def last_error(user: User = Depends(admin_user)):
+    """The last 500 this process served, for whoever has to explain it."""
+    return LAST_ERROR
 
 
 @app.exception_handler(404)

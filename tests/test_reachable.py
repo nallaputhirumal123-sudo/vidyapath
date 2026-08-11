@@ -48,6 +48,11 @@ ALLOWED = {
     "/api/ai/selftest": "operator diagnostics",
     "/api/ai/models": "operator diagnostics",
     "/api/mail/selftest": "operator diagnostics",
+    # Why the last Google sign-in failed, in Google's own words. Typed into
+    # the address bar while signed in as an admin, like the two above — the
+    # user-facing message covers four unrelated causes and names none.
+    "/api/auth/google/selftest": "operator diagnostics",
+    "/api/admin/last-error": "operator diagnostics — the last 500",
     "/api/mail/whoami": "operator diagnostics",
     "/api/billing/webhook/stripe": "Stripe calls this, not us",
     "/api/auth/google/callback": "Google redirects here",
