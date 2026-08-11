@@ -2282,6 +2282,24 @@ def status(request: Request, db: Session = Depends(get_db)):
         "commit": GIT_SHA,
         "started": BUILT_AT,
         "startup_error": STARTUP_ERROR,
+        # The last 500, in the shape that leaks nothing.
+        #
+        # The full record — message and stack — is behind admin_user, and
+        # that was a circle: the fault being reported was an ADMIN who could
+        # not sign in, so the one person allowed to read why could not get
+        # to it. What is here is the path, the method and the exception
+        # CLASS. No message, because a database error quotes the SQL it
+        # choked on and a validation error quotes the input; the class name
+        # is what tells you where to look, and it is not anybody's data.
+        "last_error": ({"at": LAST_ERROR["at"], "path": LAST_ERROR["path"],
+                        "method": LAST_ERROR["method"],
+                        "type": (LAST_ERROR["error"] or "").split(":")[0]}
+                       if LAST_ERROR["at"] else None),
+        # Same reasoning for the sign-in that cannot report itself.
+        "google_last": ({"at": LAST_GOOGLE["at"], "ok": LAST_GOOGLE["ok"],
+                         "redirect_uri": LAST_GOOGLE["redirect_uri"],
+                         "google_said": LAST_GOOGLE["google_said"][:160]}
+                        if LAST_GOOGLE["at"] else None),
         "database": "postgres" if DATABASE_URL.startswith("postgres") else "sqlite",
         "admin_email_variable_set": bool(ADMIN_EMAIL),
         "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
