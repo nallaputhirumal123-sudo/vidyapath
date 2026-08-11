@@ -278,6 +278,13 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
    would make the lesson underneath unclickable. */
 .paneMark{position:absolute;left:0;top:0;z-index:5;pointer-events:none;
   touch-action:none}
+/* A PDF, rendered into the space so the pen can reach it. The pages sit in
+   the normal flow and scroll with everything else, which is what makes a
+   mark stay on the page it was made on. */
+.pdfPages{display:flex;flex-direction:column;gap:.6rem;align-items:center;
+  padding:.2rem 0 .6rem}
+.pdfPage{max-width:100%;border-radius:6px;background:#fff;
+  box-shadow:0 2px 10px rgba(0,0,0,.35)}
 .paneMark.on{pointer-events:auto;cursor:crosshair}
 .pane[data-marking="1"] .paneHead{border-bottom-color:#ff3b30}
 .markBar{position:absolute;right:.4rem;bottom:.4rem;z-index:6;display:none;
@@ -760,6 +767,7 @@ window.esc = function (s) {
 <script src="lab.js?v=c536df7feb"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
+<script src="pdfview.js?v=22ef484122"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="scanner.js?v=f62f1b0eb8"></script>
@@ -3078,8 +3086,98 @@ function picLoad(url){
  * a window opened inside a click and refuses one opened in a promise that
  * settles later — so the obvious order fails silently on exactly the boards
  * this is for. */
+/* A PDF opens IN the space, where it can be written on.
+ *
+ * It used to go to another window and the browser's own viewer, which is
+ * fine for reading and useless for teaching: nothing could be marked on it,
+ * and the pen — which lives over a pane and scrolls with its contents — had
+ * nothing to sit on. Rendered into the pane, the pen works with no change
+ * at all, because it already sizes itself to the pane's scrollHeight.
+ *
+ * Anything that is not a PDF still opens the old way. A spreadsheet in a
+ * pane would be a worse spreadsheet.
+ */
+async function openPdfHere(id, name, btn){
+  var pane = el("panes").querySelector('.pane[data-i="' + LIVE + '"]');
+  var body = pane && pane.querySelector(".paneBody");
+  if(!body) return false;
+  var was = btn ? btn.textContent : "";
+  if(btn){ btn.disabled = true; btn.textContent = "Opening…"; }
+  try{
+    var r = await fetch("/api/material/" + encodeURIComponent(id) + "/file",
+                        { credentials:"include", headers: bhdr({}) });
+    if(!r.ok) throw new Error(r.status === 403
+      ? "That file belongs to another class."
+      : "That file could not be opened.");
+    var buf = await r.arrayBuffer();
+    if(new Uint8Array(buf.slice(0,5)).reduce(function(a,b){
+         return a + String.fromCharCode(b); }, "") !== "%PDF-") return false;
+
+    body.innerHTML = '<div class="eyebrow">' + esc(name || "Document") +
+      '</div><div class="muted" id="pdfMsg">Opening…</div>' +
+      '<div id="pdfHost"></div>' +
+      '<div class="row" style="gap:.4rem;margin:.6rem 0 1rem">' +
+        '<button class="btn" id="pdfKeep">Save the marked copy</button>' +
+        '<button class="btn ghost" id="pdfDown">Download it</button>' +
+      "</div>";
+    var pages = await PdfView.open(el("pdfHost"), new Uint8Array(buf),
+                                   name || "document.pdf");
+    el("pdfMsg").textContent = pages + (pages === 1 ? " page" : " pages") +
+      " — press ✎ on this space to write on it. What you write stays on the "
+      + "page it was written on.";
+    /* Both buttons produce a PDF, never a picture: the original with the
+       writing stamped on, so the text is still text. */
+    var make = async function(){
+      var cv = pane.querySelector(".paneMark");
+      return await PdfView.save(el("pdfHost"), cv);
+    };
+    el("pdfKeep").onclick = async function(){
+      var b = el("pdfKeep"), old = b.textContent;
+      b.disabled = true; b.textContent = "Saving…";
+      try{
+        var blob = await make();
+        var fd = new FormData();
+        fd.append("file", blob, (name || "document").replace(/\.pdf$/i, "")
+                  + " — marked.pdf");
+        fd.append("title", (name || "Document") + " — marked");
+        fd.append("class_id", String((ROOM && ROOM.class_id) || 0));
+        fd.append("subject", (ROOM && ROOM.subject) || "");
+        await window.bapi.send(boarded() ? "/api/craxlearn/board/file"
+                               : "/api/teacher/class/" +
+                                 ((ROOM && ROOM.class_id) || 0) +
+                                 "/material/file", fd);
+        toastLine("Kept on " + ((ROOM && ROOM.subject) || "the class") +
+                  ", as a PDF.");
+      }catch(e){ toastLine(e.message || "It could not be saved."); }
+      finally{ b.disabled = false; b.textContent = old; }
+    };
+    el("pdfDown").onclick = async function(){
+      try{
+        var blob = await make();
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = (name || "document").replace(/\.pdf$/i, "") + " — marked.pdf";
+        a.click();
+        setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+      }catch(e){ toastLine(e.message || "It could not be saved."); }
+    };
+    return true;
+  }catch(e){
+    toastLine(e.message || "That file could not be opened.");
+    return true;      /* handled: do not also open a window */
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = was; }
+  }
+}
+
 async function openFile(btn){
   var id = btn.dataset.openfile;
+  /* A PDF is opened here, on the board, where it can be marked. Tried
+     before the window is opened, because a pop-up blocker only allows one
+     opened inside the click. */
+  if(window.PdfView && (btn.dataset.pdf === "1")){
+    if(await openPdfHere(id, btn.dataset.name || "", btn)) return;
+  }
   var win = window.open("", "_blank");
   var was = btn.textContent;
   btn.disabled = true;
@@ -5448,8 +5546,12 @@ async function materials(){
          *
          * Fetched with the token and opened as a blob instead. */
         : '<button class="btn ghost" data-openfile="' + m.id + '" ' +
-          'data-name="' + esc(m.file_name || "the file") + '">Open ' +
-          esc(m.file_name || "the file") + "</button>";
+          'data-name="' + esc(m.file_name || "the file") + '" ' +
+          /* A PDF opens in the space so it can be written on; anything
+             else keeps the old window. Decided from the name here and
+             confirmed from the file's own first bytes before rendering. */
+          'data-pdf="' + (/\.pdf$/i.test(m.file_name || "") ? "1" : "0") +
+          '">Open ' + esc(m.file_name || "the file") + "</button>";
       /* Subject and teacher on every card. A reading list from nobody in
          particular leaves a class not knowing whose lesson it is for or
          which teacher to ask about it. */

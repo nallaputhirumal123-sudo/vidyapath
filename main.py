@@ -4690,6 +4690,34 @@ def _aware(d):
     return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
 
 
+def _money(paise, currency="INR"):
+    """Paise as money a parent can read.
+
+    Amounts are stored in the smallest unit so a balance is never out by a
+    rounding error. A notification is read by the family, so it has to say
+    ₹4,500 rather than 450000 — and with the Indian grouping, because that
+    is where this is read.
+    """
+    try:
+        whole, rest = divmod(int(paise or 0), 100)
+    except Exception:
+        return ""
+    s = str(whole)
+    if len(s) > 3:
+        # 12,34,567 — last three, then pairs.
+        head, tail = s[:-3], s[-3:]
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            parts.insert(0, head)
+        s = ",".join(parts + [tail])
+    sym = {"INR": "₹", "USD": "$", "GBP": "£", "EUR": "€"}.get(
+        (currency or "INR").upper(), (currency or "").upper() + " ")
+    return f"{sym}{s}" + (f".{rest:02d}" if rest else "")
+
+
 @app.get("/api/notifications")
 def notifications(user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = []
@@ -4713,6 +4741,36 @@ def notifications(user: User = Depends(current_user), db: Session = Depends(get_
                 items.append({"type": "reply", "icon": "💬",
                               "text": f"Teacher replied on “{a.title}”",
                               "when": _aware(m.created_at).isoformat(), "aid": a.id})
+        # What the office has recorded against them, raised and received.
+        #
+        # The fee screen existed and nothing pointed at it, so a bill was
+        # only ever found by somebody who went looking. A fee is the one
+        # thing here with a date attached that costs a family money to miss,
+        # which makes it the last thing that should wait to be discovered.
+        #
+        # Derived, like everything else on this screen — no new table and no
+        # backfill, so fees recorded before today appear too. A raised fee
+        # is dated by when it was raised; a received one by when it was
+        # marked, so paying shows as its own line rather than silently
+        # removing the reminder.
+        for f in db.query(FeeItem).filter(
+                FeeItem.user_id == user.id).order_by(
+                FeeItem.created_at.desc()).limit(20).all():
+            owed = max(0, int(f.amount or 0) - int(f.paid or 0))
+            money = _money(f.amount, f.currency)
+            if f.paid_at and owed <= 0:
+                items.append({
+                    "type": "fee", "icon": "✅",
+                    "text": f"Fee received: {f.title} · {money}",
+                    "when": _aware(f.paid_at).isoformat()})
+            else:
+                due = f" · due {f.due_on}" if (f.due_on or "").strip() else ""
+                items.append({
+                    "type": "fee", "icon": "💳",
+                    "text": (f"Fee: {f.title} · {_money(owed, f.currency)} "
+                             f"to pay{due}"),
+                    "when": _aware(f.created_at).isoformat()})
+
         my_cids = [cm.class_id for cm in db.query(ClassMember).filter(
             ClassMember.user_id == user.id).all()]
         if my_cids:
