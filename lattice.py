@@ -99,6 +99,38 @@ STRUCTURES = {
     "potassium": (5.328, _sites(_BCC, "K"), "body-centred cubic", 8),
 
     "polonium": (3.359, _sites([(0, 0, 0)], "Po"), "simple cubic", 6),
+
+    # Graphite, which a chemistry class asks for more often than any of the
+    # metals above and which returned nothing at all. Diamond was here and
+    # graphene was in layers.py as a wafer stack, so the one structure the
+    # syllabus actually pairs with diamond — same element, different
+    # arrangement, which is the whole point of the lesson — was the one
+    # missing.
+    #
+    # ABAB stacking, in the hexagonal cell: a = 2.464 Å, c = 6.711 Å, so
+    # c/a = 2.724. The sites are given in fractional coordinates of that
+    # cell, and the interlayer gap that makes graphite soft and a conductor
+    # along the sheets is the real 3.355 Å.
+    "graphite": (2.464, [
+        {"el": "C", "x": 0.0, "y": 0.0, "z": 0.0},
+        {"el": "C", "x": 1 / 3, "y": 2 / 3, "z": 0.0},
+        {"el": "C", "x": 0.0, "y": 0.0, "z": 0.5},
+        {"el": "C", "x": 2 / 3, "y": 1 / 3, "z": 0.5},
+    ], "graphite (ABAB layers)", 3),
+}
+
+# Everyday names for things the table lists formally.
+#
+# A class says "salt", not "sodium chloride"; "rust", not "iron(III) oxide".
+# The table is keyed the formal way, so the word a child actually types
+# missed — and the board answered as though nothing were known about salt.
+_COMMON = {
+    "salt": "sodium chloride",
+    "table salt": "sodium chloride",
+    "rock salt": "sodium chloride",
+    "common salt": "sodium chloride",
+    "pencil lead": "graphite",
+    "black lead": "graphite",
 }
 
 # Words a caption wraps a structure in.
@@ -117,12 +149,19 @@ def find(topic):
     t = " ".join(str(topic or "").lower().split())
     if not t:
         return None
+    # The word a class uses, before the word a chemist uses.
+    t = _COMMON.get(t, t)
     if t in STRUCTURES:
         return STRUCTURES[t]
     words = [w for w in t.replace(",", " ").split() if w not in _NOISE]
     stripped = " ".join(words)
+    stripped = _COMMON.get(stripped, stripped)
     if stripped in STRUCTURES:
         return STRUCTURES[stripped]
+    # And inside a longer phrase: "the structure of table salt".
+    for common, formal in _COMMON.items():
+        if common in t:
+            return STRUCTURES[formal]
     # "the crystal structure of sodium chloride" -> the longest name it
     # contains, so "sodium chloride" wins over "sodium".
     hits = [k for k in STRUCTURES if k in t]

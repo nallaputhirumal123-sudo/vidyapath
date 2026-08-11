@@ -1021,6 +1021,19 @@ class Material(Base):
                       nullable=False, index=True)
     teacher_id = Column(Integer, default=0)
     subject = Column(String(80), default="")
+    # Which drawer of the subject this sits in.
+    #
+    # Everything landed in one open list — a term of board notes, downloads
+    # and uploads in a single column, newest first, with a teacher scrolling
+    # for the chapter she wanted. "Saved" and "Downloads" are the two that
+    # arrive on their own; the rest are whatever the teacher decides to call
+    # them, because only she knows whether her class needs "Chapter 4" or
+    # "Revision" or "Practicals".
+    #
+    # Nullable, because _migrate_columns adds it to a table with rows in it,
+    # and an empty one means the subject's top level rather than a folder
+    # named "". Read through _folder_of().
+    folder = Column(String(80), default="")
     title = Column(String(240), nullable=False)
     note = Column(Text, default="")           # why they should read it
     url = Column(Text, default="")            # a link, when it is a link
@@ -8515,6 +8528,20 @@ MATERIAL_MIMES = {
 }
 
 
+def _folder_of(name, fallback=""):
+    """A folder name, or the subject's top level.
+
+    Trimmed, capped, and stripped of the slashes and dots that make a name
+    look like a path — this is a label on a drawer, not a filesystem, and a
+    teacher typing "Term 2/Week 3" should get one drawer called that rather
+    than something that reads as a directory somebody can climb out of.
+    """
+    n = " ".join(str(name or "").split())
+    n = n.replace("/", " ").replace("\\", " ").replace("..", ".")
+    n = " ".join(n.split())[:80].strip(" .")
+    return n or fallback
+
+
 def _material_json(m, with_url=True, by=""):
     """One piece of material, as a class sees it.
 
@@ -8535,6 +8562,8 @@ def _material_json(m, with_url=True, by=""):
             figs = []
     d = {"id": m.id, "title": m.title, "note": m.note or "",
          "subject": m.subject or "", "kind": kind,
+         # Which drawer it is in. Empty means the subject's top level.
+         "folder": getattr(m, "folder", "") or "",
          "body": (m.body or "") if kind == "lesson" else "",
          "figures": figs,
          "file_name": m.file_name or "", "size": m.size or 0,
@@ -8553,6 +8582,7 @@ class LinkIn(BaseModel):
     url: str = Field(min_length=4, max_length=2000)
     note: str = Field(default="", max_length=2000)
     subject: str = Field(default="", max_length=80)
+    folder: str = Field(default="", max_length=80)
 
 
 @app.post("/api/teacher/class/{cid}/material/link")
@@ -8572,7 +8602,7 @@ def add_material_link(cid: int, body: LinkIn,
         # student as "it does not work", which costs a lesson to diagnose.
         raise HTTPException(400, "The link must start with http:// or https://")
     m = Material(class_id=cid, teacher_id=user.id,
-                 subject=subject,
+                 subject=subject, folder=_folder_of(body.folder),
                  title=body.title.strip()[:240], url=url[:2000],
                  note=body.note.strip()[:2000])
     db.add(m)
@@ -8585,6 +8615,7 @@ def add_material_link(cid: int, body: LinkIn,
 async def add_material_file(cid: int, file: UploadFile = File(...),
                             title: str = Form(default=""),
                             note: str = Form(default=""),
+                            folder: str = Form(default=""),
                             subject: str = Form(default=""),
                             user: User = Depends(teaching_user),
                             db: Session = Depends(get_db)):
@@ -8610,7 +8641,7 @@ async def add_material_file(cid: int, file: UploadFile = File(...),
             400, "Upload a PDF, a PowerPoint, a Word document, a text file "
                  "or an image.")
     m = Material(class_id=cid, teacher_id=user.id,
-                 subject=subject_name,
+                 subject=subject_name, folder=_folder_of(folder),
                  title=((title or "").strip()
                         or (file.filename or "Material"))[:240],
                  note=(note or "").strip()[:2000],
@@ -9372,6 +9403,7 @@ def _board_subject(db, cid, user, asked):
 
 class BoardSaveIn(BaseModel):
     class_id: int = 0
+    folder: str = Field(default="", max_length=80)
     topic: str = Field(min_length=2, max_length=200)
     title: str = Field(default="", max_length=240)
     subject: str = Field(default="", max_length=80)
@@ -9499,6 +9531,9 @@ def craxlearn_board_save(body: BoardSaveIn,
     title = (body.title or body.topic).strip()[:240]
     m = Material(class_id=class_id, teacher_id=teacher_id,
                  subject=subject,
+                 # Anything kept off the board goes to Saved unless the
+                 # teacher said otherwise, which is where she will look.
+                 folder=_folder_of(body.folder, "Saved"),
                  title=title, note=(body.note or "").strip()[:2000],
                  body=text, figures=_lesson_figures(body.lesson or {}))
     db.add(m)
@@ -9719,6 +9754,7 @@ async def craxlearn_handwriting(file: UploadFile = File(...),
 async def craxlearn_board_file(file: UploadFile = File(...),
                                title: str = Form(default=""),
                                note: str = Form(default=""),
+                               folder: str = Form(default=""),
                                class_id: int = Form(default=0),
                                subject: str = Form(default=""),
                                who=Depends(board_or_teacher),
@@ -9750,6 +9786,9 @@ async def craxlearn_board_file(file: UploadFile = File(...),
             400, "Upload a PDF, a PowerPoint, a Word document, a text file "
                  "or an image.")
     m = Material(class_id=cid, teacher_id=teacher_id, subject=subj,
+                 # A picture kept off the board is a download unless the
+                 # teacher named a drawer for it.
+                 folder=_folder_of(folder, "Downloads"),
                  title=((title or "").strip()
                         or (file.filename or "Document"))[:240],
                  note=(note or "").strip()[:2000],
