@@ -1000,6 +1000,15 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 .sb-table th{background:var(--panel2);font-weight:700}
 .sb-figure{border-left:3px solid var(--accent);padding:.3em .7em;
   margin:.5em 0 .8em;color:var(--dim);font-size:.96em}
+/* Further reading, at the foot of a lesson. */
+.sb-papers{margin-top:1.1em;padding-top:.8em;border-top:1px solid var(--line,#2a3340)}
+.sb-papers-h{font-size:12px;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--dim);font-weight:700}
+.sb-papers-note{font-size:11.5px;color:var(--dim);margin:.2em 0 .5em}
+.sb-paper{display:block;padding:.45em 0;border-bottom:1px solid var(--line,#2a3340);
+  text-decoration:none}
+.sb-paper-t{font-size:13.5px;color:var(--accent2,#7ab7ff)}
+.sb-paper-m{font-size:11.5px;color:var(--dim)}
 .sb-lead{font-size:1.09em;line-height:1.58;color:var(--text)}
 .sb-h{font-size:.78em;letter-spacing:.1em;text-transform:uppercase;
   color:#8fe3b0;margin:1.35em 0 .45em;font-weight:700}
@@ -1291,6 +1300,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="voice.js?v=35513e1f46"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
+<script src="mathtext.js?v=1aa34be247"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="lab.js?v=c536df7feb"></script>
@@ -1622,107 +1632,10 @@ const $=s=>document.querySelector(s);
 
    Runs AFTER escaping, so everything it inserts is markup we wrote and the
    model's own text can never become an element. */
-const MATH_SYM={
-  times:"\u00d7",cdot:"\u00b7",div:"\u00f7",pm:"\u00b1",mp:"\u2213",
-  leq:"\u2264",le:"\u2264",geq:"\u2265",ge:"\u2265",neq:"\u2260",ne:"\u2260",
-  approx:"\u2248",equiv:"\u2261",sim:"\u223c",propto:"\u221d",
-  infty:"\u221e",partial:"\u2202",nabla:"\u2207",
-  sum:"\u2211",prod:"\u220f",int:"\u222b",oint:"\u222e",
-  rightarrow:"\u2192",to:"\u2192",leftarrow:"\u2190",leftrightarrow:"\u2194",
-  Rightarrow:"\u21d2",Leftrightarrow:"\u21d4",mapsto:"\u21a6",
-  in:"\u2208",notin:"\u2209",subset:"\u2282",subseteq:"\u2286",
-  cup:"\u222a",cap:"\u2229",emptyset:"\u2205",forall:"\u2200",exists:"\u2203",
-  alpha:"\u03b1",beta:"\u03b2",gamma:"\u03b3",delta:"\u03b4",epsilon:"\u03b5",
-  zeta:"\u03b6",eta:"\u03b7",theta:"\u03b8",lambda:"\u03bb",mu:"\u03bc",
-  nu:"\u03bd",xi:"\u03be",pi:"\u03c0",rho:"\u03c1",sigma:"\u03c3",tau:"\u03c4",
-  phi:"\u03c6",chi:"\u03c7",psi:"\u03c8",omega:"\u03c9",
-  Gamma:"\u0393",Delta:"\u0394",Theta:"\u0398",Lambda:"\u039b",Pi:"\u03a0",
-  Sigma:"\u03a3",Phi:"\u03a6",Psi:"\u03a8",Omega:"\u03a9",
-  ldots:"\u2026",dots:"\u2026",cdots:"\u22ef",angle:"\u2220",degree:"\u00b0",
-  circ:"\u00b0",perp:"\u22a5",parallel:"\u2225",therefore:"\u2234",
-  because:"\u2235",sqrt:"\u221a"
-};
-const SUP={"0":"\u2070","1":"\u00b9","2":"\u00b2","3":"\u00b3","4":"\u2074",
-  "5":"\u2075","6":"\u2076","7":"\u2077","8":"\u2078","9":"\u2079",
-  "+":"\u207a","-":"\u207b","n":"\u207f","i":"\u2071"};
-const SUB={"0":"\u2080","1":"\u2081","2":"\u2082","3":"\u2083","4":"\u2084",
-  "5":"\u2085","6":"\u2086","7":"\u2087","8":"\u2088","9":"\u2089",
-  "+":"\u208a","-":"\u208b"};
-
-function mathText(html){
-  let t=String(html==null?"":html);
-
-  /* The delimiters go first. A model wraps maths in $...$, \(...\) or
-     \[...\] and the wrapper carries no meaning for a reader. */
-  t=t.replace(/\\\[|\\\]|\\\(|\\\)/g,"");
-
-  /* $ is a delimiter and a currency symbol, and telling them apart is not
-     optional: stripping both turned "profit is $3" into "profit is 3". So a
-     $...$ pair is only unwrapped when what it contains actually looks like
-     maths — a LaTeX command, a power, a subscript, or a short expression
-     with no ordinary prose in it. Everything else keeps its dollars. */
-  t=t.replace(/\$([^$\n]{1,200})\$/g,(m,inner)=>looksMathy(inner)?inner:m);
-
-  /* \frac{a}{b} becomes a real stacked fraction — the one construction that
-     genuinely cannot be written on a line without losing clarity. Nested
-     twice, which covers everything short of a continued fraction. */
-  const frac=/\\[dt]?frac\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
-  for(let i=0;i<3;i++) t=t.replace(frac,
-    (m,a,b)=>`<span class="mfrac"><span class="mnum">${a}</span>`
-            +`<span class="mden">${b}</span></span>`);
-
-  t=t.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g,"$1\u221a($2)");
-  t=t.replace(/\\sqrt\s*\{([^{}]*)\}/g,"\u221a($1)");
-  t=t.replace(/\\mathbb\s*\{([^{}]*)\}/g,
-    (m,g)=>({R:"\u211d",N:"\u2115",Z:"\u2124",Q:"\u211a",C:"\u2102",
-             P:"\u2119",H:"\u210d"}[g.trim()]||g));
-  t=t.replace(/\\(?:text|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathfrak|operatorname|boldsymbol)\s*\{([^{}]*)\}/g,"$1");
-  t=t.replace(/\\left|\\right|\\,|\\;|\\!|\\quad|\\qquad/g," ");
-  t=t.replace(/\\begin\{[^}]*\}|\\end\{[^}]*\}/g," ");
-
-  /* Superscripts and subscripts as real characters where they exist, and as
-     a styled span where they do not — x^{n+1} has no unicode form. */
-  t=t.replace(/\^\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUP,"msup"));
-  t=t.replace(/\^\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUP,"msup"));
-  t=t.replace(/_\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUB,"msub"));
-  t=t.replace(/_\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUB,"msub"));
-
-  t=t.replace(/\\([A-Za-z]+)/g,(m,name)=>
-    Object.prototype.hasOwnProperty.call(MATH_SYM,name)?MATH_SYM[name]:name);
-  return t.replace(/\{|\}/g,"");
-}
-
-/* Is what sits between two dollar signs maths, or is it a sentence with
-   prices in it? Anything with a backslash, a power or a subscript is maths
-   outright. Otherwise it is maths only if it is short and free of ordinary
-   words — "(ab + 1)" qualifies, "5 and profit is " does not. */
-const MATH_WORDS=/^(sin|cos|tan|log|ln|exp|sqrt|max|min|lim|det|mod|and|or)$/;
-function looksMathy(inner){
-  // A LaTeX command, a power or a subscript settles it outright.
-  if(/[\\^_]/.test(inner)) return true;
-  // Otherwise, an opening "$" followed straight by a digit is money: prices,
-  // salaries and revenues all look like that, and "$5 to $3 lakh" has no
-  // three-letter word in it to give itself away. Real maths that starts with
-  // a number nearly always carries a command or a power too, and that has
-  // already been checked above.
-  if(/^\d/.test(inner)) return false;
-  if(inner.length>60) return false;
-  // One ordinary word is enough. Keeping a dollar sign that was a delimiter
-  // is untidy; removing one that was a price changes the number, so the
-  // doubt is always resolved in favour of the money.
-  const words=(inner.match(/[A-Za-z]{3,}/g)||[])
-    .filter(w=>!MATH_WORDS.test(w.toLowerCase()));
-  if(words.length>=1) return false;
-  // A lone number between dollars is a price, not an equation.
-  if(/^\s*-?[\d.,]+\s*$/.test(inner)) return false;
-  return /[=+\-*/<>()]|[a-zA-Z]/.test(inner);
-}
-
-function upDown(txt,table,cls){
-  const all=[...txt].every(c=>table[c]!==undefined);
-  if(all) return [...txt].map(c=>table[c]).join("");
-  return `<${cls==="msup"?"sup":"sub"}>${txt}</${cls==="msup"?"sup":"sub"}>`;
-}
+/* MATH_SYM, mathText, looksMathy and upDown moved to mathtext.js.
+   The board renders the same lessons and had no copy of any of it,
+   so maths came out as raw commands on the classroom screen while
+   this page showed the equation. One file, loaded by both. */
 
 const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const langPill=l=> l==="py"?'<span class="pill hot">Python · runs live</span>'
@@ -4803,6 +4716,33 @@ function sbStepName(st){
                           : (name || "Step");
 }
 
+/* Where the subject goes next, at the end of the lesson.
+ *
+ * A school lesson is bounded by its syllabus and should be. But somebody in
+ * the room wants to know whether there is more, and the honest answer is a
+ * real paper with a real author on it rather than a longer paragraph from a
+ * model. Shown on the LAST step, because it is what to read after — putting
+ * it on step one is an invitation to leave.
+ *
+ * "Preprints" is said plainly. These are papers as submitted and most have
+ * not been refereed, which is the one thing a reader has to know before
+ * treating one as settled.
+ */
+function sbPapersHTML(l){
+  const ps = (l && l.papers) || [];
+  if(!ps.length) return "";
+  return `<div class="sb-papers">
+    <div class="sb-papers-h">Read further</div>
+    <div class="sb-papers-note">Research papers on arXiv — preprints, so
+      most have not yet been peer reviewed.</div>
+    ${ps.map(p=>`<a class="sb-paper" href="${esc(p.url)}" target="_blank"
+        rel="noopener">
+      <div class="sb-paper-t">${esc(p.title)}</div>
+      <div class="sb-paper-m">${esc(p.by||"")}${
+        p.when?" · "+esc(p.when):""}</div></a>`).join("")}
+  </div>`;
+}
+
 function sbBoardHTML(){
   if(SB.busy) return `<div class="ask-line">Building your lesson…</div>`;
   if(SB.error) return `<div class="ask-line">${esc(SB.error)}</div>`;
@@ -4820,6 +4760,7 @@ function sbBoardHTML(){
          subject repeated, and the open catalogues have a picture of most
          of them. -->
     ${(SB.i===0&&l.photo&&l.photo.url)?sbPhotoHTML(l.photo):""}
+    ${(SB.i===l.steps.length-1)?sbPapersHTML(l):""}
     ${(st.photo&&st.photo.url)?sbPhotoHTML(st.photo):""}
     <!-- The checker's findings are not shown here any more. They were
          printed as a red band in the middle of the lesson, between the

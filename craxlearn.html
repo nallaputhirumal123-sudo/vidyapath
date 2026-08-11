@@ -295,6 +295,14 @@ th{color:var(--muted);font-weight:600;font-size:.62rem;
 .ltable th{background:var(--panel2);font-weight:700}
 .lfigure{border-left:3px solid var(--accent);padding:.3rem .6rem;
   margin:.4rem 0 .7rem;color:var(--muted);font-size:.95em}
+
+/* The stacked fraction the maths formatter builds. Without these the board
+   drew a numerator and a denominator side by side, which reads as two
+   numbers rather than one. */
+.mfrac{display:inline-flex;flex-direction:column;vertical-align:-0.45em;
+  text-align:center;margin:0 .12em}
+.mnum{border-bottom:1.5px solid currentColor;padding:0 .28em}
+.mden{padding:0 .28em}
 .paneMark.on{pointer-events:auto;cursor:crosshair}
 .pane[data-marking="1"] .paneHead{border-bottom-color:#ff3b30}
 .markBar{position:absolute;right:.4rem;bottom:.4rem;z-index:6;display:none;
@@ -790,6 +798,7 @@ window.esc = function (s) {
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=665dcd5a1b"></script>
 <script src="pdfview.js?v=22ef484122"></script>
+<script src="mathtext.js?v=1aa34be247"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="scanner.js?v=f62f1b0eb8"></script>
@@ -6312,6 +6321,14 @@ function lessonProse(text){
      afterwards with a regular expression. The regex version worked on the
      example in front of me and would have produced unbalanced markup the
      first time a lesson had two separate lists in one step. */
+  /* Escape, then format the maths. In that order and never the other way:
+     mathText emits real tags — a stacked fraction, a superscript — and
+     escaping after it would print those tags at the class instead of the
+     equation. Escaping first means anything a lesson contains is inert
+     before any markup of ours is added. */
+  function M(x){
+    return (typeof mathText === "function") ? mathText(esc(x)) : esc(x);
+  }
   var out = [], lead = true, inList = false, inTable = null;
   function shut(){ if(inList){ out.push("</ul>"); inList = false; } }
   /* A table drawn as a table.
@@ -6331,11 +6348,11 @@ function lessonProse(text){
     if(!rows.length) return;
     var head = rows[0], rest = rows.slice(1);
     out.push('<div class="ltablewrap"><table class="ltable"><thead><tr>' +
-      head.map(function(c){ return "<th>" + esc(c) + "</th>"; }).join("") +
+      head.map(function(c){ return "<th>" + M(c) + "</th>"; }).join("") +
       "</tr></thead><tbody>" +
       rest.map(function(r){
         return "<tr>" + r.map(function(c){
-          return "<td>" + esc(c) + "</td>"; }).join("") + "</tr>";
+          return "<td>" + M(c) + "</td>"; }).join("") + "</tr>";
       }).join("") + "</tbody></table></div>");
   }
   lines.forEach(function(ln){
@@ -6354,7 +6371,7 @@ function lessonProse(text){
     if(/^FIGURE:\s*/i.test(ln)){
       shut();
       out.push('<div class="lfigure">' +
-               esc(ln.replace(/^FIGURE:\s*/i, "")) + "</div>");
+               M(ln.replace(/^FIGURE:\s*/i, "")) + "</div>");
       return;
     }
     /* A dash or a bullet is always a list item — somebody typed a bullet.
@@ -6367,20 +6384,20 @@ function lessonProse(text){
     var rest = ln.replace(/^\s*(?:[-•*]\s+|\d+[.)]\s+)/, "");
     if(numbered && lessonIsHeading(rest)){
       shut();
-      out.push('<h3 class="lh">' + esc(rest.replace(/:$/, "")) + "</h3>");
+      out.push('<h3 class="lh">' + M(rest.replace(/:$/, "")) + "</h3>");
       return;
     }
     if(dashed || numbered){
       if(!inList){ out.push('<ul class="ll">'); inList = true; }
-      out.push("<li>" + esc(rest) + "</li>");
+      out.push("<li>" + M(rest) + "</li>");
       return;
     }
     shut();
     if(lessonIsHeading(ln)){
-      out.push('<h3 class="lh">' + esc(ln.replace(/:$/, "")) + "</h3>");
+      out.push('<h3 class="lh">' + M(ln.replace(/:$/, "")) + "</h3>");
       return;
     }
-    out.push('<p class="' + (lead ? "lp lead" : "lp") + '">' + esc(ln) +
+    out.push('<p class="' + (lead ? "lp lead" : "lp") + '">' + M(ln) +
              "</p>");
     lead = false;
   });

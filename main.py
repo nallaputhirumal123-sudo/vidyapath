@@ -5540,6 +5540,7 @@ import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402
 import images as _images                                            # noqa: E402
 import reference as _reference                                      # noqa: E402
+import papers as _papers                                            # noqa: E402
 import maths as _maths                                              # noqa: E402
 
 
@@ -17088,7 +17089,12 @@ async def board_lesson(body: BoardIn,
                     refs = await _reference.find(_pic_client, topic)
                 except Exception as e:
                     print(f"Reference lookup skipped: {type(e).__name__}: {e}")
-            text, photo = await asyncio.gather(
+            # Further reading, fetched beside the picture so it costs no
+            # extra wait. Nothing from it reaches the model: a lesson is
+            # what a class is examined on, and a preprint is somebody's
+            # argument. These are titles and links under the lesson, for
+            # the reader who wants to know where the subject goes next.
+            text, photo, further = await asyncio.gather(
                 _ai_text(_board_prompt(topic, level, klass)
                          + _rag.as_source(sources)
                          + _reference.as_source(refs)
@@ -17096,11 +17102,14 @@ async def board_lesson(body: BoardIn,
                          _depth.tokens(topic),
                         json_mode=True),
                 _images.find(_pic_client, topic),
+                _papers.find(_pic_client, topic, 3),
             )
             _tr.phase("model+picture")
             lesson = _trim_to_depth(_clean_board(_ai_json(text), topic), topic)
             if photo:
                 lesson["photo"] = photo
+            if further:
+                lesson["papers"] = further
             # Where the facts came from, for the reader. Wikipedia is
             # CC BY-SA: a lesson built from an article and shown with no
             # indication of that is not one we are entitled to show, and
