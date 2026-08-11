@@ -51,7 +51,13 @@ _HOSTS = ("upload.wikimedia.org", "commons.wikimedia.org",
           "en.wikipedia.org", "wikimedia.org",
           # Public-domain sources, added deliberately and by exact name. A
           # picture may still only come from a host named here.
-          "pubchem.ncbi.nlm.nih.gov", "images-assets.nasa.gov")
+          "pubchem.ncbi.nlm.nih.gov", "images-assets.nasa.gov",
+          # Openverse serves every one of its ~700 million thumbnails from
+          # its own host, so opening the sources up this far costs exactly
+          # one name here. Taking the originals instead would mean allowing
+          # Flickr, a hundred museums and whatever else it indexes — which
+          # is the open internet with extra steps.
+          "api.openverse.org")
 
 MIN_WIDTH = 240          # thumbnails smaller than this are icons, not pictures
 TIMEOUT = 6.0            # a picture is a bonus; it never delays a lesson
@@ -507,7 +513,90 @@ _SPACE = re.compile(
     r"jupiter|saturn|uranus|neptune|mercury|pluto|moon|lunar|sun|solar|"
     r"asteroid|comet|meteor|eclipse|cosmic|universe|black hole|supernova|"
     r"milky way|space station|hubble|webb|apollo|voyager|atmosphere of|"
+    # India's own space programme. A board in an Indian classroom asking
+    # about Chandrayaan, or the pad at Sriharikota, was not recognised as a
+    # space question at all — so the space sources were never consulted, and
+    # the examples a child here has actually heard of returned nothing.
+    r"isro|chandrayaan|mangalyaan|aditya[- ]?l1|gaganyaan|pslv|gslv|lvm3|"
+    r"sriharikota|satish dhawan|vikram sarabhai|aryabhata|"
     r"hurricane|cyclone|monsoon|glacier|volcano|earth observation)\b", re.I)
+
+
+OPENVERSE = "https://api.openverse.org/v1/images/"
+
+
+async def _from_openverse(client, topic):
+    """Openly-licensed pictures of almost anything, with the licence attached.
+
+    Wikimedia is an encyclopaedia: it has a good picture of whatever has an
+    article, and nothing for "a rocket on the pad at Sriharikota" or a
+    thousand other things a class asks about. Openverse indexes around
+    seven hundred million openly-licensed images across Flickr, museums,
+    government archives and Wikimedia itself — which is the breadth this
+    board needed and could not get from an encyclopaedia.
+
+    It is not a general image search and that is deliberate. Everything here
+    carries a licence and a creator, both of which are printed beside the
+    picture. A general search engine returns whatever is on the web,
+    including work nobody has licensed for a classroom to reuse, and a
+    school putting that on a screen is a problem we would have handed them.
+
+    The THUMBNAIL url is taken, not the original. Openverse serves thumbs
+    from its own host, so half a billion pictures arrive through one
+    hostname — the proxy's allowlist stays a short list of names somebody
+    can read, instead of the open internet.
+    """
+    try:
+        # Longer than the others on purpose. TIMEOUT is six seconds because a
+        # picture must never hold up a lesson — but this is the LAST source
+        # asked, so giving up here means no picture at all rather than a
+        # slower one. Openverse can take several seconds on a first, uncached query, and at six it returned nothing for
+        # Sriharikota and PSLV: exactly the searches it was added for.
+        r = await client.get(
+            OPENVERSE, timeout=10.0, headers={"User-Agent": UA},
+            params={"q": str(topic)[:80], "page_size": 8,
+                    # Anything a school may show and mark up. Openverse can
+                    # also return "no derivatives" work, and drawing on a
+                    # picture is a derivative.
+                    "license_type": "all-cc,commercial,modification",
+                    "mature": "false"})
+        if r.status_code != 200:
+            return {}
+        results = (r.json() or {}).get("results") or []
+    except Exception as e:
+        print(f"Openverse lookup failed: {type(e).__name__}: {e}")
+        return {}
+    # A title here is often a filename — "C535 large", "DSC_0042" — because
+    # these are photographs from Flickr and museum archives rather than
+    # encyclopaedia articles. The relevance test that protects the Wikimedia
+    # path reads the title, so applied here it threw away good pictures for
+    # having dull names: the first result for Sriharikota was discarded as
+    # "not about it" on the strength of being called C535.
+    #
+    # Openverse's own search is the relevance signal — it matches over tags,
+    # descriptions and titles together. So: prefer a result whose title
+    # ALSO reads as relevant, and otherwise take what the search ranked
+    # first rather than nothing.
+    usable, best = [], None
+    for it in results:
+        thumb = str(it.get("thumbnail") or "")
+        if not thumb.startswith("https://api.openverse.org/"):
+            continue
+        lic = str(it.get("license") or "").upper()
+        ver = str(it.get("license_version") or "")
+        title = str(it.get("title") or "").strip()
+        pic = {"url": thumb,
+               "width": int(it.get("width") or 800) or 800,
+               # Falling back to the query, so a picture never arrives
+               # captioned "DSC_0042" on a classroom screen.
+               "caption": (title or str(topic))[:120],
+               "author": str(it.get("creator") or "")[:160],
+               "license": (f"{lic} {ver}".strip() if lic else ""),
+               "page": str(it.get("foreign_landing_url") or "")[:600]}
+        usable.append(pic)
+        if best is None and title and relevant(topic, title):
+            best = pic
+    return best or (usable[0] if usable else {})
 
 
 async def _nasa_asset(client, nasa_id):
@@ -723,7 +812,29 @@ async def find(client, topic: str) -> dict:
     # author or a licence is dropped rather than shown bare. The public-domain
     # sources above are exempt because there is genuinely nobody to credit.
     if pic and not (pic.get("author") or pic.get("license")):
-        return {}
+        pic = {}
+    if pic:
+        return pic
+
+    # And Openverse for everything an encyclopaedia does not have an article
+    # about — which is most of what a class actually asks to see. Wikimedia
+    # answers "photosynthesis" well and "a rocket on the pad at Sriharikota"
+    # not at all, because the second is a photograph rather than a subject.
+    #
+    # Last, deliberately. Wikimedia's lead image is chosen by an editor to
+    # introduce a subject and is usually the better teaching picture; this is
+    # the wider net underneath it, not a replacement for it.
+    try:
+        pic = clean(await _from_openverse(client, q))
+    except Exception as e:
+        print(f"Openverse failed: {type(e).__name__}: {e}")
+        pic = {}
+    # No title test here, unlike the Wikimedia path above. Openverse chooses
+    # by searching tags and descriptions as well as titles, and its titles
+    # are frequently camera filenames — judging one by its name discards the
+    # picture the search got right. The choosing happens inside
+    # _from_openverse, which prefers a result whose title reads as relevant
+    # and otherwise trusts the ranking.
     return pic
 
 
