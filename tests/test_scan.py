@@ -124,7 +124,23 @@ BODY = {"readable": True, "kind": "worked", "subject": "Cardiology",
                    "working": ""}],
         "answer": "In two stages.", "next": "Read about the cardiac cycle."}
 _d = m.SessionLocal()
-_d.add(m.AskCache(qkey=f"scan|{DIGEST}", subject="scan", level="worked",
+# Keyed the way /api/scan really keys it, which is the whole point.
+#
+# This used to seed "scan|<digest>" by hand — the format from before cache
+# keys were scoped. The route writes _cl.key(scope, "scan", digest), which
+# puts the scope first, so the fixture and the app had not agreed since the
+# day scoping landed. The reopen route was matching the fixture's shape, so
+# this test passed green while every real saved scan opened on "That answer
+# is no longer stored".
+#
+# Built through the same helper now, so the two cannot drift apart again.
+_ea = _d.query(m.User).filter(m.User.email == EA).first()
+# Captured as a plain string while the session is open. Holding the User and
+# re-reading it later raises DetachedInstanceError, which is a test failing
+# for a reason that has nothing to do with what it is testing.
+SCAN_KEY = m._cl.key(m._scope_of(_d, _ea), "scan", DIGEST)
+_d.add(m.AskCache(qkey=SCAN_KEY,
+                  subject="scan", level="worked",
                   question="How does the heart pump blood?",
                   lesson=json.dumps(BODY), hits=0))
 _d.add(m.Note(user_id=uid(EA), k=f"scan:{DIGEST}",
@@ -143,6 +159,33 @@ check("it is in the owner's recent list",
       any(x["key"] == DIGEST for x in A.get("/api/scan/recent").json()["recent"]))
 check("and not in anybody else's",
       not B.get("/api/scan/recent").json()["recent"])
+# The check the seeded ones could not make: a scan that went through the
+# REAL route, saved and reopened.
+#
+# Every assertion above plants its own AskCache row, so all of them tested
+# the shape of the fixture rather than the shape the product writes — and
+# when cache keys were scoped, the fixture stayed on the old format and the
+# reopen route stayed matching it. Green tests, and every real saved scan
+# answering "That answer is no longer stored".
+_saved = m.SessionLocal()
+try:
+    _u = _saved.query(m.User).filter(m.User.email == EA).first()
+    _digest = secrets.token_hex(32)
+    _key = m._cl.key(m._scope_of(_saved, _u), "scan", _digest)
+    _saved.add(m.AskCache(qkey=_key, subject="scan", level="worked",
+                          question="Round trip", lesson=json.dumps(BODY),
+                          hits=0))
+    m._scan_remember(_saved, _u, _digest, BODY)
+    _saved.commit()
+finally:
+    _saved.close()
+_r = A.get(f"/api/scan/{_digest[:16]}")
+check("a scan stored the way the app stores one can be reopened",
+      _r.status_code == 200, str(_r.status_code) + " " + _r.text[:70])
+check("and it is the right answer",
+      _r.status_code == 200
+      and _r.json()["scan"]["subject"] == "Cardiology")
+
 check("a made-up key is a 404",
       A.get("/api/scan/0000000000000000").status_code == 404)
 # The list route must not be swallowed by the {key} route declared beside it.
@@ -154,8 +197,8 @@ check("clearing removes the owner's history", n >= 1, str(n))
 check("and the list is then empty", not A.get("/api/scan/recent").json()["recent"])
 _d = m.SessionLocal()
 check("but the shared answer cache is untouched",
-      _d.query(m.AskCache).filter(m.AskCache.qkey == f"scan|{DIGEST}").first()
-      is not None)
+      _d.query(m.AskCache).filter(
+          m.AskCache.qkey == SCAN_KEY).first() is not None)
 _d.close()
 
 # --------------------------------------------------------------------------

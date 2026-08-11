@@ -18223,8 +18223,20 @@ def scan_one(key: str, user: User = Depends(current_user),
     mine = db.query(Note).filter(Note.user_id == user.id, Note.k == k).first()
     if not mine:
         raise HTTPException(404, "Not one of yours")
+    # The same key the answer was WRITTEN under.
+    #
+    # This looked for "scan|<digest>" while /api/scan stores
+    # _cl.key(scope, "scan", digest) — and that puts the scope first, so the
+    # real key is "school:12|scan|<digest>". Nothing matched. Every scan
+    # went into the recent list and every one of them opened on "That answer
+    # is no longer stored", which reads as data loss and is a prefix.
+    #
+    # It matched once: the pattern is the pre-scope format, so this broke on
+    # the day cache keys were scoped and the only rows it still found were
+    # the ones seeded before that.
+    scope = _cl.key(_scope_of(db, user), "scan", "")
     row = db.query(AskCache).filter(
-        AskCache.qkey.like(f"scan|{key[:16]}%")).first()
+        AskCache.qkey.like(f"{scope}{key[:16]}%")).first()
     out = _cached_json(db, row, need=None)
     if not out:
         raise HTTPException(404, "That answer is no longer stored")
