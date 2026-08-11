@@ -15785,10 +15785,77 @@ class BoardIn(BaseModel):
     level: str = Field(default="Intermediate", max_length=20)
 
 
-def _board_prompt(topic: str, level: str) -> str:
+def _grade_of(klass: str) -> int:
+    """The school year in a class name, or 0 when there is not one.
+
+    One reader, used by the prompt and by the cache key, so a lesson can
+    never be pitched at one year and filed under another.
+    """
+    t = str(klass or "").strip().lower()
+    if not t:
+        return 0
+    # "9th class a", "11th std" — the digit is glued to its ordinal suffix,
+    # so a word boundary after it never matches. This is the form a school
+    # actually types, and it was the one form that returned nothing.
+    m = re.search(r"\b(1[0-2]|[1-9])\s*(?:st|nd|rd|th)\b", t)
+    if m:
+        return int(m.group(1))
+    # Digits before roman numerals, always. Scanning for romans first read
+    # the "i" inside "Class 11 Science" and answered class 1 — and "Rainbow"
+    # and "Section Blue" became class 1 the same way.
+    m = re.search(r"\b(1[0-2]|[1-9])\b", t)
+    if m:
+        return int(m.group(1))
+    # Roman numerals, which is how a great many Indian schools write a
+    # class: VIII-B, Std X, IX A. Whole words only, and never a bare "i" —
+    # one letter inside an ordinary word is not a year group.
+    roman = {"ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7,
+             "viii": 8, "ix": 9, "x": 10, "xi": 11, "xii": 12}
+    for word in re.findall(r"\b[ivx]+\b", t):
+        if word in roman:
+            return roman[word]
+    return 0
+
+
+def _grade_note(klass: str) -> str:
+    """Teach to the class standing in front of the board.
+
+    The board knows which room it is in — a subject code names one class —
+    and the lesson never used it. "Explain refraction" was answered the same
+    way for a class of thirteen-year-olds and a class sitting board exams,
+    which means it was wrong for at least one of them: too thin to be
+    useful, or pitched over their heads and quietly abandoned.
+
+    Read from the class NAME, because that is what a school types: 9-A,
+    "9th class a", "Class 11 Science", VIII-B. Anything with no number in it
+    is left alone rather than guessed at — a wrong grade is worse than none,
+    since a lesson calibrated to the wrong year is confidently wrong rather
+    than obviously missing.
+    """
+    # _grade_of, not a second regex. This had its own, which read digits and
+    # not roman numerals — so "XII Commerce" was correctly identified as
+    # class 12 for the cache key and given no year in the prompt. A lesson
+    # pitched at nothing, filed under class 12.
+    g = _grade_of(klass)
+    if not g:
+        return ""
+    return (
+        f"\n\nTHE CLASS IN FRONT OF YOU IS CLASS {g}. Teach it at that "
+        f"year's depth, and use only what a class {g} pupil has already been "
+        f"taught. Do not reach for mathematics or vocabulary from a later "
+        f"year to shorten an explanation — if the short way needs a tool "
+        f"they have not met, take the long way that uses the tools they "
+        f"have. Where the syllabus at this year genuinely stops short of the "
+        f"full picture, teach what is taught and say plainly that there is "
+        f"more to it later, rather than over-reaching or pretending the "
+        f"simple version is the whole truth.\n"
+    )
+
+
+def _board_prompt(topic: str, level: str, klass: str = "") -> str:
     return (
         f"You are Axle, teaching at a board. Topic: {topic}. Learner level: "
-        f"{level}.\n\n"
+        f"{level}.{_grade_note(klass)}\n\n"
         "This board teaches anything anyone asks it, to whatever depth "
         "they need — medicine, law, pure mathematics, history, "
         "engineering, linguistics, finance, music, a trade, a language, "
@@ -16930,6 +16997,14 @@ async def board_lesson(body: BoardIn,
         raise HTTPException(503, "The AI tutor is not switched on")
     topic = body.topic.strip()
     level = body.level.strip() or "Intermediate"
+    # Which class is in the room, taken from the board's own token rather
+    # than from the request. A subject code names one class; the browser
+    # could claim any year it liked, and the year decides how the lesson is
+    # pitched.
+    klass = ""
+    if grant is not None:
+        k = db.get(Klass, int(grant.get("class_id") or 0))
+        klass = (k.name if k else "") or ""
     # Every request leaves a trace. The selftest builds a lesson in five
     # seconds while the browser waits forever, and only a record of what the
     # real endpoint did can say which phase the real request stops at.
@@ -16937,8 +17012,13 @@ async def board_lesson(body: BoardIn,
 
     # Cached like Ask Axle: the same topic at the same level is the same
     # lesson, and the second person to ask should not cost anything.
+    #
+    # The class goes in the key. Class 9 and class 12 asking about
+    # refraction are two different lessons now, and sharing one cache entry
+    # would hand whichever came second the other year's answer.
     scope = _scope_of(db, user)
-    qkey = _cl.key(scope, "board", _norm_q(level), _norm_q(topic))[:500]
+    qkey = _cl.key(scope, "board", _norm_q(level),
+                   _norm_q(f"{_grade_of(klass)}|{topic}"))[:500]
     _record_learning(db, user, scope, "board", topic, "board", level)
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     _tr.phase("cache lookup")
@@ -17009,7 +17089,7 @@ async def board_lesson(body: BoardIn,
                 except Exception as e:
                     print(f"Reference lookup skipped: {type(e).__name__}: {e}")
             text, photo = await asyncio.gather(
-                _ai_text(_board_prompt(topic, level)
+                _ai_text(_board_prompt(topic, level, klass)
                          + _rag.as_source(sources)
                          + _reference.as_source(refs)
                          + _wolfram.note(topic, computed),
