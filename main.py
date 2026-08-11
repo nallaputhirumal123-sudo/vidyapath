@@ -1394,6 +1394,22 @@ def make_token(user: User, db: Session = None) -> str:
     fresh = secrets.token_urlsafe(18)
     if db is not None:
         keep = ([fresh] + _sessions(user))[:_device_cap(user, db)]
+        # And bounded by the COLUMN, not only by the count.
+        #
+        # session_token is VARCHAR(400) and each token is 24 characters, so
+        # anything above sixteen devices writes a value Postgres refuses with
+        # 22001. It does not fail on the first sign-in either: the list grows
+        # by one token each time, so a cap of twenty is fine for sixteen
+        # sign-ins and then is not — which is why this surfaced as "the admin
+        # cannot sign in any more" on the account that signs in most, months
+        # after anything changed. SQLite silently stores the overlong value,
+        # so it cannot be reproduced locally.
+        #
+        # Oldest first, because `keep` is newest-first and the device to give
+        # up is the one used longest ago.
+        limit = User.__table__.columns["session_token"].type.length or 400
+        while len(",".join(keep)) > limit and len(keep) > 1:
+            keep.pop()
         user.session_token = ",".join(keep)
         user.session_seen_at = now()
         db.commit()
@@ -2309,6 +2325,13 @@ def status(request: Request, db: Session = Depends(get_db)):
         "database": "postgres" if DATABASE_URL.startswith("postgres") else "sqlite",
         "admin_email_variable_set": bool(ADMIN_EMAIL),
         "jwt_secret_set": JWT_SECRET != "dev-only-insecure-secret-change-me",
+        # The device caps, because one of them silently decided whether an
+        # account could sign in at all: session_token is VARCHAR(400) and a
+        # token is 24 characters, so a cap above sixteen wrote a value the
+        # database refused. Configuration, not data, and worth being able to
+        # read from outside.
+        "max_devices": MAX_DEVICES,
+        "max_devices_staff": MAX_DEVICES_STAFF,
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
         # The books, and their figures, as this deployment actually has them.

@@ -194,6 +194,44 @@ ck("driven by the server's answer, not the hostname",
    '"/api/auth/config"' in _IDX,
    "a hostname is a header; this decides what the page claims to be")
 
+print("\nthe session store cannot outgrow its column")
+# 22001 on /api/auth/google/callback, on the admin, months after anything
+# changed. Google was fine — ok:true, correct redirect_uri — and the write
+# after it was not: session_token is VARCHAR(400), a token is 24 characters,
+# and the list grows by one on every sign-in up to the device cap. A cap
+# above sixteen therefore works for sixteen sign-ins and then never works
+# again, because the refused write leaves the old value in place and every
+# later attempt retries the same too-long string. The account that signs in
+# most often hits it first, which is the administrator's.
+#
+# SQLite stores the overlong value happily, so this cannot be reproduced on
+# a laptop. The bound has to come from the column itself.
+import secrets as _s                                     # noqa: E402
+_LIMIT = main.User.__table__.columns["session_token"].type.length
+ck("the column has a stated length", bool(_LIMIT), str(_LIMIT))
+for _cap in (1, 4, 17, 40):
+    _toks = []
+    for _ in range(_cap + 25):
+        _toks = ([_s.token_urlsafe(18)] + _toks)[:_cap]
+        while len(",".join(_toks)) > _LIMIT and len(_toks) > 1:
+            _toks.pop()
+    ck(f"a cap of {_cap} never exceeds it",
+       len(",".join(_toks)) <= _LIMIT,
+       f"{len(','.join(_toks))} chars, {len(_toks)} kept")
+ck("the trim lives in make_token, not at the call sites",
+   'while len(",".join(keep)) > limit and len(keep) > 1:' in MAIN,
+   "every way in goes through it — password, code and Google")
+ck("the limit is read from the column, not typed twice",
+   'limit = User.__table__.columns["session_token"].type.length or 400'
+   in MAIN,
+   "a number copied into the code is a number that stops matching")
+ck("and the device given up is the least recently used",
+   "keep.pop()" in MAIN,
+   "keep is newest-first, so popping the end drops the oldest")
+ck("the caps are readable from outside",
+   '"max_devices": MAX_DEVICES,' in MAIN,
+   "one of them silently decided whether an account could sign in at all")
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\nPASSED {len(P)}   FAILED {len(F)}")
 sys.exit(1 if F else 0)
