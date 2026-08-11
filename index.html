@@ -6157,6 +6157,79 @@ function chatToEnd(){
   if(s) s.scrollTop = s.scrollHeight;
 }
 
+/* One subject's folder: what came off the board, and what was uploaded.
+ *
+ * Everything kept for a subject arrives here as a Material, and there are
+ * three kinds of them:
+ *
+ *   lesson   words, saved from the board. Its content is in `body` — it has
+ *            no url and no file.
+ *   file     a picture of the board, or a document the teacher uploaded.
+ *   link     an address the teacher shared.
+ *
+ * This used to render all three as `<a href={url or /file}>`, so a lesson
+ * kept from the board — which has neither — became a link to a file that
+ * does not exist. Everything a teacher saved off the board was on the page
+ * and could not be opened, which is "none of them are going into the
+ * website". A lesson opens where it is now; the other two keep their link.
+ */
+function matKindOf(m){
+  return m.kind || (m.body ? "lesson" : (m.url ? "link" : "file"));
+}
+function matFolder(mats){
+  if(!mats || !mats.length){
+    return `<div style="color:var(--dim);font-size:13px">Nothing kept for
+      this subject yet. Lessons saved from the board, pictures of the board
+      and uploads all arrive here.</div>`;
+  }
+  const GROUPS = [
+    ["lesson", "⚡ Saved from the board"],
+    ["file",   "📎 Files and pictures"],
+    ["link",   "🔗 Links"]
+  ];
+  let h = "";
+  GROUPS.forEach(([kind, label])=>{
+    const rows = mats.filter(m=>matKindOf(m)===kind);
+    if(!rows.length) return;
+    h += `<div style="font-size:11.5px;letter-spacing:.6px;color:var(--dim);
+      text-transform:uppercase;margin:10px 0 4px">${label} · ${rows.length}</div>`;
+    h += rows.map(m=>{
+      const note = m.note?`<div style="font-size:11.5px;color:var(--dim)">${
+        esc(m.note)}</div>`:"";
+      if(kind === "lesson"){
+        /* Opened here rather than downloaded: the words are the material,
+           and a phone opens them faster than it opens a file. */
+        return `<div style="padding:7px 0;border-bottom:1px solid var(--line,#2a2a2a)">
+          <button class="btn ghost sm" data-cls="matopen" data-id="${m.id}"
+            style="padding:0;background:none;border:0;color:var(--accent2,#7ab7ff)">
+            ${esc(m.title)}</button>${note}
+          <div id="matBody${m.id}"></div></div>`;
+      }
+      const href = kind === "link" ? esc(m.url) : "/api/material/"+m.id+"/file";
+      return `<div style="padding:7px 0;border-bottom:1px solid var(--line,#2a2a2a)">
+        <a href="${href}" target="_blank" rel="noopener">${esc(m.title)}</a>
+        ${m.file_name?`<span style="font-size:11.5px;color:var(--dim)"> · ${
+          esc(m.file_name)}</span>`:""}${note}</div>`;
+    }).join("");
+  });
+  return h;
+}
+/* A saved lesson, opened where it sits. MATS_BY_ID is filled by whichever
+   screen drew the folder, so this needs no second fetch. */
+let MATS_BY_ID = {};
+function matOpen(mid){
+  const host = document.getElementById("matBody"+mid);
+  const m = MATS_BY_ID[mid];
+  if(!host || !m) return;
+  if(host.innerHTML){ host.innerHTML=""; return; }
+  const figs = (m.figures||[]).map(f=>f && f.url
+    ? `<img src="${esc(f.url)}" alt="" style="max-width:100%;border-radius:10px;
+        display:block;margin:8px 0">`:"").join("");
+  host.innerHTML = `<div class="card" style="margin:8px 0 4px;padding:12px">
+    <div style="white-space:pre-wrap;line-height:1.6">${esc(m.body||"")}</div>
+    ${figs}</div>`;
+}
+
 async function renderSubject(subject){
   SUBJ.open=subject;
   const cid=SUBJ.cid;
@@ -6185,6 +6258,8 @@ async function renderSubject(subject){
 
   const same=v=>String(v||"").trim().toLowerCase()===subject.trim().toLowerCase();
   mats=mats.filter(m=>same(m.subject));
+  /* So a saved lesson can be opened without a second fetch. */
+  MATS_BY_ID = {}; mats.forEach(m=>{ MATS_BY_ID[m.id]=m; });
   asgs=asgs.filter(a=>same(a.subject));
   const threads=disc.threads||[];
 
@@ -6203,15 +6278,12 @@ async function renderSubject(subject){
         :`<div style="color:var(--dim);font-size:13px">Nothing set.</div>`}
     </div>
 
-    <div class="eyebrow">Study material</div>
+    <div class="eyebrow">${esc(subject)} folder</div>
+    <p class="sub" style="margin:-2px 0 8px">Everything kept for this
+      subject: lessons saved from the classroom board, pictures of the
+      board, and anything your teacher uploaded.</p>
     <div class="card" style="padding:12px;margin-bottom:16px">
-      ${mats.length?mats.map(m=>`<div style="padding:7px 0;
-        border-bottom:1px solid var(--line,#2a2a2a)">
-        <a href="${m.url?esc(m.url):"/api/material/"+m.id+"/file"}"
-          target="_blank" rel="noopener">${esc(m.title)}</a>
-        ${m.note?`<div style="font-size:11.5px;color:var(--dim)">${
-          esc(m.note)}</div>`:""}</div>`).join("")
-        :`<div style="color:var(--dim);font-size:13px">Nothing shared yet.</div>`}
+      ${matFolder(mats)}
     </div>
 
     <div class="eyebrow">${esc(subject)} — class group</div>
@@ -7723,21 +7795,17 @@ async function matPaint(cid){
       `Nothing shared yet.</div>`;
     return;
   }
-  box.innerHTML=rows.map(m=>{
-    /* A link opens where it lives; a file comes from us. Either way the row
-       is the same shape, because to a class they are the same thing. */
-    const href=m.url ? esc(m.url) : "/api/material/"+m.id+"/file";
-    return `<div class="row" style="justify-content:space-between;
-      align-items:center;gap:8px;padding:7px 0;
-      border-bottom:1px solid var(--line,#2a2a2a)">
-      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">
-        <a href="${href}" target="_blank" rel="noopener">${esc(m.title)}</a>
-        <span style="font-size:11.5px;color:var(--dim)">${
-          m.subject?" · "+esc(m.subject):""}${
-          m.note?" · "+esc(m.note):""}</span></span>
-      <button class="btn ghost sm" data-cls="matdel" data-id="${m.id}"
-        data-cid="${cid}">Remove</button></div>`;
-  }).join("");
+  /* The same folder the class sees, plus Remove.
+     It was one flat list of links, which meant a lesson saved off the board
+     — words, with no url and no file — rendered as a link to a file that
+     does not exist. A teacher could not open the thing she had just saved,
+     and neither could her class. */
+  MATS_BY_ID = {}; rows.forEach(m=>{ MATS_BY_ID[m.id]=m; });
+  box.innerHTML = matFolder(rows) + `<div style="margin-top:10px">` +
+    rows.map(m=>`<button class="btn ghost sm" data-cls="matdel"
+      data-id="${m.id}" data-cid="${cid}"
+      style="margin:0 6px 6px 0">✕ ${esc(m.title.slice(0,28))}</button>`)
+      .join("") + `</div>`;
 }
 
 async function matAdd(cid){
@@ -8677,6 +8745,7 @@ document.addEventListener("click",e=>{
   else if(k==="backsubjects") renderClassSubjects(SUBJ.cid, SUBJ.name);
   else if(k==="backmyclass"){ S.view={page:"class"}; render(); }
   else if(k==="sbjask") subjAsk();
+  else if(k==="matopen") matOpen(id);
   else if(k==="staffput") staffPut(id);
   else if(k==="matadd") matAdd(id);
   else if(k==="matdel") matDel(id, cid);
