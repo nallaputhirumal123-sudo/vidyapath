@@ -207,6 +207,38 @@ ck("writing a lesson is a teacher's tool, not a learner's",
    MAIN.count("who=Depends(_teacher_or_board)") >= 2,
    "it is the tool their school gave them and it costs a model call")
 
+print("\nand it is looked at before it is kept")
+# The lesson used to go straight from the model to the subject's shelf. The
+# first time anybody saw it was after it was saved — and a model reading a
+# photograph of a page gets a heading wrong often enough that "save it and
+# find out" is the wrong order, because undoing it means deleting from the
+# shelf in front of the class.
+#
+# The board has had a preview since it was built. This is the DESK, which is
+# where a teacher actually prepares, and the place it was asked for.
+ck("the desk previews before saving",
+   "prepPreview(cid, subject);" in DESK
+   and "Not kept yet — this is a preview" in IDX)
+ck("nothing reaches the shelf until Keep it is pressed",
+   "board/save" not in DESK,
+   "the save moved out of the conversion path entirely; it is its own "
+   "button now")
+ck("and the four things a teacher can do are all wired",
+   all(('data-cls="' + k + '"') in IDX
+       for k in ("prepkeep", "prepedit", "prepredo", "prepdrop"))
+   and all(('k==="' + k + '"') in IDX
+           for k in ("prepkeep", "prepedit", "prepredo", "prepdrop")),
+   "a button drawn but missing from the click chain is dead in silence, "
+   "which is how Papers & syllabus shipped")
+ck("keeping it saves what was TYPED, not what the model wrote",
+   "if(st.edit) prepTake(cid, subject);" in IDX,
+   "a teacher who fixes a heading and presses Keep straight away should "
+   "get their heading")
+ck("the preview is per class and per subject",
+   'PREPPED[cid + "|" + subject]' in IDX,
+   "a teacher holds several posts and they are separate jobs with "
+   "separate shelves")
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\nPASSED {len(P)}   FAILED {len(F)}")
 sys.exit(1 if F else 0)

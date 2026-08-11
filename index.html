@@ -3282,6 +3282,16 @@ function renderExams(){
      paper want the same thing and neither should have to find a tab for
      it — the syllabus is one tap away and is the slower read. */
   if(!EXAMV.tab) EXAMV.tab = "papers";
+  /* Solving is not offered to an account that cannot do it.
+     Searching for a board's own past papers is free and is for everybody
+     here. Solving one is many model calls, it is metered, and after the one
+     free paper a free account gets a 402. Drawing the tab anyway offers a
+     child a button whose only outcome is a bill they cannot pay — and they
+     find that out after uploading their paper and waiting.
+     The server refuses it either way; this is not the gate, it is not
+     showing a door that will not open. */
+  const canSolve = staff || (USER.plan && USER.plan !== "free");
+  if(EXAMV.tab === "solve" && !canSolve) EXAMV.tab = "papers";
   const tab = (n,l) => `<button class="btn sm ${EXAMV.tab===n?"":"ghost"}"
     data-xtab="${n}">${l}</button>`;
   $("#main").innerHTML = `
@@ -3292,13 +3302,13 @@ function renderExams(){
       : "Search your board's own past papers, and see what the entrance "
         + "exams ask beyond your school books."}</p>
     <div class="row" style="gap:8px;margin-bottom:16px">
-      ${tab("papers","Past papers")}${tab("solve","Solve a paper")}${
+      ${tab("papers","Past papers")}${canSolve ? tab("solve","Solve a paper") : ""}${
         tab("syllabus","Entrance syllabus")}</div>
     <div id="xBody">Loading…</div>`;
   $("#main").querySelectorAll("[data-xtab]").forEach(b =>
     b.onclick = () => { EXAMV.tab = b.dataset.xtab; renderExams(); });
   if(EXAMV.tab === "papers")      examPapers();
-  else if(EXAMV.tab === "solve")  examSolve();
+  else if(EXAMV.tab === "solve")  { if(canSolve) examSolve(); else examPapers(); }
   else                            examSyllabus();
 }
 
@@ -7343,16 +7353,121 @@ async function prepDo(cid, subject, how){
       }
     }
   }catch(e){ if(msg)msg.textContent=e.message; return; }
-  const lesson=r.lesson||{};
-  const name=lesson.title||(file.name||"Document").replace(/\.pdf$/i,"");
+  /* Shown before it is kept, which is what was asked for and what the desk
+     did not do.
+
+     The lesson used to go straight from the model to the subject's shelf.
+     The first time anyone saw it was after it was saved, and a model
+     reading a photograph of a page gets a heading wrong often enough that
+     "save it and find out" is the wrong order — a teacher then has to
+     delete it from the shelf in front of the class.
+
+     The board has had this since it was built; the desk is where a teacher
+     actually prepares, with a keyboard and a file browser, and it is the
+     place this was wanted. */
+  PREPPED[cid + "|" + subject] = {
+    lesson: r.lesson || {}, cached: !!r.cached, edit: false,
+    name: (r.lesson || {}).title
+          || (file.name || "Document").replace(/\.pdf$/i, ""),
+    title: title, cid: cid, subject: subject,
+  };
+  if(msg) msg.textContent = r.cached
+    ? "Read before, so this one was free. Have a look before you keep it."
+    : "Read. Have a look before you keep it.";
+  prepPreview(cid, subject);
+}
+
+/* One previewed lesson per class and subject, because a teacher holds
+   several posts and they are separate jobs with separate shelves. */
+let PREPPED = {};
+
+function prepPreview(cid, subject){
+  const box = prepBox(cid, subject);
+  const st = PREPPED[cid + "|" + subject];
+  if(!box || !st) return;
+  let host = box.querySelector("[data-prepview]");
+  if(!host){
+    host = document.createElement("div");
+    host.setAttribute("data-prepview", "1");
+    host.style.marginTop = "12px";
+    box.appendChild(host);
+  }
+  if(!st.lesson){ host.innerHTML = ""; return; }
+  const L = st.lesson, steps = L.steps || [];
+  const rows = (s) => [].concat(s.t || []).map(t =>
+    `<div style="margin-left:1rem">${mathText(esc(t))}</div>`).join("");
+  host.innerHTML = `
+    <div class="eyebrow">Not kept yet — this is a preview</div>
+    <div class="card" style="padding:12px">
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <button class="btn sm" data-cls="prepkeep" data-cid="${cid}"
+          data-subject="${esc(subject)}">Keep it on the subject</button>
+        <button class="btn sm ghost" data-cls="prepedit" data-cid="${cid}"
+          data-subject="${esc(subject)}">${st.edit
+            ? "Done editing" : "✏️ Change the words"}</button>
+        <button class="btn sm ghost" data-cls="prepredo" data-cid="${cid}"
+          data-subject="${esc(subject)}">↻ Write it again</button>
+        <button class="btn sm ghost" data-cls="prepdrop" data-cid="${cid}"
+          data-subject="${esc(subject)}">Throw it away</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--dim);margin-top:7px">
+        Nothing is on the subject's shelf until you press Keep it.</div>
+    </div>
+    ${st.edit ? `<div class="card" style="padding:12px">
+      <div class="field"><label>Title</label>
+        <input data-prepttl="1" value="${esc(L.title||"")}"></div>
+      ${steps.map((s,i) => `<div class="field">
+        <input data-preph="${i}" value="${esc(s.h||"")}"
+          placeholder="Heading" style="font-weight:650">
+        <textarea data-prept="${i}" rows="${Math.max(2,
+          [].concat(s.t||[]).length)}" placeholder="One idea per line"
+          style="margin-top:4px">${esc([].concat(s.t||[]).join("\n"))
+          }</textarea></div>`).join("")}
+      <div style="font-size:11.5px;color:var(--dim)">One idea per line — the
+        board draws a line at a time.</div></div>`
+    : `<div class="card" style="padding:12px">
+      <h3 style="margin:.2rem 0 .6rem">${esc(L.title||"Untitled")}</h3>
+      ${steps.map((s,i) => `<div style="margin:.7rem 0">
+        <div style="font-weight:650">${i+1}. ${mathText(esc(s.h||""))}</div>
+        ${rows(s)}</div>`).join("")}
+      ${L.takeaway ? `<div style="color:var(--dim);margin-top:8px">${
+        esc(L.takeaway)}</div>` : ""}</div>`}`;
+}
+
+/* Read the edits back out before anything is kept or the editor closes, so
+   a teacher who fixes a heading and presses Keep it straight away gets
+   their heading rather than the model's. */
+function prepTake(cid, subject){
+  const st = PREPPED[cid + "|" + subject];
+  const box = prepBox(cid, subject);
+  if(!st || !st.lesson || !box) return;
+  const t = box.querySelector("[data-prepttl]");
+  if(t) st.lesson.title = t.value;
+  (st.lesson.steps || []).forEach((s, i) => {
+    const h = box.querySelector(`[data-preph="${i}"]`);
+    const b = box.querySelector(`[data-prept="${i}"]`);
+    if(h) s.h = h.value;
+    if(b) s.t = b.value.split("\n").filter(x => x.trim() !== "");
+  });
+}
+
+async function prepKeep(cid, subject){
+  const st = PREPPED[cid + "|" + subject];
+  const box = prepBox(cid, subject);
+  const msg = box && box.querySelector("[data-prepmsg]");
+  if(!st || !st.lesson) return;
+  if(st.edit) prepTake(cid, subject);
+  const name = st.lesson.title || st.name;
+  if(msg) msg.textContent = "Keeping it…";
   try{
     await api.post("/api/craxlearn/board/save", {
       class_id:+cid, subject:subject, topic:name,
-      title:(title||name), lesson:lesson });
-    if(msg)msg.textContent=(r.cached?"Written up already — this document had "+
-      "been read before. ":"Written up. ")+
-      "It is on this subject's shelf, ready to put up on the board.";
-  }catch(e){ if(msg)msg.textContent=e.message; }
+      title:(st.title||name), lesson:st.lesson });
+    if(msg) msg.textContent = "Kept. It is on this subject's shelf, ready "
+      + "to put up on the board.";
+    st.lesson = null;
+    prepPreview(cid, subject);
+  }catch(e){ if(msg) msg.textContent = e.message; }
 }
 
 async function tcJoin(){
@@ -9508,6 +9623,30 @@ document.addEventListener("click",e=>{
   else if(k==="dmsend") dmSend();
   else if(k==="prep") prepToggle(id, b.dataset.subject||"");
   else if(k==="prepdo") prepDo(b.dataset.cid, b.dataset.subject||"", b.dataset.how);
+  /* The preview's four. Adding a button means adding it here too — an
+     unmatched name falls off the end of this chain in silence, which is how
+     Papers & syllabus shipped with a dead menu item. */
+  else if(k==="prepkeep") prepKeep(b.dataset.cid, b.dataset.subject||"");
+  else if(k==="prepedit"){
+    const key=b.dataset.cid+"|"+(b.dataset.subject||"");
+    if(PREPPED[key]){
+      if(PREPPED[key].edit) prepTake(b.dataset.cid, b.dataset.subject||"");
+      PREPPED[key].edit=!PREPPED[key].edit;
+      prepPreview(b.dataset.cid, b.dataset.subject||"");
+    }
+  }
+  else if(k==="prepredo") prepDo(b.dataset.cid, b.dataset.subject||"", "lesson");
+  else if(k==="prepdrop"){
+    const key=b.dataset.cid+"|"+(b.dataset.subject||"");
+    if(PREPPED[key]){
+      PREPPED[key].lesson=null; PREPPED[key].edit=false;
+      prepPreview(b.dataset.cid, b.dataset.subject||"");
+      const bx=prepBox(b.dataset.cid, b.dataset.subject||"");
+      const m=bx&&bx.querySelector("[data-prepmsg]");
+      if(m)m.textContent="Thrown away. Nothing was kept. The file is still "
+        +"chosen if you want another go.";
+    }
+  }
   else if(k==="copycode"){
     /* The code is on the screen already; this is for getting it to a board
        across the room without reading six characters out loud to thirty
