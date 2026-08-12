@@ -610,14 +610,14 @@ solver.verify(_mc)
 ck("nor a one-word answer", "doubt" not in _mc[0])
 
 print("\nbatched, because a paper at a time is minutes")
-ck("ten at a time", solver.BATCH == 10,
-   "twenty and the later answers become 'similarly to Q13'; one at a time "
-   "is sixty calls for a sixty-question paper")
+ck("six at a time", solver.BATCH == 6,
+   "ten overran Flash's 8192-token output ceiling on a dense physics "
+   "paper: the JSON was cut off mid-object and the whole batch was lost")
 ck("batching splits evenly",
-   [len(b) for b in solver.batches(list(range(25)))] == [10, 10, 5])
+   [len(b) for b in solver.batches(list(range(25)))] == [6, 6, 6, 6, 1])
 ck("a paper is capped", solver.MAX_QUESTIONS == 60 and solver.MAX_PAGES == 20)
 ck("the client walks the batches and draws each as it lands",
-   "for(let i = 0; i < asked.length; i += 10)" in IDX
+   "for(let i = 0; i < asked.length; i += 6)" in IDX
    and IDX.count("examSolveShow(SOLVED)") >= 2)
 ck("one failed batch does not lose the paper",
    "SOLVED.missing.push(...part.map(q => q.n));" in IDX,

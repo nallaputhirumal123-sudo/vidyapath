@@ -3499,9 +3499,11 @@ async function examSolveGo(){
     SOLVED = {caveat: d.caveat, found: asked.length, questions: [],
               missing: [], key: d.key || {}, paper: d.paper || ""};
     examSolveShow(SOLVED);
-    for(let i = 0; i < asked.length; i += 10){
-      const part = asked.slice(i, i + 10);
-      say(`Solving ${i+1}–${Math.min(i+10, asked.length)} of ${
+    /* 6, matching solver.BATCH. The server caps each batch at its own
+       number and would silently drop the tail of anything longer. */
+    for(let i = 0; i < asked.length; i += 6){
+      const part = asked.slice(i, i + 6);
+      say(`Solving ${i+1}–${Math.min(i+6, asked.length)} of ${
         asked.length}…`);
       try{
         const r = await api.post("/api/exams/solve",
@@ -3511,7 +3513,16 @@ async function examSolveGo(){
       }catch(e){
         /* One bad batch is not a lost paper. Its numbers are recorded as
            unanswered and the rest carries on — a teacher would rather have
-           fifty of sixty and know which ten are missing. */
+           fifty of sixty and know which ten are missing.
+
+           But WHY is kept. This swallowed the reason and reported only
+           "no answer came back for questions 1, 2, 3, 4, 5", which is the
+           same sentence whether the model timed out, ran out of output
+           mid-JSON, or refused the request. Three different faults behind
+           one line, and no way to tell them apart from the outside — the
+           same hole the reading pass had until it started saying what it
+           had read. */
+        SOLVED.why = SOLVED.why || String(e.message || e).slice(0, 200);
         SOLVED.missing.push(...part.map(q => q.n));
       }
       examSolveShow(SOLVED);
@@ -3546,7 +3557,8 @@ function examSolveShow(d){
       style="padding:12px;margin-bottom:14px">⚠️ No answer came back for
       question${d.missing.length===1?"":"s"} ${esc(d.missing.join(", "))}.
       Run it again, or photograph ${d.missing.length===1?"that one":"those"}
-      on its own.</div>` : ""}
+      on its own.${d.why ? `<div style="margin-top:6px;font-size:12.5px">${
+        esc(d.why)}</div>` : ""}</div>` : ""}
     ${Object.keys(d.key||{}).length ? `<p class="sub">📋 This paper printed
       its own answer key, so every multiple-choice answer below is checked
       against it.</p>` : ""}

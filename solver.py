@@ -40,10 +40,20 @@ import hashlib
 import json
 import re
 
-# Ten is where an answer still gets written out properly. Twenty and the
-# later ones turn into "similarly to Q13"; one at a time is sixty calls for
-# a sixty-question paper, which is the bill nobody agreed to.
-BATCH = 10
+# Six, not ten, and the reason is the output ceiling rather than the writing.
+#
+# Ten was chosen so each answer still got written out properly — twenty and
+# the later ones turn into "similarly to Q13". That is still true. What it
+# did not account for is that Flash tops out around 8192 output tokens, so
+# asking for 9000 is quietly clamped, and ten dense questions with full
+# working overrun it. The JSON is cut off mid-object, parsing fails, and the
+# whole batch is lost — which is a paper of physics coming back with "no
+# answer came back for questions 1, 2, 3, 4, 5" and nothing else said.
+#
+# Six leaves room for the working each of them deserves. It costs more calls
+# on a long paper and every one of those is now cached per question, so a
+# paper solved once is not paid for twice.
+BATCH = 6
 MAX_QUESTIONS = 60
 MAX_PAGES = 20
 
