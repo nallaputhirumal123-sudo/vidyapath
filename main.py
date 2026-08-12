@@ -22002,7 +22002,31 @@ STATIC_TYPES = {
     # back as anything else, and the failure is silent — the install button
     # simply never appears, which on a smart board is the whole feature.
     ".webmanifest": "application/manifest+json",
+    # KaTeX's own fonts. Served from here rather than from a CDN so a school
+    # on a filtered or offline network still gets its equations set properly
+    # rather than in whatever the browser falls back to.
+    ".woff2": "font/woff2",
 }
+
+
+@app.get("/fonts/{filename}.{ext}")
+def font_file(filename: str, ext: str):
+    """A font, from our own fonts directory and nowhere else.
+
+    Its own route because the static one above serves the top directory
+    flat, and a stylesheet asking for /fonts/X.woff2 would never reach it.
+    The same containment check: resolve the path and refuse anything that
+    does not land inside the directory it names.
+    """
+    suffix = "." + ext.lower()
+    if suffix not in (".woff2", ".woff", ".ttf"):
+        raise HTTPException(404, "Not found")
+    root = (BASE_DIR / "fonts").resolve()
+    path = (root / f"{filename}{suffix}").resolve()
+    if path.parent != root or not path.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(path, media_type=STATIC_TYPES.get(suffix,
+                                                          "font/woff2"))
 
 
 @app.get("/{filename}.{ext}")

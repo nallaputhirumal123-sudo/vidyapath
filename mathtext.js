@@ -42,7 +42,71 @@ const SUB={"0":"\u2080","1":"\u2081","2":"\u2082","3":"\u2083","4":"\u2084",
   "5":"\u2085","6":"\u2086","7":"\u2087","8":"\u2088","9":"\u2089",
   "+":"\u208a","-":"\u208b"};
 
+/* KaTeX first, where the model marked its maths.
+ *
+ * mathText handles a subset — roots, powers, fractions, the Greek letters,
+ * the comparisons — and it handles it well enough that a lesson reads. It
+ * does not do matrices, integrals with limits, aligned working, cases, or
+ * anything nested more than one deep, and a model asked for LaTeX writes
+ * all of those.
+ *
+ * So a run the model DELIMITED as maths — \( … \), \[ … \], $ … $ — is
+ * given to KaTeX, which is the real typesetter. Everything else stays with
+ * mathText, because the delimiters are the only reliable signal that a run
+ * is maths at all and guessing wrongly turns prose into symbols.
+ *
+ * KaTeX is loaded from this app, not a CDN, so a school on a filtered
+ * network gets the same equations as everybody else. If it has not loaded,
+ * every one of these falls through to mathText and a lesson still reads.
+ *
+ * The input here is ALREADY escaped — every caller escapes before
+ * formatting — so the LaTeX arrives with its < and & as entities. They are
+ * turned back for KaTeX and KaTeX's own output is trusted markup, which is
+ * the one place in this file that is true.
+ */
+function katexReady(){
+  return typeof katex !== "undefined" && katex && typeof katex.renderToString === "function";
+}
+
+function katexBit(src, display){
+  const raw = String(src)
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+  try{
+    return katex.renderToString(raw, {
+      displayMode: !!display,
+      // A malformed run is shown as the text it is rather than throwing and
+      // taking the rest of the lesson down with it.
+      throwOnError: false,
+      strict: false,
+      // No \href, no \includegraphics, nothing that can reach out.
+      trust: false,
+      maxExpand: 1000,
+    });
+  }catch(e){ return null; }
+}
+
+function mathTeX(html){
+  let t = String(html == null ? "" : html);
+  if(!katexReady()) return null;
+  let hit = false;
+  // \[ … \] and $$ … $$ are the block forms; \( … \) and $ … $ inline.
+  t = t.replace(/\\\[([\s\S]{1,4000}?)\\\]|\$\$([\s\S]{1,4000}?)\$\$/g,
+    (m, a, b) => { const out = katexBit(a != null ? a : b, true);
+                   if(out){ hit = true; return out; } return m; });
+  t = t.replace(/\\\(([\s\S]{1,2000}?)\\\)/g,
+    (m, a) => { const out = katexBit(a, false);
+                if(out){ hit = true; return out; } return m; });
+  return hit ? t : null;
+}
+
 function mathText(html){
+  /* Whatever the model marked as maths, set by the real typesetter. What is
+     left — and everything on a page that never used a delimiter — goes on
+     to the rules below. */
+  const typeset = mathTeX(html);
+  if(typeset !== null) return typeset;
   let t=String(html==null?"":html);
 
   /* The delimiters go first. A model wraps maths in $...$, \(...\) or
