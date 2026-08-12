@@ -804,6 +804,49 @@ def _single_root(maths, text):
     return out
 
 
+# Does the answer say what the working just concluded?
+#
+# A real JEE Chemistry solution worked correctly to "the ratio is 2 : 5,
+# which gives A2B5" and then printed "Answer: A4B5". Every step was right
+# and the answer line disagreed with the last of them — which is the one
+# failure that reaches a class wrong, because a student copies the answer
+# and not the working.
+#
+# Nothing here judges the chemistry. It asks a narrower question that can be
+# asked without knowing any: the working ends in a formula, the answer is a
+# formula, and they are not the same formula. Two claims that contradict
+# each other need a person, whichever is right.
+# No word boundaries anywhere in this file. Three of them have arrived here
+# today as literal backspaces, and a pattern that begins with one matches
+# nothing at all, silently. Explicit character classes instead.
+_FORMULA = re.compile(
+    r"(?:^|[^A-Za-z0-9])"
+    r"([A-Z][a-z]?[0-9]*(?:[A-Z][a-z]?[0-9]*){1,7})"
+    r"(?![A-Za-z0-9])")
+
+
+def _conclusions(working):
+    """The formulas and numbers the last steps of the working land on."""
+    tail = " ".join(str(w) for w in (working or [])[-2:])
+    return tail
+
+
+def _disagrees(working, answer):
+    """A contradiction, said in the same shape by both sides, or nothing."""
+    tail, ans = _conclusions(working), str(answer or "")
+    if not tail or not ans:
+        return None
+    # Chemical-formula shape: A2B5 against A4B5. Compared only when BOTH
+    # sides carry one, so an answer in words is never argued with.
+    ft = set(_FORMULA.findall(tail))
+    fa = set(_FORMULA.findall(ans))
+    if ft and fa and not (ft & fa):
+        return (f"the working ends on {sorted(fa)[0]!s} vs "
+                f"{sorted(ft)[0]!s} — the answer and its own last step do "
+                f"not agree")
+    return None
+
+
 def verify(solved):
     """Substitute claimed solutions back into their own equations.
 
@@ -828,6 +871,10 @@ def verify(solved):
         except Exception:
             bad = []
         bad += _single_root(maths, text)
+        # ...and the answer against the working's own conclusion.
+        clash = _disagrees(s.get("working"), s.get("answer"))
+        if clash:
+            bad.append(clash)
         if bad:
             s["doubt"] = bad[:2]
     return solved

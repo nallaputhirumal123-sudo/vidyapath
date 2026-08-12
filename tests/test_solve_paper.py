@@ -573,6 +573,41 @@ ck("and the PDF prints it as well",
    "The paper's key says ${q.key}" in IDX,
    "the PDF is what leaves the building")
 
+print("\nan answer that argues with its own working")
+# From your JEE Chemistry paper. Every step was right — "the ratio is 2 : 5,
+# which gives A2B5" — and the answer line printed A4B5. That is the failure
+# that actually reaches a class wrong, because a student copies the answer
+# and not the working.
+#
+# Nothing here judges chemistry. It asks the narrower question that can be
+# asked without knowing any: the working ends on a formula, the answer is a
+# formula, and they are not the same formula.
+_clash = [{"n": "31", "answer": "A4B5",
+           "working": ["Atoms A give 1 per unit cell.",
+                       "The ratio of A to B is 1 : (5/2), which simplifies "
+                       "to 2 : 5. Multiplying by 2 gives A2B5."]}]
+solver.verify(_clash)
+ck("an answer contradicting its own last step is flagged",
+   bool(_clash[0].get("doubt")),
+   "a student copies the answer, not the working")
+ck("and the flag names both", bool(_clash[0].get("doubt"))
+   and "A4B5" in _clash[0]["doubt"][0] and "A2B5" in _clash[0]["doubt"][0],
+   "whichever is right, two claims that disagree need a person")
+
+_agree = [{"n": "1", "answer": "A2B5",
+           "working": ["ratio 2 : 5", "which gives A2B5"]}]
+solver.verify(_agree)
+ck("an answer that agrees is left alone", "doubt" not in _agree[0])
+_words = [{"n": "2", "answer": "Because the tribals lost their land.",
+           "working": ["The Doctrine of Lapse annexed states."]}]
+solver.verify(_words)
+ck("a written answer is never argued with", "doubt" not in _words[0],
+   "it is compared only when BOTH sides carry a formula")
+_mc = [{"n": "3", "answer": "Argon", "choice": "C",
+        "working": ["Group 18 is the noble gases."]}]
+solver.verify(_mc)
+ck("nor a one-word answer", "doubt" not in _mc[0])
+
 print("\nbatched, because a paper at a time is minutes")
 ck("ten at a time", solver.BATCH == 10,
    "twenty and the later answers become 'similarly to Q13'; one at a time "
