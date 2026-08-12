@@ -386,6 +386,32 @@ _SECTION = re.compile(r"^\s*(?:section|part|खण्ड|"
                       r"भाग)\b", re.I)
 
 
+# An instruction is about the paper; a question asks for something.
+#
+# Both are numbered sentences, which is why position and numbering alone
+# could not separate them: a real JEE sheet lists "1. All questions are
+# compulsory" and "2. Use of a calculator is not allowed" and then asks Q31
+# and Q32, and a two-question paper was reported as six because four
+# instructions were sent off to be answered — and then answered.
+#
+# What actually differs is the verb. A paper's rubric talks ABOUT the paper:
+# its questions, its sections, its marks, its calculator rule. A question
+# asks you to find, prove, explain or choose something.
+_RUBRIC_WORDS = re.compile(
+    r"(?:all questions|this (?:question )?paper|the question paper|"
+    r"question paper|attempt|compulsory|calculator|marks are|"
+    r"indicate full marks|internal choice|is not allowed|are allowed|"
+    r"divided into|sections?.*carry|use of a|figures? to the right|"
+    r"write the|answer any|carry equal marks|first attempt|"
+    r"will be evaluated|given credit|seat no|max\.? marks|time allowed)",
+    re.I)
+
+
+def _looks_like_question(line):
+    """Is this a question, or the paper talking about itself?"""
+    return not _RUBRIC_WORDS.search(_plain_line(line))
+
+
 def _strip_rubric(lines):
     """Drop the block a paper marks as not being questions.
 
@@ -419,7 +445,7 @@ def _strip_rubric(lines):
         if skipping:
             if _SECTION.match(plain):
                 skipping = False
-            elif model_marked and _start_of(ln):
+            elif model_marked and _start_of(ln) and _looks_like_question(ln):
                 # The paper's questions have started.
                 skipping = False
             else:
@@ -523,6 +549,18 @@ def questions(text):
         if raw.strip().startswith("--- PAGE"):
             continue
         m = _start_of(raw)
+        # A numbered line that is the paper talking ABOUT itself is not a
+        # question, wherever it appears.
+        #
+        # Blocks were not enough. The rubric block ends at the first line
+        # that is not a numbered item — and a real JEE sheet puts
+        # "JEE MAINS-9-APRIL-2014" and "CHEMISTRY" between the marker and
+        # the instructions, so the block closed before reaching them and
+        # "1. All questions are compulsory" became question 1. A two-question
+        # paper was reported as six, and once the block rule was loosened the
+        # model dutifully answered all four instructions.
+        if m and not _looks_like_question(raw):
+            continue
         if m and len(m.group(2).strip()) > 3:
             if cur:
                 out.append(cur)
@@ -583,7 +621,7 @@ def cache_key(q):
     """
     body = " ".join(str(q.get("text") or "").split())
     marks = q.get("marks")
-    raw = f"{body}{marks if isinstance(marks, int) else ''}"
+    raw = f"{body}{marks if isinstance(marks, int) else ''}"
     return "solveq|" + hashlib.sha256(
         raw.encode("utf-8", "replace")).hexdigest()[:40]
 

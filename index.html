@@ -3551,6 +3551,8 @@ function examSolveShow(d){
     <p class="sub">${esc(d.caveat || "")}</p>
     ${qs.map(q => solvedCard(q)).join("")}`;
   $("#xdl").onclick = () => examSolvePdf(d);
+  // So the browser's own Print gives the same paper as the button does.
+  examSolveBuildPrint(d);
 }
 
 /* One question, laid out the way its own subject is answered.
@@ -3630,14 +3632,45 @@ function nonLatin(d){
  * already writes PDFs, so an Indian-language paper goes out through Print,
  * where the teacher picks "Save as PDF" and gets every glyph correctly
  * shaped, including the conjuncts a subset font tends to break. */
-function examSolvePrint(d){
-  const q = (d.questions||[]);
+/* The printable document, built as soon as there ARE solutions.
+ *
+ * It used to be built only when the Download button was pressed. A teacher
+ * who reaches for the browser's own Print — Ctrl+P, or share then Print on
+ * a phone, which is what anybody does with a page they want on paper — got
+ * the whole app instead: the tabs, the upload box, the Choose Files button
+ * and a bell icon, with the solutions cut into columns around them.
+ *
+ * Building it up front and marking the body costs nothing on screen,
+ * because every rule that acts on it lives inside @media print. So the
+ * browser's Print and our own button now produce the same paper.
+ */
+function examSolveBuildPrint(d){
   let host = document.getElementById("xPrint");
   if(!host){
     host = document.createElement("div");
     host.id = "xPrint";
     document.body.appendChild(host);
   }
+  examSolvePrintInto(host, d);
+  document.body.classList.add("printing");
+  return host;
+}
+
+/* And taken away when there is nothing to print, so Ctrl+P on any other
+   page prints that page rather than the last paper somebody solved. */
+function examSolveClearPrint(){
+  const host = document.getElementById("xPrint");
+  if(host) host.remove();
+  document.body.classList.remove("printing");
+}
+
+function examSolvePrint(d){
+  const q = (d.questions||[]);
+  examSolveBuildPrint(d);
+  window.print();
+}
+
+function examSolvePrintInto(host, d){
   host.innerHTML = `<h1>Solved paper</h1>
     <p class="pcav">${esc(d.caveat||"")}</p>
     ${q.map(x => `<div class="pq">
@@ -3659,15 +3692,6 @@ function examSolvePrint(d){
     </div>`).join("")}
     ${d.missing && d.missing.length ? `<p class="pnote">No answer was
       produced for: ${esc(d.missing.join(", "))}</p>` : ""}`;
-  document.body.classList.add("printing");
-  const done = () => {
-    document.body.classList.remove("printing");
-    window.removeEventListener("afterprint", done);
-  };
-  window.addEventListener("afterprint", done);
-  window.print();
-  // Safari and some Android browsers never fire afterprint.
-  setTimeout(done, 60000);
 }
 
 /* The download is the deliverable — a teacher wants the solved paper on

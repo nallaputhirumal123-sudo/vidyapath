@@ -38,6 +38,7 @@ it goes onto the downloaded PDF as well as the screen.
 import io
 import json as _json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -424,6 +425,58 @@ ck("nor the bracket that closed the array",
    bool(_q) and not _q[0]["text"].rstrip().endswith("]"))
 ck("and all four options survive",
    bool(_q) and all(o in _q[0]["text"] for o in ("(A)", "(B)", "(C)", "(D)")))
+
+print("\na two-question paper is two questions")
+# You said it plainly: there are only two questions in that paper, and it
+# reported six. The four extra were the paper's own instructions.
+#
+# Blocks could not separate them. The rubric block ends at the first line
+# that is not a numbered item, and a real JEE sheet puts
+# "JEE MAINS-9-APRIL-2014" and "CHEMISTRY" between the marker and the
+# instructions — so the block closed before reaching them and "1. All
+# questions are compulsory" became question 1. Loosening the block rule only
+# made it worse: the model then answered all four.
+#
+# What separates them is what they SAY. A rubric talks about the paper — its
+# questions, its sections, its marks, its calculator rule. A question asks
+# for something.
+JEE = "\n".join([
+    "NOT A QUESTION", "JEE MAINS-9-APRIL-2014", "CHEMISTRY",
+    "1. All questions are compulsory.",
+    "2. Use of a calculator is not allowed.",
+    "3. The numbers to the right of the questions indicate full marks.",
+    "4. In case of MCQs only the first attempt will be evaluated.",
+    "Q31. In a face centered cubic lattice atoms A are at the corners.",
+    "[marks: 4]",
+    "Q32. Vander Waals equation for a gas is stated as follows."])
+ck("the JEE paper is two questions, not six",
+   [q["n"] for q in solver.questions(JEE)] == ["31", "32"],
+   str([q["n"] for q in solver.questions(JEE)]))
+SSC = "\n".join([
+    "NOT A QUESTION", "MATHEMATICS ALGEBRA PART I",
+    "1. All questions are compulsory.",
+    "2. Use of a calculator is not allowed.",
+    "3. The numbers to the right of the questions indicate full marks.",
+    "Q1(i). Which one is the quadratic equation ?",
+    "Q1(ii). Determine whether 2 is a root of the quadratic equation."])
+ck("and the SSC paper is its two subquestions",
+   [q["n"] for q in solver.questions(SSC)] == ["1(i)", "1(ii)"],
+   str([q["n"] for q in solver.questions(SSC)]))
+ck("a rubric line is recognised wherever it sits",
+   not solver._looks_like_question("1. All questions are compulsory."))
+ck("and a real question is not mistaken for one",
+   solver._looks_like_question(
+       "Q31. In a face centered cubic lattice atoms A are at the corners."))
+ck("an ordinary paper is untouched",
+   [q["n"] for q in solver.questions(
+       "Q1. Solve for x: x^2 = 4\nQ2. Find the speed.")] == ["1", "2"])
+
+# Three times this session a backslash-b has reached this file as a literal
+# backspace, and a pattern beginning with one can never match anything. It
+# is the same latent fault already flagged in main.py.
+ck("no control character has crept into the patterns",
+   not re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", SRC),
+   "a regex starting with a backspace matches nothing, silently")
 
 print("\nand papers that are not mathematics")
 ck("the solver is told a paper is usually not maths",
