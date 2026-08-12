@@ -169,7 +169,21 @@ OPENAI_API_KEY = _clean_key("OPENAI_API_KEY")
 # answer whose own working concluded A2B5 and whose answer line said
 # A4B5. A worked solution that contradicts itself is the one failure
 # that reaches a class wrong, and it is worth the difference.
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash")
+#
+# ...and then Google retired 2.5 Flash. "This model is no longer available
+# to new users", 404, on every call — while /api/ai/models went on listing
+# it, because the list says what exists and not what will answer. That is
+# the SECOND pinned id to die here: gemini-2.5-flash-lite went the same way
+# and for the same reason, and the note above about preferring the alias was
+# written the first time and then ignored.
+#
+# So the default is the alias, and the rule is now written where it will be
+# read: a pinned version is a dated default that fails 404 on a date nobody
+# chose. Full Flash rather than Lite, because the quality argument above did
+# not stop being true. Name a specific id in GEMINI_MODEL when there is a
+# reason to, and check it against /api/ai/models — which now tries the model
+# rather than trusting the catalogue.
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-flash-latest")
 # What reasoning is worth paying for, in thinking tokens.
 #
 # 2.5 Flash reasons before it answers when it is given a budget, and
@@ -6190,7 +6204,12 @@ def _one_provider_reason(prov, e):
     if "insufficient_quota" in m or "credit balance" in m:
         return ("credit", f"{prov} has no credit left — this will not clear "
                           f"by waiting")
-    if ("not found" in m and "model" in m) or "is not supported" in m:
+    if "no longer available" in m:
+        return ("model", f"the {prov} model in the settings has been retired "
+                         f"by the provider — it is listed but it no longer "
+                         f"answers, and the site needs a newer one named")
+    if (("not found" in m and "model" in m) or "is not supported" in m
+            or "http 404" in m):
         return ("model", f"{prov} does not have the model it was asked for")
     if "api key" in m or "unauthor" in m or "401" in m or "403" in m:
         return ("key", f"the {prov} key was refused")
@@ -6338,7 +6357,13 @@ GEMINI_SAFE_MODEL = "gemini-flash-lite-latest"
 # site quietly running on the fallback.
 # Both branches are anchored: this is used with .match(), so an unanchored
 # "-latest$" would never fire — it has to match from the start of the name.
-_NO_THINKING = _re.compile(r"^gemini-(?:1\.|2\.0)|^gemini-.*-latest$")
+#
+# Narrowed to the alias that was actually measured. "every -latest" swept in
+# gemini-flash-latest, which is the default now, and a thinking budget is
+# most of why a solved paper reasons before it answers — throwing that away
+# on an untested guess costs more than the one wasted 400 the retry below
+# already handles.
+_NO_THINKING = _re.compile(r"^gemini-(?:1\.|2\.0)|^gemini-flash-lite-latest$")
 
 
 def _gen_config(model, tokens, temperature, json_mode=False, no_think=False,
@@ -6381,11 +6406,25 @@ def _rejects_thinking(e):
 
 
 def _is_missing_model(e):
-    """Did this fail because the model id is wrong, rather than transiently?"""
+    """Did this fail because the model id is wrong, rather than transiently?
+
+    "Wrong" now includes "was right until Google retired it". A model that
+    has been withdrawn answers 404 with a sentence about being "no longer
+    available to new users" and a recommendation to migrate — which contains
+    neither "not found" nor "unknown model", so none of the phrases below
+    matched it and the automatic fall back to the safe model never fired.
+    The site had a working key, a working fallback, and reported that Gemini
+    could not be reached, for a whole afternoon.
+
+    So: any 404 from a model endpoint is a model that is not there. There is
+    nothing else a 404 on that URL can mean.
+    """
     m = str(e).lower()
     return (("not found" in m and "model" in m)
             or "is not supported" in m or "unknown model" in m
-            or "does not exist" in m)
+            or "does not exist" in m
+            or "no longer available" in m
+            or "http 404" in m or "'code': 404" in m)
 
 
 _gemini_fallback_warned = False
@@ -12208,8 +12247,38 @@ async def ai_models(user: User = Depends(admin_user)):
         major, minor = (int(v.group(1)), int(v.group(2))) if v else (0, 0)
         return (-major, -minor, "lite" not in d["id"], d["id"])
     usable.sort(key=keyf)
+
+    # Listed is not the same as working, and the difference cost an
+    # afternoon. This endpoint reported current_is_available: true for
+    # gemini-2.5-flash while every actual call to it came back 404 "no
+    # longer available to new users" — the catalogue kept listing a model
+    # Google had withdrawn, so the one page built to answer "can this key
+    # use this model" gave the wrong answer confidently.
+    #
+    # So it asks the model instead of asking the list. One token, on an
+    # admin-only route, which is the cheapest possible way to be sure.
+    works, why = None, ""
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            probe = await c.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{GEMINI_MODEL}:generateContent",
+                headers={"x-goog-api-key": GEMINI_API_KEY,
+                         "content-type": "application/json"},
+                json={"contents": [{"parts": [{"text": "hi"}]}],
+                      "generationConfig": _gen_config(GEMINI_MODEL, 8, 0.2)})
+        works = probe.status_code < 300
+        if not works:
+            why = str((probe.json().get("error") or {}).get("message")
+                      or probe.text)[:300]
+    except Exception as e:
+        works, why = False, f"{type(e).__name__}: {e}"[:300]
+
     return {"ok": True, "current": GEMINI_MODEL,
-            "current_is_available": any(d["in_use"] for d in usable),
+            "current_is_listed": any(d["in_use"] for d in usable),
+            # The one that matters: a real call, just now.
+            "current_works": works,
+            "current_error": why,
             "count": len(usable), "models": usable}
 
 
