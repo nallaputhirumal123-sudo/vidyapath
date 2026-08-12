@@ -52,6 +52,7 @@ SRC = io.open(os.path.join(ROOT, "solver.py"), encoding="utf-8").read()
 # Just the solve route, so a phrase that appears elsewhere in main.py
 # cannot pass for one that appears in it.
 SOLVE_SRC = MAIN.split('@app.post("/api/exams/solve")')[1].split("\n@app.")[0]
+READ_SRC = MAIN.split('@app.post("/api/exams/read")')[1].split("\n@app.")[0]
 P, F = [], []
 # Prompt text is wrapped for reading; compare it the way a model receives it.
 READ1 = " ".join(solver.READ.split())
@@ -698,6 +699,27 @@ ck("and the order the paper asks in is restored",
    "a solved paper that jumps from question 3 to 7 and back is not one")
 ck("how much was reused is reported rather than asserted",
    '"reused": len(held)' in SOLVE_SRC)
+
+print("\nand a scan is read as a document, not posted back as pictures")
+# A scanned paper used to make a round trip: the server refused it, the
+# browser loaded pdf.js, rendered every page to a PNG and posted them back —
+# a megabyte a page over a school's connection, and pdf.js loaded on a phone
+# to do it. Gemini reads the PDF itself, keeping the page order and the
+# layout that rasterising throws away.
+ck("a PDF is read as a document first",
+   "_ai_pdf(_solver.READ" in READ_SRC,
+   "the pages a browser renders lose the layout the paper was set in")
+ck("only by a provider that can actually read one",
+   'PDF_PROVIDERS = ("gemini",)' in MAIN,
+   "the other two are handed an image they cannot decode")
+ck("and only when it is small enough to send inline",
+   "PDF_INLINE_MAX" in MAIN and "len(raw) > PDF_INLINE_MAX" in MAIN)
+ck("the browser round trip is still the fallback",
+   'SCANNED:' in READ_SRC,
+   "a school with no key for this still gets its paper read")
+ck("and the fallback is reached by returning nothing, not by raising",
+   "falling back to pages" in MAIN,
+   "an upstream refusal must not become the teacher's error message")
 
 print("\nthe cheap path is tried first")
 ck("a typed PDF is read as text, not photographed",

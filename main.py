@@ -6447,6 +6447,43 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
 
 
 VISION_PROVIDERS = ("gemini", "openai", "claude")
+# Gemini is the only one of the three that reads a PDF as a document rather
+# than as an image it cannot decode. Its payload already carries whatever
+# mime type it is handed, so a PDF needs no new client — only the sense not
+# to offer one to a provider that will fail on it.
+PDF_PROVIDERS = ("gemini",)
+# Gemini takes a document inline up to about 20MB; past that it wants the
+# files API, which is a second round trip and a handle to clean up.
+PDF_INLINE_MAX = 18 * 1024 * 1024
+
+
+async def _ai_pdf(prompt: str, raw: bytes, max_tokens: int = 2200) -> str:
+    """Read a PDF as a document, without rasterising it first.
+
+    A scanned paper used to make this round trip: the server refused it,
+    the browser loaded pdf.js, rendered every page to a PNG, and posted them
+    back — a megabyte a page over a school's connection, and pdf.js loaded
+    on a phone to do it. Gemini reads the PDF itself, keeping the page
+    order and the layout that rasterising throws away.
+
+    Never raises for a reason the caller cannot act on: if this is not
+    available, or the file is too big to send inline, it returns "" and the
+    caller falls back to asking the browser for pages, which still works.
+    """
+    import httpx
+    if not raw or len(raw) > PDF_INLINE_MAX:
+        return ""
+    order = [p for p in _providers_in_order() if p in PDF_PROVIDERS]
+    if not order:
+        return ""
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        try:
+            return await _provider_vision(client, order[0], prompt, raw,
+                                          "application/pdf", max_tokens)
+        except Exception as e:
+            print(f"PDF read failed, falling back to pages: "
+                  f"{type(e).__name__}: {e}")
+            return ""
 
 
 async def _ai_vision(prompt: str, raw: bytes, mime: str,
@@ -17945,10 +17982,23 @@ async def read_paper(files: list[UploadFile] = File(...),
                         or raw_files[0][0][:4] == b"%PDF"))
         if one_pdf:
             text = _teachpdf.extract(raw_files[0][0])
-            if _teachpdf.looks_scanned(text):
-                raise HTTPException(
-                    422, "SCANNED: that paper is a picture of a page, so it "
-                         "has no text to read. Send the pages as images.")
+            # A paper with no usable text, or text that is not language:
+            # read the PDF itself rather than sending the browser away to
+            # rasterise it. Gemini keeps the page order and the layout that
+            # rendering to PNGs throws away, and a school's connection does
+            # not carry a megabyte a page back up.
+            #
+            # The old round trip is still the fallback, and still tested: if
+            # this returns nothing — no key for it, a file too large to send
+            # inline, an upstream refusal — the 422 goes out as before and
+            # the browser does what it always did.
+            if _teachpdf.looks_scanned(text) or _teachpdf.garbled(text):
+                read = await _ai_pdf(_solver.READ, raw_files[0][0])
+                if not (read or "").strip():
+                    raise HTTPException(
+                        422, "SCANNED: that paper is a picture of a page, "
+                             "so it has no text to read. Send the pages as "
+                             "images.")
             # Text came out, and it is not language.
             #
             # CBSE typesets its Hindi in a legacy non-Unicode font, so a
@@ -17959,12 +18009,15 @@ async def read_paper(files: list[UploadFile] = File(...),
             # paper came back with a confident worked solution to a question
             # that does not exist. Read by sight instead: the pages carry
             # Devanagari a vision model reads properly.
-            if _teachpdf.garbled(text):
+            elif _teachpdf.garbled(text):
+                # Unreachable while the branch above handles both, and kept
+                # so that turning the PDF path off leaves this working.
                 raise HTTPException(
                     422, "SCANNED: that paper's text is in a legacy font "
                          "and does not come out as words. Send the pages as "
                          "images.")
-            read = text
+            else:
+                read = text
         if not read:
             seen = []
             for i, (raw, _m) in enumerate(raw_files, 1):
