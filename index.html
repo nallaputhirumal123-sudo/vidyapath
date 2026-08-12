@@ -3537,10 +3537,37 @@ async function examSolveGo(){
       say(`Solving ${i+1}–${Math.min(i+3, asked.length)} of ${
         asked.length}…`);
       try{
-        const r = await api.post("/api/exams/solve",
-          {paper: SOLVED.paper, questions: part, key: SOLVED.key});
+        /* Two minutes, not the default seventy-five seconds.
+           The client has to be the one that gives up LAST, or it reports a
+           failure for a request the server is still working on and would
+           have finished. Three questions on the strongest model, with a
+           reasoning budget spent before a word of the answer is written,
+           is the longest thing this site asks anybody to wait for. */
+        const r = await api.call("/api/exams/solve",
+          {method: "POST", timeout: 130000,
+           body: {paper: SOLVED.paper, questions: part, key: SOLVED.key}});
         SOLVED.questions.push(...(r.questions || []));
         SOLVED.missing.push(...(r.missing || []));
+        examSolveShow(SOLVED);
+        /* Worked once, then checked. Its own request because it is its own
+           wait: two model calls inside one deadline means the browser gives
+           up holding answers it already had. The answers are on screen
+           before the check starts, and the marks land on them after. */
+        try{
+          say(`Checking ${i+1}–${Math.min(i+3, asked.length)}…`);
+          const c = await api.call("/api/exams/check",
+            {method: "POST", timeout: 130000,
+             body: {paper: SOLVED.paper, solved: r.questions || []}});
+          const by = {};
+          for(const x of (c.checks || [])) by[String(x.n)] = x;
+          for(const q of SOLVED.questions){
+            const got = by[String(q.n)];
+            if(got) q.check = got;
+          }
+        }catch(e){
+          /* A check that will not run is not a solved paper lost. The
+             answers stand as they were before there was a checking pass. */
+        }
       }catch(e){
         /* One bad batch is not a lost paper. Its numbers are recorded as
            unanswered and the rest carries on — a teacher would rather have
@@ -3634,6 +3661,23 @@ function solvedCard(q){
         right — printed keys are wrong too.</div>`
     : `<div style="margin-top:8px;font-size:12.5px;color:var(--dim)">
         The paper's key gives ${esc(q.key)} for this one.</div>`);
+  /* Worked a second time, from the question alone, and the two compared.
+     Agreement is worth saying quietly; a disagreement is worth saying
+     loudly and is never resolved for the teacher — two workings that reach
+     different answers need the person holding the paper. */
+  const c = q.check;
+  const chk = !c ? "" : c.verdict === "agree"
+    ? `<div style="margin-top:8px;font-size:12.5px;color:var(--ok,#3fb27f)">
+        ✔ Worked a second time and got the same answer.</div>`
+    : c.verdict === "disagree"
+    ? `<div style="margin-top:8px;font-size:12.5px;color:var(--bad,#d9534f)">
+        ✖ Worked a second time and got <b>${
+          mathText(esc(c.answer||"a different answer"))}</b>. ${
+          esc(c.why||"")}<br>
+        <span style="color:var(--dim)">Both workings are above and here;
+        neither has been picked for you.</span></div>`
+    : `<div style="margin-top:8px;font-size:12.5px;color:var(--warn,#e0a030)">
+        ? The second working could not settle this one. ${esc(c.why||"")}</div>`;
   return `<div class="card" style="padding:14px;margin-bottom:12px">
     <div style="font-weight:650">Q${esc(q.n)}${
       q.marks ? ` <span style="font-weight:400;color:var(--dim)">· ${
@@ -3650,6 +3694,7 @@ function solvedCard(q){
         <b>Answer${q.choice ? " · " + esc(q.choice) : ""}:</b>
         ${mathText(esc(q.answer||""))}</div>`}
     ${key}
+    ${chk}
     ${/* Flagged by substituting the claimed root back into the equation the
           working itself states — arithmetic, not an opinion. Shown because
           a wrong number a class copies down is the most expensive thing on

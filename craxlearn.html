@@ -623,6 +623,14 @@ body.gated .gatesources{display:none}
    pick a different model was simply not on the screen. Only the frame
    stretches; the credit and the row keep their own size and are subtracted
    from it first. */
+/* The search, as one line. A card around it, its own padding and a
+   two-line note under it were a third of the height of the pane — on a
+   board that height is the model. */
+.strow{display:flex;gap:.4rem;align-items:center}
+.strow input{flex:1 1 auto;min-width:0;padding:.42rem .6rem}
+.strow .btn{padding:.42rem .8rem;white-space:nowrap}
+.stmsg{font-size:.74rem;opacity:.6;line-height:1.25;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
 .mdlwrap{display:flex;flex-direction:column;gap:.45rem;height:100%;
   min-height:0}
 .mdlframe{flex:1 1 auto;width:100%;min-height:0;border:0;border-radius:10px;
@@ -5566,17 +5574,22 @@ async function structure(name){
   var n = (name || "").trim();
   var host = main();
   host.classList.add("noscroll");
+  /* One slim row, and the rest of the space is the model.
+     The heading said "3D structures" directly under a pane header that
+     already says "3D structures", the box had its own card padding, and the
+     note under it ran to two lines — between them they took a third of the
+     height off the thing the room is looking at. The note is one line and
+     it is only there when it has something to say. */
   host.innerHTML =
     '<div class="fillcol">' +
-    '<div class="eyebrow">3D structures</div>' +
-    '<div class="card"><div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
-      '<input id="stName" style="flex:1 1 14rem" value="' + esc(n) + '" ' +
-        'placeholder="caffeine · silicon · graphene · haemoglobin · the solar system">' +
+    '<div class="strow">' +
+      '<input id="stName" value="' + esc(n) + '" ' +
+        'placeholder="caffeine · DNA · a heart · the solar system">' +
       micButton("stMic") +
       '<button class="btn" id="stGo">Show it</button>' +
-    '</div><div class="muted" id="stMsg" style="margin-top:.4rem">' +
-      "Measured — from PubChem, the Protein Data Bank, or a published table. " +
-      "Free to look at as many as you like.</div></div>" +
+    "</div>" +
+    '<div class="muted stmsg" id="stMsg">Measured where one exists; ' +
+      "otherwise a model, credited.</div>" +
     '<div id="stHost" class="card viewer" data-fill="1"></div>' +
     "</div>";
 

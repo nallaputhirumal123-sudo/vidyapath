@@ -769,5 +769,84 @@ ck("and the PDF text is made Latin-1 safe",
 
 if F:
     print("\n".join("FAIL " + x for x in F))
+print("\nthe client is the one that gives up last")
+# Not a detail, and it broke twice in one day. A server that keeps working
+# past the moment its client stopped listening reports a failure on a
+# request it would have finished — and the reasoning budgets added today
+# are spent BEFORE a word of the answer exists, so every one of these
+# windows was sized when nothing here could think.
+ck("a solve batch gets two minutes from the client",
+   "timeout: 130000" in IDX,
+   "three questions on the strongest model with a reasoning budget is "
+   "the longest thing this site asks anybody to wait for")
+ck("and the server stops before that",
+   "min(_cap, 18.0 + max_tokens / 110.0 + _think / 110.0)" in MAIN
+   and "(100.0, 110) if _think else (60.0, 70)" in MAIN)
+ck("an ordinary call keeps the shorter window",
+   "opts.timeout || 75000" in IDX,
+   "the long one is only for the calls that are buying reasoning; a "
+   "lesson on the default 75 seconds must not meet a server willing to "
+   "work for 100")
+ck("the thinking is counted into the wait, not just the writing",
+   "_think / 110.0" in MAIN and "int(think or 0)) / 110.0" in MAIN,
+   "the scanner was given a budget and 57 seconds to use it, so every "
+   "photographed problem was abandoned server-side and showed nothing")
+
+print("\nthe paper is worked twice, and the second one is not shown the answer first")
+# maths.py puts a root back into its own equation and chem.py counts atoms.
+# Neither can tell you a torque came back with the wrong sign, or that a
+# derivation was right in every step and the answer line contradicted it.
+# So every answer is worked again from the question alone.
+ck("the checker is told to solve it before reading the answer",
+   "Do not read the proposed answer until you have your own"
+   in " ".join(solver.CHECK.split()),
+   "a model shown an answer agrees with it, because agreeing is the "
+   "shortest path — that is a rubber stamp and not a check")
+ck("and the proposed answer sits last on the page",
+   solver.as_check([{"n": "1", "question": "Q", "answer": "A",
+                     "working": ["w"]}]).index("PROPOSED ANSWER")
+   > solver.as_check([{"n": "1", "question": "Q", "answer": "A",
+                       "working": ["w"]}]).index("Q"))
+ck("rounding and arrangement still count as agreement",
+   "0.5 and 1/2 are the same answer" in " ".join(solver.CHECK.split()),
+   "a checker that calls every rewriting a disagreement is noise, and "
+   "noise is ignored")
+ck("a wrong multiple-choice letter is a disagreement whatever the prose",
+   "not the option your own working lands on"
+   in " ".join(solver.CHECK.split()))
+
+_chk = solver.apply_check(
+    [{"n": "1", "answer": "m y a w^2 k"}],
+    {"checks": [{"n": "Q1", "verdict": "disagree", "answer": "-m y a w^2 k",
+                 "why": "j x i is -k"}]})
+ck("a verdict finds its question whether or not it carries the Q",
+   _chk[0].get("check", {}).get("verdict") == "disagree",
+   "a verdict filed under a name nothing matches reads on screen as "
+   "not checked")
+ck("a disagreement becomes a doubt on the answer",
+   any("checked again" in d for d in _chk[0].get("doubt", [])))
+ck("and the answer is never rewritten",
+   _chk[0]["answer"] == "m y a w^2 k",
+   "two workings that reach different answers need the teacher holding "
+   "the paper; picking one for them is the thing this must not do")
+_ag = solver.apply_check([{"n": "2", "answer": "0.5"}],
+                         {"checks": [{"n": "2", "verdict": "agree",
+                                      "answer": "1/2"}]})
+ck("agreement adds no doubt", "doubt" not in _ag[0])
+ck("an unknown verdict is treated as unsure, not as agreement",
+   solver.apply_check([{"n": "3", "answer": "x"}],
+                      {"checks": [{"n": "3", "verdict": "looks fine"}]}
+                      )[0]["check"]["verdict"] == "unsure")
+
+ck("the check is keyed on the question AND the answer",
+   solver.check_key({"question": "Q", "answer": "A"})
+   != solver.check_key({"question": "Q", "answer": "B"}),
+   "serving an old verdict against a new answer puts a tick beside "
+   "something nobody looked at")
+ck("and it is its own request, so a slow check cannot lose the answers",
+   '"/api/exams/check"' in IDX and "examSolveShow(SOLVED);" in IDX)
+ck("a check that fails leaves the answers standing",
+   "A check that will not run is not a solved paper lost" in IDX)
+
 print("\nPASSED " + str(len(P)) + "   FAILED " + str(len(F)))
 sys.exit(1 if F else 0)

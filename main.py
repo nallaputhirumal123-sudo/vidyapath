@@ -6775,8 +6775,17 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
     # A photo has to be uploaded before anything starts reading it, so the
     # floor is higher here than for text. The client allows 120 seconds for
     # an upload, so the chain stays under that.
-    per_try = max(40.0, min(75.0, 30.0 + max_tokens / 90.0))
-    _deadline = _t.monotonic() + 100
+    #
+    # And thinking is counted, because it is spent BEFORE a single word of
+    # the answer is written. The scanner was given a reasoning budget and
+    # not the time to use it: 57 seconds, against a Pro model working
+    # through a JEE question. The request was abandoned server-side every
+    # time, the chain moved on to a provider with no credit, and the screen
+    # showed nothing at all — which is exactly what a photographed problem
+    # did after it was finally allowed to think.
+    per_try = max(40.0, min(95.0, 30.0 + max_tokens / 90.0
+                            + max(0, int(think or 0)) / 110.0))
+    _deadline = _t.monotonic() + 105
     async with httpx.AsyncClient(timeout=per_try) as client:
         for prov in order:
             if _t.monotonic() > _deadline:
@@ -6840,8 +6849,19 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
     # the client must be the one that gives up last, or it reports a hang for
     # a request the server already abandoned.
     import time as _t
-    per_try = max(25.0, min(55.0, 18.0 + max_tokens / 110.0))
-    _deadline = _t.monotonic() + 65
+    # Thinking is part of the wait, and it is spent before any of the answer
+    # exists. A paper batch asks for 8192 tokens of reasoning on top of the
+    # writing, and 55 seconds was decided when nothing here reasoned at all.
+    #
+    # The long window is only for the calls that are BUYING reasoning, and
+    # that is not a detail: an ordinary call's client gives up at 75 seconds,
+    # so a server that keeps working for 100 is reporting a failure on a
+    # request it would have finished. The one caller that waits longer waits
+    # 130, and it is the only one that spends a thinking budget.
+    _think = max(0, int(think or 0))
+    _cap, _wait = (100.0, 110) if _think else (60.0, 70)
+    per_try = max(25.0, min(_cap, 18.0 + max_tokens / 110.0 + _think / 110.0))
+    _deadline = _t.monotonic() + _wait
     async with httpx.AsyncClient(timeout=per_try) as client:
         for prov in providers:
             if _t.monotonic() > _deadline:
@@ -18579,6 +18599,105 @@ async def read_paper(files: list[UploadFile] = File(...),
                                      - papers_today(db, user)))}
 
 
+class CheckBatch(BaseModel):
+    paper: str = Field(default="", max_length=64)
+    solved: list[dict] = []
+
+
+@app.post("/api/exams/check")
+async def check_batch(body: CheckBatch, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Work the same questions again, and say whether the two agree.
+
+    maths.py substitutes a root back into its own equation and chem.py
+    counts the atoms on both sides. Between them they catch a confident
+    wrong number in the two places arithmetic can be checked for nothing.
+    Neither can tell you a torque came back with the wrong sign, or that a
+    derivation was right in every step and the answer line contradicted it —
+    which is what a real JEE paper did.
+
+    So the paper is worked twice. The second pass is told to solve each
+    question from the question alone and only then look at what was
+    proposed: a model shown an answer first agrees with it, because agreeing
+    is the shortest path, and that is a rubber stamp rather than a check.
+
+    A disagreement is never presented as a correction. Two workings that
+    reach different answers need the person holding the paper — and that
+    person is a teacher who can read both, so both are shown.
+
+    Its own route because it is its own wait. Solving and checking in one
+    request is two model calls inside one deadline, and the browser gives up
+    holding answers it already had.
+    """
+    if not ASK_ENABLED:
+        raise HTTPException(503, "The AI tutor is not switched on")
+    _school_only(db, user)
+    solved = [x for x in (body.solved or []) if isinstance(x, dict)][:_solver.BATCH]
+    if not solved:
+        return {"checks": []}
+
+    # The same receipt the solving pass needs: a check is a model call on a
+    # paper, and a paper is what was paid for.
+    row = db.query(AskCache).filter(
+        AskCache.qkey == f"readpaper|{_cl.redact(body.paper)[:32]}"[:500]
+    ).first() if body.paper else None
+    if not row:
+        raise HTTPException(400, "Upload the paper first.")
+
+    # Cached against the question AND the answer being checked: a different
+    # answer to the same question is a different thing to check.
+    held, missing = {}, []
+    for s in solved:
+        k = _solver.check_key(s)
+        c_row = db.query(AskCache).filter(AskCache.qkey == k).first()
+        got = _cached_json(db, c_row, need=None)
+        if got:
+            c_row.hits = (c_row.hits or 0) + 1
+            held[str(s.get("n"))] = got
+        else:
+            missing.append(s)
+    if held:
+        db.commit()
+
+    fresh = {}
+    if missing:
+        _ai_enforce_limit(db, user)
+        try:
+            reply = _ai_json(await _ai_text(_solver.as_check(missing), 9000,
+                                            json_mode=True, best=True,
+                                            think=THINK_PAPER))
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Check batch failed: {type(e).__name__}: {e}")
+            # A check that cannot run is not a solved paper lost. The
+            # answers stand as they are, unmarked, which is what they were
+            # before there was a checking pass at all.
+            return {"checks": [], "note": _ai_error_message(e) + _why(e, user)}
+        done = _solver.apply_check([dict(x) for x in missing], reply)
+        for one in done:
+            c = one.get("check")
+            if not c:
+                continue
+            fresh[str(one.get("n"))] = c
+            db.add(AskCache(qkey=_solver.check_key(one), subject="solve",
+                            level="check",
+                            question=str(one.get("question") or "")[:2000],
+                            lesson=json.dumps(c)))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+
+    out = []
+    for s in solved:
+        n = str(s.get("n"))
+        got = held.get(n) or fresh.get(n)
+        if got:
+            out.append({**got, "n": n})
+    return {"checks": out}
+
+
 class SolveBatch(BaseModel):
     # Which paper these questions came off. Not decoration — see below.
     paper: str = Field(default="", max_length=64)
@@ -18819,9 +18938,14 @@ async def scan(image: UploadFile = File(...),
         # came back unsolved from the scanner and from the paper solver at
         # once. Scans are already capped per person per day by the AI limit
         # above, which is what makes this affordable.
+        # THINK_HARD, not THINK_PAPER. A scan is ONE question, where a
+        # paper batch is three, and somebody standing at a board waiting for
+        # a photograph to come back is a different kind of patience from
+        # somebody solving a whole paper. 2048 is enough to work a question
+        # out and it fits inside the time a photo upload is allowed.
         out = _scan.clean(_ai_json(
             await _ai_vision(_scan.prompt(), raw, mime, 2400,
-                             best=True, think=THINK_PAPER)))
+                             best=True, think=THINK_HARD)))
     except Exception as e:
         print(f"Scan failed: {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))

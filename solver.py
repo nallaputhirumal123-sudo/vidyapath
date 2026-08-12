@@ -702,6 +702,141 @@ def cache_key(q):
         raw.encode("utf-8", "replace")).hexdigest()[:40]
 
 
+
+# ---- the second opinion -------------------------------------------------
+#
+# maths.py substitutes a root back into its own equation and chem.py counts
+# the atoms on both sides, and between them they catch a confident wrong
+# number in the two places arithmetic can be checked for free. Neither of
+# them can tell you that a torque question was answered with the wrong sign,
+# or that a physics derivation was right in every step and the answer line
+# contradicted it — which is what a real JEE paper came back with.
+#
+# So the paper is worked TWICE, and the second time the answer is not shown
+# until the checker has produced its own.
+#
+# **Not shown, and that is the whole design.** A model given a question and
+# a proposed answer agrees with it: it reads as a reasonable answer, and
+# agreeing is the shortest path. Asked to solve the question cold and only
+# then told what was proposed, it disagrees when it should. The order is the
+# difference between a check and a rubber stamp.
+#
+# A disagreement is not a correction, and is never presented as one. Two
+# workings that reach different answers need the person holding the paper,
+# and that person is a teacher who can read both — so both are shown, with
+# the question, and neither is quietly picked.
+CHECK = """You are checking the worked solutions to a school question paper,
+for a teacher who is about to put them in front of a class.
+
+For EVERY question below: work it out yourself, completely, from the
+question alone. Do not read the proposed answer until you have your own —
+it is at the end of each question and it is there so you can compare, not so
+you can agree with it.
+
+Then say which of these it is, in "verdict":
+
+  "agree"     your answer is the same as the proposed one. Small differences
+              of wording, rounding or arrangement are still agreement — 0.5
+              and 1/2 are the same answer, and so are "2 m/s^2" and "2 ms^-2".
+  "disagree"  your answer is genuinely different. Say what you got and why
+              the proposed working goes wrong, naming the step.
+  "unsure"    you cannot settle it — the question needs a figure you were not
+              given, or it is ambiguous as printed. Say what is missing.
+
+An answer that is right for a DIFFERENT question is a disagreement: papers
+are misread, and a solution to a similar-looking problem is the failure that
+reaches a class looking correct.
+
+Be exact about multiple choice. If the proposed letter is not the option
+your own working lands on, that is a disagreement even when the reasoning
+either side of it reads well.
+
+Return JSON only:
+
+{"checks": [{"n": "1",
+             "verdict": "agree"|"disagree"|"unsure",
+             "answer": "<the answer YOU got, always, even when you agree>",
+             "why": "<one or two sentences; for a disagreement, name the "
+                    "step that goes wrong>"}]}
+
+Every question you were given must appear, with the number the paper used."""
+
+
+def as_check(solved):
+    """One batch of solved questions, written out for the checking pass.
+
+    The proposed answer comes LAST in each block and is labelled as
+    something not to read yet. It cannot be withheld — a checker that never
+    sees it can only produce a second opinion, and something still has to
+    compare the two — but where it sits on the page decides whether the
+    model works the question or reads the answer and nods.
+    """
+    parts = []
+    for s in solved or []:
+        head = "Q%s." % s.get("n")
+        if s.get("marks"):
+            head += " [%s marks]" % s["marks"]
+        work = " ".join(str(w) for w in (s.get("working") or [])[:8])
+        parts.append(
+            head + "\n" + str(s.get("question") or "") + "\n"
+            + "PROPOSED ANSWER (do not read this until you have your own): "
+            + str(s.get("answer") or "") + "\n"
+            + "PROPOSED WORKING: " + work[:1200])
+    return "THE QUESTIONS:\n\n" + "\n\n".join(parts) + "\n\n" + CHECK
+
+
+_VERDICTS = ("agree", "disagree", "unsure")
+
+
+def apply_check(solved, reply):
+    """Attach each verdict to its own question. Never rewrites an answer."""
+    by_n = {}
+    for c in ((reply or {}).get("checks") or []):
+        if not isinstance(c, dict):
+            continue
+        # "2" and "q2" both point at question 2, the same way clean() does
+        # it: a model asked about Q2 answers with either, and a verdict
+        # filed under a name nothing matches is a verdict that vanishes —
+        # which here would read on screen as "not checked".
+        n = str(c.get("n") or "").strip().lower().lstrip("q").strip(".")
+        if not n:
+            continue
+        verdict = str(c.get("verdict") or "").strip().lower()
+        by_n[n] = {
+            "verdict": verdict if verdict in _VERDICTS else "unsure",
+            "answer": str(c.get("answer") or "").strip()[:600],
+            "why": str(c.get("why") or "").strip()[:600],
+        }
+    for s in solved or []:
+        mine = str(s.get("n") or "").strip().lower()
+        got = by_n.get(mine) or by_n.get(mine.lstrip("q").strip("."))
+        if not got:
+            continue
+        # The check is recorded beside the answer, never in place of it.
+        # Two workings that disagree need the teacher holding the paper.
+        s["check"] = got
+        if got["verdict"] == "disagree":
+            s.setdefault("doubt", []).append(
+                "checked again and got " + (got["answer"] or "a different "
+                                            "answer")
+                + (" — " + got["why"] if got["why"] else ""))
+    return solved
+
+def check_key(s):
+    """One CHECKED answer's identity.
+
+    The question and the answer both, because a check is a judgement on a
+    pair. The same question answered differently — a re-run, a different
+    model, a paper that shares the question — is a different thing to check,
+    and serving the old verdict against a new answer would put a tick beside
+    something nobody looked at.
+    """
+    body = " ".join(str(s.get("question") or "").split())
+    ans = " ".join(str(s.get("answer") or "").split())
+    return "solvechk|" + hashlib.sha256(
+        (body + "|" + ans).encode("utf-8", "replace")).hexdigest()[:40]
+
+
 def batches(qs, size=BATCH):
     for i in range(0, len(qs), size):
         yield qs[i:i + size]
