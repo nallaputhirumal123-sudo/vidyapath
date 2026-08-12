@@ -1326,7 +1326,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sketch.js?v=665dcd5a1b"></script>
 <link rel="stylesheet" href="katex.css?v=0000000000">
 <script src="katex.js?v=2ec5916941"></script>
-<script src="mathtext.js?v=3007cc46ab"></script>
+<script src="mathtext.js?v=6a76ccbe1c"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="lab.js?v=c536df7feb"></script>
@@ -3684,13 +3684,13 @@ function examSolvePrintInto(host, d){
     ${q.map(x => `<div class="pq">
       <h2>Q${esc(x.n)}${x.marks ? ` — ${x.marks} mark${
         x.marks===1?"":"s"}` : ""}</h2>
-      <div class="pqt">${esc(x.question||"")}</div>
+      <div class="pqt">${mathText(esc(x.question||""))}</div>
       ${x.kind === "written"
-        ? `<p>${esc(x.answer||"")}</p><ul>${(x.working||[]).map(w =>
-            `<li>${esc(w)}</li>`).join("")}</ul>`
-        : `<ol>${(x.working||[]).map(w => `<li>${esc(w)}</li>`).join("")}</ol>
+        ? `<p>${mathText(esc(x.answer||""))}</p><ul>${(x.working||[]).map(w =>
+            `<li>${mathText(esc(w))}</li>`).join("")}</ul>`
+        : `<ol>${(x.working||[]).map(w => `<li>${mathText(esc(w))}</li>`).join("")}</ol>
            <p><b>Answer${x.choice ? " ("+esc(x.choice)+")" : ""}:</b> ${
-             esc(x.answer||"")}</p>`}
+             mathText(esc(x.answer||""))}</p>`}
       ${x.key ? `<p class="pnote">${x.agrees === true
         ? `Matches the paper's key (${esc(x.key)}).`
         : x.agrees === false

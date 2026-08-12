@@ -141,6 +141,21 @@ function mathText(html){
      a styled span where they do not — x^{n+1} has no unicode form. */
   t=t.replace(/\^\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUP,"msup"));
   t=t.replace(/\^\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUP,"msup"));
+  /* A chemical formula, which nobody writes as LaTeX.
+     A2B5, H2O, CO2, Fe2O3 arrive as plain letters and digits — the model
+     writes them that way because a paper prints them that way — so neither
+     KaTeX nor the rules below ever saw them, and a class read "A2B5" where
+     the question says A(2)B(5) with the numbers set under the line.
+     Narrow on purpose: two or more element-shaped groups, at least one
+     digit among them, and nothing else touching either end. "JEE" has no
+     digit, "Class 10" is not element-shaped, and a bare "H2" is left alone
+     because one group is as likely to be a variable as a molecule. */
+  t=t.replace(/(^|[^A-Za-z0-9_<>&;])((?:[A-Z][a-z]?[0-9]{0,3}){2,})(?![A-Za-z0-9_])/g,
+    (m,lead,body)=>{
+      if(!/[0-9]/.test(body)) return m;
+      return lead + body.replace(/([A-Z][a-z]?)([0-9]+)/g,
+        (x,el,n)=>el + upDown(n,SUB,"msub"));
+    });
   t=t.replace(/_\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUB,"msub"));
   t=t.replace(/_\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUB,"msub"));
 
