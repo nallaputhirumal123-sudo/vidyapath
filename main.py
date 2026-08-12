@@ -2400,6 +2400,17 @@ def status(request: Request, db: Session = Depends(get_db)):
         "session_token_width": _session_token_width(),
         "ask_vidya_enabled": ASK_ENABLED,
         "ask_vidya_provider": AI_PROVIDER,
+        # The MODEL, not only the provider.
+        #
+        # Changing GEMINI_MODEL on the deployment was unverifiable from
+        # outside: status said "gemini" whichever model it was talking to,
+        # so the one way to find out whether a variable had taken was to
+        # send a paper through and judge the answer. That is the opposite
+        # of instrumenting first.
+        "ask_vidya_model": _PROVIDER_MODEL,
+        # And whether it is being paid to reason, which is the other half of
+        # that switch and costs money.
+        "think_budget": THINK_HARD,
         # The books, and their figures, as this deployment actually has them.
         #
         # Both travel in the repository and both have been missing from a
