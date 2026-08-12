@@ -141,21 +141,7 @@ function mathText(html){
      a styled span where they do not — x^{n+1} has no unicode form. */
   t=t.replace(/\^\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUP,"msup"));
   t=t.replace(/\^\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUP,"msup"));
-  /* A chemical formula, which nobody writes as LaTeX.
-     A2B5, H2O, CO2, Fe2O3 arrive as plain letters and digits — the model
-     writes them that way because a paper prints them that way — so neither
-     KaTeX nor the rules below ever saw them, and a class read "A2B5" where
-     the question says A(2)B(5) with the numbers set under the line.
-     Narrow on purpose: two or more element-shaped groups, at least one
-     digit among them, and nothing else touching either end. "JEE" has no
-     digit, "Class 10" is not element-shaped, and a bare "H2" is left alone
-     because one group is as likely to be a variable as a molecule. */
-  t=t.replace(/(^|[^A-Za-z0-9_<>&;])((?:[A-Z][a-z]?[0-9]{0,3}){2,})(?![A-Za-z0-9_])/g,
-    (m,lead,body)=>{
-      if(!/[0-9]/.test(body)) return m;
-      return lead + body.replace(/([A-Z][a-z]?)([0-9]+)/g,
-        (x,el,n)=>el + upDown(n,SUB,"msub"));
-    });
+  t=chemText(t);
   t=t.replace(/_\s*\{([^{}]+)\}/g,(m,g)=>upDown(g,SUB,"msub"));
   t=t.replace(/_\s*(-?[0-9a-zA-Z+])/g,(m,g)=>upDown(g,SUB,"msub"));
 
@@ -188,6 +174,97 @@ function looksMathy(inner){
   // A lone number between dollars is a price, not an equation.
   if(/^\s*-?[\d.,]+\s*$/.test(inner)) return false;
   return /[=+\-*/<>()]|[a-zA-Z]/.test(inner);
+}
+
+/* Chemistry, which nobody writes as LaTeX.
+ *
+ * H2O, 2H2 + O2 -> 2H2O, Fe2O3, Ca2+ and SO4 2- arrive as plain letters and
+ * digits, because a paper prints them that way and a model copies the paper.
+ * Neither KaTeX nor the rules above ever see them, so a class read "A2B5"
+ * where the question sets the numbers under the line.
+ *
+ * Three different things here are all digits, and they are set three
+ * different ways:
+ *   a subscript   — the 2 in H2O, how many atoms, below the line
+ *   a coefficient — the 2 in 2H2O, how many molecules, full size in front
+ *   a charge      — the 2 in Ca2+, above the line, sign and all
+ * The coefficient is the one that showed. A leading digit stopped the old
+ * match dead, so "2H2 + O2 -> 2H2O" rendered nothing whatsoever — and a
+ * balanced equation is most of what a chemistry paper asks a student for.
+ */
+const ELEMENTS=new Set(
+  ("H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co "
+  +"Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb "
+  +"Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os "
+  +"Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm "
+  +"Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og").split(" "));
+/* Optional coefficient, one or more element-shaped groups, optional charge
+   sign. The sign is only a charge when what follows it cannot be part of
+   something else: the + in "2H2+O2" is a plus, and the - in "2H2+O2->2H2O"
+   is the tail of the arrow, which read as a charge and set the whole right
+   side of the equation above the line. */
+const CHEM=/(^|[^A-Za-z0-9_<>&;])([0-9]{0,3})((?:[A-Z][a-z]?[0-9]{0,3})+)([+-](?![A-Za-z0-9_>=-]))?(?![A-Za-z0-9_])/g;
+const CHEM_PART=/[A-Z][a-z]?[0-9]*/g;
+
+function chemLike(coef,body,sign,lenient){
+  const groups=body.match(CHEM_PART)||[];
+  if(!/[0-9]/.test(body) && !sign) return false;   // nothing to set anywhere
+  // Two groups and a digit is a formula whatever the letters are: A2B5 is a
+  // real question about a real compound and A is not an element.
+  if(groups.length>=2 && /[0-9]/.test(body)) return true;
+  // One group is as likely to be a variable as a molecule — T2 and Q1 are
+  // not chemistry — so it has to be a real element symbol AND carry a
+  // coefficient or a charge, or else sit on a line that already had a
+  // formula on it, where a lone O2 is oxygen.
+  if(!groups.every(g=>ELEMENTS.has(g.replace(/[0-9]/g,"")))) return false;
+  return !!coef || !!sign || lenient;
+}
+
+function chemSet(coef,body,sign){
+  const parts=body.match(CHEM_PART)||[];
+  let charge="";
+  if(sign){
+    // The digits at the very end belong to the charge, not to the atom
+    // count: Ca2+ is one calcium carrying two, not two calciums.
+    const last=/^([A-Za-z]+)([0-9]*)$/.exec(parts[parts.length-1]);
+    if(last){ parts[parts.length-1]=last[1]; charge=last[2]+sign; }
+    else charge=sign;
+  }
+  const set=parts.map(g=>g.replace(/([A-Za-z]+)([0-9]+)/,
+    (x,el,n)=>el+upDown(n,SUB,"msub"))).join("");
+  return (coef||"")+set+(charge?upDown(charge,SUP,"msup"):"");
+}
+
+function chemLine(s){
+  let hit=false;
+  s.replace(CHEM,(m,lead,coef,body,sign)=>{
+    if(chemLike(coef,body,sign,false)) hit=true;
+    return m;
+  });
+  if(!hit) return s;
+  /* The arrows go first, and the reason is the character after them.
+     "&gt;" is what an escaped ">" is by the time this runs, and both ">"
+     and ";" are barred from sitting in front of a formula — that is how an
+     HTML tag ends, and letting a formula start there would rewrite our own
+     markup. So in "2H2+O2-&gt;2H2O" the product was invisible until the
+     arrow became a real arrow. Spaces are not required either: a model that
+     writes an equation without them is writing the same equation. */
+  let out=s.replace(/(?:&lt;|<)(?:-+|=+)(?:&gt;|>)/g,"⇌")
+           .replace(/-{1,2}(?:&gt;|>)/g,"→");
+  out=out.replace(CHEM,(m,lead,coef,body,sign)=>
+    chemLike(coef,body,sign,false)?lead+chemSet(coef,body,sign):m);
+  // This line is chemistry, so read the lone symbols on it as chemistry too.
+  return out.replace(CHEM,(m,lead,coef,body,sign)=>
+    chemLike(coef,body,sign,true)?lead+chemSet(coef,body,sign):m);
+}
+
+/* A line at a time, because "chemistry" is a property of the line. A lone
+   O2 is oxygen in "2H2 + O2 -> 2H2O" and a variable in "find O2 from the
+   graph", and the only thing that tells them apart is what sits beside it. */
+function chemText(html){
+  const parts=String(html==null?"":html).split(/(\n|<br\s*\/?>)/i);
+  for(let i=0;i<parts.length;i+=2) parts[i]=chemLine(parts[i]);
+  return parts.join("");
 }
 
 function upDown(txt,table,cls){

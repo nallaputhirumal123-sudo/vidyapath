@@ -1326,7 +1326,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="sketch.js?v=665dcd5a1b"></script>
 <link rel="stylesheet" href="katex.css?v=0000000000">
 <script src="katex.js?v=2ec5916941"></script>
-<script src="mathtext.js?v=6a76ccbe1c"></script>
+<script src="mathtext.js?v=12ed067bd9"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=2825c4b40c"></script>
 <script src="lab.js?v=c536df7feb"></script>
@@ -3501,9 +3501,9 @@ async function examSolveGo(){
     examSolveShow(SOLVED);
     /* 6, matching solver.BATCH. The server caps each batch at its own
        number and would silently drop the tail of anything longer. */
-    for(let i = 0; i < asked.length; i += 6){
-      const part = asked.slice(i, i + 6);
-      say(`Solving ${i+1}–${Math.min(i+6, asked.length)} of ${
+    for(let i = 0; i < asked.length; i += 3){
+      const part = asked.slice(i, i + 3);
+      say(`Solving ${i+1}–${Math.min(i+3, asked.length)} of ${
         asked.length}…`);
       try{
         const r = await api.post("/api/exams/solve",

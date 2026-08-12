@@ -40,20 +40,27 @@ import hashlib
 import json
 import re
 
-# Six, not ten, and the reason is the output ceiling rather than the writing.
+# Three, and the reason is the clock rather than the writing.
 #
 # Ten was chosen so each answer still got written out properly — twenty and
-# the later ones turn into "similarly to Q13". That is still true. What it
-# did not account for is that Flash tops out around 8192 output tokens, so
-# asking for 9000 is quietly clamped, and ten dense questions with full
-# working overrun it. The JSON is cut off mid-object, parsing fails, and the
-# whole batch is lost — which is a paper of physics coming back with "no
-# answer came back for questions 1, 2, 3, 4, 5" and nothing else said.
+# the later ones turn into "similarly to Q13". That much still holds. What
+# it did not account for is how long a batch takes: one call has 55 seconds
+# before the request is abandoned, and six dense physics questions, each
+# with four options and a full derivation, do not get written in 55 seconds.
+# A five-question paper is one batch, and one batch failing is nought out of
+# five solved, which is exactly what came back.
 #
-# Six leaves room for the working each of them deserves. It costs more calls
-# on a long paper and every one of those is now cached per question, so a
-# paper solved once is not paid for twice.
-BATCH = 6
+# I first read that as truncation and blamed an 8192-token output ceiling.
+# The models this key can reach top out at 65536 — the 9000 we asked for was
+# our own limit, not theirs, and it is 26000 now. The ceiling was never the
+# constraint; the clock was.
+#
+# Three fits comfortably inside the time, and a batch that fails costs three
+# questions instead of six. It is more calls for a long paper, and every one
+# of them is cached per question, so a paper solved once is never paid for
+# twice — not by this school on a re-run, and not by the next school to
+# upload the same paper.
+BATCH = 3
 MAX_QUESTIONS = 60
 MAX_PAGES = 20
 
@@ -154,6 +161,15 @@ short opening, the substance in ordered points, and a closing line. If no
 marks are printed, judge from the question: "define" is short, "discuss" is
 long. An answer that is too short for its marks is a wrong answer in an exam
 hall, however true it is.
+
+**Chemistry is written the way a chemistry paper marks it.** Where an
+equation belongs in the answer, write it balanced, and count the atoms on
+both sides before you write it down — a correct reaction with a coefficient
+missing loses most of the marks. Include state symbols where the paper uses
+them. Write formulas as they are printed: H2SO4, Ca(OH)2, CuSO4.5H2O, and
+2H2 + O2 -> 2H2O. Where a question asks for a structure that cannot be
+drawn here, give the condensed formula and describe the bonding in words
+rather than leaving the question short.
 
 Also:
 - Answer the question that is written, not a similar one.
@@ -931,6 +947,15 @@ def verify(solved):
         except Exception:
             bad = []
         bad += _single_root(maths, text)
+        # ...the equations it wrote, counted rather than trusted. Balancing
+        # is a whole question on a Class 10 paper, and the way a model gets
+        # it wrong — right reaction, right formulas, one coefficient short —
+        # is the way a student reads straight past.
+        try:
+            import chem
+            bad += chem.unbalanced(text)
+        except Exception:
+            pass
         # ...and the answer against the working's own conclusion.
         clash = _disagrees(s.get("working"), s.get("answer"))
         if clash:

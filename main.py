@@ -6245,6 +6245,28 @@ def _ai_error_message(e):
     return "The AI could not respond just now. Please try again in a moment."
 
 
+def _why(e, user=None):
+    """The technical reason, for the one person who can act on it.
+
+    Every message above is written for a student, and it has to be: nobody
+    revising for boards needs a stack trace. But the price of translating
+    every fault into the same sentence is that the person running the site
+    gets the same sentence too — "the AI could not respond" was all a whole
+    paper of physics coming back unsolved ever said, and a screenshot of it
+    carries no more information than the words do.
+
+    So an admin, and only an admin, gets the raw class and message on the
+    end. A timeout, a refusal, a truncated reply and an unparseable one look
+    identical until this line exists.
+    """
+    try:
+        if not (user is not None and getattr(user, "is_admin", False)):
+            return ""
+    except Exception:
+        return ""
+    return f" [admin: {type(e).__name__}: {e}]"[:400]
+
+
 def _providers_in_order():
     """Providers to try, in order: the configured one first, then any others
     that also have a key — so if one is rate-limited we fall back to the next."""
@@ -6334,6 +6356,29 @@ def _gemini_model(best=False):
     return want, (GEMINI_SAFE_MODEL if want != GEMINI_SAFE_MODEL else None)
 
 
+def _gemini_said(data):
+    """The text Gemini returned, or why there is none.
+
+    An empty reply is not a reason, and this is where the reason was being
+    thrown away. A 200 with no text has a cause and Google names it in the
+    candidate: MAX_TOKENS when the answer ran out of room — thinking tokens
+    are spent from the same allowance as the writing — SAFETY when it
+    refused, RECITATION when it stopped itself. Without this, a whole paper
+    of physics coming back unsolved reported only "the AI could not
+    respond", which is true of every fault there has ever been and points at
+    none of them.
+    """
+    out = "".join(p.get("text", "") for c in (data.get("candidates") or [])
+                  for p in (c.get("content") or {}).get("parts", [])).strip()
+    if out:
+        return out
+    cand = (data.get("candidates") or [{}])[0]
+    why = (cand.get("finishReason")
+           or (data.get("promptFeedback") or {}).get("blockReason")
+           or "empty reply")
+    raise RuntimeError(f"gemini stopped: {why}")
+
+
 async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False,
                              best=False, _override=None, _no_think=False,
                              _think=0):
@@ -6351,8 +6396,7 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
             headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
             json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen})
         _upstream_ok(r, "gemini")
-        return "".join(p.get("text", "") for c in r.json().get("candidates", [])
-                       for p in c.get("content", {}).get("parts", [])).strip()
+        return _gemini_said(r.json())
     if provider == "groq":
         # 0.15, not 0.4. A lesson is not creative writing: at 0.4 the
         # same question gives a different derivation each time, and one
@@ -6423,8 +6467,7 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
                 {"inline_data": {"mime_type": mime, "data": b64}}]}],
                 "generationConfig": gen})
         _upstream_ok(r, "gemini")
-        return "".join(p.get("text", "") for c in r.json().get("candidates", [])
-                       for p in c.get("content", {}).get("parts", [])).strip()
+        return _gemini_said(r.json())
     if provider == "openai":
         r = await client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -18206,7 +18249,20 @@ async def solve_batch(body: SolveBatch,
     if missing:
         _ai_enforce_limit(db, user)
         try:
-            reply = _ai_json(await _ai_text(_solver.as_prompt(missing), 9000,
+            # 26000, not 9000, and thinking is the reason.
+            #
+            # Thinking tokens are billed against maxOutputTokens on Gemini,
+            # so a 2048-token budget spent before a word is written leaves
+            # that much less for the answers. Six worked physics solutions
+            # with their options and their working do not fit in what
+            # remains, and a reply that runs out mid-object is not a short
+            # reply — it is no reply, because the JSON will not parse and
+            # the whole batch is lost. The models this key can reach top out
+            # at 65536, so the old 9000 was our own ceiling and not theirs.
+            #
+            # Nothing extra is charged for room that goes unused: output is
+            # billed by what is generated, not by what was allowed.
+            reply = _ai_json(await _ai_text(_solver.as_prompt(missing), 26000,
                                             json_mode=True,
                                             think=THINK_HARD))
             fresh = _solver.clean(reply, missing)
@@ -18214,10 +18270,20 @@ async def solve_batch(body: SolveBatch,
             raise
         except Exception as e:
             print(f"Solve batch failed: {type(e).__name__}: {e}")
-            raise HTTPException(503, _ai_error_message(e))
+            raise HTTPException(503, _ai_error_message(e) + _why(e, user))
         if not fresh:
-            raise HTTPException(502, "That batch came back empty — try "
-                                     "again.")
+            # Not "try again": trying again does the same thing. A reply
+            # that arrived and could not be used is a different fault from
+            # one that never arrived, and saying so is the difference
+            # between fixing it today and asking for another screenshot.
+            raise HTTPException(
+                502, "The AI answered, but nothing in the reply matched the "
+                     "questions that were sent. Trying again may work; if it "
+                     "does not, the paper needs re-reading."
+                     + _why(RuntimeError(
+                         "parsed=%d keys=%s" % (len(reply or {}),
+                                                list((reply or {}).keys())[:4])
+                     ), user))
         # Each answer saved under its own question, so the next paper that
         # contains it pays nothing — including this same paper re-run.
         by_n = {str(q["n"]): q for q in missing}
