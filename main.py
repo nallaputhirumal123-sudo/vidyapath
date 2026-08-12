@@ -17954,10 +17954,23 @@ async def read_paper(files: list[UploadFile] = File(...),
 
         asked = _solver.questions(read)
         if not asked:
+            # Say what WAS read.
+            #
+            # A photograph of a paper wrapped in a PDF came back with this
+            # message and nothing else, so there was no way to tell whether
+            # the page had been read badly, read fine but numbered in a way
+            # the parser missed, or not read at all. Three different faults
+            # behind one sentence.
+            seen_txt = " ".join((read or "").split())
+            print(f"solve: no questions parsed from {len(read)} chars: "
+                  f"{seen_txt[:300]}")
             raise HTTPException(
                 422, "No numbered questions were found in that. This solves "
                      "a question paper — for a chapter or a handout, use "
-                     "Turn a PDF into a lesson instead.")
+                     "Turn a PDF into a lesson instead."
+                     + (f" What was read began: “{seen_txt[:160]}”"
+                        if seen_txt else
+                        " Nothing could be read off it at all."))
     except HTTPException:
         raise
     except Exception as e:
