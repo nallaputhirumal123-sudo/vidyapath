@@ -1,0 +1,133 @@
+"""Recording the lesson, and the four things that must stay true about it.
+
+A teacher works a derivation across four spaces and the board has no memory
+of it. A screenshot keeps the end of the working and loses the order it was
+arrived at, which on a derivation is the whole of the lesson. So the board
+records its own screen.
+
+**It goes to the board's disk and never to us.** The class shelf holds
+twelve megabytes and its own comment says "a slide deck, not a film". An
+hour of a lesson is hundreds, and posting that into a database row would be
+an infrastructure decision wearing a feature's clothes. The file is asked
+for before anything starts and written into as it goes, so memory stays flat
+and a two-hour lesson weighs no more on the board than a two-minute one.
+
+**The room is told, in words, for as long as it runs.** A screen recording
+on a wall-mounted display is a camera pointed at a class. A button changing
+colour is not disclosure — nobody at a desk can see a button on a board
+eight feet away.
+
+**The microphone is let go.** A board is a device in a room full of children
+that nobody signs out of. A recording that ends without stopping its tracks
+leaves the browser holding the microphone open, with the indicator on, until
+somebody reloads the page.
+
+**And the memory path stops itself.** Where a browser cannot write a file as
+it goes — Chrome on Android, which is what a cheaper board runs — the whole
+recording is held until the end. That path has a limit, because the failure
+it prevents is a tab dying mid-lesson with nothing kept at all.
+"""
+import io
+import os
+import re
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+BOARD = io.open(os.path.join(ROOT, "craxlearn.html"), encoding="utf-8").read()
+# Just the recording code, so a phrase that appears elsewhere on the board
+# cannot pass for one that appears in it.
+REC = BOARD.split("/* Recording the lesson")[1].split(
+    "/* Choose a part of the picture")[0]
+P, F = [], []
+
+
+def ck(name, cond, why=""):
+    print(("PASS " if cond else "FAIL ") + name + (" — " + why if why else ""),
+          flush=True)
+    (P if cond else F).append(name)
+
+
+print("\nthe button is on the board and wired to something")
+ck("the top bar has it", 'id="recBtn"' in BOARD)
+ck("and pressing it does something",
+   'el("recBtn").onclick' in BOARD,
+   "a button in the bar with no handler is the fault this board has had "
+   "three times, and it fails silently every time")
+ck("one button starts and stops",
+   "if(recOn()) recStop" in BOARD and "else recStart()" in BOARD,
+   "a board is operated mid-sentence; one button pressed again is easier "
+   "to explain than two to choose between")
+ck("it is hidden before anybody has signed in",
+   "body.gated #recBtn" in BOARD)
+
+print("\nthe room can see that it is recording")
+ck("there is a notice, not just a coloured button", "#recPill" in BOARD)
+ck("it says the word", ">Recording<" in BOARD.replace("</span>", "<"))
+ck("it shows how long it has been running", 'class="rt"' in BOARD)
+ck("and it can be stopped by tapping it",
+   "pill.onclick" in REC and "recStop" in REC)
+ck("the notice is removed when recording ends",
+   "pill.remove()" in REC)
+
+print("\nnothing is uploaded")
+ck("the recording never posts to the class shelf",
+   "board/file" not in REC and "bapi.send" not in REC,
+   "the material limit is 12 MB and a lesson is hundreds; this is the "
+   "board's own disk or nothing")
+ck("it is written to the file as it goes where that is possible",
+   "showSaveFilePicker" in REC and "createWritable" in REC,
+   "holding an hour of video in memory is how a tab dies at the end of a "
+   "lesson with nothing kept")
+ck("writes are queued one behind another",
+   "REC.queue = REC.queue.then" in REC,
+   "two overlapping writes to one file interleave their bytes, and the "
+   "recording will not play")
+ck("and the file is closed before it is called saved",
+   "await REC.queue" in REC and "sink.close()" in REC)
+
+print("\nthe fallback path knows its own limit")
+ck("there is a cap on what is held in memory", "REC_MEM_MS" in REC)
+ck("it applies only when there is no file to write into",
+   "REC.cap = sink ? 0 : REC_MEM_MS" in REC,
+   "a recording streamed to disk has no reason to stop at fifteen minutes")
+ck("reaching it saves rather than discards",
+   "It has been saved" in REC)
+ck("and a run away recording stops eventually", "REC_MAX_MS" in REC)
+
+print("\nthe camera and the microphone are given back")
+ck("the screen capture is stopped",
+   "REC.view.getTracks().forEach" in REC and "t.stop()" in REC)
+ck("the microphone is stopped too",
+   "REC.mic.getTracks().forEach" in REC,
+   "a board is a device in a room full of children that nobody signs out "
+   "of, and a hot microphone stays hot until somebody reloads the page")
+ck("the mixer is closed", "REC.ctx.close()" in REC)
+ck("a refused microphone records the screen anyway",
+   "mic = null;" in REC and "record the screen silently" in REC,
+   "no microphone on the board is not a reason to lose the lesson")
+
+print("\nand the ways it can end are all handled")
+ck("the browser's own Stop sharing counts as stopping",
+   'addEventListener("ended"' in REC,
+   "the file is left unplayable if the recorder is not closed properly")
+ck("cancelling the share picker is not an error",
+   "cancelling the picker is not an error" in REC)
+ck("cancelling the save dialog stops there",
+   'e.name === "AbortError"' in REC)
+ck("closing the board mid-recording asks first",
+   'beforeunload' in BOARD and "if(!recOn()) return;" in BOARD)
+
+print("\nthe file is named so it can be found again")
+ck("it carries the subject and the date",
+   "craxlearn-" in REC and "toISOString" in REC)
+ck("and the extension matches what was actually recorded",
+   'indexOf("mp4") >= 0 ? ".mp4" : ".webm"' in REC,
+   "a webm named .mp4 is a file the school's own player refuses")
+
+print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
+if F:
+    for name in F:
+        print("  FAILED: " + name)
+    sys.exit(1)
