@@ -3673,6 +3673,12 @@ function examSolvePrint(d){
 }
 
 function examSolvePrintInto(host, d){
+  /* Declared HERE, and it was not.
+     Splitting the old function left "const q = d.questions" behind in the
+     half that prints while the template that reads it moved to this half —
+     so this threw "q is not defined" the moment any solution was drawn,
+     which is every time a paper is solved. */
+  const q = d.questions || [];
   host.innerHTML = `<h1>Solved paper</h1>
     <p class="pcav">${esc(d.caveat||"")}</p>
     ${q.map(x => `<div class="pq">
