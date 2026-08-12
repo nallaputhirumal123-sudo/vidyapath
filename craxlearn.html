@@ -5597,6 +5597,152 @@ async function phet(pick){
 }
 
 /* ---------- a calculator the back row can read ---------- */
+/* ---------- select anything with the pen, and do something with it ------
+ *
+ * A teacher reading a lesson on this board finds a line worth pulling on —
+ * a term nobody knows, a formula from a search result, a sentence out of a
+ * chapter — and until now the only way to act on it was to retype it into
+ * the Ask box while thirty people watched.
+ *
+ * So: drag the pen across anything and a small bar appears with the two
+ * things anybody ever wants. Ask Axle teaches that exact text on this same
+ * board. Copy puts it on the clipboard for the notes, the worksheet, or the
+ * class group.
+ *
+ * Built on the browser's own selection rather than on a lasso over the
+ * canvas. A pen drag across text IS a selection on every board and tablet
+ * this runs on, so this works on a lesson, a search result, a chapter, a
+ * formula and a saved document without any of them knowing about it —
+ * where a canvas lasso would have to read pixels back and guess at words.
+ *
+ * The INK is a separate thing and stays separate: when the pen is in
+ * drawing mode it is drawing, and a stroke must never turn into a text
+ * selection halfway through a diagram.
+ */
+/* Beside what is being read, not instead of it.
+ *
+ * Replacing the pane took the lesson off the screen to answer a question
+ * about the lesson — the class loses the sentence they were looking at, and
+ * the teacher has to find their way back to it. So the board opens in a
+ * second space and the reading stays where it was.
+ *
+ * If a board is already open in another space it is reused rather than a
+ * third one added: every tool names its fields by id, so two boards would
+ * both write into the same box.
+ */
+function askBeside(q){
+  if(!q) return;
+  var at = -1;
+  for(var i = 0; i < PANES.length; i++){
+    if(toolOf(PANES[i].page) === "board" && i !== LIVE){ at = i; break; }
+  }
+  if(at < 0 && PANES.length < MAX_PANES){
+    PANES = PANES.map(function(p){
+      return { page: p.page, arg: p.arg, flex: 1 };
+    });
+    PANES.push({ page: "board", arg: q, flex: 1 });
+    at = PANES.length - 1;
+  }else if(at < 0){
+    // No room to split. Teaching it in place beats refusing.
+    at = LIVE;
+  }
+  PANES[at] = { page: "board", arg: q, flex: PANES[at].flex };
+  LIVE = at;
+  var b = el("splitBtn");
+  if(b){
+    b.title = PANES.length >= MAX_PANES
+      ? "Back to one space"
+      : "Open another space (" + PANES.length + " of 4)";
+  }
+  paintPanes();
+}
+
+
+function selPop(){
+  var el0 = document.getElementById("selPop");
+  if(el0) el0.remove();
+}
+
+function selText(){
+  var sel = window.getSelection && window.getSelection();
+  if(!sel || sel.isCollapsed) return "";
+  var t = String(sel.toString() || "").trim();
+  if(t.length < 2 || t.length > 600) return "";
+  // Not from something being typed into: a teacher selecting inside the Ask
+  // box wants to edit it, not to be offered a menu about it.
+  var node = sel.anchorNode;
+  var host = node && (node.nodeType === 1 ? node : node.parentElement);
+  while(host){
+    var tag = (host.tagName || "").toLowerCase();
+    if(tag === "input" || tag === "textarea" || host.isContentEditable)
+      return "";
+    host = host.parentElement;
+  }
+  return t;
+}
+
+function selShow(){
+  selPop();
+  /* Drawing wins. Mid-stroke is not the moment to offer a menu. */
+  if(typeof INKING !== "undefined" && INKING) return;
+  var t = selText();
+  if(!t) return;
+  var sel = window.getSelection();
+  var r;
+  try{ r = sel.getRangeAt(0).getBoundingClientRect(); }catch(e){ return; }
+  if(!r || (!r.width && !r.height)) return;
+
+  var d = document.createElement("div");
+  d.id = "selPop";
+  d.style.cssText = "position:fixed;z-index:9999;display:flex;gap:.4rem;" +
+    "padding:.35rem;border-radius:12px;background:var(--panel,#1b1b1b);" +
+    "border:1px solid var(--line,#2a2a2a);box-shadow:0 6px 24px #0007";
+  d.innerHTML =
+    '<button class="btn" data-selask="1">⚡ Ask Axle</button>' +
+    '<button class="btn ghost" data-selcopy="1">Copy</button>';
+  document.body.appendChild(d);
+
+  // Above the selection, or below it when that would go off the top — a
+  // teacher selecting the first line of a lesson must still see the bar.
+  var w = d.offsetWidth, h = d.offsetHeight;
+  var x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2),
+                   window.innerWidth - w - 8);
+  var y = (r.top - h - 8 >= 8) ? r.top - h - 8 : r.bottom + 8;
+  d.style.left = Math.round(x) + "px";
+  d.style.top = Math.round(y) + "px";
+
+  d.querySelector("[data-selask]").onclick = function(){
+    var q = selText() || t;
+    selPop();
+    askBeside(q);
+  };
+  d.querySelector("[data-selcopy]").onclick = async function(){
+    var q = selText() || t;
+    try{
+      await navigator.clipboard.writeText(q);
+      this.textContent = "Copied";
+    }catch(e){
+      /* Clipboard is refused without a secure context or a gesture the
+         browser trusts. Say so rather than look like nothing happened. */
+      this.textContent = "Press and hold to copy";
+    }
+  };
+}
+
+/* After the gesture ends, not during it: selectionchange fires on every
+   pixel of a drag, and a bar that jumps around under a moving pen is worse
+   than no bar. */
+document.addEventListener("pointerup", function(){
+  setTimeout(selShow, 10);
+});
+document.addEventListener("pointerdown", function(e){
+  if(!e.target.closest || !e.target.closest("#selPop")) selPop();
+});
+document.addEventListener("keydown", function(e){
+  if(e.key === "Escape") selPop();
+});
+
+
 /* ---------- writing a formula so a room can read it ----------------------
  *
  * Every board on the market leads with this, and for a reason a teacher
