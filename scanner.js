@@ -243,9 +243,20 @@
       if (typeof recordAsk === "function" && r.scan && r.scan.readable) {
         recordAsk(r.scan.subject || (r.scan.read || "").slice(0, 60), "scan");
       }
+      /* Two different failures, and telling somebody to find better light
+         when the photograph was perfect is the more annoying one.
+         A hard question photographed cleanly came back with nothing worked
+         out, the answer was reported as "did not come out readable", and
+         the give-away was that the SAME question photographed with its
+         answer printed underneath worked every time. Nothing about the
+         light changed between those two. */
       if (!r.scan.readable) {
         SC.msg = r.scan.next ||
-          "That did not come out readable. Try again with more light.";
+          "That did not come out readable. Try again with more light, or " +
+          "move closer so the writing fills the frame.";
+      } else if (r.scan.solved === false) {
+        SC.msg = "It read the question but could not work it out. " +
+          (r.scan.read ? "This is what it read: " + r.scan.read : "");
       }
       loadRecent();
     } catch (e) {
@@ -254,6 +265,9 @@
     stopCam();
     if (SC.shot) URL.revokeObjectURL(SC.shot);
     SC.shot = null; SC.shotFile = null;
+    /* Readable is enough to open the answer: it holds what was read, and
+       seeing the question copied back correctly is how somebody knows the
+       photograph was fine and the thinking was not. */
     SC.view = SC.scan && SC.scan.readable ? "answer" : "idle";
     paint();
   }

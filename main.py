@@ -5642,7 +5642,8 @@ import craxlearn as _cl                                             # noqa: E402
 # The measured-structure sources and the picture search, both used by the
 # board further down and by Craxlearn's own structure and search screens.
 # Imported here so those endpoints' dependencies are visible beside them.
-import scene as _scene                                              # noqa: E402
+import scene as _scene
+import models3d as _models3d                                              # noqa: E402
 import lattice as _lattice                                          # noqa: E402
 import layers as _layers                                            # noqa: E402
 import orbits as _orbits                                            # noqa: E402
@@ -10760,13 +10761,43 @@ async def craxlearn_structure(name: str,
     async with httpx.AsyncClient(follow_redirects=True, timeout=12) as c:
         scene = await _resolve_structure(c, name)
     if not scene:
-        # Named, and honestly answered. The alternative is a made-up
-        # arrangement of spheres with a real compound's name under it.
+        # No measurement — so somebody else's model of it, if the library
+        # has one.
+        #
+        # "There is no measured structure here for 'human body'" is honest
+        # and it is not a lesson. A heart has no parameters, and neither
+        # does a kidney, a jet engine or a Chola bronze; all of them have
+        # been modelled by somebody, and a class asking to see one should
+        # see one. What must never happen is the two being confused, so a
+        # model arrives labelled with who made it and under what licence,
+        # where a measured scene says measured.
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as c:
+            models = await _models3d.find(c, name, 8)
+        if models:
+            return {"name": name, "scene": None, "models": models,
+                    "note": "No measured structure exists for this, so these "
+                            "are models made by the people credited on them. "
+                            "A drawing of the thing, not a measurement of it."}
         raise HTTPException(
-            404, f"There is no measured structure here for {name!r}. We only "
-                 f"show ones taken from PubChem, the Protein Data Bank or a "
-                 f"published table — never a drawing of what it might be.")
+            404, f"Nothing here for {name!r} — no measured structure, and no "
+                 f"model of it in the open library either. Try the plainer "
+                 f"word for it: 'heart' rather than 'human heart anatomy'.")
     return {"name": name, "scene": scene}
+
+
+@app.get("/api/craxlearn/models")
+async def craxlearn_models(q: str, user: User = Depends(board_or_reader)):
+    """The open 3D library, for the things nobody has measured.
+
+    Free, like the structures: it is a search over a public catalogue and
+    not a model call, so a class can look through twenty of them and it
+    costs what looking at one does.
+    """
+    q = _cl.redact(q)[:120]
+    if len(q) < 2:
+        raise HTTPException(400, "Type something to look for")
+    async with httpx.AsyncClient(follow_redirects=True, timeout=10) as c:
+        return {"q": q, "models": await _models3d.find(c, q, 12)}
 
 
 @app.get("/api/craxlearn/search")

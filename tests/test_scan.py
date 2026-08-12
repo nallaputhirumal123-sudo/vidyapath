@@ -400,5 +400,33 @@ check("a number containing 402 is not a billing failure",
       "credit has run out" not in msg("stream ended after 4402 tokens"),
       msg("stream ended after 4402 tokens")[:46])
 
+print("\nreading it and working it out are two different failures")
+# A hard question, photographed cleanly, came back as "that did not come out
+# readable - try again with more light". The give-away was that the SAME
+# question photographed with its answer printed underneath worked every
+# time: nothing about the light changed between those two. The flag meant
+# "readable AND solved", so every question the model could not do reached
+# the person as a complaint about their photograph.
+_SCANJS = io.open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "scanner.js"), encoding="utf-8").read()
+_read_only = SC.clean({"readable": True, "read": "Q1. Evaluate the sum",
+                       "steps": [], "kind": "worked"})
+check("a question it read but could not solve is still READ",
+      _read_only["readable"] is True,
+      "telling somebody to find better light when the photograph was "
+      "perfect sends them to fix the one thing that was not wrong")
+check("and it says separately that it got nowhere",
+      _read_only["solved"] is False)
+_blank = SC.clean({"readable": False, "read": "", "steps": []})
+check("a photograph with nothing legible on it is still unreadable",
+      _blank["readable"] is False and _blank["solved"] is False)
+_done = SC.clean({"readable": True, "read": "Q1. 2+2", "kind": "worked",
+                  "steps": [{"heading": "h", "teach": "t", "working": "4"}],
+                  "answer": "4"})
+check("and a solved one is both", _done["readable"] and _done["solved"])
+check("the screen tells the two apart",
+      "could not work it out" in _SCANJS and "more light" in _SCANJS,
+      "one is a photograph to take again and the other is not")
+
 print(f"\nPASSED {ok}   FAILED {fail}")
 sys.exit(1 if fail else 0)

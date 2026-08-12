@@ -614,6 +614,23 @@ body.gated .gatesources{display:none}
    height tied to the viewport gives it the space the board actually has. */
 .fig3d{position:relative;aspect-ratio:16/10;min-height:clamp(260px,46vh,620px)}
 .fig3d > canvas{position:absolute;left:0;top:0;display:block}
+/* The open library's frame. Sized like the measured viewer so a lesson does
+   not jump when one takes the other's place. */
+.mdlwrap{display:flex;flex-direction:column;gap:.5rem;height:100%}
+.mdlframe{flex:1 1 auto;width:100%;min-height:clamp(240px,44vh,600px);
+  border:0;border-radius:10px;background:#0b0d10}
+.mdlcredit{font-size:.82rem;opacity:.85;display:flex;flex-wrap:wrap;
+  align-items:center;gap:.5rem}
+.mdlnote{font-size:.74rem;padding:.1rem .45rem;border-radius:999px;
+  background:rgba(255,255,255,.10);opacity:.9}
+.mdlrow{display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.2rem}
+.mdlpick{flex:0 0 auto;width:7.5rem;border:1px solid rgba(255,255,255,.16);
+  background:transparent;color:inherit;border-radius:8px;padding:.25rem;
+  cursor:pointer;display:flex;flex-direction:column;gap:.2rem;font:inherit}
+.mdlpick.on{border-color:currentColor}
+.mdlpick img{width:100%;height:4rem;object-fit:cover;border-radius:5px}
+.mdlpick span{font-size:.7rem;line-height:1.2;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .figcap{font-size:.68rem;color:var(--muted);margin:.7rem 0 .2rem}
 .lessonBody img{max-width:100%;border-radius:12px;display:block}
 
@@ -828,7 +845,7 @@ window.esc = function (s) {
 <script src="mathtext.js?v=12ed067bd9"></script>
 <script src="sandbox.js?v=43154ce356"></script>
 <script src="three3d.js?v=7d05d639a7"></script>
-<script src="scanner.js?v=f62f1b0eb8"></script>
+<script src="scanner.js?v=efc3e69c9e"></script>
 <script>
 /* Craxlearn — the institution app.
  *
@@ -4862,6 +4879,50 @@ function write(){
   };
 }
 
+/* The open library, for the things that have no measurement.
+ *
+ * A molecule is spheres at measured coordinates; a heart is somebody's
+ * sculpture of a heart. Both belong on a board and they are not the same
+ * kind of thing, so this one carries the maker's name and the licence on
+ * the screen the whole time it is up. That is a licence condition for CC-BY
+ * and it is the honest thing regardless.
+ *
+ * Shown in its own frame from its own host: nothing is downloaded, no mesh
+ * is parsed here, and a model of a jet engine cannot become a script on the
+ * board. The frame gets scripts and its own origin — which is the model
+ * viewer's origin, not ours — and nothing else.
+ */
+function showModels(host, models, want){
+  var pick = 0;
+  function draw(){
+    var m = models[pick];
+    host.innerHTML =
+      '<div class="mdlwrap">' +
+        '<iframe class="mdlframe" title="' + esc(m.name) + '" ' +
+          'src="' + esc(m.embed) + '?ui_infos=0&ui_watermark=0&autospin=0.3" ' +
+          'allow="autoplay; fullscreen; xr-spatial-tracking" ' +
+          'sandbox="allow-scripts allow-same-origin allow-popups" ' +
+          'allowfullscreen loading="lazy"></iframe>' +
+        '<div class="mdlcredit">' + esc(m.name) + ' — by ' + esc(m.by) +
+          ' · ' + esc(m.licence) +
+          '<span class="mdlnote">a model, not a measurement</span></div>' +
+        (models.length > 1
+          ? '<div class="mdlrow">' + models.map(function(x, i){
+              return '<button class="mdlpick' + (i === pick ? " on" : "") +
+                     '" data-i="' + i + '" title="' + esc(x.name) + '">' +
+                     (x.thumb ? '<img src="' + esc(x.thumb) + '" alt="">' : "") +
+                     '<span>' + esc(x.name) + '</span></button>';
+            }).join("") + "</div>"
+          : "") +
+      "</div>";
+    Array.prototype.forEach.call(host.querySelectorAll(".mdlpick"),
+      function(b){
+        b.onclick = function(){ pick = +b.dataset.i; draw(); };
+      });
+  }
+  draw();
+}
+
 /* Mount a 3D scene, and SAY SO when it cannot be mounted.
  *
  * three.js comes from a CDN. On a school network that blocks it — or a
@@ -5482,6 +5543,14 @@ async function structure(name){
     try{
       var d = await api.get("/api/craxlearn/structure?name=" +
                             encodeURIComponent(want));
+      if(!d.scene && d.models && d.models.length){
+        /* Nobody has measured a heart. Somebody has modelled one, and a
+           class asking to see one should see one — labelled as what it is,
+           which is a drawing rather than a measurement. */
+        el("stMsg").textContent = d.note || "";
+        showModels(el("stHost"), d.models, want);
+        return;
+      }
       el("stMsg").textContent = d.scene.caption || want;
       await show3D(el("stHost"), d.scene);
     }catch(e){

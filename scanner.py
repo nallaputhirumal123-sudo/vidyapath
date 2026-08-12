@@ -132,11 +132,26 @@ def clean(d):
 
     kind = str(d.get("kind") or "").strip().lower()
     lang = str(d.get("lang") or "").strip().lower()
+    read = _plain(d.get("read"), 2000)
     return {
-        # Readable means "and there is something to show for it". A model that
-        # claims readable while returning no steps has not read anything, and
-        # letting that through would cache an empty answer forever.
-        "readable": bool(d.get("readable", True)) and bool(steps),
+        # Reading it and working it out are two different things, and folding
+        # them into one flag told people to photograph it again in better
+        # light when the photograph was perfect.
+        #
+        # "readable AND there are steps" was written to stop a model claiming
+        # it had read something and then showing nothing. What it actually
+        # catches, far more often, is a model that read the question
+        # perfectly and could not solve it — which is every hard question
+        # given to a weak model. The giveaway was that a photograph WITH the
+        # answer printed on it worked and the same question without one did
+        # not: nothing about the light changed between those two.
+        #
+        # So the flag now means what it says. Copying the question back out
+        # is proof the photograph was legible, whatever came of it after.
+        "readable": bool(d.get("readable", True)) and bool(steps or read),
+        # And whether it got anywhere, which is a separate answer to a
+        # separate question, and the one the screen has to say out loud.
+        "solved": bool(steps),
         "kind": kind if kind in KINDS else "other",
         "subject": _plain(d.get("subject"), 60),
         "lang": lang if lang in LANGS else "",
