@@ -63,7 +63,17 @@ Q<number as printed>. <the question, word for word>
 So a sub-part printed as 3 (b) is written Q3(b). A question numbered in Roman
 numerals stays in Roman numerals.
 
-Keep multiple-choice options exactly as printed, each on its own line:
+**Multiple-choice options are part of their question, never questions of
+their own.** Write them on their own lines under the question they belong
+to, and ALWAYS letter them (A), (B), (C), (D) — even when the paper numbers
+them (1), (2), (3), (4), which many do. Keep the wording exactly as
+printed; only the label changes.
+
+That relabelling is not cosmetic. A JEE paper numbers the four options of
+question 32 as (1) to (4), and written that way they read as questions 1 to
+4 — so a two-question paper came out as six, and four options were sent off
+to be answered as though somebody had asked them.
+
 (A) ... (B) ... (C) ... (D) ...
 
 Copy any table, data or values a question depends on. If a question refers
@@ -412,6 +422,31 @@ def _looks_like_question(line):
     return not _RUBRIC_WORDS.search(_plain_line(line))
 
 
+def _is_option_of(cur, n):
+    """Is this number an option of the question already open?"""
+    try:
+        here = int(str(n).strip())
+    except (ValueError, TypeError):
+        return False          # (A), (i) — lettered options never collide
+    if not (1 <= here <= 6):
+        return False          # options are few; a real question 7 is not one
+    try:
+        open_at = int(str(cur.get("n", "")).strip())
+    except (ValueError, TypeError):
+        # A genuine SUB-PART — 1(i), 7 (ii) — carries a bracket, and the
+        # only numbered thing that follows one is its options. Without this
+        # the Maharashtra SSC paper split question 1(i) into its own
+        # options.
+        #
+        # A question numbered in plain romans — i, ii, iii — is not a
+        # sub-part, and treating it as one swallowed a whole paper: with
+        # "iii" open, questions 1 and 2 were read as its options.
+        return "(" in str(cur.get("n", ""))
+    # Numbering that goes BACKWARDS. A paper does not run 32 then 1, but it
+    # does run 1 then 2, so an ordinary paper is untouched.
+    return here <= open_at
+
+
 def _strip_rubric(lines):
     """Drop the block a paper marks as not being questions.
 
@@ -560,6 +595,21 @@ def questions(text):
         # paper was reported as six, and once the block rule was loosened the
         # model dutifully answered all four instructions.
         if m and not _looks_like_question(raw):
+            continue
+        # An option, not a question: the numbering went BACKWARDS.
+        #
+        # A JEE paper labels the four options of question 32 as (1) to (4),
+        # and read that way they are questions 1 to 4 — so a two-question
+        # paper came out as six and four options were answered as though
+        # somebody had asked them.
+        #
+        # Numbering that restarts below a question already open is the
+        # signal, and it cannot misfire on an ordinary paper: with question
+        # 1 open, a line numbered 2 is larger, so it opens question 2 as it
+        # always did. Only a small number arriving under a bigger one is
+        # read as an option, which is the only way options are ever printed.
+        if m and cur and _is_option_of(cur, _number(m.group(1))):
+            cur["text"] += "\n" + _plain_line(raw).strip()
             continue
         if m and len(m.group(2).strip()) > 3:
             if cur:
