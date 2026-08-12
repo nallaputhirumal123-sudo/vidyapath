@@ -165,7 +165,19 @@ OPENAI_API_KEY = _clean_key("OPENAI_API_KEY")
 #
 # The alias resolves to whatever the current flash-lite is, for any key.
 # Check /api/ai/models before pinning a specific id here again.
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-flash-lite-latest")
+# 2.5 Flash, not Lite. Lite is cheaper and it showed: a JEE Chemistry
+# answer whose own working concluded A2B5 and whose answer line said
+# A4B5. A worked solution that contradicts itself is the one failure
+# that reaches a class wrong, and it is worth the difference.
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash")
+# What reasoning is worth paying for, in thinking tokens.
+#
+# 2.5 Flash reasons before it answers when it is given a budget, and
+# that is most of why it beats Lite on a step-by-step paper. The tokens
+# are billed, so this is spent where a wrong answer is expensive and
+# left at zero everywhere else: solving a question paper, and teaching
+# a lesson to a room. A scan, a search and a caption do not get it.
+THINK_HARD = int(env("THINK_HARD", "2048") or 2048)
 # Used only where the writing quality is the product: the apply kit's
 # cover note and screening answers. Everything else stays on the cheap
 # model, because scoring and classifying do not read any better on a
@@ -6255,14 +6267,23 @@ GEMINI_SAFE_MODEL = "gemini-flash-lite-latest"
 _NO_THINKING = _re.compile(r"^gemini-(?:1\.|2\.0)|^gemini-.*-latest$")
 
 
-def _gen_config(model, tokens, temperature, json_mode=False, no_think=False):
-    """The generationConfig for one Gemini call."""
+def _gen_config(model, tokens, temperature, json_mode=False, no_think=False,
+                think=0):
+    """The generationConfig for one Gemini call.
+
+    `think` is a thinking budget in tokens, and it is 0 everywhere except
+    where somebody has decided the reasoning is worth buying. 2.5 Flash
+    reasons before it answers when given a budget, and that is most of why
+    it is better than Lite at a step-by-step paper — but thinking tokens are
+    billed, and turning it on for every lesson and every scan on a school's
+    account is not a decision to make by default.
+    """
     gen = {"maxOutputTokens": tokens, "temperature": temperature}
     if json_mode:
         gen["responseMimeType"] = "application/json"
     if (not no_think and not _thinking_off["gemini"]
             and not _NO_THINKING.match(model or "")):
-        gen["thinkingConfig"] = {"thinkingBudget": 0}
+        gen["thinkingConfig"] = {"thinkingBudget": max(0, int(think or 0))}
     return gen
 
 
@@ -6303,7 +6324,8 @@ def _gemini_model(best=False):
 
 
 async def _provider_generate(client, provider, prompt, max_tokens, json_mode=False,
-                             best=False, _override=None, _no_think=False):
+                             best=False, _override=None, _no_think=False,
+                             _think=0):
     """One raw generation call to a single provider. Raises on HTTP error."""
     if provider == "gemini":
         model = _override or (GEMINI_MODEL_BEST if best else GEMINI_MODEL)
@@ -6311,7 +6333,8 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
         # 0.4 the same question produces a different derivation each time and
         # one of those variations is the one that invents a step. Lower is
         # duller, and gives more nearly the same answer twice.
-        gen = _gen_config(model, max_tokens, 0.15, json_mode, _no_think)
+        gen = _gen_config(model, max_tokens, 0.15, json_mode, _no_think,
+                          think=_think)
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY, "content-type": "application/json"},
@@ -6480,7 +6503,7 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
 
 
 async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
-                   best: bool = False) -> str:
+                   best: bool = False, think: int = 0) -> str:
     """Generate text, trying each available provider in turn. If one is rate-
     limited or errors, automatically fall back to the next configured provider."""
     import httpx
@@ -6508,7 +6531,8 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
             try:
                 try:
                     txt = await _provider_generate(client, prov, prompt,
-                                                   max_tokens, json_mode, best)
+                                                   max_tokens, json_mode, best,
+                                                   _think=think)
                 except Exception as inner:
                     # A model that does not take thinkingConfig at all: send
                     # the same call again without it rather than losing the
@@ -6538,7 +6562,8 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                               f"or check /api/ai/models.")
                     txt = await _provider_generate(client, prov, prompt,
                                                    max_tokens, json_mode, best,
-                                                   _override=safe)
+                                                   _override=safe,
+                                                   _think=think)
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
@@ -17293,7 +17318,7 @@ async def board_lesson(body: BoardIn,
                          + _reference.as_source(refs)
                          + _wolfram.note(topic, computed),
                          _depth.tokens(topic),
-                        json_mode=True),
+                        json_mode=True, think=THINK_HARD),
                 _images.find(_pic_client, topic),
                 _papers.find(_pic_client, topic, 3),
             )
@@ -18118,7 +18143,8 @@ async def solve_batch(body: SolveBatch,
         _ai_enforce_limit(db, user)
         try:
             reply = _ai_json(await _ai_text(_solver.as_prompt(missing), 9000,
-                                            json_mode=True))
+                                            json_mode=True,
+                                            think=THINK_HARD))
             fresh = _solver.clean(reply, missing)
         except HTTPException:
             raise

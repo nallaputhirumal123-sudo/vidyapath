@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "katex": "^0.18.4",
     "pptxgenjs": "^4.0.1"
   }
 }
