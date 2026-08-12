@@ -1037,6 +1037,7 @@ var TOOL_NAMES = {
   inbox:"To review",
   sources:"Where answers come from", remote:"Remote",
   bring:"Saved for this subject", chapter:"Bring in a chapter",
+  formula:"Formula",
   pic:"A picture",
   assignment:"Assignment",
   student:"A student", review:"Reviewing"
@@ -2201,6 +2202,8 @@ var TILES = [
     sub:"Any subject, taught step by step, with a diagram where one helps." },
   { page:"write",  ic:"✍️", name:"Writing space",
     sub:"A blank surface to work on by hand. Save it as a picture." },
+  { page:"formula", ic:"Σ", name:"Formula",
+    sub:"Write an equation the back of the room can read — roots, powers, fractions and the Greek letters." },
   { page:"calc",   ic:"🧮", name:"Calculator",
     sub:"Arithmetic, powers and roots, worked on screen where the room can see it." },
   { page:"structure", ic:"🧬", name:"3D structures",
@@ -4641,7 +4644,10 @@ function subjectPicker(id, cid){
  */
 var OPEN = false;                    // running with no account
 
-var OPEN_TOOLS = ["write", "calc"];  // everything that needs no server
+var OPEN_TOOLS = ["write", "calc", "formula"];  // needs no server
+// The formula editor is a keypad and a renderer, both of them local, so a
+// board with no code and no account can still use it. That is the same
+// reason the writing space and the calculator are here.
 
 /* Tools that need a PERSON rather than a room, and three different reasons.
  *
@@ -5591,6 +5597,100 @@ async function phet(pick){
 }
 
 /* ---------- a calculator the back row can read ---------- */
+/* ---------- writing a formula so a room can read it ----------------------
+ *
+ * Every board on the market leads with this, and for a reason a teacher
+ * feels every day: an equation typed as "x^2 + sqrt(b/2) <= 3" is readable
+ * by the person who typed it and by nobody at the back of the room.
+ *
+ * Built as a keypad rather than as handwriting recognition, deliberately.
+ * Recognition means a model call per stroke, which is a cost per equation
+ * on a screen that shows dozens in a lesson, and it is wrong often enough
+ * that a teacher ends up correcting it in front of the class. A keypad is
+ * exact, instant, free, and it never guesses.
+ *
+ * It renders through mathText — the same formatter the website and the
+ * lesson steps use — so an equation looks the same wherever the class meets
+ * it. That was the whole point of pulling that file out.
+ */
+var FORMULA = "";
+
+// What the keys INSERT is what mathText reads, which is LaTeX.
+//
+// The first version emitted 'sqrt(', '<=' and 'pi' — what a person would
+// type — and mathText left every one of them as the letters they are, so
+// the class saw 'sqrt(x^2+4)<=pi'. The renderer is shared with the
+// website and the lesson steps and its input is LaTeX; the keypad is the
+// side that has to speak it.
+//
+// A teacher never types any of this. They tap a root sign and see a root
+// sign.
+var FKEYS = [
+  ["\\sqrt{", "√"], ["\\frac{}{}", "a⁄b"], ["^2", "x²"],
+  ["^3", "x³"], ["^{}", "xⁿ"], ["_{}", "xₙ"],
+  ["{", "{"], ["}", "}"], ["(", "("], [")", ")"],
+  ["sin(", "sin"], ["cos(", "cos"], ["tan(", "tan"],
+  ["log(", "log"], ["ln(", "ln"], ["\\pi ", "π"],
+  ["\\theta ", "θ"], ["\\alpha ", "α"], ["\\beta ", "β"],
+  ["\\lambda ", "λ"], ["\\Delta ", "Δ"], ["\\mu ", "μ"],
+  ["\\times ", "×"], ["\\div ", "÷"], ["+", "+"], ["-", "−"],
+  ["=", "="], ["\\leq ", "≤"], ["\\geq ", "≥"],
+  ["\\neq ", "≠"], ["\\pm ", "±"], ["^\\circ ", "°"],
+  ["\\int ", "∫"], ["\\sum ", "Σ"], [",", ","]
+];
+
+function formula(){
+  var m = main();
+  m.innerHTML =
+    '<div class="eyebrow">Formula</div>' +
+    '<div class="card"><div id="fmView" class="big" style="min-height:4rem;' +
+      'font-size:2.1rem;line-height:1.5;text-align:center;padding:.6rem"></div>' +
+      '<input id="fmIn" style="width:100%;text-align:center" ' +
+        'placeholder="type it, or tap below" autocomplete="off" ' +
+        'spellcheck="false"></div>' +
+    '<div class="card">' +
+      '<div style="display:grid;grid-template-columns:repeat(6,1fr);' +
+        'gap:.35rem">' +
+        FKEYS.map(function(k){
+          return '<button class="btn ghost" data-fm="' + esc(k[0]) + '">' +
+                 esc(k[1]) + "</button>";
+        }).join("") +
+        ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", ".", "x"]
+          .map(function(d){
+            return '<button class="btn ghost" data-fm="' + d + '">' + d +
+                   "</button>";
+          }).join("") +
+        '<button class="btn ghost" data-fm="">←</button>' +
+        '<button class="btn ghost" data-fm="">C</button>' +
+      "</div></div>" +
+    '<div class="muted">Written the way the lessons write it, so an ' +
+      "equation looks the same here as it does on a pupil's screen.</div>";
+
+  var inp = el("fmIn");
+  inp.value = FORMULA;
+  function draw(){
+    FORMULA = inp.value;
+    var host = el("fmView");
+    if(!host) return;
+    host.innerHTML = (typeof mathText === "function")
+      ? mathText(esc(FORMULA)) : esc(FORMULA);
+  }
+  m.querySelectorAll("[data-fm]").forEach(function(b){
+    b.onclick = function(){
+      var k = b.dataset.fm;
+      if(k === "") inp.value = inp.value.slice(0, -1);
+      else if(k === "") inp.value = "";
+      else inp.value += k;
+      draw();
+      inp.focus();
+    };
+  });
+  inp.oninput = draw;
+  draw();
+  inp.focus();
+}
+
+
 function calc(){
   main().innerHTML =
     '<div class="eyebrow">Calculator</div>' +
@@ -7373,6 +7473,7 @@ async function paint(page, arg){
   else if(page === "materials") return materials();
   else if(page === "bring")     return bring(arg);
   else if(page === "chapter")   return chapter();
+  else if(page === "formula")   return formula();
   else if(page === "pic")       return pic(arg);
   else if(page === "write")     return write();
   else if(page === "remote")    return remotePanel();
