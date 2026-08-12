@@ -37,6 +37,7 @@ paper it produces says so on it. A teacher checking their key against this
 is using it correctly; a teacher marking thirty scripts from it is not.
 """
 import hashlib
+import json
 import re
 
 # Ten is where an answer still gets written out properly. Twenty and the
@@ -221,9 +222,19 @@ def _plain_line(line):
     out = str(line or "")
     m = _JSON_LINE.match(out)
     if m:
-        # A JSON string, so its escapes are JSON's.
-        out = (m.group(1).replace(chr(92) + '"', '"')
-               .replace(chr(92) + chr(92), chr(92)))
+        # A JSON string, so JSON decodes its escapes.
+        #
+        # Undoing them by hand missed the one that matters most. A question
+        # carrying a line break arrives as a backslash and an n, and
+        # replacing only quotes and backslashes left it sitting there — so a
+        # real paper reached a class reading "stated as,np = nRT" and
+        # ".nThis equation reduces to", with the break showing as the letter
+        # n in the middle of the formula.
+        try:
+            out = json.loads('"' + m.group(1) + '"')
+        except Exception:
+            out = (m.group(1).replace(chr(92) + '"', '"')
+                   .replace(chr(92) + chr(92), chr(92)))
     out = _MD_LEAD.sub("", out)
     # "**Q1.**" — unwrap only a short leading emphasis, which is a heading
     # marker. A long emphasised run is a model emphasising words inside the
@@ -293,6 +304,22 @@ _KEY_PAIR = re.compile(
     r"(?=$|[\s,;|])")
 
 
+def _lines(text):
+    """The text as lines, with each one unwrapped FIRST.
+
+    Unwrapping has to happen before the split, not during it. A JSON string
+    holding a line break is one line until it is decoded and two lines
+    after — so parsing line by line and unwrapping each as it arrived left
+    "Q32. …formula…next sentence" welded into one line, and a pattern
+    anchored to the end of a line matched none of it.
+    """
+    out = []
+    for raw in str(text or "").splitlines():
+        got = _plain_line(raw).splitlines()
+        out.extend(got if got else [""])
+    return out
+
+
 def answer_key(text):
     """The paper's own answer key, if it printed one: {number: letter}.
 
@@ -356,13 +383,30 @@ def _strip_rubric(lines):
     part of the list, so a paper whose questions begin immediately after the
     instructions loses nothing.
     """
-    out, skipping = [], False
+    # Two markers, and they mean opposite things about what follows.
+    #
+    # "NOT A QUESTION" is the READING pass's own marker, and the prompt tells
+    # it to put the rubric there and then "start numbering only where the
+    # paper's own questions start". So the first numbered line after it IS a
+    # question, and skipping numbered lines past that marker threw away the
+    # whole paper: a real JEE sheet reported "no answer came back for
+    # questions 1, 2, 3, 4" because the parser had eaten them here.
+    #
+    # A paper's OWN "General Instructions" heading is the other way round —
+    # the numbered items under it are the instructions, which is the case
+    # this function was written for.
+    out, skipping, model_marked = [], False, False
     for ln in lines:
-        if _NOT_Q.match(_plain_line(ln)):
+        plain = _plain_line(ln)
+        if _NOT_Q.match(plain):
             skipping = True
+            model_marked = "not a question" in plain.strip().lower()
             continue
         if skipping:
-            if _SECTION.match(_plain_line(ln)):
+            if _SECTION.match(plain):
+                skipping = False
+            elif model_marked and _start_of(ln):
+                # The paper's questions have started.
                 skipping = False
             else:
                 m = _start_of(ln)
@@ -452,7 +496,7 @@ def questions(text):
     out = []
     cur = None
     stop = None
-    lines = str(text or "").splitlines()
+    lines = _lines(text)
     for i, line in enumerate(lines):
         # Everything below an answer-key heading is the key, not questions.
         if _KEY_HEAD.match(_plain_line(line)):
