@@ -201,9 +201,30 @@ _MD_LEAD = re.compile(r"^\s*(?:[>#]+\s*|[*+-][ 	]+)+")
 _MD_BOLD = re.compile(r"^\s*(?:\x2a\x2a(.{1,30}?)\x2a\x2a|__(.{1,30}?)__)")
 
 
+# ...and sometimes it answers in JSON, having been told to write plain text.
+#
+# A real JEE Chemistry paper, photographed, came back as an array of
+# strings: [ "NOT A QUESTION", "JEE MAINS-9-APRIL-2014", "CHEMISTRY",
+# "Q31. In a face centered cubic lattice..." ]. Every line was a question,
+# correctly read, wearing a pair of quotes and a comma — and not one of
+# them matched, so a perfectly good reading of a real paper parsed as
+# nothing.
+#
+# Unwrapped rather than forbidden in the prompt. The prompt already says to
+# write plain lines; a model that formats anyway is a fact about models, not
+# a thing to keep asking about, and the parser is the side that can be sure.
+_JSON_LINE = re.compile(r'^\s*[\[\]{},]*\s*"(.*)"\s*,?\s*$')
+
+
 def _plain_line(line):
-    """One line with its markdown taken off."""
-    out = _MD_LEAD.sub("", str(line or ""))
+    """One line with the model's own formatting taken off."""
+    out = str(line or "")
+    m = _JSON_LINE.match(out)
+    if m:
+        # A JSON string, so its escapes are JSON's.
+        out = (m.group(1).replace(chr(92) + '"', '"')
+               .replace(chr(92) + chr(92), chr(92)))
+    out = _MD_LEAD.sub("", out)
     # "**Q1.**" — unwrap only a short leading emphasis, which is a heading
     # marker. A long emphasised run is a model emphasising words inside the
     # question, and the question keeps them.
@@ -284,17 +305,20 @@ def answer_key(text):
     lines = str(text or "").splitlines()
     start = None
     for i, line in enumerate(lines):
-        if _KEY_HEAD.match(line):
+        if _KEY_HEAD.match(_plain_line(line)):
             start = i + 1
             break
     if start is None:
         return {}
     out = {}
     for line in lines[start:]:
-        if _KEY_HEAD.match(line):
+        if _KEY_HEAD.match(_plain_line(line)):
             continue
         if line.strip().startswith("--- PAGE"):
             continue
+        # Unwrapped like every other line: a key inside a JSON array is
+        # "31 C", and the quotes would be read as part of the answer.
+        line = _plain_line(line)
         found = _KEY_PAIR.findall(line)
         if not found and line.strip():
             # A line of prose ends the key. Keys are terse by nature, and
@@ -334,11 +358,11 @@ def _strip_rubric(lines):
     """
     out, skipping = [], False
     for ln in lines:
-        if _NOT_Q.match(ln):
+        if _NOT_Q.match(_plain_line(ln)):
             skipping = True
             continue
         if skipping:
-            if _SECTION.match(ln):
+            if _SECTION.match(_plain_line(ln)):
                 skipping = False
             else:
                 m = _start_of(ln)
@@ -431,7 +455,7 @@ def questions(text):
     lines = str(text or "").splitlines()
     for i, line in enumerate(lines):
         # Everything below an answer-key heading is the key, not questions.
-        if _KEY_HEAD.match(line):
+        if _KEY_HEAD.match(_plain_line(line)):
             stop = i
             break
     for line in _strip_rubric(lines[:stop]):

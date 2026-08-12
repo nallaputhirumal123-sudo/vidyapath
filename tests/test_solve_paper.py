@@ -358,6 +358,43 @@ ck("a bracket that closes the marker is not part of the number",
    solver._number(solver._start_of("Q2) Name the capital.").group(1)) == "2",
    "it was ending up inside the number as '2)'")
 
+print("\nand sometimes it answers in JSON, having been told not to")
+# The second half of the same failure, from the same photographed paper — a
+# real JEE Mains Chemistry sheet. The diagnostic printed what had been read
+# and it was this: an array of strings.
+#
+#   [ "NOT A QUESTION", "JEE MAINS-9-APRIL-2014", "CHEMISTRY",
+#     "Q31. In a face centered cubic lattice atoms A are at the corner..."
+#
+# Every line was a question, correctly read, wearing a pair of quotes and a
+# comma. Not one matched. A perfectly good reading of a real paper parsed
+# as nothing, and the teacher was told no questions were found in it.
+JSONED = "\n".join([
+    '[ "NOT A QUESTION",',
+    '  "JEE MAINS-9-APRIL-2014",',
+    '  "CHEMISTRY",',
+    '  "Q31. In a face centered cubic lattice atoms A are at the corners",',
+    '  "[marks: 4]",',
+    '  "Q32. Which of the following is correct?",',
+    '  "ANSWER KEY",',
+    '  "31 C",',
+    '  "32 A"',
+    ']'])
+_j = solver.questions(JSONED)
+ck("a JSON-wrapped reading still finds its questions",
+   [q["n"] for q in _j] == ["31", "32"], str([q["n"] for q in _j]))
+ck("with the marks that were on the paper",
+   [q["marks"] for q in _j] == [4, None])
+ck("and the quotes are not part of the question",
+   _j[0]["text"].startswith("In a face centered"),
+   "a question that begins with a quotation mark is a question nobody asked")
+ck("the answer key survives the same wrapping",
+   solver.answer_key(JSONED) == {"31": "C", "32": "A"})
+ck("plain text is untouched by any of it",
+   [(q["n"], q["marks"]) for q in solver.questions(
+       "Q1. Define osmosis.\n[marks: 2]")] == [("1", 2)],
+   "the unwrapping must not cost the ordinary case")
+
 print("\nand papers that are not mathematics")
 ck("the solver is told a paper is usually not maths",
    "A paper is not always mathematics, and most are not" in SOLVE1)
