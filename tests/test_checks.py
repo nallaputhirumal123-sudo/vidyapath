@@ -105,13 +105,26 @@ for junk in (None, {}, {"steps": None}, {"steps": [None, 5, {"t": None}]},
 
 # ---- the Gemini finding, kept honest --------------------------------
 # The probe matrix proved gemini-flash-lite-latest returns 400 with
-# thinkingConfig and 200 without it.
-for model in ("gemini-flash-lite-latest", "gemini-flash-latest"):
-    check(f"{model} is sent no thinkingConfig",
-          "thinkingConfig" not in main._gen_config(model, 100, 0.4))
-for model in ("gemini-2.5-pro", "gemini-3-pro-preview"):
-    check(f"{model} still gets thinkingConfig",
-          "thinkingConfig" in main._gen_config(model, 100, 0.4))
+# thinkingConfig and 200 without it. That was measured on THAT alias and
+# then generalised to every "-latest" name, which quietly took the reasoning
+# budget away from the default model — so it is back to the one that was
+# actually tested.
+check("gemini-flash-lite-latest is sent no thinkingConfig",
+      "thinkingConfig" not in main._gen_config("gemini-flash-lite-latest",
+                                               100, 0.4))
+check("but gemini-flash-latest keeps its budget",
+      "thinkingConfig" in main._gen_config("gemini-flash-latest", 100, 0.4),
+      "a budget is most of why a solved paper reasons before it answers")
+
+# And a Pro model is sent NO budget when the answer wanted is "do not
+# think", because zero is not a value it accepts — every such request came
+# back 400 INVALID_ARGUMENT, which is a site that answers nothing.
+for model in ("gemini-2.5-pro", "gemini-3-pro-preview", "gemini-pro-latest"):
+    check(f"{model} is not told to think zero",
+          "thinkingConfig" not in main._gen_config(model, 100, 0.4, think=0))
+    check(f"{model} IS given one when it is being paid for",
+          main._gen_config(model, 100, 0.4, think=4096).get("thinkingConfig")
+          == {"thinkingBudget": 4096})
 
 # ---- the checks must never be slow ----------------------------------
 # These run inside the async endpoint, so a slow scan does not delay one

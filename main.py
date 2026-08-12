@@ -10907,21 +10907,6 @@ async def craxlearn_structure(name: str,
     return {"name": name, "scene": scene}
 
 
-@app.get("/api/craxlearn/models")
-async def craxlearn_models(q: str, user: User = Depends(board_or_reader)):
-    """The open 3D library, for the things nobody has measured.
-
-    Free, like the structures: it is a search over a public catalogue and
-    not a model call, so a class can look through twenty of them and it
-    costs what looking at one does.
-    """
-    q = _cl.redact(q)[:120]
-    if len(q) < 2:
-        raise HTTPException(400, "Type something to look for")
-    async with httpx.AsyncClient(follow_redirects=True, timeout=10) as c:
-        return {"q": q, "models": await _models3d.find(c, q, 12)}
-
-
 @app.get("/api/craxlearn/search")
 async def craxlearn_search(q: str, user: User = Depends(board_or_reader)):
     """Search the open sources for something to show the room.

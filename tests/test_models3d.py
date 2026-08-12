@@ -78,12 +78,19 @@ _rows = [models3d.clean(r) for r in [
     row("Kidney cross-section", OK_EMBED, "Standard"),
 ]]
 _out = models3d.rank("kidney", _rows)
-ck("the ones that match come back",
-   [r["name"] for r in _out] == ["Kidney", "Kidney cross-section"],
+ck("the ones that match come back, and only those",
+   sorted(r["name"] for r in _out) == ["Kidney", "Kidney cross-section"],
    "sorted by popularity this query returned a laundry machine, a manor "
    "house and a pub — all correctly licensed and none of them a kidney")
-ck("and a free licence wins between two that match",
-   _out[0]["licence"].lower().startswith("cc0"),
+ck("and the one that is a teaching object leads",
+   _out[0]["name"] == "Kidney cross-section",
+   "a cutaway is what a class is being shown; that beats a licence, "
+   "because the licence only matters once the model is the right one")
+ck("a free licence wins between two that are otherwise equal",
+   models3d.rank("kidney", [
+       models3d.clean(row("Kidney model", OK_EMBED, "Standard")),
+       models3d.clean(row("Kidney model", OK_EMBED, "CC0 Public Domain")),
+   ])[0]["licence"].lower().startswith("cc0"),
    "between two models of a kidney, the one a teacher can also take away")
 ck("a tag counts as a match",
    len(models3d.rank("mitochondrion",
@@ -134,6 +141,50 @@ ck("a laptop lid gets the pictures without the names",
    "@media (max-height:900px)" in BOARD,
    "six near-identical titles took a quarter of the viewer to say Human "
    "Heart 1 through Human Heart 6")
+print("\njust the relevant ones, not everything with the word in it")
+
+
+def _pack(*names):
+    return [models3d.clean(row(n, OK_EMBED)) for n in names]
+
+
+# "stars" came back as a Star Deer: the word matched, so the model was kept
+# and then ranked on its licence, and a piece of game art beat the thing
+# somebody actually asked to see.
+_stars = models3d.rank("stars", _pack("Stars and nebulae", "Star Deer",
+                                      "Painter of Stars"))
+ck("a title that is mostly the query wins",
+   _stars[0]["name"] == "Stars and nebulae",
+   "a title where the query is one word in four is a model of something "
+   "else with the word in it")
+
+_heart = models3d.rank("human heart",
+                       _pack("[Animation] Human Heart",
+                             "Anatomical Human Heart"))
+ck("a still model comes before a moving one",
+   _heart[0]["name"] == "Anatomical Human Heart",
+   "it moves while a teacher is trying to point at a valve")
+ck("but the moving one is still there",
+   len(_heart) == 2,
+   "an animated model of the right organ beats a still model of the "
+   "wrong one — dropping everything tagged animation left Eye Implant "
+   "as the only answer for eye")
+
+_art = models3d.rank("heart",
+                     [models3d.clean(row("Heart of the Dungeon", OK_EMBED,
+                                         tags="fantasy game-ready")),
+                      models3d.clean(row("Heart", OK_EMBED,
+                                         tags="anatomy science"))])
+ck("game art is dropped when a teaching model exists",
+   len(_art) == 1 and _art[0]["name"] == "Heart",
+   "ranked below it they still filled the row of thumbnails, so a class "
+   "asking for a heart got one anatomy model and five dragons")
+ck("and kept when it is all there is",
+   len(models3d.rank("dragon", [models3d.clean(
+       row("Dragon", OK_EMBED, tags="fantasy"))])) == 1,
+   "a stylised model of the right thing beats an empty screen, and the "
+   "label already says it is somebody else's drawing")
+
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:

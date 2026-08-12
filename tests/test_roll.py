@@ -295,7 +295,13 @@ r = mine_t.get("/api/craxlearn/structure?name=zzqqxx-not-a-thing")
 check("a name with nothing behind it shows nothing", r.status_code == 404,
       str(r.status_code))
 check("and says why rather than drawing a guess",
-      "never a drawing of what it might be" in r.text, r.text[:200])
+      "no measured structure" in r.text.lower()
+      and "no model of it" in r.text.lower(), r.text[:200])
+# Both halves have to be said now. Nothing measured is still nothing drawn —
+# but a heart has no parameters and somebody has modelled one, so the
+# refusal only arrives when the library has nothing either.
+check("and the library is tried before refusing",
+      "open library" in r.text.lower(), r.text[:200])
 check("a one-letter name is refused",
       mine_t.get("/api/craxlearn/structure?name=x").status_code == 400)
 

@@ -133,29 +133,95 @@ def rank(q, rows):
             if len(w) > 2 and w not in _STOP]
     if not want:
         return []
-    keep = []
+    keep, spare = [], []
     for r in rows:
-        words = set(re.findall(r"[a-z0-9]+", (r["name"] + " "
-                                              + r.get("tags", "")).lower()))
+        title = re.findall(r"[a-z0-9]+", r["name"].lower())
+        words = set(title) | set(re.findall(r"[a-z0-9]+",
+                                            r.get("tags", "").lower()))
         hit = sum(1 for w in want if w in words
                   or any(w in x or x in w for x in words if len(x) > 3))
         if not hit:
             continue
+        # How much of the TITLE is what was asked for.
+        #
+        # This is the whole of "stars" coming back as a Star Deer. The word
+        # matched, so the model was kept and then ranked on its licence —
+        # and a piece of game art with a matching word in its name beat the
+        # thing somebody actually asked to see. A title that is mostly the
+        # query is the model of that thing; a title where the query is one
+        # word in four is a model of something else with the word in it.
+        # Filler in the TITLE does not count against it either. "Stars and
+        # nebulae" is three words and two of them are the subject; counting
+        # "and" made it look less about stars than "Star Deer" is.
+        real = set(title) - _STOP
+        focus = hit / float(max(1, len(real or set(title))))
+        if focus < 0.34 and hit < len(want):
+            continue
+        # And what KIND of model it is. Sketchfab is mostly game art, which
+        # is not a criticism of it — but a classroom asking for a heart
+        # wants the anatomy one, and asking for stars wants the astronomy
+        # one rather than a stag made of them.
+        blob = (r["name"] + " " + r.get("tags", "")).lower()
         # A model with no faces is a broken upload; one with four million is
         # a board that stops responding when a class is watching.
         usable = 1 if 100 <= r["faces"] <= 4_000_000 else 0
-        r["_k"] = (-hit, -int(r["free"]), -usable, r["name"].lower())
-        keep.append(r)
-    keep.sort(key=lambda r: r["_k"])
-    for r in keep:
-        r.pop("_k", None)
-    return keep
+        # Animated is a demotion, not a rejection, and only on the NAME.
+        #
+        # Dropping anything TAGGED "animation" threw away the anatomy models
+        # — half of them carry the tag whether or not they move — and left
+        # "Eye Implant" as the only answer for "eye". A model called
+        # "[Animation] Human Heart" is announcing itself; one called
+        # "Anatomical Human Heart" that happens to be tagged animation is
+        # not, and it is the right model.
+        moves = 1 if _MOVES.search(r["name"]) else 0
+        r["_k"] = (0 if _TEACHING.search(blob) else 1, moves,
+                   -round(focus, 2), -hit, -int(r["free"]), -usable,
+                   r["name"].lower())
+        (spare if _ART.search(blob) else keep).append(r)
 
+    # Two piles, and the second one is only opened if the first is empty.
+    #
+    # A penalty was not enough. Game art and animated character models are
+    # most of what a general 3D library contains, and something has to be
+    # first: ranked below a teaching model they still filled the row of
+    # thumbnails, so a class asking for a heart got one anatomy model and
+    # five dragons. They are dropped now — unless dropping them leaves
+    # nothing at all, in which case a stylised model of the right thing
+    # still beats an empty screen and the label already says it is somebody
+    # else's drawing.
+    use = keep or spare
+    use.sort(key=lambda r: r["_k"])
+    for r in use:
+        r.pop("_k", None)
+    return use
+
+
+# What a classroom is asking for, and what it is not. Neither is a filter:
+# a model is not refused for being game art, it simply loses to a teaching
+# one. "Stars" has plenty of both, and only one of them belongs on a board.
+_TEACHING = re.compile(
+    r"anatom|anatomic|science|scientific|educat|school|classroom|biolog|"
+    r"physic|chemi|astronom|geolog|medical|clinical|histolog|molecul|"
+    r"skelet|organ|cell|diagram|cutaway|cross[ _-]?section|specimen|"
+    r"museum|scan|photogrammetr|nasa|planet|satellite|telescope|"
+    r"nebula|galax|cosmos|constellation|astro|orrery|lunar|solar", re.I)
+# It moves while a teacher is trying to point at a valve. Matched on the
+# name only, and it loses rather than being thrown away — an animated model
+# of the right organ still beats a still model of the wrong one.
+_MOVES = re.compile(r"animat|rigged|turntable|loop", re.I)
+
+_ART = re.compile(
+    r"fantasy|game[ _-]?ready|lowpoly|low[ _-]?poly|stylized|stylised|"
+    r"cartoon|anime|character|weapon|sword|armou?r|vrchat|furry|creature|"
+    r"monster|dragon|magic|sci[ _-]?fi|steampunk|zbrush|blender[ _-]?art|"
+    r"unreal|unity|prop|dungeon|"
+    r"minecraft|roblox|meme", re.I)
 
 # Words that say nothing about what the model is.
 _STOP = {"the", "and", "for", "with", "show", "model", "structure", "3d",
          "human", "diagram", "picture", "image", "view", "how", "does",
-         "what", "why", "explain", "class", "lesson"}
+         "what", "why", "explain", "class", "lesson", "of", "a", "an",
+         "free", "new", "old", "my", "test", "final", "v1", "v2"}
 
 
 def params(q, want=MAX_RESULTS):
