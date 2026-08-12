@@ -36,6 +36,7 @@ allocates marks step by step and this does not know that allocation, so the
 paper it produces says so on it. A teacher checking their key against this
 is using it correctly; a teacher marking thirty scripts from it is not.
 """
+import hashlib
 import re
 
 # Ten is where an answer still gets written out properly. Twenty and the
@@ -446,6 +447,32 @@ def fingerprint(n, text):
     """
     return " ".join(str(n or "").split()) + "\x1f" + \
         " ".join(str(text or "").split())
+
+
+def cache_key(q):
+    """One question's identity as a cache entry.
+
+    Keyed on the QUESTION, not on the batch it happened to travel in.
+    Batching is an artefact of how the work is sent — ten at a time so each
+    answer still gets written out properly — and it made the cache useless
+    the moment anything shifted: re-running a paper after one bad batch,
+    two schools uploading the same paper with the questions grouped
+    differently, or a paper that shares a question with another paper. All
+    of those paid again for an answer already held.
+
+    The text and the marks, and not the number. A question is the same
+    question wherever it is printed, so the same problem numbered 7 on one
+    board's paper and 12 on another's reuses the answer — the number is
+    re-attached from whichever paper asked. The MARKS are in the key
+    because the prompt sizes an answer by them: a two-mark and a five-mark
+    version of the same question want different answers, and serving one
+    for the other is how a student loses marks for a correct answer.
+    """
+    body = " ".join(str(q.get("text") or "").split())
+    marks = q.get("marks")
+    raw = f"{body}{marks if isinstance(marks, int) else ''}"
+    return "solveq|" + hashlib.sha256(
+        raw.encode("utf-8", "replace")).hexdigest()[:40]
 
 
 def batches(qs, size=BATCH):

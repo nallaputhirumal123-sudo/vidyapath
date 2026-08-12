@@ -46,6 +46,10 @@ import solver                                      # noqa: E402
 
 IDX = io.open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
 MAIN = io.open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()
+SRC = io.open(os.path.join(ROOT, "solver.py"), encoding="utf-8").read()
+# Just the solve route, so a phrase that appears elsewhere in main.py
+# cannot pass for one that appears in it.
+SOLVE_SRC = MAIN.split('@app.post("/api/exams/solve")')[1].split("\n@app.")[0]
 P, F = [], []
 # Prompt text is wrapped for reading; compare it the way a model receives it.
 READ1 = " ".join(solver.READ.split())
@@ -473,6 +477,40 @@ ck("and identity is case-sensitive",
 ck("but not whitespace-sensitive",
    solver.fingerprint("1", "a  b\nc") == solver.fingerprint(" 1 ", "a b c"))
 
+print("\nan answer is paid for once, not once per batch")
+# The cache was keyed on the BATCH of ten. Batching is an artefact of how
+# the work is sent — ten at a time so each answer still gets written out
+# properly — and keying on it made the cache useless the moment anything
+# shifted: re-running a paper after one bad batch, two schools uploading the
+# same paper grouped differently, or two boards printing the same problem.
+# All of them paid again for an answer already held, and cost is the
+# constraint this whole product is designed around.
+ck("a question is keyed on itself, not on its batch",
+   "def cache_key(q)" in SRC and '"solveq|"' in SRC)
+ck("the same question reuses its answer wherever it is printed",
+   solver.cache_key({"n": "7", "text": "Solve  x^2 = 4", "marks": 3})
+   == solver.cache_key({"n": "12", "text": "Solve x^2 = 4", "marks": 3}),
+   "the same problem is numbered 7 on one board's paper and 12 on "
+   "another's, and whitespace differs between two readings of one page")
+ck("but marks are part of its identity",
+   solver.cache_key({"n": "1", "text": "Explain photosynthesis", "marks": 2})
+   != solver.cache_key({"n": "1", "text": "Explain photosynthesis",
+                        "marks": 5}),
+   "the prompt sizes an answer by its marks; serving a two-mark answer for "
+   "a five-mark question loses a student marks for being right")
+ck("only what has never been asked reaches the model",
+   "if missing:" in SOLVE_SRC and "as_prompt(missing)" in SOLVE_SRC)
+ck("each answer is saved under its own question",
+   'level="question"' in SOLVE_SRC)
+ck("a cached answer wears the number of the paper asking",
+   'held[q["n"]] = {**got, "n": q["n"]' in SOLVE_SRC,
+   "the same question is numbered differently on two boards' papers")
+ck("and the order the paper asks in is restored",
+   'solved = [held.get(q["n"]) or got_fresh.get(str(q["n"]))' in SOLVE_SRC,
+   "a solved paper that jumps from question 3 to 7 and back is not one")
+ck("how much was reused is reported rather than asserted",
+   '"reused": len(held)' in SOLVE_SRC)
+
 print("\nthe cheap path is tried first")
 ck("a typed PDF is read as text, not photographed",
    "_teachpdf.extract(raw_files[0][0])" in MAIN
@@ -487,9 +525,10 @@ ck("reading is cached on the bytes",
    'digest = h.hexdigest()[:32]' in MAIN
    and 'qkey = f"readpaper|{digest}"' in MAIN,
    "a class of thirty uploading the same paper is one reading")
-ck("each batch is cached on its own questions",
-   'f"solvebatch|{h.hexdigest()[:32]}"' in MAIN,
-   "re-running a paper after one bad batch pays for that batch only")
+ck("nothing is cached on the batch any more",
+   "solvebatch|" not in MAIN,
+   "the batch is an artefact of how the work is sent; keying on it made "
+   "the cache miss every time the grouping shifted")
 
 print("\nit says what it is not")
 ck("the caveat is written by the server",

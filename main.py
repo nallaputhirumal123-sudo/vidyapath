@@ -18082,27 +18082,73 @@ async def solve_batch(body: SolveBatch,
             400, "Those questions are not on the paper that was read. "
                  "Upload the paper again.")
 
-    h = hashlib.sha256()
+    # One cache entry per QUESTION, not per batch.
+    #
+    # Batching is an artefact of how the work is sent — ten at a time so
+    # each answer still gets written out properly — and keying the cache on
+    # the batch made it useless the moment anything shifted. Re-running a
+    # paper after one bad batch, two schools uploading the same paper with
+    # the questions grouped differently, or two boards printing the same
+    # problem: all of them paid again for an answer already held.
+    #
+    # Now only what has never been asked reaches the model. A class of
+    # thirty on last year's paper is one solve; the second school to upload
+    # it pays for nothing.
+    held, missing = {}, []
     for q in chunk:
-        h.update((q["n"] + "|" + q["text"]).encode("utf-8", "replace"))
-    qkey = f"solvebatch|{h.hexdigest()[:32]}"[:500]
-    row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
-    cached = _cached_json(db, row, need=None)
-    if cached:
-        row.hits = (row.hits or 0) + 1
+        k = _solver.cache_key(q)
+        row = db.query(AskCache).filter(AskCache.qkey == k).first()
+        got = _cached_json(db, row, need=None)
+        if got:
+            row.hits = (row.hits or 0) + 1
+            # The number comes from the paper in front of THIS person. The
+            # same question is numbered 7 on one board's paper and 12 on
+            # another's, and the cached answer must wear the number of the
+            # paper it is being shown against.
+            held[q["n"]] = {**got, "n": q["n"],
+                            **({"marks": q["marks"]} if q.get("marks")
+                               else {})}
+        else:
+            missing.append(q)
+    if held:
         db.commit()
-        return {**cached, "cached": True}
 
-    _ai_enforce_limit(db, user)
-    try:
-        reply = _ai_json(await _ai_text(_solver.as_prompt(chunk), 9000,
-                                        json_mode=True))
-        solved = _solver.clean(reply, chunk)
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Solve batch failed: {type(e).__name__}: {e}")
-        raise HTTPException(503, _ai_error_message(e))
+    fresh = []
+    if missing:
+        _ai_enforce_limit(db, user)
+        try:
+            reply = _ai_json(await _ai_text(_solver.as_prompt(missing), 9000,
+                                            json_mode=True))
+            fresh = _solver.clean(reply, missing)
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Solve batch failed: {type(e).__name__}: {e}")
+            raise HTTPException(503, _ai_error_message(e))
+        if not fresh:
+            raise HTTPException(502, "That batch came back empty — try "
+                                     "again.")
+        # Each answer saved under its own question, so the next paper that
+        # contains it pays nothing — including this same paper re-run.
+        by_n = {str(q["n"]): q for q in missing}
+        for one in fresh:
+            q = by_n.get(str(one["n"]))
+            if not q:
+                continue
+            db.add(AskCache(qkey=_solver.cache_key(q), subject="solve",
+                            level="question", question=q["text"][:2000],
+                            lesson=json.dumps(one)))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+
+    # Back into the order the paper asks them in — a solved paper that
+    # jumps from question 3 to 7 and back is not a solved paper.
+    got_fresh = {str(x["n"]): x for x in fresh}
+    solved = [held.get(q["n"]) or got_fresh.get(str(q["n"]))
+              for q in chunk]
+    solved = [x for x in solved if x]
     if not solved:
         raise HTTPException(502, "That batch came back empty — try again.")
     # Arithmetic checked rather than trusted: the claimed root goes back into
@@ -18115,12 +18161,11 @@ async def solve_batch(body: SolveBatch,
     out = {"questions": solved,
            # Named, not swallowed. A paper that comes back with fifty-eight
            # of sixty answers silently is one handed out with two holes.
-           "missing": _solver.missing(chunk, solved)}
-    db.add(AskCache(qkey=qkey, subject="solve", level="batch",
-                    question=f"{len(chunk)} questions",
-                    lesson=json.dumps(out)))
-    db.commit()
-    return {**out, "cached": False}
+           "missing": _solver.missing(chunk, solved),
+           # How much of this batch cost nothing, so the saving is visible
+           # rather than asserted.
+           "reused": len(held)}
+    return {**out, "cached": len(held) == len(chunk)}
 
 
 @app.post("/api/scan")
