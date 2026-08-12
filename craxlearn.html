@@ -616,21 +616,43 @@ body.gated .gatesources{display:none}
 .fig3d > canvas{position:absolute;left:0;top:0;display:block}
 /* The open library's frame. Sized like the measured viewer so a lesson does
    not jump when one takes the other's place. */
-.mdlwrap{display:flex;flex-direction:column;gap:.5rem;height:100%}
-.mdlframe{flex:1 1 auto;width:100%;min-height:clamp(240px,44vh,600px);
-  border:0;border-radius:10px;background:#0b0d10}
-.mdlcredit{font-size:.82rem;opacity:.85;display:flex;flex-wrap:wrap;
-  align-items:center;gap:.5rem}
+/* The model, its credit and the row of alternatives, in a box whose height
+   is decided by the space and not by the picture.
+   A minimum height on the frame put the row of thumbnails past the bottom
+   of a laptop screen: the viewer clips what does not fit, so the way to
+   pick a different model was simply not on the screen. Only the frame
+   stretches; the credit and the row keep their own size and are subtracted
+   from it first. */
+.mdlwrap{display:flex;flex-direction:column;gap:.45rem;height:100%;
+  min-height:0}
+.mdlframe{flex:1 1 auto;width:100%;min-height:0;border:0;border-radius:10px;
+  background:#0b0d10}
+.mdlcredit{flex:0 0 auto;font-size:.72rem;opacity:.62;display:flex;
+  flex-wrap:nowrap;align-items:center;gap:.45rem;line-height:1.3;
+  white-space:nowrap;overflow:hidden}
+.mdlwho{overflow:hidden;text-overflow:ellipsis}
 .mdlnote{font-size:.74rem;padding:.1rem .45rem;border-radius:999px;
   background:rgba(255,255,255,.10);opacity:.9}
-.mdlrow{display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.2rem}
-.mdlpick{flex:0 0 auto;width:7.5rem;border:1px solid rgba(255,255,255,.16);
-  background:transparent;color:inherit;border-radius:8px;padding:.25rem;
-  cursor:pointer;display:flex;flex-direction:column;gap:.2rem;font:inherit}
+.mdlrow{flex:0 0 auto;display:flex;gap:.4rem;overflow-x:auto;
+  padding-bottom:.15rem;scrollbar-width:thin}
+.mdlpick{flex:0 0 auto;width:6.2rem;border:1px solid rgba(255,255,255,.16);
+  background:transparent;color:inherit;border-radius:8px;padding:.2rem;
+  cursor:pointer;display:flex;flex-direction:column;gap:.15rem;font:inherit}
 .mdlpick.on{border-color:currentColor}
-.mdlpick img{width:100%;height:4rem;object-fit:cover;border-radius:5px}
-.mdlpick span{font-size:.7rem;line-height:1.2;overflow:hidden;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.mdlpick img{width:100%;height:2.6rem;object-fit:cover;border-radius:5px}
+/* One line. Two lines of title on six thumbnails took 127 pixels off a
+   493-pixel viewer to say "Human Heart 1" through "Human Heart 6" — the
+   names are near-identical and the pictures are what anybody picks by. The
+   full name is on the tooltip and on the credit line above. */
+.mdlpick span{font-size:.66rem;line-height:1.15;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis}
+/* A laptop lid rather than a wall: the strip becomes pictures only. The
+   model is what the room is looking at. */
+@media (max-height:900px){
+  .mdlpick span{display:none}
+  .mdlpick{width:4.2rem}
+  .mdlpick img{height:2.3rem}
+}
 .figcap{font-size:.68rem;color:var(--muted);margin:.7rem 0 .2rem}
 .lessonBody img{max-width:100%;border-radius:12px;display:block}
 
@@ -4892,6 +4914,25 @@ function write(){
  * board. The frame gets scripts and its own origin — which is the model
  * viewer's origin, not ours — and nothing else.
  */
+/* Every piece of the host's own furniture that can be turned off.
+ *
+ * A class should be looking at a heart, not at a site: the info bar, the
+ * help, the settings, the annotations, the inspector and the VR and AR
+ * buttons are all somebody else's product placed in the middle of a lesson.
+ * What is left is the model and the controls that turn it.
+ *
+ * The small logo in the corner is theirs and stays: removing it is a paid
+ * feature of their service and taking it out without that is simply
+ * breaking the terms we are showing the model under.
+ *
+ * dnt=1 asks them not to track the class, which is the right default for a
+ * screen in a school whether or not anybody checks.
+ */
+var EMBED_UI = "?autostart=1&autospin=0.3&dnt=1&ui_infos=0&ui_help=0" +
+  "&ui_settings=0&ui_annotations=0&ui_hint=0&ui_inspector=0&ui_ar=0" +
+  "&ui_vr=0&ui_stop=0&ui_watermark=0&ui_watermark_link=0&ui_fullscreen=1" +
+  "&ui_controls=1&ui_theme=dark&transparent=0";
+
 function showModels(host, models, want){
   var pick = 0;
   function draw(){
@@ -4899,12 +4940,17 @@ function showModels(host, models, want){
     host.innerHTML =
       '<div class="mdlwrap">' +
         '<iframe class="mdlframe" title="' + esc(m.name) + '" ' +
-          'src="' + esc(m.embed) + '?ui_infos=0&ui_watermark=0&autospin=0.3" ' +
+          'src="' + esc(m.embed) + EMBED_UI + '" ' +
           'allow="autoplay; fullscreen; xr-spatial-tracking" ' +
           'sandbox="allow-scripts allow-same-origin allow-popups" ' +
           'allowfullscreen loading="lazy"></iframe>' +
-        '<div class="mdlcredit">' + esc(m.name) + ' — by ' + esc(m.by) +
-          ' · ' + esc(m.licence) +
+        /* Small, and not going away. The maker's name and the licence
+           are a CONDITION of showing a CC-BY model, not decoration — a
+           product sold to schools cannot strip the attribution off
+           somebody's work. So it is one quiet line instead of a banner. */
+        '<div class="mdlcredit">' +
+          '<span class="mdlwho">' + esc(m.name) + ' · ' + esc(m.by) +
+            ' · ' + esc(m.licence) + '</span>' +
           '<span class="mdlnote">a model, not a measurement</span></div>' +
         (models.length > 1
           ? '<div class="mdlrow">' + models.map(function(x, i){
