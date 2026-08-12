@@ -192,6 +192,18 @@ GEMINI_MODEL = env("GEMINI_MODEL", "gemini-flash-latest")
 # left at zero everywhere else: solving a question paper, and teaching
 # a lesson to a room. A scan, a search and a caption do not get it.
 THINK_HARD = int(env("THINK_HARD", "2048") or 2048)
+# And a bigger one for a question paper, which is the only place on this site
+# where the reasoning IS the product.
+#
+# 2048 is a sensible budget for a lesson: explaining a topic well needs care,
+# not derivation. A JEE Mains physics question needs the derivation, and 2048
+# spread across a batch is a few hundred tokens each — enough to answer off
+# the top of the model's head and not enough to work anything out. "It is
+# reading it fine, but the thinking is wrong" is what that produces.
+#
+# Affordable because of the daily limit and nowhere else: five papers a
+# person is what makes it reasonable to buy real reasoning per question.
+THINK_PAPER = int(env("THINK_PAPER", "8192") or 8192)
 # Used only where the writing quality is the product: the apply kit's
 # cover note and screening answers. Everything else stays on the cheap
 # model, because scoring and classifying do not read any better on a
@@ -2425,6 +2437,33 @@ def status(request: Request, db: Session = Depends(get_db)):
         # And whether it is being paid to reason, which is the other half of
         # that switch and costs money.
         "think_budget": THINK_HARD,
+        # The model that SOLVES A PAPER, which is a different model on
+        # purpose and was reported nowhere.
+        #
+        # "the reading is right and the thinking is wrong" is a sentence
+        # about one model, and there was no way to find out which one that
+        # was without sending a paper through and judging the answers — the
+        # exact thing instrumenting is supposed to replace. Everything else
+        # here runs on the cheap model correctly; a worked solution is the
+        # one place it is not good enough, and if this line says the same
+        # name as ask_vidya_model then GEMINI_MODEL_BEST was never set and
+        # papers are being solved by the cheap one.
+        "paper_model": GEMINI_MODEL_BEST,
+        # Whether the paper model is ACTUALLY being asked to reason.
+        #
+        # Three separate things can turn thinking off and all of them were
+        # silent: the budget, a model that will not take the parameter, and
+        # a single 400 earlier in this process which switches it off for
+        # every request until the next restart. A paper solved without it
+        # is a paper answered off the top of the model's head.
+        "paper_thinking": (
+            THINK_PAPER if (THINK_PAPER > 0 and not _thinking_off["gemini"]
+                            and not _NO_THINKING.match(GEMINI_MODEL_BEST or ""))
+            else 0),
+        # And whether we are running the model that was configured at all.
+        # A retired model falls back automatically, which keeps the site up
+        # and means the name in the variable is not the name answering.
+        "model_fallback": _gemini_fallback_warned,
         # The books, and their figures, as this deployment actually has them.
         #
         # Both travel in the repository and both have been missing from a
@@ -18583,7 +18622,7 @@ async def solve_batch(body: SolveBatch,
             # the strongest model affordable here and nowhere else.
             reply = _ai_json(await _ai_text(_solver.as_prompt(missing), 26000,
                                             json_mode=True, best=True,
-                                            think=THINK_HARD))
+                                            think=THINK_PAPER))
             fresh = _solver.clean(reply, missing)
         except HTTPException:
             raise
