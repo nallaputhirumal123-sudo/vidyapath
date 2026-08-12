@@ -2457,7 +2457,8 @@ def status(request: Request, db: Session = Depends(get_db)):
         # every request until the next restart. A paper solved without it
         # is a paper answered off the top of the model's head.
         "paper_thinking": (
-            THINK_PAPER if (THINK_PAPER > 0 and not _thinking_off["gemini"]
+            THINK_PAPER if (THINK_PAPER > 0
+                            and (GEMINI_MODEL_BEST or "") not in _thinking_off
                             and not _NO_THINKING.match(GEMINI_MODEL_BEST or ""))
             else 0),
         # And whether we are running the model that was configured at all.
@@ -6458,6 +6459,11 @@ GEMINI_SAFE_MODEL = "gemini-flash-lite-latest"
 _NO_THINKING = _re.compile(r"^gemini-(?:1\.|2\.0)|^gemini-flash-lite-latest$")
 
 
+def _override_model(best=False):
+    """The Gemini model a call is actually going to."""
+    return (GEMINI_MODEL_BEST if best else GEMINI_MODEL) or ""
+
+
 def _gen_config(model, tokens, temperature, json_mode=False, no_think=False,
                 think=0):
     """The generationConfig for one Gemini call.
@@ -6472,14 +6478,46 @@ def _gen_config(model, tokens, temperature, json_mode=False, no_think=False,
     gen = {"maxOutputTokens": tokens, "temperature": temperature}
     if json_mode:
         gen["responseMimeType"] = "application/json"
-    if (not no_think and not _thinking_off["gemini"]
-            and not _NO_THINKING.match(model or "")):
-        gen["thinkingConfig"] = {"thinkingBudget": max(0, int(think or 0))}
+    want = max(0, int(think or 0))
+    m = model or ""
+    if no_think or m in _thinking_off or _NO_THINKING.match(m):
+        return gen
+    if want > 0:
+        gen["thinkingConfig"] = {"thinkingBudget": want}
+    elif not _NO_ZERO_THINK.search(m):
+        # Budget zero, which is what makes the everyday model cheap: without
+        # it a Flash model thinks by default and every caption is billed for
+        # reasoning nobody asked for.
+        gen["thinkingConfig"] = {"thinkingBudget": 0}
+    # ...and for a Pro model, nothing at all. See below.
     return gen
 
 
-# Once a model has rejected it, stop offering it for the life of the process.
-_thinking_off = {"gemini": False}
+# A Pro model cannot be told not to think, and telling it to is a 400 on
+# EVERY call.
+#
+# This is why setting both variables to gemini-pro-latest produced a site
+# that answered nothing. Twenty-one of the twenty-six call sites here ask
+# for a budget of zero — correctly, because that is what keeps a caption
+# from being billed as reasoning — and zero is not a value a Pro model
+# accepts. Every one of those requests came back 400 INVALID_ARGUMENT, and
+# Google does not say which argument.
+#
+# The recovery made it worse rather than better: the first 400 set a global
+# flag that dropped thinkingConfig from every subsequent request, for the
+# life of the process, for every model. So the site came back to life
+# answering with no reasoning at all — including on the question papers that
+# had just been given a budget of 8192 to reason with. A switch meant to
+# save one provider was quietly cancelling the thing being paid for.
+#
+# So: no budget is sent to a Pro model when the answer wanted is "do not
+# think". It thinks anyway, which is the whole reason somebody chose Pro.
+_NO_ZERO_THINK = _re.compile(r"pro", _re.I)
+
+# And when a model does refuse the parameter, it is remembered per MODEL
+# rather than for the whole provider — one model's refusal is not a reason
+# to stop paying for reasoning on a different one.
+_thinking_off = set()
 
 
 def _rejects_thinking(e):
@@ -6750,11 +6788,12 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                                                  mime, max_tokens, best=best,
                                                  _think=think)
                 except Exception as inner:
+                    _vm = _override_model(best)
                     if prov == "gemini" and _rejects_thinking(inner) \
-                            and not _thinking_off["gemini"]:
-                        _thinking_off["gemini"] = True
-                        print("AI: Gemini refused thinkingBudget on a vision "
-                              "call; sending without it from now on.")
+                            and _vm not in _thinking_off:
+                        _thinking_off.add(_vm)
+                        print(f"AI: {_vm} refused thinkingBudget on a vision "
+                              f"call; sending without it to that model.")
                         txt = await _provider_vision(client, prov, prompt, raw,
                                                      mime, max_tokens,
                                                      best=best)
@@ -6822,11 +6861,12 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                             client, prov, prompt, max_tokens, json_mode, best,
                             _no_think=True)
                         if txt:
-                            if not _thinking_off["gemini"]:
-                                _thinking_off["gemini"] = True
-                                print("AI: this Gemini model will not take "
-                                      "thinkingBudget; sending without it "
-                                      "from now on.")
+                            _tm = _override_model(best)
+                            if _tm not in _thinking_off:
+                                _thinking_off.add(_tm)
+                                print(f"AI: {_tm} will not take "
+                                      f"thinkingBudget; sending without it "
+                                      f"to that model.")
                             return txt
                         raise
                     want, safe = _gemini_model(best)

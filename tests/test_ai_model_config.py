@@ -123,6 +123,50 @@ ck("/api/ai/models tries the model rather than listing it",
    "call, which is the answer that cost the afternoon")
 ck("and reports what went wrong when it does not work",
    "current_error" in SRC)
+print("\na Pro model cannot be told not to think")
+# Setting both variables to gemini-pro-latest produced a site that answered
+# nothing at all, and the reason was one line of configuration. Most of the
+# call sites here ask for a thinking budget of ZERO — correctly, because
+# that is what stops a caption being billed as reasoning — and zero is not
+# a value a Pro model accepts. Every one of those requests came back 400
+# INVALID_ARGUMENT, and Google never says which argument.
+ck("a Pro model is sent no budget when the answer wanted is do-not-think",
+   "thinkingConfig" not in main._gen_config("gemini-pro-latest", 800, 0.15,
+                                            True, think=0),
+   "it thinks anyway, which is the entire reason somebody chose Pro")
+ck("but it IS given one when the reasoning is being paid for",
+   main._gen_config("gemini-pro-latest", 800, 0.15, True,
+                    think=8192).get("thinkingConfig")
+   == {"thinkingBudget": 8192})
+ck("a Flash model still gets the zero that keeps it cheap",
+   main._gen_config("gemini-flash-latest", 800, 0.15, True,
+                    think=0).get("thinkingConfig") == {"thinkingBudget": 0},
+   "without it a Flash model reasons by default and every caption is "
+   "billed for thinking nobody asked for")
+ck("and the same Flash model reasons on a paper",
+   main._gen_config("gemini-flash-latest", 800, 0.15, True,
+                    think=8192).get("thinkingConfig")
+   == {"thinkingBudget": 8192})
+
+print("\nand a refusal is remembered against the model, not the provider")
+# The recovery was worse than the fault: the first 400 set one global flag
+# that dropped thinkingConfig from every later request for the life of the
+# process. The site came back answering with no reasoning at all — including
+# on the question papers that had just been given 8192 tokens to reason.
+main._thinking_off.add("gemini-flash-lite-latest")
+ck("the model that refused stops being asked",
+   "thinkingConfig" not in main._gen_config("gemini-flash-lite-latest", 800,
+                                            0.15, True, think=8192))
+ck("and every other model carries on reasoning",
+   main._gen_config("gemini-pro-latest", 800, 0.15, True,
+                    think=8192).get("thinkingConfig")
+   == {"thinkingBudget": 8192},
+   "one model refusing is not a reason to stop paying for reasoning on a "
+   "different one")
+main._thinking_off.discard("gemini-flash-lite-latest")
+ck("it is a set of models, not one switch",
+   isinstance(main._thinking_off, set))
+
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:
