@@ -11034,15 +11034,22 @@ def _school_only(db, user):
     # them when they pressed Solve, which is the worst of both — offered and
     # then denied.
     #
-    # A school's own pupil is in because their school bought it. Somebody
-    # who signed up here on their own is in on Pro. Refused here and not
-    # only hidden in the menu, because a hidden menu item is a menu item.
+    # A school's own pupil is in because their school bought it, and that
+    # is the whole of the list. Refused here and not only hidden in the
+    # menu, because a hidden menu item is still a menu item.
     if getattr(user, "is_admin", False) or teacher_row(user, db) is not None:
         raise HTTPException(
             403, "Past papers and entrance syllabuses are for the student "
                  "sitting the exam. A teaching or office account does not "
                  "carry them.")
-    if _at_school(db, user) or plan_of(user) != "free":
+    # A school's own pupil, and nobody else.
+    #
+    # Pro used to carry it for a personal account. It does not: this is the
+    # material a school buys Craxlearn for, and selling the same thing to
+    # somebody who walked in off the street undercuts the school that paid
+    # for it. Decided twice — first as "Pro for the regular users", then
+    # against — and it is the second answer that stands.
+    if _at_school(db, user):
         return
     # Say what was actually seen.
     #
@@ -11062,7 +11069,8 @@ def _school_only(db, user):
     print(f"exams refused user {user.id}: {why}")
     raise HTTPException(
         403, "Past papers and entrance syllabuses are part of a school's "
-             "Craxlearn. Sign in with the account your school gave you. "
+             "Craxlearn, and they come with the account your school gives "
+             "you. A personal account does not carry them on any plan. "
              f"[{why}]")
 
 

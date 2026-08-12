@@ -1597,9 +1597,15 @@ function isStaff(){ return !!USER && !!(USER.is_teacher || USER.is_admin); }
    of both.
    A school's own pupil gets it because their school bought it. Somebody who
    signed up here on their own gets it on Pro. */
+/* One definition, used by the sidebar, the router and the tabs — three
+   places that disagreed once and put a menu item in front of somebody the
+   server then refused.
+   A school's own student, and nobody else. Not staff, not the office, and
+   not a personal account on any plan: this is what a school buys Craxlearn
+   for, and selling it separately undercuts the school that paid. */
 function canSeePapers(){
   if(!USER || isStaff()) return false;
-  return !!USER.at_school || (!!USER.plan && USER.plan !== "free");
+  return !!USER.at_school;
 }
 function teaches(){ return isStaff() && !isOffice(); }
 

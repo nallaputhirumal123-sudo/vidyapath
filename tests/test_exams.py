@@ -207,20 +207,29 @@ ck("refused, not merely hidden",
 ck("the page itself will not open by typing the address",
    "if(canSeePapers()) renderExams(); else renderHome();" in IDX)
 ck("and the refusal says which account to use",
-   "Sign in with the account your school gave you." in MAIN)
+   "the account your school gives" in MAIN)
 ck("a teacher is NOT offered it, nor an admin",
    'if(!USER || isStaff()) return false;' in IDX,
    "they run the school, assign the roles and post the updates; they do "
    "not sit a board paper — and it was in an admin's sidebar and then "
    "refused them when they pressed Solve, which is the worst of both")
-ck("a personal account gets it on Pro",
-   'USER.plan !== "free"' in IDX)
+# Decided twice, and it is the second answer that stands: this is what a
+# school buys Craxlearn for, and selling the same material to somebody who
+# signed up on their own undercuts the school that paid for it.
+ck("a personal account does NOT get it, on any plan",
+   'return !!USER.at_school;' in IDX
+   and 'USER.plan !== "free"' not in IDX.split("function canSeePapers()")[1]
+                                        .split("}")[0])
 ck("and the server refuses staff rather than only hiding it",
    'teacher_row(user, db) is not None:' in MAIN
    and "sitting the exam" in MAIN,
    "a hidden menu item is a menu item")
-ck("a personal account on Pro is let through server-side too",
-   'plan_of(user) != "free"' in MAIN)
+ck("and the server does not let a plan in either",
+   "if _at_school(db, user):" in MAIN
+   and 'plan_of(user) != "free"' not in
+       MAIN.split("def _school_only(db, user):")[1].split("\n@app.")[0],
+   "the menu and the route have to agree; offering something and then "
+   "refusing it is the worst of both")
 ck("the paper search opens first for both of them",
    'if(!EXAMV.tab) EXAMV.tab = "papers";' in IDX,
    "a student revising and a teacher setting a paper want the same thing; "
