@@ -610,16 +610,34 @@ solver.verify(_mc)
 ck("nor a one-word answer", "doubt" not in _mc[0])
 
 print("\nbatched, because a paper at a time is minutes")
-ck("three at a time", solver.BATCH == 3,
-   "one call has 55 seconds before it is abandoned, and six dense physics "
-   "questions are not written in 55 seconds — a five-question paper is one "
-   "batch, and one batch failing is nought out of five solved")
+ck("six at a time", solver.BATCH == 6,
+   "three was chosen against a 55-second limit that was itself ours, and it "
+   "made a thirty-question paper twenty requests end to end — a quarter of "
+   "an hour of spinner")
 ck("batching splits evenly",
-   [len(b) for b in solver.batches(list(range(25)))] == [3, 3, 3, 3, 3, 3, 3, 3, 1])
+   [len(b) for b in solver.batches(list(range(25)))] == [6, 6, 6, 6, 1])
 ck("a paper is capped", solver.MAX_QUESTIONS == 60 and solver.MAX_PAGES == 20)
 ck("the client walks the batches and draws each as it lands",
-   "for(let i = 0; i < asked.length; i += 3)" in IDX
+   "for(let i = 0; i < asked.length; i += SIZE) parts.push" in IDX
    and IDX.count("examSolveShow(SOLVED)") >= 2)
+ck("and the client's size matches the server's",
+   "const SIZE = 6" in IDX,
+   "the server caps each batch at its own number and silently drops the "
+   "tail of anything longer, so two numbers that disagree lose questions")
+
+print("\nand two batches are in flight at once")
+ck("more than one lane", "LANES = 2" in IDX,
+   "one at a time, with the check awaited in the middle, is twenty "
+   "requests end to end for a thirty-question paper")
+ck("but not many, because the account has a rate limit",
+   "const SIZE = 6, LANES = 2" in IDX,
+   "being refused for asking too fast is slower than asking politely")
+ck("the checking never blocks the next batch",
+   "Fired, not awaited" in IDX)
+ck("and the answers go back into the paper's own order",
+   "order.get(String(a.n))" in IDX,
+   "two batches in flight means the second can finish first, and a paper "
+   "that jumps from question 7 to 13 and back is not a solved paper")
 ck("one failed batch does not lose the paper",
    "SOLVED.missing.push(...part.map(q => q.n));" in IDX,
    "a teacher would rather have fifty of sixty and know which ten")
@@ -847,6 +865,30 @@ ck("and it is its own request, so a slow check cannot lose the answers",
    '"/api/exams/check"' in IDX and "examSolveShow(SOLVED);" in IDX)
 ck("a check that fails leaves the answers standing",
    "A check that will not run is not a solved paper lost" in IDX)
+
+print("\nanything that leaves the building carries the name")
+# A downloaded sheet goes into a folder, onto a noticeboard, into a class
+# group and through a photocopier. A page with no name on it cannot be
+# traced back to where it came from, which is the opposite of what a school
+# showing this to parents needs.
+ck("the printed paper has a masthead", "function printBrand(" in IDX
+   and '${printBrand("Solved paper")}' in IDX)
+ck("it carries the site and the date",
+   "craxle.com · ${esc(when)}" in IDX,
+   "a solved paper has a shelf life: a syllabus changes and a model "
+   "improves, and a year later the date is the question")
+ck("the downloaded PDF has one too",
+   'doc.text("Craxle", M, y)' in IDX)
+ck("and on every page of it, not only the first",
+   "for(let i = 1; i <= n; i++){" in IDX and "doc.setPage(i)" in IDX,
+   "the browser repeats a header by itself and jsPDF does not — the "
+   "pages are drawn one at a time")
+ck("with the page number, so a dropped sheet is noticed",
+   '`${i} of ${n}`' in IDX)
+ck("and the certificate is not still called something else",
+   "VIDYAPATH" not in MAIN and 'class="brand">CRAXLE' in MAIN,
+   "it is the single most-shared thing this site produces — a learner "
+   "puts it in front of an employer")
 
 print("\nPASSED " + str(len(P)) + "   FAILED " + str(len(F)))
 sys.exit(1 if F else 0)

@@ -22727,7 +22727,7 @@ def certificate(stage_key: str, user: User = Depends(current_user),
         return Response(content=f"""<!DOCTYPE html><html><head>
 <meta charset="utf-8"><title>Not yet</title><style>{CERT_CSS}</style></head>
 <body><div class="cert"><div class="inner">
-<div class="brand">VIDYAPATH</div>
+<div class="brand">CRAXLE</div>
 <h1>Almost there</h1>
 <p class="body" style="margin-top:18px">
 You have completed <b>{len(slugs) - len(remaining)} of {len(slugs)}</b> lessons in
@@ -22747,7 +22747,7 @@ Finish the remaining {len(remaining)} and this page becomes your certificate.</p
 <style>{CERT_CSS}</style></head><body>
 <button class="btnp" onclick="window.print()">Print / Save as PDF</button>
 <div class="cert"><div class="inner">
-<div class="brand">VIDYAPATH</div>
+<div class="brand">CRAXLE</div>
 <h1>Certificate of Completion</h1>
 <div class="sub">This certifies that</div>
 <div class="name">{_esc(user.name)}</div>

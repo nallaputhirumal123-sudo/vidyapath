@@ -157,6 +157,18 @@ body{background-color:var(--bg)!important}
   body.printing>*{display:none !important}
   body.printing #xPrint{display:block !important;color:#000;background:#fff;
     font:12pt/1.5 Georgia,"Times New Roman",serif;padding:0;margin:0}
+  /* The name on the paper.
+     Anything printed or saved here leaves the building — it goes into a
+     teacher's folder, onto a noticeboard, into a WhatsApp group, and it is
+     photocopied for a class. A sheet with no name on it is a sheet nobody
+     can trace back, which is the opposite of what a school pitching this
+     to parents needs. So the masthead is part of the document rather than
+     part of the screen it was made on. */
+  body.printing #xPrint .pbrand{display:flex;align-items:baseline;
+    gap:6pt;border-bottom:1.2pt solid #000;padding:0 0 5pt;margin:0 0 12pt}
+  body.printing #xPrint .pbrand b{font-size:15pt;letter-spacing:.2pt}
+  body.printing #xPrint .pbrand span{font-size:9pt;color:#444}
+  body.printing #xPrint .pbrand .pgrow{flex:1}
   body.printing #xPrint h1{font-size:19pt;margin:0 0 4pt}
   body.printing #xPrint h2{font-size:13pt;margin:0 0 3pt}
   body.printing #xPrint .pcav{font-style:italic;font-size:9.5pt;
@@ -3530,44 +3542,63 @@ async function examSolveGo(){
               left: (typeof d.papers_left === "number") ? d.papers_left
                                                         : null};
     examSolveShow(SOLVED);
-    /* 3, matching solver.BATCH. The server caps each batch at its own
+    /* 6, matching solver.BATCH. The server caps each batch at its own
        number and would silently drop the tail of anything longer. */
-    for(let i = 0; i < asked.length; i += 3){
-      const part = asked.slice(i, i + 3);
-      say(`Solving ${i+1}–${Math.min(i+3, asked.length)} of ${
-        asked.length}…`);
+    const SIZE = 6, LANES = 2;
+    const parts = [];
+    for(let i = 0; i < asked.length; i += SIZE) parts.push(asked.slice(i, i + SIZE));
+    /* Back into the paper's own order however they land.
+       Two batches in flight means the second can finish first, and a solved
+       paper that jumps from question 7 to question 13 and back is not a
+       solved paper. */
+    const order = new Map(asked.map((q, i) => [String(q.n), i]));
+    const inOrder = () => SOLVED.questions.sort(
+      (a, b) => (order.get(String(a.n)) ?? 0) - (order.get(String(b.n)) ?? 0));
+    let done = 0;
+    const tick = () => {
+      inOrder();
+      say(`Solved ${SOLVED.questions.length} of ${asked.length}…`);
+      examSolveShow(SOLVED);
+    };
+
+    /* Two at a time, and the checking never blocks the solving.
+       One at a time, with the check awaited in the middle of it, made a
+       thirty-question paper twenty requests end to end — a teacher watching
+       a spinner for a quarter of an hour. Two lanes rather than four
+       because the account has a rate limit and being refused for asking too
+       fast is slower than asking politely. */
+    async function runOne(part){
       try{
         /* Two minutes, not the default seventy-five seconds.
            The client has to be the one that gives up LAST, or it reports a
            failure for a request the server is still working on and would
-           have finished. Three questions on the strongest model, with a
-           reasoning budget spent before a word of the answer is written,
-           is the longest thing this site asks anybody to wait for. */
+           have finished. */
         const r = await api.call("/api/exams/solve",
           {method: "POST", timeout: 130000,
            body: {paper: SOLVED.paper, questions: part, key: SOLVED.key}});
         SOLVED.questions.push(...(r.questions || []));
         SOLVED.missing.push(...(r.missing || []));
-        examSolveShow(SOLVED);
-        /* Worked once, then checked. Its own request because it is its own
-           wait: two model calls inside one deadline means the browser gives
-           up holding answers it already had. The answers are on screen
-           before the check starts, and the marks land on them after. */
-        try{
-          say(`Checking ${i+1}–${Math.min(i+3, asked.length)}…`);
-          const c = await api.call("/api/exams/check",
-            {method: "POST", timeout: 130000,
-             body: {paper: SOLVED.paper, solved: r.questions || []}});
-          const by = {};
-          for(const x of (c.checks || [])) by[String(x.n)] = x;
-          for(const q of SOLVED.questions){
-            const got = by[String(q.n)];
-            if(got) q.check = got;
-          }
-        }catch(e){
-          /* A check that will not run is not a solved paper lost. The
-             answers stand as they were before there was a checking pass. */
-        }
+        tick();
+        /* Fired, not awaited. The answers are on the screen; the marks
+           land on them when they land, and the next batch starts now. */
+        api.call("/api/exams/check",
+          {method: "POST", timeout: 130000,
+           body: {paper: SOLVED.paper, solved: r.questions || []}})
+          .then(c => {
+            const by = {};
+            for(const x of (c.checks || [])) by[String(x.n)] = x;
+            let any = false;
+            for(const q of SOLVED.questions){
+              const got = by[String(q.n)];
+              if(got){ q.check = got; any = true; }
+            }
+            if(any) examSolveShow(SOLVED);
+          })
+          .catch(() => {
+            /* A check that will not run is not a solved paper lost. The
+               answers stand as they were before there was a checking
+               pass at all. */
+          });
       }catch(e){
         /* One bad batch is not a lost paper. Its numbers are recorded as
            unanswered and the rest carries on — a teacher would rather have
@@ -3576,15 +3607,18 @@ async function examSolveGo(){
            But WHY is kept. This swallowed the reason and reported only
            "no answer came back for questions 1, 2, 3, 4, 5", which is the
            same sentence whether the model timed out, ran out of output
-           mid-JSON, or refused the request. Three different faults behind
-           one line, and no way to tell them apart from the outside — the
-           same hole the reading pass had until it started saying what it
-           had read. */
+           mid-JSON, or refused the request. */
         SOLVED.why = SOLVED.why || String(e.message || e).slice(0, 200);
         SOLVED.missing.push(...part.map(q => q.n));
+        tick();
       }
-      examSolveShow(SOLVED);
+      done++;
     }
+
+    let next = 0;
+    await Promise.all(Array.from({length: Math.min(LANES, parts.length)},
+      async () => { while(next < parts.length) await runOne(parts[next++]); }));
+    inOrder();
     say(`Solved ${SOLVED.questions.length} of ${asked.length} questions.`);
   }catch(e){
     say(String(e.message || e).replace(/^SCANNED:\s*/, ""));
@@ -3768,6 +3802,26 @@ function examSolvePrint(d){
   window.print();
 }
 
+/* One masthead, for everything this site prints or saves.
+ *
+ * A downloaded sheet leaves the building: it goes into a teacher's folder,
+ * onto a noticeboard, into a class WhatsApp group, and it gets photocopied.
+ * A page with no name on it cannot be traced back to where it came from,
+ * which is the opposite of what a school showing this to parents needs —
+ * and it is the cheapest advertising there is.
+ *
+ * The date is on it because a solved paper is a document with a shelf life:
+ * a syllabus changes, a model improves, and "which version of this is on my
+ * desk" is a real question a year later.
+ */
+function printBrand(what){
+  const when = new Date().toLocaleDateString(undefined,
+    {day: "numeric", month: "long", year: "numeric"});
+  return `<div class="pbrand"><b>Craxle</b>
+    <span>${esc(what || "")}</span><span class="pgrow"></span>
+    <span>craxle.com · ${esc(when)}</span></div>`;
+}
+
 function examSolvePrintInto(host, d){
   /* Declared HERE, and it was not.
      Splitting the old function left "const q = d.questions" behind in the
@@ -3775,7 +3829,8 @@ function examSolvePrintInto(host, d){
      so this threw "q is not defined" the moment any solution was drawn,
      which is every time a paper is solved. */
   const q = d.questions || [];
-  host.innerHTML = `<h1>Solved paper</h1>
+  host.innerHTML = `${printBrand("Solved paper")}
+    <h1>Solved paper</h1>
     <p class="pcav">${esc(d.caveat||"")}</p>
     ${q.map(x => `<div class="pq">
       <h2>Q${esc(x.n)}${x.marks ? ` — ${x.marks} mark${
@@ -3819,8 +3874,35 @@ async function examSolvePdf(d){
       y += size + 4; });
   };
   const qs = d.questions || [];
+  /* The name on the paper, on EVERY page.
+     A downloaded PDF leaves the building — a folder, a noticeboard, a class
+     group, a photocopier — and a sheet with no name on it cannot be traced
+     back to where it came from. On the printed path the masthead is one
+     block at the top because the browser repeats nothing; here the pages
+     are drawn one at a time, so it goes on each of them, quietly, at the
+     foot where it will not fight the working. */
+  const stamp = () => {
+    const n = doc.getNumberOfPages();
+    const when = new Date().toLocaleDateString(undefined,
+      {day: "numeric", month: "long", year: "numeric"});
+    for(let i = 1; i <= n; i++){
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.setTextColor(110);
+      doc.text(`Craxle · craxle.com · ${when}`, M, 842 - 22);
+      doc.text(`${i} of ${n}`, 595 - M, 842 - 22, {align: "right"});
+      doc.setTextColor(0);
+    }
+    doc.setPage(n);
+  };
   doc.setFont("helvetica","bold"); doc.setFontSize(17);
-  doc.text("Solved paper", M, y); y += 22;
+  doc.text("Craxle", M, y);
+  doc.setFont("helvetica","normal"); doc.setFontSize(11);
+  doc.text("Solved paper", M + 58, y);
+  y += 8;
+  doc.setDrawColor(0); doc.setLineWidth(0.8);
+  doc.line(M, y, 595 - M, y);
+  y += 18;
   line(`${qs.length} question${qs.length===1?"":"s"}`
     + (Object.keys(d.key||{}).length
        ? ", checked against the paper's own answer key" : ""),
@@ -3869,6 +3951,7 @@ async function examSolvePdf(d){
     doc.setPage(p); doc.setFont("helvetica","normal"); doc.setFontSize(9);
     doc.text(`${p} of ${total}`, 595 - M, 842 - 24, {align:"right"});
   }
+  stamp();
   doc.save("solved-paper.pdf");
 }
 

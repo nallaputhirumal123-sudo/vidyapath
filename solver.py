@@ -40,27 +40,31 @@ import hashlib
 import json
 import re
 
-# Three, and the reason is the clock rather than the writing.
+# Six, and the number has now been three things in one day, so here is the
+# whole reasoning rather than the latest conclusion.
 #
-# Ten was chosen so each answer still got written out properly — twenty and
-# the later ones turn into "similarly to Q13". That much still holds. What
-# it did not account for is how long a batch takes: one call has 55 seconds
-# before the request is abandoned, and six dense physics questions, each
-# with four options and a full derivation, do not get written in 55 seconds.
-# A five-question paper is one batch, and one batch failing is nought out of
-# five solved, which is exactly what came back.
+# Ten was chosen so each answer still gets written out properly — twenty and
+# the later ones turn into "similarly to Q13". That part has never changed.
 #
-# I first read that as truncation and blamed an 8192-token output ceiling.
-# The models this key can reach top out at 65536 — the 9000 we asked for was
-# our own limit, not theirs, and it is 26000 now. The ceiling was never the
-# constraint; the clock was.
+# Then a five-question paper came back with nothing, and it looked like
+# truncation. It was not: the models this key reaches allow 65536 output
+# tokens, and the 9000 being asked for was our own limit. What actually
+# happened was the clock — one call had 55 seconds, and six dense physics
+# questions with four options each are not written in 55 seconds. So it went
+# to three, which fit.
 #
-# Three fits comfortably inside the time, and a batch that fails costs three
-# questions instead of six. It is more calls for a long paper, and every one
-# of them is cached per question, so a paper solved once is never paid for
-# twice — not by this school on a re-run, and not by the next school to
-# upload the same paper.
-BATCH = 3
+# The 55 seconds was ALSO ours. It was decided when nothing here reasoned,
+# and reasoning is spent before a word of the answer exists; a solving call
+# has 100 seconds now, which is the real ceiling for that work. With that
+# fixed, three is simply expensive: a thirty-question paper became ten
+# solving calls and ten checking calls, one after another, and a teacher
+# watched a spinner for a quarter of an hour.
+#
+# Six halves the calls and still fits the time. What makes that safe rather
+# than a gamble is what happens after: every answer is worked a second time
+# from the question alone, so a batch that runs long enough to be hurried is
+# a batch whose hurry the checking pass will find.
+BATCH = 6
 MAX_QUESTIONS = 60
 MAX_PAGES = 20
 
