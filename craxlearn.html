@@ -827,7 +827,7 @@ window.esc = function (s) {
 <script src="katex.js?v=2ec5916941"></script>
 <script src="mathtext.js?v=12ed067bd9"></script>
 <script src="sandbox.js?v=43154ce356"></script>
-<script src="three3d.js?v=2825c4b40c"></script>
+<script src="three3d.js?v=7d05d639a7"></script>
 <script src="scanner.js?v=f62f1b0eb8"></script>
 <script>
 /* Craxlearn — the institution app.
@@ -4874,8 +4874,9 @@ async function show3D(host, scene){
   host.innerHTML = '<div class="muted" style="padding:1rem">Drawing…</div>';
   if(!window.Three3D || !Three3D.mount){
     host.innerHTML = '<div class="note bad">The 3D viewer could not load. ' +
-      "It comes from a public CDN — this board may be offline or the " +
-      "network may be blocking it. Everything else here still works.</div>";
+      "It is served from this site, so this is not a blocked CDN — reload " +
+      "the board, and if it keeps happening say so. Everything else here " +
+      "still works.</div>";
     return false;
   }
   try{
@@ -4887,8 +4888,8 @@ async function show3D(host, scene){
     return true;
   }catch(e){
     host.innerHTML = '<div class="note bad">The 3D viewer could not draw ' +
-      "this. It comes from a public CDN — this board may be offline or the " +
-      "network may be blocking it.</div>";
+      "this. The description below is the same lesson without the model to " +
+      "turn around.</div>";
     return false;
   }
 }

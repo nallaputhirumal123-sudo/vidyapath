@@ -19,20 +19,46 @@
  * heart would teach somebody the wrong shape. Where that is what is wanted,
  * the lesson says so rather than showing a lie.
  *
- * Three.js is fetched once, on first use, from a CDN — the same way the
- * Python labs already fetch Pyodide. If it will not load, the caption and the
- * description still render: a lesson never depends on the picture arriving.
+ * Three.js is fetched once, on first use, from this site. If it will not
+ * load, the caption and the description still render: a lesson never depends
+ * on the picture arriving.
  */
 (function () {
   "use strict";
 
   var THREE = null, loading = null;
-  var SRC = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+  /* From here, not from a CDN, for the same reason KaTeX is.
+   *
+   * A school network that blocks cdn.jsdelivr.net is not an unusual school
+   * network, and the failure is total: the molecule the lesson is about
+   * does not appear, on the one screen the whole class is looking at, in
+   * the middle of the lesson it was the point of. A filtered network was
+   * getting a notice where every other school got a structure to turn
+   * around — and it is the schools with the strictest filtering that this
+   * is sold into.
+   *
+   * The same file and the same version: three r160, the minified ES module
+   * out of the npm package the CDN URL was pointing at. 670 KB, fetched on
+   * first use and never on a page that has no 3D on it.
+   *
+   * The CDN stays behind it as a second chance, for a deployment where the
+   * file did not ship. It is never reached when the first one works, which
+   * on a filtered network is exactly the point.
+   *
+   * The ?v= is the library's own revision, and it changes when the file
+   * does — a cache holding last year's three.js against this year's scene
+   * code is a bug nobody can reproduce.
+   */
+  var SRC = "/three.module.js?v=160";
+  var SRC_CDN =
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
   function load() {
     if (THREE) return Promise.resolve(THREE);
     if (loading) return loading;
-    loading = import(SRC).then(function (m) {
+    loading = import(SRC).catch(function () {
+      return import(SRC_CDN);
+    }).then(function (m) {
       THREE = m;
       return THREE;
     }).catch(function (e) {
@@ -1006,6 +1032,442 @@
     }
   }
 
+  /* ---- biology: the helix -------------------------------------------- *
+   *
+   * Every one of the builders above was a chemistry or a physics picture,
+   * and biology got a leaf with arrows round it. The double helix is the
+   * one structure a biology class is actually examined on the shape of, and
+   * it is the one shape on this whole page that a flat diagram genuinely
+   * cannot teach: the two grooves are different widths, the strands run in
+   * opposite directions, and neither of those is visible until you turn it.
+   *
+   * Measured, like the lattice and the orbits. The rise per base pair, the
+   * bases per turn, the diameter and the handedness are crystallography,
+   * not decoration — B-DNA turns right and Z-DNA turns left, and a model
+   * asked to write those numbers itself will produce a plausible helix that
+   * is wrong in the one respect a student is asked about. So the model
+   * names the form and the numbers come from here.
+   */
+  var HELIX = {
+    // rise per unit (Å), units per turn, diameter (Å), handedness, strands
+    dna:   { rise: 3.4, per: 10.5, dia: 20, hand: 1, strands: 2,
+             name: "B-DNA", unit: "base pair" },
+    "a-dna": { rise: 2.6, per: 11, dia: 23, hand: 1, strands: 2,
+             name: "A-DNA", unit: "base pair" },
+    "z-dna": { rise: 3.7, per: 12, dia: 18, hand: -1, strands: 2,
+             name: "Z-DNA (left-handed)", unit: "base pair" },
+    rna:   { rise: 2.8, per: 11, dia: 23, hand: 1, strands: 1,
+             name: "RNA", unit: "base" },
+    alpha: { rise: 1.5, per: 3.6, dia: 10, hand: 1, strands: 1,
+             name: "α-helix", unit: "residue" }
+  };
+  // The pairing is the lesson, so the second strand is computed and never
+  // taken from the model: A with T, G with C, and U where it is RNA.
+  var PAIR = { A: "T", T: "A", G: "C", C: "G", U: "A" };
+  var BASEC = { A: 0x4caf50, T: 0xe53935, G: 0xfb8c00, C: 0x1e88e5,
+                U: 0xab47bc };
+
+  BUILD.helix = function (spec, group) {
+    var H = HELIX[spec.form] || HELIX.dna;
+    // Ångström to world units. A twenty-ångström helix drawn at 1:1 is
+    // twenty units wide and the camera frames it fine, but the bases end up
+    // a tenth of a unit apart; a fifth of that reads properly.
+    var K = 0.2;
+    var R = H.dia * K / 2;
+    var rise = H.rise * K;
+    var seq = String(spec.sequence || "").toUpperCase()
+                .replace(/[^ACGTU]/g, "");
+    var turns = Math.max(1, Math.min(6, spec.turns || 2.5));
+    var n = Math.max(6, Math.min(120, Math.round(turns * H.per)));
+    if (seq) n = Math.min(n, Math.max(6, seq.length));
+
+    var y0 = -(n - 1) * rise / 2;
+    function at(i, strand) {
+      var a = H.hand * (i / H.per) * Math.PI * 2
+            + (strand ? Math.PI * (H.strands === 2 ? 0.72 : 0) : 0);
+      // 0.72π rather than π. The two backbones of B-DNA are NOT opposite
+      // each other — that offset is exactly what makes one groove wide and
+      // the other narrow, and setting them half a turn apart draws a ladder
+      // with two identical grooves, which is the thing the picture is for.
+      return new THREE.Vector3(Math.cos(a) * R, y0 + i * rise,
+                               Math.sin(a) * R);
+    }
+
+    for (var s = 0; s < H.strands; s++) {
+      var pts = [];
+      for (var i = 0; i < n; i++) pts.push(at(i, s));
+      var curve = new THREE.CatmullRomCurve3(pts);
+      group.add(new THREE.Mesh(
+        new THREE.TubeGeometry(curve, n * 4, R * 0.16, 10, false),
+        new THREE.MeshStandardMaterial({
+          color: s ? 0x7e9cb8 : 0xc7d3de, roughness: 0.45 })));
+    }
+
+    // The rungs. On a two-stranded helix these are the base pairs and they
+    // are drawn in two halves so each base carries its own colour.
+    for (var j = 0; j < n; j++) {
+      var A = at(j, 0);
+      if (H.strands === 1) {
+        var beadC = seq ? (BASEC[seq[j % seq.length]] || 0x9aa7b0) : 0x9aa7b0;
+        var bead = new THREE.Mesh(
+          new THREE.SphereGeometry(R * 0.22, 14, 10),
+          new THREE.MeshStandardMaterial({ color: beadC, roughness: 0.4 }));
+        bead.position.copy(A);
+        group.add(bead);
+        continue;
+      }
+      var B = at(j, 1);
+      var mid = new THREE.Vector3().addVectors(A, B).multiplyScalar(0.5);
+      var b1 = seq ? seq[j % seq.length] : "";
+      var b2 = b1 ? PAIR[b1] : "";
+      halfRung(group, A, mid, b1 ? BASEC[b1] : 0x8d99a6);
+      halfRung(group, mid, B, b2 ? BASEC[b2] : 0x8d99a6);
+      if (b1 && n <= 24) {
+        label(group, b1 + "–" + b2,
+              A.x * 1.35, A.y, A.z * 1.35);
+      }
+    }
+
+    // What it is and what the numbers are, written on the scene rather than
+    // left to the caption — a picture of a helix with no scale on it is a
+    // decoration.
+    var top = y0 + (n - 1) * rise;
+    label(group, H.name, 0, top + rise * 2.4, 0);
+    label(group, H.rise + " Å per " + H.unit, 0, top + rise * 1.2, R * 1.6);
+    label(group, H.per + " per turn · " + H.dia + " Å across",
+          0, y0 - rise * 1.6, R * 1.6);
+    if (H.hand < 0) label(group, "left-handed", 0, y0 - rise * 3, R * 1.6);
+    if (H.strands === 2) {
+      label(group, "5′ → 3′", R * 1.9, top - rise * 1.2, 0);
+      label(group, "3′ ← 5′", -R * 1.9, y0 + rise * 1.2, 0);
+    }
+  };
+
+  function halfRung(group, a, b, colour) {
+    var d = new THREE.Vector3().subVectors(b, a);
+    var len = d.length();
+    if (!len) return;
+    var m = new THREE.Mesh(
+      new THREE.CylinderGeometry(len * 0.07, len * 0.07, len, 8),
+      new THREE.MeshStandardMaterial({ color: colour, roughness: 0.45 }));
+    m.position.copy(a).add(b).multiplyScalar(0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+                                    d.clone().normalize());
+    group.add(m);
+  }
+
+  /* ---- biology: a cell, with the organelles at their real sizes ------ *
+   *
+   * The rule at the top of this file says a liver cannot be drawn honestly
+   * from curves and should not be attempted. A cell is the case that rule
+   * does NOT cover, and the difference is worth being precise about: a
+   * liver has a shape a student is examined on and ellipsoids get it wrong,
+   * whereas a nucleus IS a sphere, a mitochondrion IS a capsule with folded
+   * cristae, and every textbook in the world draws them that way. What a
+   * flat diagram loses is that they sit at different depths in a volume,
+   * which is the one thing turning it around restores.
+   *
+   * The sizes are micrometres from measurement, scaled together, so a
+   * mitochondrion is genuinely a fifth of the nucleus and not whatever fits
+   * the picture. Anything this cannot place honestly is left out rather
+   * than approximated.
+   */
+  var ORGANELLE = {
+    // radius or half-lengths in µm, colour, and where it sits
+    nucleus:      { r: [3, 3, 3], c: 0x6a5acd, at: [0, 0, 0] },
+    nucleolus:    { r: [1, 1, 1], c: 0x4b3fa8, at: [0.6, 0.5, 0.4] },
+    mitochondrion:{ r: [1, 0.4, 0.4], c: 0xe07a5f, at: [4.5, 1.5, 1] },
+    chloroplast:  { r: [2.5, 1.2, 1.2], c: 0x3d9970, at: [-4.5, 2, 1.5] },
+    vacuole:      { r: [4, 4, 4], c: 0x88c0d0, at: [0, -3, -2] },
+    ribosome:     { r: [0.15, 0.15, 0.15], c: 0xf4d35e, at: [3, -2, 2] },
+    lysosome:     { r: [0.4, 0.4, 0.4], c: 0xd45d79, at: [-3, -2.5, 2] },
+    golgi:        { r: [2, 0.25, 1.2], c: 0xffb703, at: [-4, -1, -2] },
+    "endoplasmic reticulum":
+                  { r: [3, 0.2, 2], c: 0xc77dff, at: [4, 0.5, -2] },
+    centriole:    { r: [0.25, 0.5, 0.25], c: 0x9aa7b0, at: [-2, 3.5, -1] },
+    chromosome:   { r: [0.3, 1.4, 0.3], c: 0x2f4858, at: [0.5, 0, -0.8] }
+  };
+
+  BUILD.cell = function (spec, group) {
+    var plant = spec.cell === "plant";
+    var K = 0.55;                     // µm to world units
+    var Rc = 9 * K;                   // a cell around 18 µm across
+
+    // The outside, drawn as a shell you can see into. A solid one hides
+    // everything the picture is about.
+    var wall = plant
+      ? new THREE.BoxGeometry(Rc * 2, Rc * 1.7, Rc * 1.6)
+      : new THREE.SphereGeometry(Rc, 40, 28);
+    group.add(new THREE.Mesh(wall, new THREE.MeshStandardMaterial({
+      color: plant ? 0x7ba05b : 0x9bb8c9, transparent: true, opacity: 0.16,
+      roughness: 0.6, side: THREE.DoubleSide })));
+    group.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(wall),
+      new THREE.LineBasicMaterial({ color: 0x000000, transparent: true,
+                                    opacity: 0.22 })));
+    label(group, plant ? "cell wall" : "cell membrane", 0, Rc * 1.15, 0);
+
+    (spec.parts || []).forEach(function (p, idx) {
+      var key = String(p.name || "").toLowerCase();
+      var O = ORGANELLE[key];
+      if (!O) return;               // not one we can place honestly
+      var n = Math.max(1, Math.min(12, p.n || 1));
+      for (var i = 0; i < n; i++) {
+        // Copies are spread around the cell rather than stacked, keeping
+        // the count meaningful: "many mitochondria" is a fact about a cell.
+        var a = (i / n) * Math.PI * 2 + idx;
+        var spread = n > 1 ? 0.55 : 0;
+        var g = new THREE.SphereGeometry(1, 20, 14);
+        var m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+          color: O.c, roughness: 0.45,
+          transparent: key === "vacuole", opacity: 0.45 }));
+        m.scale.set(O.r[0] * K, O.r[1] * K, O.r[2] * K);
+        m.position.set(
+          (O.at[0] + Math.cos(a) * spread * 4) * K,
+          (O.at[1] + Math.sin(a * 1.7) * spread * 3) * K,
+          (O.at[2] + Math.sin(a) * spread * 4) * K);
+        group.add(m);
+        if (i === 0) {
+          label(group, key + (n > 1 ? " ×" + n : ""),
+                m.position.x, m.position.y + O.r[1] * K + 0.5 * K,
+                m.position.z);
+        }
+      }
+    });
+    label(group, "sizes to scale · about 18 µm across", 0, -Rc * 1.2, 0);
+  };
+
+  /* ---- physics: a field, integrated rather than drawn ----------------- *
+   *
+   * The two pictures a physics class most needs in three dimensions are the
+   * ones no flat diagram can give: a field, which fills a volume, and a
+   * wave, which moves. Both were missing here entirely.
+   *
+   * Nothing about these lines is drawn by hand. A seed point is placed
+   * around each source and then walked, one small step at a time, in the
+   * direction the field points AT THAT POINT — the field summed from every
+   * source, by superposition. What comes out is where the field actually
+   * goes, so a dipole's lines close on the negative charge because the
+   * arithmetic takes them there and not because somebody curved them.
+   *
+   * Two fields, one integrator. Electric from point charges by Coulomb;
+   * magnetic from current loops by Biot–Savart, summed over the segments of
+   * each loop. The loop is what makes it worth having: the field of a bar
+   * magnet is the one every student draws from memory and few can place in
+   * space.
+   */
+  function eField(p, charges) {
+    var E = new THREE.Vector3();
+    charges.forEach(function (c) {
+      var d = new THREE.Vector3(p.x - c.x, p.y - c.y, p.z - c.z);
+      var r = d.length();
+      if (r < 1e-3) return;
+      E.add(d.multiplyScalar(c.q / (r * r * r)));
+    });
+    return E;
+  }
+
+  function bField(p, loops) {
+    var B = new THREE.Vector3();
+    loops.forEach(function (L) {
+      var N = 48, prev = null;
+      for (var i = 0; i <= N; i++) {
+        var a = (i / N) * Math.PI * 2;
+        // A loop in the xz plane, carrying current I, centred where it says.
+        var q = new THREE.Vector3(L.x + Math.cos(a) * L.r, L.y,
+                                  L.z + Math.sin(a) * L.r);
+        if (prev) {
+          var dl = new THREE.Vector3().subVectors(q, prev);
+          var mid = new THREE.Vector3().addVectors(q, prev).multiplyScalar(0.5);
+          var r = new THREE.Vector3(p.x - mid.x, p.y - mid.y, p.z - mid.z);
+          var rl = r.length();
+          if (rl > 1e-3) {
+            B.add(new THREE.Vector3().crossVectors(dl, r)
+                   .multiplyScalar((L.i || 1) / (rl * rl * rl)));
+          }
+        }
+        prev = q;
+      }
+    });
+    return B;
+  }
+
+  BUILD.field = function (spec, group) {
+    var charges = (spec.charges || []).map(function (c) {
+      return { q: c.q || 1, x: c.x || 0, y: c.y || 0, z: c.z || 0 };
+    });
+    var loops = (spec.loops || []).map(function (L) {
+      return { r: L.r || 2, i: L.i || 1, x: L.x || 0, y: L.y || 0,
+               z: L.z || 0 };
+    });
+    var magnetic = !charges.length && loops.length;
+    var f = magnetic ? function (p) { return bField(p, loops); }
+                     : function (p) { return eField(p, charges); };
+
+    charges.forEach(function (c) {
+      var pos = c.q >= 0;
+      var m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.34, 22, 16),
+        new THREE.MeshStandardMaterial({
+          color: pos ? 0xe53935 : 0x1e88e5, roughness: 0.35 }));
+      m.position.set(c.x, c.y, c.z);
+      group.add(m);
+      label(group, (pos ? "+" : "−") + (Math.abs(c.q) === 1 ? "" :
+            Math.abs(c.q)), c.x, c.y + 0.75, c.z);
+    });
+    loops.forEach(function (L) {
+      var t = new THREE.Mesh(
+        new THREE.TorusGeometry(L.r, 0.06, 10, 60),
+        new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.4 }));
+      t.rotation.x = Math.PI / 2;
+      t.position.set(L.x, L.y, L.z);
+      group.add(t);
+      label(group, "I", L.x + L.r + 0.5, L.y, L.z);
+    });
+
+    // Seeds: a ring of starting points around each source, at several
+    // heights, so the lines leave in every direction rather than in a plane.
+    var seeds = [];
+    var sources = charges.length ? charges : loops;
+    sources.forEach(function (c) {
+      var out = charges.length ? (c.q >= 0 ? 1 : -1) : 1;
+      for (var ring = 0; ring < 3; ring++) {
+        var phi = (ring + 1) / 4 * Math.PI;
+        for (var k = 0; k < 8; k++) {
+          var th = (k / 8) * Math.PI * 2 + ring * 0.4;
+          var rr = charges.length ? 0.45 : (c.r || 2) * 1.02;
+          seeds.push({
+            p: new THREE.Vector3(
+              c.x + rr * Math.sin(phi) * Math.cos(th),
+              c.y + rr * Math.cos(phi),
+              c.z + rr * Math.sin(phi) * Math.sin(th)),
+            dir: out
+          });
+        }
+      }
+    });
+
+    var STEP = 0.16, MAX = 260, FAR = 14;
+    seeds.forEach(function (s) {
+      var p = s.p.clone(), pts = [p.clone()];
+      for (var i = 0; i < MAX; i++) {
+        var v = f(p);
+        var len = v.length();
+        if (!len || len !== len) break;
+        p = p.clone().add(v.multiplyScalar(s.dir * STEP / len));
+        if (p.length() > FAR) { pts.push(p.clone()); break; }
+        // Stop on arrival at a source, which is where a field line ends.
+        var hit = false;
+        sources.forEach(function (c) {
+          if (p.distanceTo(new THREE.Vector3(c.x, c.y, c.z)) < 0.36) hit = true;
+        });
+        pts.push(p.clone());
+        if (hit) break;
+      }
+      if (pts.length < 3) return;
+      group.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({
+          color: magnetic ? 0x8ad3a0 : 0xa9c6e8,
+          transparent: true, opacity: 0.75 })));
+      // One arrowhead per line, a third of the way along, because a field
+      // line without a direction on it is half of the information.
+      var mid = pts[Math.floor(pts.length / 3)];
+      var nxt = pts[Math.floor(pts.length / 3) + 1];
+      if (mid && nxt) {
+        var d = new THREE.Vector3().subVectors(nxt, mid);
+        if (d.length()) {
+          var cone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.09, 0.26, 8),
+            new THREE.MeshBasicMaterial({
+              color: magnetic ? 0x8ad3a0 : 0xa9c6e8 }));
+          cone.position.copy(mid);
+          cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+                                             d.normalize());
+          group.add(cone);
+        }
+      }
+    });
+    label(group, magnetic ? "magnetic field of the current"
+                          : "electric field lines", 0, FAR * 0.42, 0);
+  };
+
+  /* ---- physics: a wave, which has to move ---------------------------- *
+   *
+   * A standing wave drawn still is a picture of a curve; the whole point is
+   * that the nodes do not move while everything between them does. So this
+   * one is animated, and the surface is recomputed each frame from the
+   * actual superposition rather than being a shape that wobbles.
+   *
+   * Two sources give the interference pattern from the double-slit lesson —
+   * and seen from above it is the textbook figure, while from the side it
+   * is water, which is the connection the figure is trying to make.
+   */
+  BUILD.wave = function (spec, group) {
+    var mode = spec.mode || "travelling";
+    var lam = Math.max(0.4, Math.min(8, spec.wavelength || 2));
+    var amp = Math.max(0.05, Math.min(2, spec.amplitude || 0.5));
+    var span = Math.max(4, Math.min(16, spec.span || 9));
+    var srcs = (spec.sources || []).slice(0, 4).map(function (s) {
+      return { x: s.x || 0, z: s.z || 0 };
+    });
+    if (mode === "interference" && srcs.length < 2) {
+      var d = Math.max(lam, span / 4);
+      srcs = [{ x: -d / 2, z: 0 }, { x: d / 2, z: 0 }];
+    }
+    var N = 96;
+    var geo = new THREE.PlaneGeometry(span, span, N, N);
+    geo.rotateX(-Math.PI / 2);
+    var mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: 0x4da6ff, roughness: 0.35, metalness: 0.05,
+      side: THREE.DoubleSide, flatShading: false, wireframe: !!spec.wire }));
+    group.add(mesh);
+
+    var k = 2 * Math.PI / lam, w = 2 * Math.PI * (spec.speed || 0.6);
+    var pos = geo.attributes.position;
+    var base = [];
+    for (var i = 0; i < pos.count; i++) base.push([pos.getX(i), pos.getZ(i)]);
+
+    function height(x, z, t) {
+      if (mode === "standing") {
+        return amp * Math.sin(k * x) * Math.cos(w * t);
+      }
+      if (srcs.length) {
+        var sum = 0;
+        srcs.forEach(function (s) {
+          var r = Math.sqrt((x - s.x) * (x - s.x) + (z - s.z) * (z - s.z));
+          // 1/sqrt(r), because a circular wave's amplitude falls that way
+          // and drawing it constant makes the far interference fringes look
+          // stronger than they are.
+          sum += Math.cos(k * r - w * t) / Math.sqrt(Math.max(0.6, r));
+        });
+        return amp * sum;
+      }
+      return amp * Math.sin(k * x - w * t);
+    }
+
+    mesh.userData.animate = function (t) {
+      for (var i = 0; i < base.length; i++) {
+        pos.setY(i, height(base[i][0], base[i][1], t));
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+    };
+    mesh.userData.animate(0);
+
+    srcs.forEach(function (s, i) {
+      var m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.16, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffd75c }));
+      m.position.set(s.x, amp + 0.3, s.z);
+      group.add(m);
+      label(group, "source " + (i + 1), s.x, amp + 0.9, s.z);
+    });
+    label(group, "λ = " + lam + (spec.unit ? " " + spec.unit : ""),
+          -span / 2 + lam / 2, amp + 1.4, -span / 2 + 0.6);
+    if (mode === "standing") label(group, "nodes stay still", 0, amp + 1.4, 0);
+  };
+
   /* Break a long label on word boundaries, so a stage name reads as two
      short lines instead of one that overlaps its neighbours. */
   function wrapLabel(text, max) {
@@ -1147,10 +1609,15 @@
       var ctl = orbit(cam, ren.domElement, span * 1.35);
       ctl.setRange(span * 0.45, span * 4);
 
-      var spinners = [], flows = [];
+      var spinners = [], flows = [], movers = [];
       group.traverse(function (o) {
         if (o.userData.spin) spinners.push(o);
         if (o.userData.flow) flows.push(o);
+        // A general per-frame hook, for a builder that has to recompute its
+        // own geometry rather than move a finished mesh around. A standing
+        // wave drawn still is a picture of a curve; the nodes holding still
+        // while everything between them moves IS the lesson.
+        if (typeof o.userData.animate === "function") movers.push(o);
       });
 
       var live = true, raf = 0, t0 = performance.now();
@@ -1171,6 +1638,7 @@
           var u = (f.t + dt * f.speed) % 1;
           o.position.lerpVectors(f.a, f.b, u);
         });
+        movers.forEach(function (o) { o.userData.animate(dt); });
         if (spec.turntable !== false && !ctl.isDragging) group.rotation.y += 0.0016;
         ctl.update();
         ren.render(scene, cam);

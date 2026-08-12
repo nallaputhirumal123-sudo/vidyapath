@@ -21,7 +21,22 @@ import maths as _maths
 import protein as _protein
 
 KINDS = ("molecule", "protein", "layers", "lattice", "surface", "orbit",
-         "solid", "process", "flow")
+         "solid", "process", "flow", "helix", "cell", "field", "wave")
+
+# The four that were added when it became clear the first nine were a
+# chemistry set. Biology got a leaf with arrows around it and physics got
+# planets, and the two pictures a physics class most needs — a field, which
+# fills a volume, and a wave, which moves — could not be asked for at all.
+HELIX_FORMS = ("dna", "a-dna", "z-dna", "rna", "alpha")
+WAVE_MODES = ("travelling", "standing", "interference")
+# Only what the renderer has a measured size for. An organelle nobody
+# measured would be drawn at whatever size looked right, which is exactly
+# what a scale drawing must not do.
+ORGANELLES = ("nucleus", "nucleolus", "mitochondrion", "chloroplast",
+              "vacuole", "ribosome", "lysosome", "golgi",
+              "endoplasmic reticulum", "centriole", "chromosome")
+MAX_PARTS = 10
+MAX_SOURCES = 6
 
 MAX_STAGES = 8
 MAX_FLOWS = 4
@@ -362,6 +377,93 @@ def clean(d):
             out["color"] = c
         return out
 
+    # ---- biology --------------------------------------------------------
+    # The measured numbers are not accepted from the model at all. A helix's
+    # rise, its bases per turn and its handedness are crystallography, and a
+    # model asked for them writes a plausible helix that is wrong in the one
+    # respect a student is examined on — B-DNA turns right, Z-DNA turns left.
+    # So the form is named here and the renderer supplies the geometry.
+    if kind == "helix":
+        form = str(d.get("form") or "").strip().lower().replace(" ", "-")
+        out["form"] = form if form in HELIX_FORMS else "dna"
+        out["turns"] = _n(d.get("turns"), 1, 6, 2.5)
+        seq = "".join(c for c in str(d.get("sequence") or "").upper()
+                      if c in "ACGTU")[:60]
+        if seq:
+            out["sequence"] = seq
+        return out
+
+    if kind == "cell":
+        parts = []
+        for p in (d.get("parts") or [])[:MAX_PARTS]:
+            if isinstance(p, str):
+                p = {"name": p}
+            if not isinstance(p, dict):
+                continue
+            name = _label(p.get("name"), 28).lower()
+            # Only what can be placed at a real size. An organelle nobody
+            # measured would be drawn at whatever size looked right, which
+            # is the whole thing this is trying not to do.
+            if name not in ORGANELLES:
+                continue
+            parts.append({"name": name,
+                          "n": int(_n(p.get("n"), 1, 12, 1))})
+        if not parts:
+            return None
+        out["cell"] = ("plant" if str(d.get("cell") or "").strip().lower()
+                       == "plant" else "animal")
+        out["parts"] = parts
+        return out
+
+    # ---- physics --------------------------------------------------------
+    if kind == "field":
+        charges = []
+        for c_ in (d.get("charges") or [])[:MAX_SOURCES]:
+            if not isinstance(c_, dict):
+                continue
+            charges.append({"q": _n(c_.get("q"), -6, 6, 1) or 1,
+                            "x": _n(c_.get("x"), -8, 8),
+                            "y": _n(c_.get("y"), -8, 8),
+                            "z": _n(c_.get("z"), -8, 8)})
+        loops = []
+        for L in (d.get("loops") or [])[:MAX_SOURCES]:
+            if not isinstance(L, dict):
+                continue
+            loops.append({"r": _n(L.get("r"), 0.4, 6, 2),
+                          "i": _n(L.get("i"), -4, 4, 1) or 1,
+                          "x": _n(L.get("x"), -8, 8),
+                          "y": _n(L.get("y"), -8, 8),
+                          "z": _n(L.get("z"), -8, 8)})
+        if not charges and not loops:
+            return None
+        # One or the other. Two fields in one picture would be summed by
+        # eye, and they are not the same field or the same units.
+        if charges:
+            out["charges"] = charges
+        else:
+            out["loops"] = loops
+        return out
+
+    if kind == "wave":
+        mode = str(d.get("mode") or "").strip().lower()
+        out["mode"] = mode if mode in WAVE_MODES else "travelling"
+        out["wavelength"] = _n(d.get("wavelength"), 0.4, 8, 2)
+        out["amplitude"] = _n(d.get("amplitude"), 0.05, 2, 0.5)
+        out["span"] = _n(d.get("span"), 4, 16, 9)
+        out["speed"] = _n(d.get("speed"), 0, 3, 0.6)
+        srcs = []
+        for s in (d.get("sources") or [])[:4]:
+            if not isinstance(s, dict):
+                continue
+            srcs.append({"x": _n(s.get("x"), -8, 8),
+                         "z": _n(s.get("z"), -8, 8)})
+        if srcs:
+            out["sources"] = srcs
+        unit = _label(d.get("unit"), 6)
+        if unit:
+            out["unit"] = unit
+        return out
+
     return None
 
 
@@ -369,7 +471,7 @@ def clean(d):
 # two cannot drift: a prompt that offers a field the validator drops produces
 # lessons that quietly lose their pictures.
 PROMPT = """You may add a 3D scene to a lesson, as `scene`. It is built from
-numbers, not from a model file, so only these six kinds exist. Use one only
+numbers, not from a model file, so only these kinds exist. Use one only
 where rotating and zooming the real structure teaches something. Most lessons
 should have no scene at all, and a scene that is decoration is worse than
 none.
@@ -454,6 +556,50 @@ none.
             Say "sunlight" or "light" among the inputs and a sun with rays
             is drawn.
 
+"helix"     {"kind":"helix","form":"dna"|"a-dna"|"z-dna"|"rna"|"alpha",
+             "turns":2.5,"sequence":"ATGCATGC","caption":"..."}
+            DNA, RNA and the protein alpha-helix. Name the form; the rise
+            per base pair, the bases per turn, the diameter and the
+            handedness are filled in from measured crystallography and
+            written on the scene. Do not write those numbers yourself, and
+            do not give the second strand — the pairing is computed, which
+            is the point of showing it. A sequence is optional and colours
+            the bases. This is the structure a biology class is examined on
+            the shape of: the two grooves are different widths and the
+            strands run opposite ways, and neither is visible until it turns.
+
+"cell"      {"kind":"cell","cell":"animal"|"plant","caption":"...",
+             "parts":[{"name":"nucleus"},{"name":"mitochondrion","n":6},
+                      {"name":"chloroplast","n":4}]}
+            A cell with its organelles at their real relative sizes — a
+            mitochondrion really is a fifth of the nucleus here. Names
+            allowed: nucleus, nucleolus, mitochondrion, chloroplast,
+            vacuole, ribosome, lysosome, golgi, endoplasmic reticulum,
+            centriole, chromosome. Anything else is dropped rather than
+            drawn at an invented size. "n" is how many, and it is a fact
+            about the cell worth giving.
+
+"field"     {"kind":"field","caption":"...",
+             "charges":[{"q":1,"x":-2},{"q":-1,"x":2}]}
+             or {"kind":"field","loops":[{"r":2,"i":1}]}
+            Field lines, walked step by step along the field summed from
+            every source — so a dipole's lines close on the negative charge
+            because the arithmetic takes them there. Give point charges for
+            an electric field ("q" in whatever units, sign matters) or
+            current loops for a magnetic one. Not both: they are not the
+            same field. Electrostatics, dipoles, the field of a bar magnet
+            or a solenoid — the pictures a flat diagram cannot give.
+
+"wave"      {"kind":"wave","mode":"travelling"|"standing"|"interference",
+             "wavelength":2,"amplitude":0.5,"span":9,"unit":"cm",
+             "sources":[{"x":-2,"z":0},{"x":2,"z":0}]}
+            A surface that actually moves, recomputed each frame from the
+            superposition. "standing" for nodes and antinodes — drawn still
+            it is a curve, and the nodes holding still while everything
+            between them moves IS the lesson. "interference" for two
+            sources: from above it is the double-slit figure, from the side
+            it is water, which is the connection that figure is making.
+
 PREFER "flow" OVER "process" WHEN THERE IS A REAL OBJECT. Discs and arrows
 are for something with no physical thing at its centre — a cycle of
 transformations, an accounting loop. The moment the answer has an object in
@@ -470,6 +616,12 @@ Rules:
 - Real coordinates and real proportions. An invented geometry taught
   confidently is worse than no picture.
 - `caption` says what to look at, in under twelve words.
-- If the thing worth showing is an organic shape — an organ, a bone, a whole
-  cell — none of these can draw it honestly. Leave `scene` out and describe it
-  in words instead."""
+- If the thing worth showing is an organic shape — an organ, a bone, a face —
+  none of these can draw it honestly. Leave `scene` out and describe it in
+  words instead. A cell is the exception and has its own kind: a nucleus IS a
+  sphere and a mitochondrion IS a capsule, whereas a liver drawn as an
+  ellipsoid teaches a shape that will be marked wrong.
+- Physics and biology have their own kinds now — "field", "wave", "helix",
+  "cell". Reach for those before settling for "surface" or "flow": a lesson
+  on the electric field of a dipole is a field, not a saddle, and a lesson on
+  DNA is a helix, not a ball-and-stick model of one base."""

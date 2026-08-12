@@ -5788,6 +5788,19 @@ def _upstream_ok(r, provider):
 
 AI_DAILY_LIMIT = 50   # resume AI checks per user per day (admins exempt)
 
+# Whole papers, per person, per day.
+#
+# A paper is not one AI call. Sixty questions is a reading pass over twenty
+# pages and twenty solving calls on the strongest model configured, and it is
+# the only thing here that can run up a real bill in an afternoon — a class of
+# thirty with a folder of past papers is a plausible Tuesday. Five is a
+# teacher's working day and nowhere near a script's.
+#
+# Counted on the READING, because that is what a paper is. Re-solving a paper
+# already read costs nothing and is not counted: every question is cached, so
+# opening yesterday's paper again is free and stays free.
+PAPERS_PER_DAY = int(env("PAPERS_PER_DAY", "5") or 5)
+
 # ---- plans ---------------------------------------------------------------
 # Prices in the smallest unit (paise / cents), which is what both gateways
 # expect and avoids float rounding on money.
@@ -6093,6 +6106,45 @@ def _ai_enforce_limit(db, user):
     if _ai_used_today(db, user) >= AI_DAILY_LIMIT * 4:
         raise HTTPException(429, "That's a lot of requests in one day. "
                                  "Try again tomorrow.")
+
+
+def papers_today(db, user):
+    """How many whole papers this person has had read for them today."""
+    row = db.query(Note).filter(
+        Note.user_id == user.id,
+        Note.k == f"paper_{now().strftime('%Y%m%d')}").first()
+    try:
+        return int(row.v) if row else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _papers_enforce(db, user):
+    """The day's ceiling on whole papers, before any of the work starts."""
+    if getattr(user, "is_admin", False):
+        return
+    used = papers_today(db, user)
+    if used >= PAPERS_PER_DAY:
+        raise HTTPException(
+            429, f"That is {used} papers today, which is the daily limit. "
+                 f"It resets tomorrow. Papers already read are still there "
+                 f"and cost nothing to open again.")
+
+
+def _papers_bump(db, user):
+    """Count one paper against the day. Only ever called once it is read."""
+    if getattr(user, "is_admin", False):
+        return
+    key = f"paper_{now().strftime('%Y%m%d')}"
+    row = db.query(Note).filter(Note.user_id == user.id,
+                                Note.k == key).first()
+    if row:
+        try:
+            row.v = str(int(row.v) + 1)
+        except (TypeError, ValueError):
+            row.v = "1"
+    else:
+        db.add(Note(user_id=user.id, k=key, v="1"))
 
 
 def _ai_bump(db, user):
@@ -11396,6 +11448,101 @@ async def resume_ai(body: ResumeAIIn, user: User = Depends(current_user)):
     }
 
 
+# Every LaTeX command a school lesson writes whose name begins with one of
+# the six letters JSON has already claimed. This list is the whole of the
+# repair below: outside it, nothing changes.
+_TEX_WORDS = frozenset("""
+frac dfrac tfrac forall frown flat
+begin binom bar boldsymbol beta bigcap bigcup bmod bullet because bot
+neq ne nabla not notin nu nsubseteq
+rho rightarrow Rightarrow rangle rfloor right
+times theta therefore text textbf textit to tan tau tilde triangle
+underline underbrace uparrow upsilon
+""".split())
+_TEX_ESCAPE = _re.compile(r"[bfnrtu][A-Za-z]*")
+
+
+def _json_keeps_latex(text):
+    r"""Protect a model's LaTeX from JSON's own escapes.
+
+    A model writing maths inside JSON writes \frac{16}{20}, and it should
+    have written \\frac. What makes this dangerous rather than merely wrong
+    is that \f IS a valid JSON escape — a form feed — so json.loads does not
+    complain. It succeeds, quietly, and hands back a form feed followed by
+    "rac{16}{20}". A lesson on fractions reached a class reading "consider
+    the fraction 16 where both 16 and 20 can be divided", with the fraction
+    itself gone and no error anywhere.
+
+    Six letters do this: \b \f \n \r \t \u. Between them they take out
+    \frac, \begin, \beta, \neq, \nabla, \times, \theta, \tan, \to, \text and
+    \rho — which is most of the mathematics on a maths paper, and every one
+    of them fails silently.
+
+    The repair cannot simply escape every backslash: "line one\nline two" is
+    a model using a real newline and means it. So the run of letters after
+    the backslash is read, and the backslash is doubled only where those
+    letters spell a LaTeX command we know. \nabla is protected; \next is
+    left as a newline. \u is only a unicode escape when four hex digits
+    follow it, which \upsilon does not.
+
+    Any other letter after a backslash — \alpha, \sqrt, \cdot, \( — is not a
+    JSON escape at all, so the parse was going to fail outright. Those are
+    doubled too, which turns a lesson that errored into a lesson that reads.
+    """
+    if "\\" not in (text or ""):
+        return text
+    out, i, n, in_str = [], 0, len(text or ""), False
+    while i < n:
+        ch = text[i]
+        if not in_str:
+            if ch == '"':
+                in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_str = False
+            out.append(ch)
+            i += 1
+            continue
+        if ch != "\\" or i + 1 >= n:
+            out.append(ch)
+            i += 1
+            continue
+        nxt = text[i + 1]
+        if nxt in '"\\/':                      # a real escape, left alone
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        m = _TEX_ESCAPE.match(text, i + 1)
+        if m:
+            word = m.group(0)
+            if nxt == "u" and _re.match(r"^[0-9a-fA-F]{4}", text[i + 1:]):
+                out.append(text[i:i + 2])      # a genuine \uXXXX
+                i += 2
+                continue
+            # The longest command that this run of letters starts with. The
+            # run does not stop at the command: "\timesthe" is not a word,
+            # but "\times the" arrives as "times" and "\frac{16}" as "frac".
+            hit = None
+            for k in range(len(word), 0, -1):
+                if word[:k] in _TEX_WORDS:
+                    hit = word[:k]
+                    break
+            if hit:
+                out.append("\\\\" + hit)
+                i += 1 + len(hit)
+                continue
+            out.append(text[i:i + 2])          # \n, \t and friends, meant
+            i += 2
+            continue
+        # Not an escape JSON knows: \alpha, \sqrt, \(. Without this the
+        # whole reply fails to parse and the lesson is lost entirely.
+        out.append("\\\\")
+        i += 1
+    return "".join(out)
+
+
 def _ai_json(text):
     """Parse a model's JSON reply, tolerating the ways models wrap it.
 
@@ -11406,6 +11553,7 @@ def _ai_json(text):
     """
     raw = (text or "").strip()
     clean = raw.replace("```json", "").replace("```", "").strip()
+    clean = _json_keeps_latex(clean)
     try:
         return json.loads(clean)
     except Exception:
@@ -11444,7 +11592,21 @@ def _close_truncated_json(text):
             return None
         text = text[i:]
 
-    stack, in_str, esc, safe = [], False, False, -1
+    # The cut point is remembered WITH the nesting that was open at the time.
+    #
+    # Keeping only an index was the bug, and it made the whole thing fire
+    # almost never: it recorded the end of every closed string, including
+    # the keys, so "...{"n": "1", "answer": "x = 2"}, {"n": "2", "answer":
+    # "y" — a batch cut off mid-answer, which is what a truncation actually
+    # looks like — rewound to the closing quote of the key "answer" and
+    # produced {"n": "2", "answer"} with the containers closed around it.
+    # That is not JSON, so the salvage returned None and the whole batch was
+    # lost, when four complete answers were sitting right there in it.
+    #
+    # A string is only a safe place to cut if it was a VALUE, and what tells
+    # you is the next character: a colon after it means it was a key.
+    stack, in_str, esc = [], False, False
+    safe, safe_stack = -1, []
     for i, ch in enumerate(text):
         if in_str:
             if esc:
@@ -11453,7 +11615,9 @@ def _close_truncated_json(text):
                 esc = True
             elif ch == '"':
                 in_str = False
-                safe = i          # a string just closed: a clean place to cut
+                rest = text[i + 1:i + 40].lstrip()
+                if not rest.startswith(":"):
+                    safe, safe_stack = i, list(stack)
             continue
         if ch == '"':
             in_str = True
@@ -11462,12 +11626,13 @@ def _close_truncated_json(text):
         elif ch in "}]":
             if stack:
                 stack.pop()
-            safe = i
+            safe, safe_stack = i, list(stack)
         elif ch in "0123456789":
-            safe = i              # a number may have just finished here
+            safe, safe_stack = i, list(stack)
 
-    if not stack or safe < 0:
+    if not safe_stack or safe < 0:
         return None
+    stack = safe_stack
     head = text[:safe + 1]
     # Drop a dangling key or comma left over from the cut.
     head = _re.sub(r',\s*"[^"]*"\s*:\s*$', "", head)
@@ -18158,6 +18323,7 @@ async def read_paper(files: list[UploadFile] = File(...),
     # solve it are let through on the receipt this returns.
     require_paid_or_trial(db, user, "solve_paper", "Solving a whole paper",
                           "one free paper")
+    _papers_enforce(db, user)
     _ai_enforce_limit(db, user)
     try:
         # The free path first. A typed PDF carries its own text, and reading
@@ -18268,7 +18434,15 @@ async def read_paper(files: list[UploadFile] = File(...),
                     lesson=json.dumps(out)))
     db.commit()
     _trial_consume(db, user, "solve_paper")
-    return {**out, "cached": False}
+    # Counted here and nowhere else: a paper that was read is a paper. A read
+    # that failed, or one answered out of the cache, has cost nothing and
+    # takes nothing off the day.
+    _papers_bump(db, user)
+    db.commit()
+    return {**out, "cached": False,
+            "papers_left": (None if getattr(user, "is_admin", False)
+                            else max(0, PAPERS_PER_DAY
+                                     - papers_today(db, user)))}
 
 
 class SolveBatch(BaseModel):
@@ -18396,8 +18570,19 @@ async def solve_batch(body: SolveBatch,
             #
             # Nothing extra is charged for room that goes unused: output is
             # billed by what is generated, not by what was allowed.
+            # best=True: the strongest model this site has a name for.
+            #
+            # Everywhere else on this site the cheap model is the right
+            # answer, because scoring and classifying and captioning do not
+            # read any better on a stronger one. A worked solution does. The
+            # cheap model produced a JEE physics answer whose own derivation
+            # was right in every step and whose answer line contradicted it,
+            # and a solved paper that is confidently wrong is worse to a
+            # class than no solved paper — they copy the answer, not the
+            # working. It is five papers a person a day, which is what makes
+            # the strongest model affordable here and nowhere else.
             reply = _ai_json(await _ai_text(_solver.as_prompt(missing), 26000,
-                                            json_mode=True,
+                                            json_mode=True, best=True,
                                             think=THINK_HARD))
             fresh = _solver.clean(reply, missing)
         except HTTPException:
