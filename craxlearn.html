@@ -559,10 +559,34 @@ body.gated #inkBar,
 body.gated #splitBtn,
 body.gated #askBtn,
 body.gated #shotBtn,
+body.gated #recBtn,
 body.gated #headsBtn,
 body.gated #homeBtn,
 body.gated #outBtn,
 body.gated .gatesources{display:none}
+
+/* A room can see that it is being recorded.
+ *
+ * A screen recording on a wall-mounted display is a camera pointed at a
+ * class, and the one thing it must never be is quiet. The button turning
+ * red is not enough — nobody sitting at a desk can see a 30-pixel button on
+ * a board eight feet away — so the recording says so across the top of the
+ * screen, in words, with the time it has been running, for as long as it
+ * runs. Tapping it stops it, because the teacher who wants to stop is
+ * looking at the thing that says it is recording. */
+#recPill{position:fixed;top:.5rem;left:50%;transform:translateX(-50%);
+  z-index:70;display:flex;align-items:center;gap:.5rem;
+  padding:.35rem .8rem;border-radius:999px;cursor:pointer;
+  background:#b3261e;color:#fff;font-weight:600;font-size:.95rem;
+  box-shadow:0 2px 10px rgba(0,0,0,.28);border:0}
+#recPill .dot{width:.6rem;height:.6rem;border-radius:50%;background:#fff;
+  animation:recblink 1.4s ease-in-out infinite}
+#recPill .rt{font-variant-numeric:tabular-nums}
+@keyframes recblink{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){
+  #recPill .dot{animation:none}
+}
+#recBtn.on{color:#b3261e}
 
 /* A viewer takes whatever is left after the controls above it, and follows
    the space when it is dragged. A fixed height is wrong in both directions
@@ -722,6 +746,7 @@ body.gated .gatesources{display:none}
   <button class="iconbtn askbtn" id="askBtn" title="Ask Axle">⚡</button>
   <button class="iconbtn" id="inkBtn" title="Write on the screen">✏️</button>
   <button class="iconbtn" id="shotBtn" title="Screenshot">⛶</button>
+  <button class="iconbtn" id="recBtn" title="Record the lesson">⏺</button>
   <button class="iconbtn" id="installBtn" title="Install on this board" hidden>⤓</button>
   <button class="iconbtn" id="headsBtn" title="Hide the space bars">⌃</button>
   <button class="iconbtn" id="scaleBtn" title="Text size">Aa</button>

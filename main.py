@@ -6151,6 +6151,22 @@ class AIProvidersFailed(Exception):
         super().__init__("; ".join(f"{p}: {e}" for p, e in self.fails)[:400])
 
 
+def _transient(e):
+    """Is this the provider being busy, rather than anything being wrong?
+
+    Capacity, not configuration. A model that is overloaded this second
+    answers perfectly well two seconds later, and that is the only class of
+    failure where asking the same provider again is the right move — a bad
+    key, a wrong model name or a refusal give the same answer however many
+    times they are asked.
+    """
+    m = (type(e).__name__ + " " + str(e)).lower()
+    if "insufficient_quota" in m or "credit balance" in m:
+        return False
+    return ("overload" in m or "unavailable" in m or "http 503" in m
+            or "http 502" in m or "http 500" in m)
+
+
 def _one_provider_reason(prov, e):
     """What went wrong at one provider, in that provider's own dialect."""
     # The class name as well as the message. Every httpx timeout stringifies
@@ -6184,9 +6200,34 @@ def _one_provider_reason(prov, e):
                             "free tier allows only a few per minute and a "
                             "capped number per day, and it resets")
         return ("rate", f"{prov} is rate-limiting requests for now")
+    # The model answered, produced no text, and said why. That reason is
+    # worth more than everything else in this function put together, and it
+    # was landing in "could not be reached" — which describes a network
+    # fault and sends whoever reads it to look in the wrong place entirely.
+    if "stopped:" in m:
+        tail = str(e).split("stopped:")[-1].strip().strip(".;")[:60]
+        if "max_tokens" in tail.lower():
+            return ("long", f"{prov} ran out of room before it finished "
+                            f"writing — this is a length fault on our side, "
+                            f"not a fault at the provider")
+        if "safety" in tail.lower() or "block" in tail.lower():
+            return ("refused", f"{prov} declined to answer this one")
+        if "recitation" in tail.lower():
+            return ("refused", f"{prov} stopped itself, because the answer "
+                               f"was reproducing text it recognised")
+        return ("empty", f"{prov} stopped early: {tail}")
     if "timeout" in m or "timed out" in m or "readtimeout" in m:
         return ("slow", f"{prov} did not answer within the time allowed — a "
                         f"long lesson can genuinely take a while")
+    # Google's own capacity, which is neither our fault nor the key's. The
+    # popular models are the ones that run out of it: switching from
+    # flash-lite to 2.5-flash traded a quiet model for a busy one, and a
+    # 503 UNAVAILABLE matched nothing here, so it was reported as a network
+    # fault — sending whoever read it to check their internet.
+    if ("overload" in m or "unavailable" in m
+            or "http 503" in m or "http 500" in m or "http 502" in m):
+        return ("busy", f"{prov} is busy right now — the model is in demand, "
+                        f"not broken, and this clears on its own")
     if "connecterror" in m or "connect" in m and "error" in m:
         return ("net", f"{prov} could not be reached from the server")
     if "no text" in m:
@@ -6602,6 +6643,7 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
     if not providers:
         raise RuntimeError("No AI provider key is configured")
     last, fails = None, []
+    retried = set()          # one extra attempt per provider, and no more
     # Sized to the request rather than flat. A flat 25 seconds is generous for
     # a 1,500-token reply and nowhere near enough for a board lesson, which
     # sends a 15,000-character prompt and wants 8,000 tokens of JSON back —
@@ -6660,6 +6702,29 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                 last = RuntimeError(f"{prov} returned no text")
                 fails.append((prov, last))
             except Exception as e:
+                # One more go at the SAME provider when it was merely busy.
+                #
+                # A 503 from Google means the model is in demand this second,
+                # and the popular models are the ones that run out of
+                # capacity: moving from flash-lite to 2.5-flash traded a
+                # quiet model for a sought-after one. Falling straight
+                # through to the next provider is the wrong response to
+                # that — with one key configured there is no next provider,
+                # so a two-second wait was the difference between an answer
+                # and "Gemini could not be reached".
+                if (_transient(e) and prov not in retried
+                        and _t.monotonic() + 4 < _deadline):
+                    retried.add(prov)
+                    print(f"AI provider '{prov}' was busy; one more try")
+                    try:
+                        await asyncio.sleep(1.5)
+                        txt = await _provider_generate(
+                            client, prov, prompt, max_tokens, json_mode, best,
+                            _think=think)
+                        if txt:
+                            return txt
+                    except Exception as again:
+                        e = again
                 last = e
                 fails.append((prov, e))
                 print(f"AI provider '{prov}' failed, trying next: {type(e).__name__}: {e}")
