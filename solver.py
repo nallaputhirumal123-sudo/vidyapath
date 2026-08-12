@@ -214,6 +214,9 @@ _MD_BOLD = re.compile(r"^\s*(?:\x2a\x2a(.{1,30}?)\x2a\x2a|__(.{1,30}?)__)")
 # Unwrapped rather than forbidden in the prompt. The prompt already says to
 # write plain lines; a model that formats anyway is a fact about models, not
 # a thing to keep asking about, and the parser is the side that can be sure.
+# A line that is only brackets, braces and commas: the array that the
+# lines were sitting in, not a line of the paper.
+_JSON_ONLY = re.compile(r"^[\s\[\]{},]*$")
 _JSON_LINE = re.compile(r'^\s*[\[\]{},]*\s*"(.*)"\s*,?\s*$')
 
 
@@ -316,7 +319,18 @@ def _lines(text):
     out = []
     for raw in str(text or "").splitlines():
         got = _plain_line(raw).splitlines()
-        out.extend(got if got else [""])
+        for one in (got if got else [""]):
+            # Unwrapped AGAIN, because a model that answers in JSON also
+            # quotes the lines inside its own string: a question's options
+            # arrived as  "(A) ...",  "(B) ...",  with the quotes and commas
+            # decoded intact, and reached the class wearing them.
+            one = _plain_line(one)
+            # Pure JSON furniture — a lone "]" closing the array — is
+            # structure, not part of anybody's question.
+            if one.strip() and not _JSON_ONLY.match(one):
+                out.append(one)
+            elif not one.strip():
+                out.append("")
     return out
 
 

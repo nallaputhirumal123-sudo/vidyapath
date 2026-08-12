@@ -36,6 +36,7 @@ produced by the server, so it cannot be dropped by whoever renders it, and
 it goes onto the downloaded PDF as well as the screen.
 """
 import io
+import json as _json
 import os
 import sys
 
@@ -394,6 +395,35 @@ ck("plain text is untouched by any of it",
    [(q["n"], q["marks"]) for q in solver.questions(
        "Q1. Define osmosis.\n[marks: 2]")] == [("1", 2)],
    "the unwrapping must not cost the ordinary case")
+
+print("\nthe options came quoted inside the question")
+# A Maharashtra SSC Algebra paper, solved correctly — and the question on
+# screen read:
+#     "(A) 5/x - 3 = x^2",
+#     "(B) x(x + 5) = 2",
+#     ]
+# A model that answers in JSON also quotes the lines INSIDE its own string,
+# so the options arrived correctly decoded and still wearing their quotes,
+# their commas, and the bracket that closed the array.
+_inner = "\n".join([
+    "Q1(i). Which one is the quadratic equation ?",
+    '"(A) 5/x - 3 = x^2",',
+    '"(B) x(x + 5) = 2",',
+    '"(C) n - 1 = 2n",',
+    '"(D) (1/x^2)(x + 2) = x"',
+    "]"])
+_ssc = "[\n" + _json.dumps(_inner) + '\n"[marks: 4]"\n]'
+_q = solver.questions(_ssc)
+ck("the SSC paper parses to one question", len(_q) == 1, str(len(_q)))
+ck("keeping the number the paper printed", bool(_q) and _q[0]["n"] == "1(i)")
+ck("and its marks", bool(_q) and _q[0]["marks"] == 4)
+ck("the options carry no quotes",
+   bool(_q) and '"' not in _q[0]["text"],
+   "an option reading '\"(A) x(x+5)=2\",' is an option nobody printed")
+ck("nor the bracket that closed the array",
+   bool(_q) and not _q[0]["text"].rstrip().endswith("]"))
+ck("and all four options survive",
+   bool(_q) and all(o in _q[0]["text"] for o in ("(A)", "(B)", "(C)", "(D)")))
 
 print("\nand papers that are not mathematics")
 ck("the solver is told a paper is usually not maths",
