@@ -20,6 +20,9 @@ def ck(n, c, d=""):
 A = TestClient(m.app)
 E = f"regress{int(time.time())}@example.com"
 A.post("/api/auth/signup", json={"name": "Regress Test", "email": E, "password": "RegPass123!"})
+# No birthday here on purpose — the gate is asserted below before it is
+# satisfied, because a file that quietly gives itself one would not notice
+# the gate being removed.
 
 # Matching is a paid feature — a free account gets one run and is then blocked,
 # which is correct behaviour but makes the repeated match checks below fail for
@@ -133,6 +136,14 @@ ck("suggestions free", A.get("/api/jobs/suggest?q=eng").status_code == 200)
 G = TestClient(m.app)
 GE = f"gate{int(time.time())}@example.com"
 G.post("/api/auth/signup", json={"name": "Gate Test", "email": GE, "password": "GatePass123!"})
+# And it says how old it is, because the job half is for adults and an
+# account that has never answered has not answered.
+#
+# Without this every check below was testing the AGE gate rather than the
+# free-versus-paid gate it is about: six assertions, all failing on 403
+# "add your date of birth", none of them reaching the wall they exist to
+# guard. The gate is right and the test predated it.
+G.post("/api/craxlearn/dob", json={"dob": "2000-05-05"})
 RES = "Cisco BGP OSPF F5 Linux Python network engineer senior"
 ck("matching is free",
    G.post("/api/jobs/match", json={"resume_text": RES}).status_code == 200)
