@@ -167,6 +167,39 @@ main._thinking_off.discard("gemini-flash-lite-latest")
 ck("it is a set of models, not one switch",
    isinstance(main._thinking_off, set))
 
+print("\na busy model goes down the ladder, not out the door")
+# "Gemini is busy right now" is a true sentence that solves nothing for a
+# teacher standing in front of a class. A Pro model is in demand — that is
+# what makes it the good one — and Google answers 503 when it has no
+# capacity this second. Falling through to the next PROVIDER is the wrong
+# move: with one key configured there is no next provider, so a busy model
+# meant a blank screen.
+_was = (main.GEMINI_MODEL, main.GEMINI_MODEL_BEST)
+main.GEMINI_MODEL, main.GEMINI_MODEL_BEST = ("gemini-flash-latest",
+                                             "gemini-pro-latest")
+_lad = main._gemini_ladder(True)
+ck("a paper tries the strongest first", _lad[0] == "gemini-pro-latest")
+ck("then full Flash, not lite", _lad[1] == "gemini-flash-latest",
+   "falling from Pro straight to lite drops two steps at once, and lite "
+   "is the model that produced a solution contradicting its own working")
+ck("and lite only as the last thing before nothing",
+   _lad[-1] == "gemini-flash-lite-latest")
+ck("no model is tried twice", len(_lad) == len(set(_lad)))
+ck("an everyday call does not start at the expensive one",
+   main._gemini_ladder(False)[0] == "gemini-flash-latest",
+   "the ladder is a fallback, not a licence to spend")
+main.GEMINI_MODEL, main.GEMINI_MODEL_BEST = _was
+import inspect as _i  # noqa: E402
+_TXT = _i.getsource(main._ai_text)
+ck("the text path walks it when the first choice is busy",
+   "_gemini_ladder(best)[1:]" in _TXT and "_transient(e)" in _TXT)
+ck("and stops if there is no time left to try",
+   "> _deadline" in _TXT,
+   "a ladder that outlasts the browser is a ladder nobody sees the "
+   "bottom of")
+_VIS = _i.getsource(main._ai_vision)
+ck("and so does the scanner", "_gemini_ladder(best)[1:]" in _VIS)
+
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:

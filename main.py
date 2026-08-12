@@ -6566,6 +6566,33 @@ def _gemini_model(best=False):
     return want, (GEMINI_SAFE_MODEL if want != GEMINI_SAFE_MODEL else None)
 
 
+def _gemini_ladder(best=False):
+    """The models to try, strongest first, when the strongest is busy.
+
+    A Pro model is in demand — that is what makes it the good one — and
+    Google answers 503 when it has no capacity this second. Falling through
+    to the NEXT PROVIDER is the wrong move there: with one key configured
+    there is no next provider, so a busy model means a blank screen, and
+    "Gemini is busy right now" is a true sentence that solves nothing for a
+    teacher standing in front of a class.
+
+    An answer from the second-best model beats no answer, and it is not a
+    quiet substitution: the paper is worked twice, so a weaker answer that
+    is wrong is what the checking pass exists to catch.
+
+    Order matters. Falling from Pro straight to flash-LITE would drop two
+    steps at once, and lite is the model that produced a solution
+    contradicting its own working. Full Flash sits between them.
+    """
+    seen, out = set(), []
+    for m in ((GEMINI_MODEL_BEST if best else GEMINI_MODEL),
+              GEMINI_MODEL, GEMINI_SAFE_MODEL):
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
 def _gemini_said(data):
     """The text Gemini returned, or why there is none.
 
@@ -6808,14 +6835,31 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                                                      best=best)
                         if txt:
                             return txt
-                    _w, _safe = _gemini_model()
-                    if not (prov == "gemini" and _safe
-                            and _is_missing_model(inner)):
+                    # A busy model, or a missing one: down the ladder
+                    # rather than out the door. A photographed problem that
+                    # comes back blank because Pro had no capacity this
+                    # second is a teacher standing in front of a class with
+                    # nothing on the screen.
+                    if prov == "gemini" and (_is_missing_model(inner)
+                                             or _transient(inner)):
+                        txt = ""
+                        for alt in _gemini_ladder(best)[1:]:
+                            if _t.monotonic() + 3 > _deadline:
+                                break
+                            try:
+                                print(f"AI vision: {alt} instead, the first "
+                                      f"choice is unavailable")
+                                txt = await _provider_vision(
+                                    client, prov, prompt, raw, mime,
+                                    max_tokens, _override=alt, _think=think)
+                                if txt:
+                                    break
+                            except Exception as down:
+                                inner = down
+                        if not txt:
+                            raise inner
+                    else:
                         raise
-                    txt = await _provider_vision(client, prov, prompt, raw,
-                                                 mime, max_tokens,
-                                                 _override=_safe,
-                                                 _think=think)
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
@@ -6932,6 +6976,24 @@ async def _ai_text(prompt: str, max_tokens: int = 1500, json_mode: bool = False,
                             return txt
                     except Exception as again:
                         e = again
+                    # Still busy: down the ladder rather than out the door.
+                    # With one key configured there is no next provider, so
+                    # a busy model otherwise means a blank screen.
+                    if prov == "gemini" and _transient(e):
+                        for alt in _gemini_ladder(best)[1:]:
+                            if _t.monotonic() + 3 > _deadline:
+                                break
+                            try:
+                                print(f"AI: {alt} instead, the first choice "
+                                      f"is out of capacity")
+                                txt = await _provider_generate(
+                                    client, prov, prompt, max_tokens,
+                                    json_mode, best, _override=alt,
+                                    _think=think)
+                                if txt:
+                                    return txt
+                            except Exception as down:
+                                e = down
                 last = e
                 fails.append((prov, e))
                 print(f"AI provider '{prov}' failed, trying next: {type(e).__name__}: {e}")
