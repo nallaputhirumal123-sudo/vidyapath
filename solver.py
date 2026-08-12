@@ -187,6 +187,32 @@ _Q_PART = re.compile(
 _Q_STRICT = re.compile(r"^\s*(" + _NUM + r")\s*[.)\]:—–-]\s+(.+)$")
 
 
+# A model transcribing a photographed page writes markdown.
+#
+# "**Q1.** Define osmosis", "## Q1.", "* 1." — every one of those is how a
+# vision model formats a question it has just read, and the parser matched
+# none of them. A photographed paper came back "No numbered questions were
+# found in that", which is the main case this feature exists for.
+#
+# Stripped rather than allowed for in the number patterns, so there is one
+# place that knows about markdown instead of four regexes each carrying a
+# copy.
+_MD_LEAD = re.compile(r"^\s*(?:[>#]+\s*|[*+-][ 	]+)+")
+_MD_BOLD = re.compile(r"^\s*(?:\x2a\x2a(.{1,30}?)\x2a\x2a|__(.{1,30}?)__)")
+
+
+def _plain_line(line):
+    """One line with its markdown taken off."""
+    out = _MD_LEAD.sub("", str(line or ""))
+    # "**Q1.**" — unwrap only a short leading emphasis, which is a heading
+    # marker. A long emphasised run is a model emphasising words inside the
+    # question, and the question keeps them.
+    m = _MD_BOLD.match(out)
+    if m:
+        out = (m.group(1) or m.group(2) or "") + out[m.end():]
+    return out
+
+
 def _start_of(line):
     """(number, rest) if this line begins a question, else None.
 
@@ -194,6 +220,7 @@ def _start_of(line):
     punctuation after it, because "1947 saw the partition of India" is a
     sentence and not question 1947.
     """
+    line = _plain_line(line)
     return (_Q_LOOSE.match(line) or _Q_PART.match(line)
             or _Q_STRICT.match(line))
 
@@ -206,6 +233,10 @@ def _number(raw):
     turn the second into "12a", which is not what the paper says.
     """
     n = " ".join(str(raw or "").split())
+    # "Q2)" — the bracket closes the marker, not a bracketed number, and it
+    # was ending up inside the number as "2)".
+    if n.endswith(")") and "(" not in n:
+        n = n[:-1].strip()
     if n.startswith("(") and n.count("(") == 1:
         # "(3)" — and "(3" when the closing bracket was taken as the
         # separator by whichever pattern matched first.

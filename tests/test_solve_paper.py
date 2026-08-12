@@ -325,6 +325,39 @@ ck("marks are read however the paper prints them",
    "(2 marks), [1] and a bare '2 marks' are all the same instruction")
 ck("a sub-part is its own question", mix[5]["n"] == "12(a)")
 
+print("\na model transcribing a photo writes markdown")
+# The failure you hit: a photograph of a paper, wrapped in a PDF by Google
+# Photos, came back "No numbered questions were found in that" — which is
+# the main case this feature exists for. A vision model reading a page
+# FORMATS what it read, so it returns "**Q1.**" or "## Q1." or "* 1.", and
+# the parser matched none of them.
+#
+# Stripped in one place rather than allowed for in each number pattern, so
+# there are not four regexes each carrying a copy of what markdown is.
+MD = [("**Q1.** Define osmosis and give an example.", "1"),
+      ("__Q3.__ State Ohm's law in full.", "3"),
+      ("## Q1. Define osmosis and give an example.", "1"),
+      ("### 2. Name the capital of Assam.", "2"),
+      ("* 1. Define osmosis and give an example.", "1"),
+      ("- Q2) Name the capital of Assam here.", "2"),
+      ("> 4. Explain the water cycle briefly.", "4"),
+      ("**1.** Define osmosis and give an example.", "1")]
+for _line, _want in MD:
+    _m = solver._start_of(_line)
+    ck("markdown: " + _line[:34],
+       bool(_m) and solver._number(_m.group(1)) == _want,
+       "got " + (repr(solver._number(_m.group(1))) if _m else "no match"))
+ck("emphasis inside a question is left alone",
+   solver._plain_line("3. Find x when **2x = 8** and explain it.")
+   == "3. Find x when **2x = 8** and explain it.",
+   "a long emphasised run is the model emphasising words in the question, "
+   "not a heading marker")
+ck("and prose is still not a question",
+   solver._start_of("1947 saw the partition of India.") is None)
+ck("a bracket that closes the marker is not part of the number",
+   solver._number(solver._start_of("Q2) Name the capital.").group(1)) == "2",
+   "it was ending up inside the number as '2)'")
+
 print("\nand papers that are not mathematics")
 ck("the solver is told a paper is usually not maths",
    "A paper is not always mathematics, and most are not" in SOLVE1)
