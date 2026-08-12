@@ -725,7 +725,24 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
   box-shadow:0 24px 60px rgba(0,0,0,.45),inset 0 2px 0 rgba(255,255,255,.12)}
 .ask-board{position:relative;background:#2f4a3d;background-image:radial-gradient(rgba(255,255,255,.04) 1px,transparent 1px);
   background-size:6px 6px;border-radius:6px;min-height:340px;padding:24px 28px;overflow:hidden;
-  box-shadow:inset 0 0 90px rgba(0,0,0,.5)}
+  box-shadow:inset 0 0 90px rgba(0,0,0,.5);
+  /* The board is a dark green board in BOTH themes, so the tokens that flip
+     with the page must not reach inside it.
+     In light mode --text is #16181c, and a lesson's prose is the one thing
+     on this board that never set a colour of its own — so every paragraph
+     of it came out near-black on dark green, at about 1.3:1, while the
+     title and the headings kept their explicit cream and green and looked
+     perfectly fine. A whole lesson unreadable on a phone in daylight, which
+     is the phone a student actually has.
+     Redefining the tokens here rather than restating a colour on each rule
+     fixes the prose, the figure notes, the tables, the references and
+     anything added to this board later, which is the failure repeating
+     itself. */
+  color:#eef2f8;
+  --text:#f4f8ff; --body:#eef2f8; --muted:#b9cdc2; --dim:#a3bcae;
+  --line:rgba(234,255,242,.20); --line-soft:rgba(234,255,242,.10);
+  --panel2:rgba(0,0,0,.28); --panel:rgba(0,0,0,.22);
+  --accent2:#7ab7ff}
 .ask-title{font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:750;font-size:27px;letter-spacing:-.02em;color:#fff8e7;margin:0 0 12px;
   border-bottom:2px dashed rgba(255,248,231,.35);padding-bottom:8px;display:inline-block}
 .ask-line{font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:19.5px;line-height:1.62;letter-spacing:-.005em;color:#eafff2;margin:4px 0;

@@ -69,6 +69,52 @@ _NO_PHOTO = re.compile(
     r"complexity|derivative|integral|limit|matrix|eigen\w*|topology|"
     r"axiom|conjecture|polynomial|logarithm)\b", re.I)
 
+# The right article, and the wrong picture of it.
+#
+# "What is a fraction?" found the article on fractions and put the Rhind
+# Mathematical Papyrus on the screen — a photograph of a four-thousand-year-
+# old document, correct about the subject and no use whatever to a child
+# working out what a denominator is. Wikipedia's lead image for a concept is
+# very often the artefact or the portrait rather than the thing: a papyrus, a
+# statue, a postage stamp, a title page, a painting of the man it is named
+# after.
+#
+# The scorer cannot catch this, because it only reads the title, and the
+# title is right. So the FILE is read as well, and a picture that is an
+# artefact is passed over so a better one can win.
+_ARTEFACT = re.compile(
+    r"papyrus|manuscript|codex|scroll|parchment|folio|"
+    r"portrait|bust|statue|sculpture|monument|memorial|"
+    r"stamp|postage|coin|banknote|medal|"
+    r"engraving|lithograph|woodcut|etching|painting|fresco|mural|"
+    r"tomb|grave|plaque|inscription|"
+    r"title[ _-]?page|frontispiece|book[ _-]?cover|"
+    r"signature|autograph|portrait[ _-]?of", re.I)
+# ...unless the lesson IS about the artefact, or about the period it came
+# from. A history lesson on the Mughal empire wants the painting, and a
+# lesson on the Rhind papyrus obviously wants the papyrus.
+_HISTORICAL = re.compile(
+    r"histor|ancient|medieval|prehistor|civilisation|civilization|empire|"
+    r"dynasty|archaeolog|century|\bbce\b|\bce\b|\bad\b|heritage|artefact|"
+    r"artifact|monument|architecture|art\b|painting|sculpture|museum|"
+    r"manuscript|papyrus|inscription|king|queen|emperor|ruler|war\b|"
+    r"revolution|independence|freedom struggle", re.I)
+
+
+def artefact(query: str, url: str, title: str = "") -> bool:
+    """Is this picture a relic of the subject rather than the subject?"""
+    q = str(query or "")
+    if _HISTORICAL.search(q):
+        return False
+    # The file name is where the giveaway is: an article called "Fraction"
+    # served from a file called Rhind_Mathematical_Papyrus.jpg.
+    name = str(url or "").rsplit("/", 1)[-1] + " " + str(title or "")
+    hit = _ARTEFACT.search(name)
+    if not hit:
+        return False
+    # A lesson that names the thing itself keeps it.
+    return not re.search(re.escape(hit.group(0)), q, re.I)
+
 
 # Words that carry no subject. A title matching only these is not a match.
 _STOP = {
@@ -402,6 +448,11 @@ def _parse(search_body, meta_body, query="") -> dict:
         if not url or int(thumb.get("width") or 0) < MIN_WIDTH:
             continue
         title = str(page.get("title") or "")
+        # A right article can have a picture that teaches nothing — the
+        # papyrus for "what is a fraction". Passed over rather than shown,
+        # so the next candidate gets its chance.
+        if artefact(query, url, title):
+            continue
         # Scored against the query, not taken on Wikimedia's own ranking.
         # Its first result is the best ARTICLE for the words; we want the
         # best article for the SUBJECT, and for a query of several words

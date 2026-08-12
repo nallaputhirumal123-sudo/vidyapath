@@ -230,6 +230,25 @@ print("\nthe mark is on both halves of the product")
 ck("the board", 'class="dot" src="/icon-192.png"' in CRX)
 ck("and craxle.com", 'class="brand-mark" src="/icon-192.png"' in IDX)
 
+print("\nthe board is dark in both themes, so its text has to be too")
+# A lesson on fractions arrived on a phone in light mode as near-black prose
+# on the dark green board — about 1.3 to 1, unreadable in daylight — while
+# the title and the headings kept their explicit cream and green and looked
+# perfectly fine. The prose was the one thing on that board that never set a
+# colour of its own, so it inherited the page's, which flips with the theme
+# while the board does not.
+# The board's OWN rule, not one of the four that only resize it — ".ask-board{"
+# appears first inside ".ask-frame:fullscreen .ask-board{".
+BOARD = IDX.split("\n.ask-board{")[1].split("}")[0]
+ck("the board sets its own text colour", "color:#eef2f8" in BOARD,
+   "everything inside inherits it, including whatever gets added later — "
+   "which is how a failure like this repeats")
+for tok in ("--text:", "--body:", "--dim:", "--muted:", "--line:",
+            "--panel2:", "--accent2:"):
+    ck("and takes back " + tok.strip("-:"), tok in BOARD,
+       "a token that flips with the page theme must not reach inside a "
+       "surface that does not flip with it")
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\n{len(P)} passed, {len(F)} failed")
 sys.exit(1 if F else 0)

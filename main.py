@@ -6614,7 +6614,7 @@ async def _provider_generate(client, provider, prompt, max_tokens, json_mode=Fal
 
 
 async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
-                           _override=None):
+                           _override=None, best=False, _think=0):
     """One generation call that also carries an image.
 
     Kept apart from _provider_generate because the three wire formats disagree
@@ -6627,10 +6627,16 @@ async def _provider_vision(client, provider, prompt, raw, mime, max_tokens,
     """
     b64 = base64.b64encode(raw).decode()
     if provider == "gemini":
-        gen = _gen_config(_override or GEMINI_MODEL, max_tokens, 0.15, True)
+        # A photograph of a problem is a problem to be solved, and this was
+        # the one path where that could not be paid for: no model choice and
+        # no thinking budget existed here at all, so every scan went to the
+        # cheap model with reasoning explicitly switched OFF. A hard JEE
+        # series question does not fall to that, and it did not.
+        model = _override or (GEMINI_MODEL_BEST if best else GEMINI_MODEL)
+        gen = _gen_config(model, max_tokens, 0.15, True, think=_think)
         r = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{_override or GEMINI_MODEL}:generateContent",
+            f"{model}:generateContent",
             headers={"x-goog-api-key": GEMINI_API_KEY,
                      "content-type": "application/json"},
             json={"contents": [{"parts": [
@@ -6712,8 +6718,15 @@ async def _ai_pdf(prompt: str, raw: bytes, max_tokens: int = 2200) -> str:
 
 
 async def _ai_vision(prompt: str, raw: bytes, mime: str,
-                     max_tokens: int = 2000) -> str:
-    """Read an image, trying each provider that can, in the usual order."""
+                     max_tokens: int = 2000, best: bool = False,
+                     think: int = 0) -> str:
+    """Read an image, trying each provider that can, in the usual order.
+
+    `best` and `think` are for the calls where the picture contains a
+    PROBLEM rather than a page to be copied out. Reading a scanned paper
+    needs neither and should not pay for either; solving what is in the
+    photograph needs both, and until now there was no way to ask for them.
+    """
     import httpx
     order = [p for p in _providers_in_order() if p in VISION_PROVIDERS]
     if not order:
@@ -6733,7 +6746,8 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
             try:
                 try:
                     txt = await _provider_vision(client, prov, prompt, raw,
-                                                 mime, max_tokens)
+                                                 mime, max_tokens, best=best,
+                                                 _think=think)
                 except Exception as inner:
                     if prov == "gemini" and _rejects_thinking(inner) \
                             and not _thinking_off["gemini"]:
@@ -6741,7 +6755,8 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                         print("AI: Gemini refused thinkingBudget on a vision "
                               "call; sending without it from now on.")
                         txt = await _provider_vision(client, prov, prompt, raw,
-                                                     mime, max_tokens)
+                                                     mime, max_tokens,
+                                                     best=best)
                         if txt:
                             return txt
                     _w, _safe = _gemini_model()
@@ -6750,7 +6765,8 @@ async def _ai_vision(prompt: str, raw: bytes, mime: str,
                         raise
                     txt = await _provider_vision(client, prov, prompt, raw,
                                                  mime, max_tokens,
-                                                 _override=_safe)
+                                                 _override=_safe,
+                                                 _think=think)
                 if txt:
                     return txt
                 last = RuntimeError(f"{prov} returned no text")
@@ -18717,8 +18733,16 @@ async def scan(image: UploadFile = File(...),
 
     _ai_enforce_limit(db, user)
     try:
+        # The same model and the same reasoning a question paper gets,
+        # because it is the same act — somebody has photographed a problem
+        # and wants it worked. This path had neither: the cheap model with
+        # thinking switched off, which is why a hard JEE series question
+        # came back unsolved from the scanner and from the paper solver at
+        # once. Scans are already capped per person per day by the AI limit
+        # above, which is what makes this affordable.
         out = _scan.clean(_ai_json(
-            await _ai_vision(_scan.prompt(), raw, mime, 2400)))
+            await _ai_vision(_scan.prompt(), raw, mime, 2400,
+                             best=True, think=THINK_PAPER)))
     except Exception as e:
         print(f"Scan failed: {type(e).__name__}: {e}")
         raise HTTPException(503, _ai_error_message(e))

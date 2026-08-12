@@ -292,6 +292,46 @@ ck("an article can still answer without carrying the modifier",
 ck("and refraction is untouched",
    images.score("refraction of light", "Refraction") >= _FLOOR)
 
+print("\nthe right article, and the wrong picture of it")
+# "What is a fraction?" found the article on fractions and put the Rhind
+# Mathematical Papyrus on the screen: a photograph of a four-thousand-year-
+# old document, entirely correct about the subject and no use at all to a
+# child working out what a denominator is. The scorer cannot catch this,
+# because it reads the title and the title is right — so the FILE has to be
+# read too.
+_ART = [
+    ("what is a fraction", "Rhind_Mathematical_Papyrus.jpg", "Fraction",
+     True, "the picture that started this"),
+    ("Newton's laws of motion", "Portrait_of_Isaac_Newton.jpg",
+     "Newton's laws of motion", True,
+     "a portrait of the man teaches nobody the laws — the same reason "
+     "abstract maths is refused a photograph at all"),
+    ("the periodic table", "Mendeleev_bust.jpg", "Periodic table", True, ""),
+    ("fractions for class 6", "Cake_quarters.svg", "Fraction", False,
+     "the picture a child can actually use"),
+    ("photosynthesis", "Leaf_1_web.jpg", "Photosynthesis", False, ""),
+    ("cell structure", "Animal_cell_structure_en.svg", "Cell (biology)",
+     False, ""),
+    ("electric motor", "Electric_motor_cycle_2.png", "Electric motor",
+     False, ""),
+    # A history lesson wants exactly the thing every rule above refuses.
+    ("the Mughal empire", "Akbar_painting.jpg", "Mughal Empire", False,
+     "a history lesson wants the painting; refusing it would strip the "
+     "pictures out of the subject that most needs them"),
+    ("Indian independence", "Gandhi_statue.jpg", "Indian independence",
+     False, ""),
+    ("ancient Egyptian mathematics", "Papyrus.jpg", "Egyptian mathematics",
+     False, ""),
+    ("the Rhind papyrus", "Rhind_Mathematical_Papyrus.jpg",
+     "Rhind Mathematical Papyrus", False,
+     "a lesson that names the thing itself keeps it"),
+]
+for _q, _f, _t, _want, _why in _ART:
+    _got = images.artefact(_q, "https://upload.wikimedia.org/x/" + _f, _t)
+    check(("passed over: " if _want else "kept: ") + _f + " for " + _q,
+          _got == _want, _why)
+
+
 # The summary and the exit live HERE, at the end.
 #
 # They used to sit at line 188 with ninety-five lines of tests after them,
