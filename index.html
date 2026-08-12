@@ -3493,13 +3493,21 @@ async function examSolveGo(){
     /* Solved a batch at a time, and drawn as each one lands.
        A sixty-question paper is minutes of work. Asking for all of it in
        one request means a browser that gives up at the end throws away
-       everything; asking ten at a time means a teacher watches it fill in,
-       and a batch that fails costs one batch. */
+       everything; asking three at a time means a teacher watches it fill
+       in, and a batch that fails costs one batch. */
     const asked = d.questions || [];
     SOLVED = {caveat: d.caveat, found: asked.length, questions: [],
-              missing: [], key: d.key || {}, paper: d.paper || ""};
+              missing: [], key: d.key || {}, paper: d.paper || "",
+              /* How many whole papers are left today. Worth showing before
+                 the last one is spent rather than after: a teacher setting
+                 up tomorrow's practice needs to know where they stand while
+                 they still have a choice about it. Absent for admins and
+                 for a paper answered out of the cache, which costs nothing
+                 and takes nothing off the day. */
+              left: (typeof d.papers_left === "number") ? d.papers_left
+                                                        : null};
     examSolveShow(SOLVED);
-    /* 6, matching solver.BATCH. The server caps each batch at its own
+    /* 3, matching solver.BATCH. The server caps each batch at its own
        number and would silently drop the tail of anything longer. */
     for(let i = 0; i < asked.length; i += 3){
       const part = asked.slice(i, i + 3);
@@ -3544,6 +3552,14 @@ function examSolveShow(d){
       <div class="eyebrow" style="margin:0">${qs.length} worked
         solution${qs.length===1?"":"s"}</div>
       <div class="spacer"></div>
+      ${/* Said while there is still a choice about it. A teacher setting up
+             next week's practice needs to know the day's papers are running
+             out BEFORE the last one is spent, not after — and a paper
+             already read costs nothing to open again, so this counts only
+             the ones that were new. */
+        typeof d.left === "number"
+          ? `<div class="muted" style="font-size:12px">${d.left} more paper${
+              d.left === 1 ? "" : "s"} today</div>` : ""}
       ${/* Named for what it actually does. An Indian-language paper is
              printed by the browser, because jsPDF's fonts are Latin-1 and
              would silently delete every word of it — so the teacher gets
