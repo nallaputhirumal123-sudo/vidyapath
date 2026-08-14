@@ -22768,6 +22768,14 @@ STATIC_TYPES = {
     # on a filtered or offline network still gets its equations set properly
     # rather than in whatever the browser falls back to.
     ".woff2": "font/woff2",
+    # The Python runtime's own files. A .wasm served as anything but
+    # application/wasm will not instantiate — the streaming compiler refuses
+    # it outright, and the message goes to a console nobody in a classroom
+    # is looking at.
+    ".wasm": "application/wasm",
+    ".zip": "application/zip",
+    ".map": "application/json",
+    ".ts": "text/plain; charset=utf-8",
 }
 
 
@@ -22789,6 +22797,55 @@ def font_file(filename: str, ext: str):
         raise HTTPException(404, "Not found")
     return FileResponse(path, media_type=STATIC_TYPES.get(suffix,
                                                           "font/woff2"))
+
+
+@app.get("/pyodide/{filename}.{ext}")
+def pyodide_file(filename: str, ext: str):
+    """The Python runtime, from this site rather than a public CDN.
+
+    The code labs run learner Python in the browser, and Python in a browser
+    is a 14 MB runtime that was being fetched from cdn.jsdelivr.net on first
+    use. On a school network that blocks it — which is most of the reason
+    this product exists — the lab said "could not load the Python runtime;
+    it needs the internet the first time", and that was the end of the
+    lesson.
+
+    Same reasoning as KaTeX and three.js, and the same trade: 14 MB in the
+    deployment, fetched once per device and then cached by the browser,
+    against a feature that simply does not work on a filtered network.
+
+    Its own route because the flat one above serves the top directory only,
+    and the runtime asks for its own files by relative name — pyodide.asm.js
+    fetches pyodide.asm.wasm and python_stdlib.zip beside itself.
+    """
+    suffix = "." + ext.lower()
+    if suffix not in (".js", ".wasm", ".zip", ".json", ".mjs", ".map"):
+        raise HTTPException(404, "Not found")
+    root = (BASE_DIR / "pyodide").resolve()
+    path = (root / f"{filename}{suffix}").resolve()
+    # The same containment check as every other file route: resolve it and
+    # refuse anything that does not land inside the directory it names.
+    if path.parent != root or not path.is_file():
+        raise HTTPException(404, "Not found")
+    # Readable from the sandbox, which has no origin.
+    #
+    # Learner code runs in an iframe with an OPAQUE origin — that is the
+    # whole security design — so its requests carry "Origin: null" and every
+    # one of them is cross-origin to this site. A <script src> does not care;
+    # the runtime's own fetch() for the .wasm and the stdlib does, and
+    # without this header it fails with a CORS error after the loader has
+    # already run, which reads as "Python could not start" for a reason
+    # nobody could see.
+    #
+    # Safe to open: these are five public files with nothing in them, "*"
+    # cannot be combined with credentials, and the browser will not send the
+    # session cookie to a wildcard anyway.
+    return FileResponse(path, media_type=STATIC_TYPES.get(
+        suffix, "application/octet-stream"),
+        headers={"Access-Control-Allow-Origin": "*",
+                 # A year, immutable: the version is in the path this app
+                 # serves and the files never change under it.
+                 "Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/{filename}.{ext}")

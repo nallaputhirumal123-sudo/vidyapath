@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>runner</title>
+<!-- An opaque origin has no cookies, no storage and no parent — and it
+     still has a network. There is nothing in here worth stealing, so
+     exfiltration is not the worry; being a beacon is. Code typed into an
+     exercise box could otherwise call any host on the internet, from a
+     school's machines, in the school's name. This says where the frame may
+     go, and it is two places: this site, for the Python runtime, and the
+     CDN it falls back to.
+
+     'unsafe-eval' and 'wasm-unsafe-eval' are not a weakening. Running the
+     learner's code IS the feature, and the sandbox attribute on the frame
+     is what makes that safe. This closes the network, which the sandbox
+     attribute does not. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:
+             https://cdn.jsdelivr.net;
+  connect-src 'self' https://cdn.jsdelivr.net blob: data:;
+  worker-src blob:; child-src blob:; style-src 'unsafe-inline'">
+</head>
+<body>
+<script>
+/* The runner, on a page of its own.
+ *
+ * This used to be an iframe built from `srcdoc`, which made its document
+ * URL "about:srcdoc". Pyodide throws when it is loaded there — it resolves
+ * its own asset paths against the document, and there is nothing to resolve
+ * against — so `loadPyodide` existed as a name with no value and the lab
+ * reported "could not load the Python runtime; it needs the internet the
+ * first time". That message was wrong twice over: the network was fine, and
+ * so was the download.
+ *
+ * A real URL fixes it, and gives up nothing. The frame still carries
+ * sandbox="allow-scripts" WITHOUT allow-same-origin, so it still has an
+ * opaque origin: no cookies, no localStorage, no reach into the parent
+ * document, and every request to this site is cross-origin and
+ * uncredentialed. Serving the page from here changes where the code lives,
+ * not what it can touch.
+ */
+(function () {
+  "use strict";
+  var PORT = null, PY = null;
+  var LANG = (location.search.match(/[?&]lang=([a-z]+)/) || [])[1] === "py"
+    ? "py" : "js";
+
+  /* This site first, the CDN only if that fails.
+   *
+   * Python in a browser is a 14 MB runtime, and it was fetched from
+   * cdn.jsdelivr.net on first use. A school network that blocks the CDN —
+   * which is most of the reason this product exists — got nothing, and the
+   * lesson stopped there. It is served from here now and cached by the
+   * browser after the first run; the CDN stays behind it for a deployment
+   * where the files did not ship. */
+  var HOMES = ["/pyodide/", "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"];
+
+  window.onmessage = function (e) {
+    if (e.data !== "port" || !e.ports || !e.ports[0]) return;
+    PORT = e.ports[0];
+    PORT.onmessage = function (m) { run(m.data); };
+    PORT.postMessage({ ready: 1 });
+  };
+  function say(o) { if (PORT) PORT.postMessage(o); }
+
+  function runJS(code) {
+    var out = [];
+    var log = function () {
+      out.push([].slice.call(arguments).map(function (v) {
+        if (typeof v === "string") return v;
+        try { return JSON.stringify(v); } catch (e) { return String(v); }
+      }).join(" "));
+    };
+    try {
+      new Function("console", '"use strict";\n' + code)(
+        { log: log, error: log, warn: log, info: log });
+    } catch (e) { out.push(String(e)); }
+    /* A short wait, because a lesson may print from a setTimeout or a
+       promise. Without it anything asynchronous prints into a result that
+       has already been sent, and the box looks empty. */
+    setTimeout(function () {
+      say({ out: out.join("\n") || "(nothing printed)" });
+    }, 400);
+  }
+
+  function loadScript(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = res;
+      s.onerror = function () { rej(new Error("could not fetch " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function boot() {
+    if (PY) return PY;
+    var last = null;
+    for (var i = 0; i < HOMES.length; i++) {
+      try {
+        await loadScript(HOMES[i] + "pyodide.js");
+        /* Checked rather than assumed. A script that loads and then throws
+           while it runs leaves the NAME defined and the value undefined —
+           which is exactly what "about:srcdoc" did — and calling it gives
+           "loadPyodide is not a function" three lines further on, where it
+           reads as a network fault. */
+        if (typeof loadPyodide !== "function") {
+          throw new Error("the runtime loaded but did not start");
+        }
+        PY = await loadPyodide({ indexURL: HOMES[i] });
+        return PY;
+      } catch (e) { last = e; }
+    }
+    throw last || new Error("no runtime");
+  }
+
+  async function runPy(code) {
+    var py;
+    try { py = await boot(); }
+    catch (e) {
+      return say({ out: "Python could not start here — " +
+                        (e && e.message ? e.message : "unknown reason") +
+                        ".\nThe runtime is served from this site and "
+                        + "downloaded once, so this is not usually the "
+                        + "network." });
+    }
+    py.runPython("import sys, io\n_b = io.StringIO()\n"
+               + "sys.stdout = _b\nsys.stderr = _b");
+    try { py.runPython(code); }
+    catch (e) { py.runPython("import traceback; traceback.print_exc()"); }
+    say({ out: py.runPython("sys.stdout = sys.__stdout__\n"
+                          + "sys.stderr = sys.__stderr__\n_b.getvalue()")
+               || "(nothing printed)" });
+  }
+
+  function run(code) { return LANG === "py" ? runPy(code) : runJS(code); }
+})();
+</script>
+</body>
+</html>

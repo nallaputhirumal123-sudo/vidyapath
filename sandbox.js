@@ -45,63 +45,22 @@
   var FRAMES = {};                 /* one per language, kept warm */
   var LIMIT_MS = { js: 5000, py: 60000 };   /* Pyodide's first run downloads */
 
-  /* The program inside the frame. It never sees the parent: it is handed a
-     port, and everything it can do is answer on it. */
-  function HARNESS(lang) {
-    return [
-      "<!doctype html><meta charset='utf-8'><body><script>",
-      "var PORT=null, PY=null;",
-      "onmessage=function(e){ if(e.data==='port'){ PORT=e.ports[0];",
-      "  PORT.onmessage=function(m){ run(m.data); }; PORT.postMessage({ready:1}); } };",
-      "function say(o){ if(PORT) PORT.postMessage(o); }",
-      lang === "py" ? PY_RUN : JS_RUN,
-      "<\/script></body>"
-    ].join("");
-  }
-
-  /* A short wait before answering, because a lesson may print from a
-     setTimeout or a promise. The old in-page runner waited 400ms for the
-     same reason; without it, anything asynchronous prints into a result
-     that has already been sent and the box looks empty. */
-  var JS_RUN = [
-    "function run(code){",
-    "  var out=[];",
-    "  var log=function(){ out.push([].slice.call(arguments).map(function(v){",
-    "    if(typeof v==='string') return v;",
-    "    try{ return JSON.stringify(v); }catch(e){ return String(v); }",
-    "  }).join(' ')); };",
-    "  try{ new Function('console','\"use strict\";\\n'+code)",
-    "        ({log:log,error:log,warn:log,info:log}); }",
-    "  catch(e){ out.push(String(e)); }",
-    "  setTimeout(function(){",
-    "    say({out: out.join('\\n') || '(nothing printed)'});",
-    "  }, 400);",
-    "}"
-  ].join("\n");
-
-  var PY_RUN = [
-    "async function boot(){",
-    "  if(PY) return PY;",
-    "  await new Promise(function(res,rej){",
-    "    var s=document.createElement('script');",
-    "    s.src='https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';",
-    "    s.onload=res; s.onerror=rej; document.head.appendChild(s); });",
-    "  PY=await loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/'});",
-    "  return PY;",
-    "}",
-    "async function run(code){",
-    "  var py;",
-    "  try{ py=await boot(); }",
-    "  catch(e){ return say({out:'Python could not start here. It is "
-    + "downloaded from a public CDN — this device may be offline or the "
-    + "network may be blocking it.'}); }",
-    "  py.runPython('import sys, io\\n_b = io.StringIO()\\nsys.stdout = _b\\nsys.stderr = _b');",
-    "  try{ py.runPython(code); }",
-    "  catch(e){ py.runPython('import traceback; traceback.print_exc()'); }",
-    "  say({out: py.runPython('sys.stdout = sys.__stdout__\\nsys.stderr = "
-    + "sys.__stderr__\\n_b.getvalue()') || '(nothing printed)'});",
-    "}"
-  ].join("\n");
+  /* The runner lives at /sandbox-frame.html now, not in a srcdoc string.
+   *
+   * Built from srcdoc, the frame's document URL is "about:srcdoc" — and
+   * Pyodide throws when it is loaded there, because it resolves its own
+   * asset paths against the document and there is nothing to resolve
+   * against. The name `loadPyodide` was defined with no value, the call
+   * three lines later said "not a function", and the lab reported that the
+   * Python runtime could not be downloaded. The network was never the
+   * problem.
+   *
+   * A real URL fixes it and gives up nothing: the frame still carries
+   * sandbox="allow-scripts" WITHOUT allow-same-origin, so it still has an
+   * opaque origin — no cookies, no storage, no parent, every request to
+   * this site cross-origin and uncredentialed.
+   */
+  var FRAME_SRC = "/sandbox-frame.html";
 
   function build(lang) {
     var f = document.createElement("iframe");
@@ -109,7 +68,7 @@
        hand the frame this origin back and undo the entire file. */
     f.setAttribute("sandbox", "allow-scripts");
     f.style.cssText = "position:absolute;width:0;height:0;border:0;left:-9999px";
-    f.srcdoc = HARNESS(lang);
+    f.src = FRAME_SRC + "?lang=" + (lang === "py" ? "py" : "js");
     document.body.appendChild(f);
 
     var chan = new MessageChannel();
