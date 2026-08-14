@@ -1687,7 +1687,13 @@ let pyodide=null, pyFailed=false;
  */
 async function runPython(code){
   const out = await Sandbox.run("py", code);
-  if(/^Python could not start here/.test(out)) throw new Error("OFFLINE");
+  /* The reason travels with the error, and it did not.
+     This threw the word "OFFLINE" and the catch downstream printed "it
+     needs internet the first time", so whatever the runner had worked out
+     was discarded twice on its way to the screen. Python was failing for a
+     reason that had nothing to do with the network, and the one sentence a
+     teacher ever saw named the network. */
+  if(/^Python could not start here/.test(out)) throw new Error(String(out));
   return {out:String(out), err:null};
 }
 async function runJS(code){
@@ -3119,7 +3125,15 @@ function wireExercise(l,e,k,total){
       }
     }catch(err){
       out.className="out fail";
-      out.textContent="⚠️ Couldn't load the Python runtime — it needs internet the first time.\n\nRead the notes and the solution, then carry on.";
+      /* Say what actually happened.
+         A hardcoded sentence about the internet was printed over every
+         possible cause — a runtime that threw while starting, a file that
+         did not ship, a genuine outage — and the one really happening was
+         not the internet. Two layers threw the reason away: this line, and
+         a runPython that turned every failure into the word "OFFLINE". */
+      const why = String((err && err.message) || err || "").trim();
+      out.textContent = "⚠️ " + (why || "The Python runtime did not start.")
+        + "\n\nRead the notes and the solution, then carry on.";
     }
     b.disabled=false; b.textContent="▶ Run";
   };

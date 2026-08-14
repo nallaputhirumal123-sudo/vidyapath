@@ -152,6 +152,26 @@ ck("the loader checks what it got before calling it",
    "value undefined, which reads three lines later as a network fault")
 ck("and says which of the two went wrong",
    "did not start" in FRAME_ALL and "not usually the" in FRAME_ALL)
+print("\nand the reason reaches the person looking at it")
+# The runner worked out exactly why Python had not started, and then two
+# layers threw it away: runPython turned every failure into the word
+# "OFFLINE", and the lab printed a hardcoded sentence about needing the
+# internet the first time. So the one message a teacher ever saw named the
+# network, whatever had really happened — and what had really happened was
+# not the network.
+ck("the runner names every place it tried",
+   "tried.push" in FRAME and "tried.join" in FRAME,
+   "this site not shipping the files is a different fault from the CDN "
+   "being blocked, and only the last error was ever reported")
+ck("runPython carries the reason rather than a word",
+   'throw new Error(String(out))' in IDX
+   and 'throw new Error("OFFLINE")' not in _CUT.sub(" ", IDX))
+ck("and the lab prints what it was given",
+   "The Python runtime did not start." in IDX
+   and "needs internet the first time" not in _CUT.sub(" ", IDX),
+   "a hardcoded sentence about the internet was printed over every "
+   "possible cause, including the ones that were not the internet")
+
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:

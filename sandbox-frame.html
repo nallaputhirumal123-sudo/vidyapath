@@ -97,7 +97,12 @@
 
   async function boot() {
     if (PY) return PY;
-    var last = null;
+    /* Every attempt, not just the last one.
+       The two places fail differently — this site not shipping the files is
+       a different fault from the CDN being blocked — and reporting only the
+       final error meant the first one, which is the one that matters here,
+       was never seen. */
+    var tried = [];
     for (var i = 0; i < HOMES.length; i++) {
       try {
         await loadScript(HOMES[i] + "pyodide.js");
@@ -111,18 +116,20 @@
         }
         PY = await loadPyodide({ indexURL: HOMES[i] });
         return PY;
-      } catch (e) { last = e; }
+      } catch (e) {
+        tried.push(HOMES[i] + " — " + (e && e.message ? e.message : e));
+      }
     }
-    throw last || new Error("no runtime");
+    throw new Error(tried.join("\n  ") || "no runtime");
   }
 
   async function runPy(code) {
     var py;
     try { py = await boot(); }
     catch (e) {
-      return say({ out: "Python could not start here — " +
-                        (e && e.message ? e.message : "unknown reason") +
-                        ".\nThe runtime is served from this site and "
+      return say({ out: "Python could not start here.\n\nWhat was tried:\n  "
+                        + (e && e.message ? e.message : "unknown")
+                        + "\n\nThe runtime is served from this site and "
                         + "downloaded once, so this is not usually the "
                         + "network." });
     }
