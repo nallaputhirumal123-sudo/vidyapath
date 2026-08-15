@@ -1798,7 +1798,8 @@ function showResetForm(){
   const box=$("#authcardBody")||$("#gate");
   $("#loginForm").style.display="none";
   $("#signupForm").style.display="none";
-  const tabs=$("#tabLogin")?.parentElement; if(tabs) tabs.style.display="none";
+  const el0=$("#tabLogin"); const tabs=el0&&el0.parentElement;
+    if(tabs) tabs.style.display="none";
   let f=$("#resetForm");
   if(!f){
     f=document.createElement("form"); f.id="resetForm";
@@ -2317,7 +2318,7 @@ function renderWho(){
 }
 
 function renderNav(){
-  const q=($("#search")?.value||"").trim().toLowerCase();
+  const sb=$("#search"); const q=((sb&&sb.value)||"").trim().toLowerCase();
   let h="";
   if(q){
     const hits=[];
@@ -2418,7 +2419,13 @@ function renderNav(){
      work through, and all of which pushed the class they actually teach off
      the screen. They can still open any of it from the board. */
   const list = staff ? [] : activeTracks();
-  if(!staff) h+=`<div class="navsec">${S.path?(PATH_PRESETS.find(p=>p.id===S.path)?.name||"")+" path":"All tracks"}</div>`;
+  if(!staff){
+    /* Written out rather than with ?. — optional chaining is a PARSE error
+       on a browser older than Chrome 80, which takes this whole script down
+       and leaves a blank page on a school's un-updated board. */
+    const pp = S.path && PATH_PRESETS.find(p => p.id === S.path);
+    h+=`<div class="navsec">${S.path?((pp&&pp.name)||"")+" path":"All tracks"}</div>`;
+  }
   list.forEach(t=>{
     const d=trackDone(t),n=t.lessons.length;
     h+=`<button class="navitem ${d===n&&n?"done":""} ${S.view.page==="track"&&S.view.track===t.id?"active":""}" data-nav="track" data-id="${t.id}">
@@ -3567,7 +3574,8 @@ async function examSolveGo(){
        solved paper. */
     const order = new Map(asked.map((q, i) => [String(q.n), i]));
     const inOrder = () => SOLVED.questions.sort(
-      (a, b) => (order.get(String(a.n)) ?? 0) - (order.get(String(b.n)) ?? 0));
+      (a, b) => (order.has(String(a.n)) ? order.get(String(a.n)) : 0)
+              - (order.has(String(b.n)) ? order.get(String(b.n)) : 0));
     let done = 0;
     const tick = () => {
       inOrder();

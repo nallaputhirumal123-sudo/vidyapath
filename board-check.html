@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Will this board run Craxlearn?</title>
+<!--
+  A page to open ON the school's own board, before anybody buys anything.
+
+  Most classroom boards in service were bought years ago and have never been
+  updated. Their browser is whatever shipped with them, and nobody in the
+  school has the password to change it. Selling into that and finding out
+  afterwards which half of the product does not run is the worst possible
+  order to discover it in — for the school and for us.
+
+  So this page asks the board directly and says what it found, in words a
+  head of department can act on. It is deliberately the most primitive file
+  in this repository: no build step, no framework, no template literals, no
+  arrow functions, no let or const, no fetch. ES5 and nothing else, so it
+  runs on a browser far older than anything it is testing for — a checker
+  that cannot start on an old board tells you nothing about the old board.
+-->
+<style>
+  body { margin:0; font:16px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+         background:#0b0d10; color:#eef2f8; }
+  .wrap { max-width:820px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  .sub { color:#9aa7b0; margin:0 0 18px; font-size:14px; }
+  .verdict { border-radius:10px; padding:14px 16px; margin:0 0 18px;
+             font-size:17px; font-weight:600; }
+  .ok   { background:#123b26; color:#8ce0ac; }
+  .part { background:#3b3312; color:#f0d68a; }
+  .bad  { background:#3b1616; color:#f2a1a1; }
+  table { border-collapse:collapse; width:100%; font-size:14.5px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #232a33;
+           vertical-align:top; }
+  th { color:#9aa7b0; font-weight:600; font-size:12.5px; text-transform:uppercase;
+       letter-spacing:.04em; }
+  .y { color:#8ce0ac; font-weight:700; }
+  .n { color:#f2a1a1; font-weight:700; }
+  .w { color:#f0d68a; font-weight:700; }
+  .note { color:#9aa7b0; font-size:13px; }
+  .foot { margin-top:22px; padding-top:14px; border-top:1px solid #232a33;
+          color:#9aa7b0; font-size:13.5px; }
+  code { background:#151a21; padding:1px 5px; border-radius:4px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Will this board run Craxlearn?</h1>
+  <p class="sub">Open this page on the board itself. Nothing is installed and
+     nothing is sent anywhere.</p>
+  <div id="verdict" class="verdict part">Checking…</div>
+  <table>
+    <thead><tr><th style="width:34%">What</th><th style="width:12%">This board</th>
+      <th>What it means here</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+/* ES5 only. See the comment at the top of this file: a checker written in
+   the same modern JavaScript it is testing for would fail to parse on the
+   boards that most need checking, and a blank page is not a report. */
+(function () {
+  "use strict";
+
+  function has(fn) { try { return !!fn(); } catch (e) { return false; } }
+
+  /* Each row: what it is, how to test it, and — the part that matters — what
+     a school actually loses if the answer is no. */
+  var CHECKS = [
+    { name: "Modern JavaScript (2017)",
+      need: "must",
+      test: function () { return has(function () {
+        /* eslint-disable no-new-func */
+        new Function("return (async function(){})");
+        return true;
+      }); },
+      yes: "The site itself will load and run.",
+      no:  "Nothing here will load at all — the page will be blank. This " +
+           "board needs its browser updated, or a stick plugged into it." },
+
+    { name: "WebAssembly",
+      need: "python",
+      test: function () { return has(function () {
+        return typeof WebAssembly === "object" &&
+               typeof WebAssembly.instantiate === "function"; }); },
+      yes: "Python runs on the board itself, offline after the first load.",
+      no:  "The coding labs cannot run Python here. Lessons, notes, papers " +
+           "and the writing space are unaffected." },
+
+    { name: "3D graphics (WebGL)",
+      need: "3d",
+      test: function () { return has(function () {
+        var c = document.createElement("canvas");
+        return !!(c.getContext("webgl") || c.getContext("experimental-webgl"));
+      }); },
+      yes: "Molecules, fields, waves and the model library will draw.",
+      no:  "3D structures will not draw. Every lesson still reads; the " +
+           "pictures and diagrams are unaffected." },
+
+    { name: "Camera",
+      need: "scan",
+      test: function () { return has(function () {
+        return !!(navigator.mediaDevices &&
+                  navigator.mediaDevices.getUserMedia); }); },
+      yes: "A teacher can photograph a page or a problem from the board.",
+      no:  "Photograph on a phone instead and upload — the scanner still " +
+           "works, it just cannot use this board's camera." },
+
+    { name: "Screen recording",
+      need: "record",
+      test: function () { return has(function () {
+        return !!(navigator.mediaDevices &&
+                  navigator.mediaDevices.getDisplayMedia); }); },
+      yes: "Lessons can be recorded from the board.",
+      no:  "Recording is unavailable on this board. Everything else works." },
+
+    { name: "Sound out",
+      need: "nice",
+      test: function () { return has(function () {
+        return typeof speechSynthesis === "object"; }); },
+      yes: "Axle can read a lesson aloud to the room.",
+      no:  "Reading aloud is unavailable; the text is still there." },
+
+    { name: "Touch or pen",
+      need: "nice",
+      test: function () { return has(function () {
+        return ("ontouchstart" in window) || navigator.maxTouchPoints > 0 ||
+               window.PointerEvent; }); },
+      yes: "The writing space takes a finger or a stylus.",
+      no:  "Writing needs a mouse on this board." },
+
+    { name: "Local storage",
+      need: "must",
+      test: function () { return has(function () {
+        sessionStorage.setItem("_c", "1");
+        sessionStorage.removeItem("_c");
+        return true; }); },
+      yes: "Signing in stays signed in.",
+      no:  "Sign-in will not persist. Usually a privacy setting, not the age " +
+           "of the board." }
+  ];
+
+  var rows = document.getElementById("rows");
+  var must = 0, python = 0, three = 0;
+
+  for (var i = 0; i < CHECKS.length; i++) {
+    var c = CHECKS[i];
+    var ok = c.test();
+    if (!ok && c.need === "must") { must++; }
+    if (!ok && c.need === "python") { python++; }
+    if (!ok && c.need === "3d") { three++; }
+    var tr = document.createElement("tr");
+    var mark = ok ? '<span class="y">yes</span>'
+                  : (c.need === "must" ? '<span class="n">no</span>'
+                                       : '<span class="w">no</span>');
+    tr.innerHTML = "<td>" + c.name + "</td><td>" + mark +
+                   '</td><td class="note">' + (ok ? c.yes : c.no) + "</td>";
+    rows.appendChild(tr);
+  }
+
+  var v = document.getElementById("verdict");
+  if (must > 0) {
+    v.className = "verdict bad";
+    v.innerHTML = "This board is too old to run Craxlearn as it is. " +
+      "It can still be used — see below.";
+  } else if (python > 0 || three > 0) {
+    v.className = "verdict part";
+    v.innerHTML = "Craxlearn will run on this board, with some parts " +
+      "unavailable. The teaching, the papers and the writing space all work.";
+  } else {
+    v.className = "verdict ok";
+    v.innerHTML = "This board runs everything.";
+  }
+
+  /* What to do about it, which is the only reason anybody opens this page.
+     A board that cannot be updated is not a lost sale: it is a screen, and
+     the thing that has to be modern is whatever is plugged into it. */
+  var foot = "<b>If something is missing</b><br>" +
+    "A board that cannot be updated is still a perfectly good screen. Two " +
+    "ways round it, both cheap:<br><br>" +
+    "1. <b>Plug something modern into the HDMI socket.</b> Any recent " +
+    "Android TV stick or a small PC turns an old board into a current one, " +
+    "and nothing about the board itself has to change.<br><br>" +
+    "2. <b>Run it from a phone or laptop and show it on the board.</b> A " +
+    "teacher's own phone is almost always newer than the board on the wall." +
+    "<br><br><span class=\"note\">Browser reported: <code>" +
+    (navigator.userAgent || "unknown").replace(/[<>]/g, "") + "</code></span>";
+  document.getElementById("foot").innerHTML = foot;
+})();
+</script>
+</body>
+</html>
