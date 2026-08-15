@@ -36,10 +36,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 BOARD = io.open(os.path.join(ROOT, "craxlearn.html"), encoding="utf-8").read()
-# Just the recording code, so a phrase that appears elsewhere on the board
-# cannot pass for one that appears in it.
-REC = BOARD.split("/* Recording the lesson")[1].split(
-    "/* Choose a part of the picture")[0]
+IDX = io.open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+# One implementation, in a file of its own.
+#
+# It was written into the board and only the board, so a teacher working on
+# craxle.com — setting a paper, walking a class through a solved question,
+# turning a structure around — could not record any of it, which is most of
+# what they do at a desk. Two copies would have been two recorders that
+# disagree about where the file went, the same reason mathtext.js exists.
+REC = io.open(os.path.join(ROOT, "record.js"), encoding="utf-8").read()
 P, F = [], []
 
 
@@ -50,22 +55,36 @@ def ck(name, cond, why=""):
 
 
 print("\nthe button is on the board and wired to something")
-ck("the top bar has it", 'id="recBtn"' in BOARD)
+ck("the board's top bar has it", 'id="recBtn"' in BOARD)
+ck("and the website has one too", 'id="recFab"' in IDX,
+   "setting a paper, or walking a class through a solved question, "
+   "happens here rather than on the board")
 ck("and pressing it does something",
-   'el("recBtn").onclick' in BOARD,
+   'el("recBtn").onclick' in BOARD and '#recFab' in IDX,
    "a button in the bar with no handler is the fault this board has had "
    "three times, and it fails silently every time")
 ck("one button starts and stops",
-   "if(recOn()) recStop" in BOARD and "else recStart()" in BOARD,
+   "recOn() ? recStop(\"\") : recStart()" in REC,
    "a board is operated mid-sentence; one button pressed again is easier "
    "to explain than two to choose between")
+ck("and both screens press the same one",
+   "Recorder.toggle()" in BOARD and "Recorder.toggle()" in IDX,
+   "the recorder was on the board and only the board, so nothing a "
+   "teacher did on the website could be recorded")
+ck("each screen lends it a name for the file",
+   "Recorder.attach" in BOARD and "Recorder.attach" in IDX,
+   "a folder of craxlearn-1, craxlearn-2, craxlearn-3 sorts into nothing")
+ck("and neither offers a button the browser cannot honour",
+   "Recorder.supported()" in BOARD and "Recorder.supported()" in IDX,
+   "an offer that fails when pressed is worse than no offer, and this is "
+   "the first thing to go on an older board")
 ck("it is hidden before anybody has signed in",
    "body.gated #recBtn" in BOARD)
 
 print("\nthe room can see that it is recording")
-ck("there is a notice, not just a coloured button", "#recPill" in BOARD)
-ck("it says the word", ">Recording<" in BOARD.replace("</span>", "<"))
-ck("it shows how long it has been running", 'class="rt"' in BOARD)
+ck("there is a notice, not just a coloured button", "#recPill" in REC)
+ck("it says the word", ">Recording<" in REC.replace("</span>", "<"))
+ck("it shows how long it has been running", 'class="rt"' in REC)
 ck("and it can be stopped by tapping it",
    "pill.onclick" in REC and "recStop" in REC)
 ck("the notice is removed when recording ends",
@@ -116,8 +135,8 @@ ck("cancelling the share picker is not an error",
    "cancelling the picker is not an error" in REC)
 ck("cancelling the save dialog stops there",
    'e.name === "AbortError"' in REC)
-ck("closing the board mid-recording asks first",
-   'beforeunload' in BOARD and "if(!recOn()) return;" in BOARD)
+ck("closing a screen mid-recording asks first",
+   "beforeunload" in BOARD and "if(!Recorder.on()) return;" in BOARD)
 
 print("\nthe file is named so it can be found again")
 ck("it carries the subject and the date",
