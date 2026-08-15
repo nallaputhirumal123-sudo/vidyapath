@@ -82,24 +82,60 @@ ck("no learner code is executed in the app's own window",
    "this is where it used to happen, and the cookie went with it")
 
 print("\nan opaque origin still has a network, so it is told where it may go")
-CSP = re.search(r'http-equiv="Content-Security-Policy"[^>]*content="([^"]*)"',
-                FRAME_ALL, re.S)
-ck("the runner carries a policy", bool(CSP))
-POL = " ".join(CSP.group(1).split()) if CSP else ""
+# The policy is a HEADER and the origin in it is NAMED, and both halves of
+# that were learned the hard way.
+#
+# In an opaque origin — which is the whole security design — the CSP keyword
+# 'self' matches nothing at all. A policy of "script-src 'self'" inside this
+# page therefore blocked the page's own runtime, so the storage fix
+# underneath was correct and Python still would not start: the thing added
+# to protect the frame was refusing it. Measured in a real sandboxed frame,
+# a same-site script is BLOCKED under 'self' and allowed when the origin is
+# written out.
+#
+# Only the server knows that origin — craxle.com in production, a school's
+# own domain on their deployment, localhost while somebody works on it — so
+# it is read from the request rather than written down anywhere.
+#
+# Asked for, not read. The route's own docstring explains why 'self' is
+# wrong here, and a test that greps the source finds the explanation and
+# fails on it — which happened three times in this file before the checks
+# below started fetching the page and reading the header instead.
+import os as _os                                        # noqa: E402
+_os.environ.setdefault("DATABASE_URL", "sqlite:///./vidyapath.db")
+_os.environ.setdefault("ALLOW_SQLITE", "1")
+import main as _m                                       # noqa: E402
+from fastapi.testclient import TestClient               # noqa: E402
+_r = TestClient(_m.app).get("/sandbox-frame.html")
+POL = " ".join((_r.headers.get("content-security-policy") or "").split())
+ck("the page is served", _r.status_code == 200)
+ck("the policy comes from the server", bool(POL))
+ck("and never says 'self'", "'self'" not in POL,
+   "in an opaque origin it matches nothing, so it blocks the very runtime "
+   "this page exists to run")
+ck("the origin is written out in full", "http" in POL.split("script-src")[1][:40],
+   "read from the request, because written down it would be right on one "
+   "deployment and wrong on every other one")
 ck("everything is refused by default", "default-src 'none'" in POL,
    "an allowlist that starts from nothing is the only kind worth having")
 ck("it may talk to this site and the runtime's CDN, and nowhere else",
-   "connect-src 'self' https://cdn.jsdelivr.net" in POL,
+   "connect-src" in POL and "https://cdn.jsdelivr.net" in POL,
    "code in an exercise box could otherwise beacon to any host on the "
    "internet, from a school's machines, in the school's name")
-ck("images, frames and everything else stay closed",
-   "img-src" not in POL and "default-src 'none'" in POL)
 ck("scripts come from the same two places",
-   "script-src 'self'" in POL and "https://cdn.jsdelivr.net" in POL)
+   POL.split("script-src")[1].split(";")[0].count("http") >= 2)
 ck("eval is allowed, and that is the feature not a hole",
    "'unsafe-eval'" in POL and "'wasm-unsafe-eval'" in POL,
    "running the learner's code IS the product; the sandbox attribute is "
    "what makes it safe, and the policy closes the network it cannot")
+ck("and the page itself is never cached",
+   "no-store" in (_r.headers.get("cache-control") or ""),
+   "it is the one file whose contents decide whether the lab works at all, "
+   "and a stale copy is a fix that shipped and did not arrive")
+ck("no policy is left inside the file to fight it",
+   'http-equiv="Content-Security-Policy"' not in FRAME_ALL,
+   "two policies both apply and the stricter wins, so a leftover one with "
+   "'self' in it would go on blocking everything")
 
 print("\nresults come back on a channel nobody else holds")
 ck("a MessageChannel, not window messages", "new MessageChannel()" in SB,

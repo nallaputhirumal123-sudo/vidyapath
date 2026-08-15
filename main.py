@@ -22751,6 +22751,10 @@ Finish the remaining {len(remaining)} and this page becomes your certificate.</p
 # ---------------------------- static files --------------------------------
 # Served explicitly. Without these, requests fall through to the catch-all
 # 404 handler and get index.html back, which breaks silently in the browser.
+# Where the Python runtime falls back to when this site cannot serve it.
+# Named once, because it appears in the sandbox's policy and in the frame.
+CDN_PYODIDE = "https://cdn.jsdelivr.net"
+
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js":   "application/javascript",
@@ -22797,6 +22801,43 @@ def font_file(filename: str, ext: str):
         raise HTTPException(404, "Not found")
     return FileResponse(path, media_type=STATIC_TYPES.get(suffix,
                                                           "font/woff2"))
+
+
+@app.get("/sandbox-frame.html")
+def sandbox_frame(request: Request):
+    """The page a learner's code runs in, with its policy set by name.
+
+    The policy cannot live in the file, and that is not a style choice.
+
+    A frame carrying sandbox="allow-scripts" without allow-same-origin has
+    an OPAQUE origin, and in an opaque origin the CSP keyword 'self'
+    matches nothing at all — not this site, not anything. So a policy
+    written as "script-src 'self'" inside the page blocks the page's own
+    runtime, which is exactly what happened: the storage fix underneath was
+    correct and the frame still could not load Python, because the thing
+    added to protect it was refusing it. Measured in a real sandboxed frame:
+    a same-site script is BLOCKED under 'self' and allowed when the origin
+    is named.
+
+    So the origin is named, and only the server knows it — craxle.com in
+    production, a school's own domain on their deployment, localhost while
+    somebody is working on it. It is read from the request rather than
+    written down, so it cannot be right in one place and wrong in another.
+    """
+    origin = str(request.base_url).rstrip("/")
+    csp = ("default-src 'none'; "
+           f"script-src {origin} {CDN_PYODIDE} 'unsafe-inline' 'unsafe-eval' "
+           "'wasm-unsafe-eval' blob:; "
+           f"connect-src {origin} {CDN_PYODIDE} blob: data:; "
+           "worker-src blob:; child-src blob:; style-src 'unsafe-inline'")
+    return FileResponse(
+        BASE_DIR / "sandbox-frame.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Security-Policy": csp,
+                 # Never cached. It is the one file whose contents decide
+                 # whether the lab works at all, and a stale copy of it is a
+                 # fix that shipped and did not arrive.
+                 "Cache-Control": "no-store"})
 
 
 @app.get("/pyodide/{filename}.{ext}")

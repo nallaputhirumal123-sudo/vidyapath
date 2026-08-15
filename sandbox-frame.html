@@ -3,24 +3,19 @@
 <head>
 <meta charset="utf-8">
 <title>runner</title>
-<!-- An opaque origin has no cookies, no storage and no parent — and it
-     still has a network. There is nothing in here worth stealing, so
-     exfiltration is not the worry; being a beacon is. Code typed into an
-     exercise box could otherwise call any host on the internet, from a
-     school's machines, in the school's name. This says where the frame may
-     go, and it is two places: this site, for the Python runtime, and the
-     CDN it falls back to.
+<!-- The policy is a HEADER, set by the server, and deliberately not here.
 
-     'unsafe-eval' and 'wasm-unsafe-eval' are not a weakening. Running the
-     learner's code IS the feature, and the sandbox attribute on the frame
-     is what makes that safe. This closes the network, which the sandbox
-     attribute does not. -->
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'none';
-  script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:
-             https://cdn.jsdelivr.net;
-  connect-src 'self' https://cdn.jsdelivr.net blob: data:;
-  worker-src blob:; child-src blob:; style-src 'unsafe-inline'">
+     This frame has an OPAQUE origin — that is the whole security design —
+     and in an opaque origin the CSP keyword 'self' matches nothing at all.
+     A policy written in this file could only say 'self' or hard-code a
+     domain, and the first blocks the page's own runtime while the second is
+     wrong on every deployment but one. The server knows the origin it is
+     answering on, so it says it: see the /sandbox-frame.html route.
+
+     What the policy does is close the network. An opaque origin has no
+     cookies, no storage and no parent — and it still has a network, so code
+     typed into an exercise box could otherwise call any host on the
+     internet, from a school's machines, in the school's name. -->
 </head>
 <body>
 <script>
