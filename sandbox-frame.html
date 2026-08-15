@@ -57,6 +57,50 @@
    * where the files did not ship. */
   var HOMES = ["/pyodide/", "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"];
 
+  /* Somewhere to keep nothing, so the runtime believes it is in a browser.
+   *
+   * This is the whole reason Python never started here, and it took three
+   * wrong answers to find. Pyodide decides which environment it is in by
+   * asking, among other things, for `typeof sessionStorage == "object"`.
+   * A document with no origin has no storage, and asking for it does not
+   * return undefined — it THROWS SecurityError. So the check blew up, the
+   * bundle threw while loading, `var loadPyodide` was left declared with no
+   * value, and the call afterwards said "not a function". Every layer above
+   * translated that into a sentence about the internet.
+   *
+   * Measured in a sandboxed frame: `typeof sessionStorage` throws
+   * SecurityError, and the property is configurable — so the page may
+   * define its own. This one holds values in a variable and loses them when
+   * the frame is thrown away, which is the correct lifetime for a scratch
+   * pad in a code lab and is the only thing anything here uses it for.
+   *
+   * It gives nothing back that the sandbox took away. Real sessionStorage
+   * is per-origin, and the point of the opaque origin is that this frame
+   * has no origin to share; a private object is not the school's storage
+   * under another name.
+   */
+  function scratch() {
+    var mem = Object.create(null);
+    return {
+      get length() { return Object.keys(mem).length; },
+      key: function (i) { return Object.keys(mem)[i] || null; },
+      getItem: function (k) { return k in mem ? mem[k] : null; },
+      setItem: function (k, v) { mem[k] = String(v); },
+      removeItem: function (k) { delete mem[k]; },
+      clear: function () { mem = Object.create(null); }
+    };
+  }
+  ["sessionStorage", "localStorage"].forEach(function (name) {
+    var ok = false;
+    try { ok = typeof window[name] === "object" && window[name] !== null; }
+    catch (e) { ok = false; }        /* SecurityError: there is none */
+    if (ok) return;
+    try {
+      Object.defineProperty(window, name,
+        { value: scratch(), configurable: true, writable: true });
+    } catch (e) { /* nothing else to try; the reason below will say so */ }
+  });
+
   window.onmessage = function (e) {
     if (e.data !== "port" || !e.ports || !e.ports[0]) return;
     PORT = e.ports[0];

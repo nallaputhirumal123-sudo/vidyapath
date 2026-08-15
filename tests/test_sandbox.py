@@ -172,6 +172,36 @@ ck("and the lab prints what it was given",
    "a hardcoded sentence about the internet was printed over every "
    "possible cause, including the ones that were not the internet")
 
+print("\nand the runtime is given somewhere to keep nothing")
+# This is why Python never started, and it took three wrong answers to
+# find. Pyodide decides which environment it is in by asking, among other
+# things, for `typeof sessionStorage == "object"`. A document with no
+# origin has no storage, and asking for it does not return undefined — it
+# THROWS SecurityError. The bundle threw while loading, `var loadPyodide`
+# was left declared with no value, and the call afterwards said "not a
+# function". Every layer above translated that into the internet.
+#
+# Measured in a real sandboxed frame: typeof sessionStorage throws
+# SecurityError, the property is configurable, and with a private object
+# in its place the runtime boots and print() works.
+ck("the frame provides its own storage before the runtime loads",
+   "sessionStorage" in FRAME and "configurable: true" in FRAME,
+   "asking for it throws in a document with no origin, so the check "
+   "blew up before it could be false")
+ck("and localStorage too", '"localStorage"' in FRAME)
+ck("it is a private object, not the browser's",
+   "Object.create(null)" in FRAME and "function scratch()" in FRAME,
+   "it holds values in a variable and loses them when the frame is "
+   "thrown away, which is the right lifetime for a code lab")
+ck("it gives nothing back that the sandbox took away",
+   "not the school's storage under another name"
+   in " ".join(FRAME_ALL.replace("*", " ").split()),
+   "real storage is per-origin, and the point of the opaque origin is "
+   "that this frame has no origin to share")
+ck("and it is installed before anything is fetched",
+   FRAME.index("sessionStorage") < FRAME.index("loadScript"),
+   "after the runtime has already asked, it is too late")
+
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:
