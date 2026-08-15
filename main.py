@@ -22824,11 +22824,20 @@ def sandbox_frame(request: Request):
     somebody is working on it. It is read from the request rather than
     written down, so it cannot be right in one place and wrong in another.
     """
-    origin = str(request.base_url).rstrip("/")
+    # The HOST, with no scheme in front of it — and that is the whole point.
+    #
+    # request.base_url said "http://craxle.com", because Railway ends the
+    # TLS at its proxy and hands the app a plain HTTP request. The browser
+    # is on https, and a CSP source that names a scheme only matches that
+    # scheme: "script-src http://craxle.com" refuses
+    # https://craxle.com/pyodide/pyodide.js, which is this site refusing its
+    # own runtime. A bare host matches either, so there is nothing to get
+    # wrong behind a proxy, on a school's own domain, or on localhost.
+    here = request.url.netloc or request.headers.get("host", "")
     csp = ("default-src 'none'; "
-           f"script-src {origin} {CDN_PYODIDE} 'unsafe-inline' 'unsafe-eval' "
+           f"script-src {here} {CDN_PYODIDE} 'unsafe-inline' 'unsafe-eval' "
            "'wasm-unsafe-eval' blob:; "
-           f"connect-src {origin} {CDN_PYODIDE} blob: data:; "
+           f"connect-src {here} {CDN_PYODIDE} blob: data:; "
            "worker-src blob:; child-src blob:; style-src 'unsafe-inline'")
     return FileResponse(
         BASE_DIR / "sandbox-frame.html",

@@ -106,7 +106,10 @@ _os.environ.setdefault("DATABASE_URL", "sqlite:///./vidyapath.db")
 _os.environ.setdefault("ALLOW_SQLITE", "1")
 import main as _m                                       # noqa: E402
 from fastapi.testclient import TestClient               # noqa: E402
-_r = TestClient(_m.app).get("/sandbox-frame.html")
+# A realistic Host, because the policy is built from it and the test
+# client's default is the dotless "testserver".
+_r = TestClient(_m.app).get("/sandbox-frame.html",
+                            headers={"host": "craxle.com"})
 POL = " ".join((_r.headers.get("content-security-policy") or "").split())
 ck("the page is served", _r.status_code == 200)
 ck("the policy comes from the server", bool(POL))
@@ -122,8 +125,15 @@ ck("it may talk to this site and the runtime's CDN, and nowhere else",
    "connect-src" in POL and "https://cdn.jsdelivr.net" in POL,
    "code in an exercise box could otherwise beacon to any host on the "
    "internet, from a school's machines, in the school's name")
+_SCRIPTS = POL.split("script-src")[1].split(";")[0]
 ck("scripts come from the same two places",
-   POL.split("script-src")[1].split(";")[0].count("http") >= 2)
+   "cdn.jsdelivr.net" in _SCRIPTS
+   and len([w for w in _SCRIPTS.split()
+            if "." in w and not w.startswith("'")]) >= 2)
+ck("and this site is named without a scheme in front of it",
+   not _SCRIPTS.strip().startswith("http://"),
+   "the app is behind a proxy that ends the TLS, so it sees http while "
+   "the browser is on https; a bare host cannot be wrong about that")
 ck("eval is allowed, and that is the feature not a hole",
    "'unsafe-eval'" in POL and "'wasm-unsafe-eval'" in POL,
    "running the learner's code IS the product; the sandbox attribute is "
@@ -237,6 +247,26 @@ ck("it gives nothing back that the sandbox took away",
 ck("and it is installed before anything is fetched",
    FRAME.index("sessionStorage") < FRAME.index("loadScript"),
    "after the runtime has already asked, it is too late")
+
+print("\nthe runner says which copy of itself is running")
+# Four rounds of "same thing again" went past with no way to tell a
+# browser holding an old runner from a new one that still does not work.
+# They look identical from outside, and the second is a bug while the
+# first is a cache.
+ck("the frame URL carries the file's own hash",
+   'FRAME_SRC = "/sandbox-frame.html?v=' in SB
+   and '?v=0000000000' not in SB,
+   "without it the URL never changes, so a fix to the runner ships, "
+   "deploys, and reaches nobody")
+ck("and the stamper keeps it honest",
+   "stamp_frame" in io.open(os.path.join(ROOT, "tools", "stamp_assets.py"),
+                            encoding="utf-8").read())
+ck("the runner reads its build off the URL", "var BUILD =" in FRAME)
+ck("and prints it when it fails", 'Runner " + BUILD' in FRAME)
+ck("with what happened to the storage",
+   "var STORAGE =" in FRAME and "installed" in FRAME,
+   "a shim that did not install and a shim that was never in this copy "
+   "of the file look the same from outside")
 
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))

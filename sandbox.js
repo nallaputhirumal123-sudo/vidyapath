@@ -60,7 +60,13 @@
    * opaque origin — no cookies, no storage, no parent, every request to
    * this site cross-origin and uncredentialed.
    */
-  var FRAME_SRC = "/sandbox-frame.html";
+  /* The ?v= is the frame's own content hash, written by tools/stamp_assets.
+     Without it the URL never changes, so a browser that has loaded the
+     runner once keeps using that copy — and a fix to the runner ships,
+     deploys, and reaches nobody. On a page that says "Python could not
+     start", a stale runner is indefinitely convincing: every new attempt
+     fails in the identical way. */
+  var FRAME_SRC = "/sandbox-frame.html?v=2f42fd8491";
 
   function build(lang) {
     var f = document.createElement("iframe");
@@ -68,7 +74,7 @@
        hand the frame this origin back and undo the entire file. */
     f.setAttribute("sandbox", "allow-scripts");
     f.style.cssText = "position:absolute;width:0;height:0;border:0;left:-9999px";
-    f.src = FRAME_SRC + "?lang=" + (lang === "py" ? "py" : "js");
+    f.src = FRAME_SRC + "&lang=" + (lang === "py" ? "py" : "js");
     document.body.appendChild(f);
 
     var chan = new MessageChannel();

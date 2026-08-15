@@ -41,6 +41,12 @@
   var PORT = null, PY = null;
   var LANG = (location.search.match(/[?&]lang=([a-z]+)/) || [])[1] === "py"
     ? "py" : "js";
+  /* Which copy of this file is running, read off the URL it was asked for.
+     A browser holding an old runner is indistinguishable from a new one
+     that does not work — four rounds of "same thing again" went past with
+     no way to tell those apart — unless the runner says which it is. */
+  var BUILD = (location.search.match(/[?&]v=([a-f0-9]+)/) || [])[1]
+    || "unstamped";
 
   /* This site first, the CDN only if that fails.
    *
@@ -85,15 +91,24 @@
       clear: function () { mem = Object.create(null); }
     };
   }
+  /* What happened to the storage, in one word each, for the failure
+     message. A shim that did not install and a shim that was never in this
+     copy of the file look identical from outside. */
+  var STORAGE = [];
   ["sessionStorage", "localStorage"].forEach(function (name) {
     var ok = false;
     try { ok = typeof window[name] === "object" && window[name] !== null; }
     catch (e) { ok = false; }        /* SecurityError: there is none */
-    if (ok) return;
+    if (ok) { STORAGE.push(name + "=real"); return; }
     try {
       Object.defineProperty(window, name,
         { value: scratch(), configurable: true, writable: true });
-    } catch (e) { /* nothing else to try; the reason below will say so */ }
+      var got;
+      try { got = typeof window[name]; } catch (e2) { got = "still throws"; }
+      STORAGE.push(name + "=" + (got === "object" ? "installed" : got));
+    } catch (e) {
+      STORAGE.push(name + "=could not install");
+    }
   });
 
   window.onmessage = function (e) {
@@ -168,7 +183,9 @@
     catch (e) {
       return say({ out: "Python could not start here.\n\nWhat was tried:\n  "
                         + (e && e.message ? e.message : "unknown")
-                        + "\n\nThe runtime is served from this site and "
+                        + "\n\nRunner " + BUILD + " · storage: "
+                        + STORAGE.join(", ")
+                        + "\nThe runtime is served from this site and "
                         + "downloaded once, so this is not usually the "
                         + "network." });
     }

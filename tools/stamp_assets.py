@@ -33,8 +33,46 @@ def digest(path):
         return hashlib.sha256(fh.read()).hexdigest()[:10]
 
 
+# The runner frame is not a <script src>, so the pattern above never sees
+# it — it is an iframe URL inside sandbox.js. It needs the same treatment
+# for the same reason and got it late: a fix to the frame shipped, the URL
+# did not change, and the browser went on using the copy it already had. On
+# a page that says "Python could not start", a stale runner is indefinitely
+# convincing, because every new attempt fails in the identical way.
+FRAME_IN = "sandbox.js"
+FRAME_FILE = "sandbox-frame.html"
+FRAME_PATTERN = re.compile(r'(FRAME_SRC = "/sandbox-frame\.html\?v=)([a-f0-9]+)')
+
+
+def stamp_frame(write=True):
+    js = os.path.join(ROOT, FRAME_IN)
+    frame = os.path.join(ROOT, FRAME_FILE)
+    if not (os.path.exists(js) and os.path.exists(frame)):
+        print(f"  !! {FRAME_IN} or {FRAME_FILE} is not on disk")
+        return 1
+    src = io.open(js, encoding="utf-8").read()
+    want = digest(frame)
+    m = FRAME_PATTERN.search(src)
+    if not m:
+        print(f"  !! {FRAME_IN} has no stamped {FRAME_FILE} URL")
+        return 1
+    if m.group(2) == want:
+        print(f"  {FRAME_FILE}: the runner's URL already matches it")
+        return 0
+    print(f"  {FRAME_FILE}: {m.group(2)} -> {want}")
+    if write:
+        io.open(js, "w", encoding="utf-8", newline="").write(
+            FRAME_PATTERN.sub(lambda _: m.group(1) + want, src))
+        print(f"  {FRAME_IN} restamped")
+    return 0
+
+
 def main(write=True):
     rc = 0
+    # The frame first: its hash goes into sandbox.js, and sandbox.js's hash
+    # then goes into the pages. Stamped the other way round, a change to the
+    # frame would not reach the pages until the next run.
+    rc |= stamp_frame(write)
     for name in HTMLS:
         rc |= stamp_one(os.path.join(ROOT, name), name, write)
     return rc
