@@ -125,6 +125,19 @@ ck("it carries the subject and the date",
 ck("and the extension matches what was actually recorded",
    'indexOf("mp4") >= 0 ? ".mp4" : ".webm"' in REC,
    "a webm named .mp4 is a file the school's own player refuses")
+print("\nand it finishes exactly once, whatever ends it")
+# Three ways in — the button, the notice, and the browser's own "Stop
+# sharing" bar ending the track — and on a bad day two arrive together.
+# The second one used to land on an already-finished recording and report
+# "Nothing was recorded" over the line that said where the file went. A
+# teacher who had just stopped a good recording would read the last
+# sentence and believe they had lost it.
+ck("finishing is guarded", "if(REC.ending) return;" in REC)
+ck("and the guard is cleared when a new one starts",
+   "REC.ending = false;" in REC)
+ck("a stop with nothing running does not invent a failure",
+   "if(REC.view || REC.sink || REC.chunks) recFinish();" in REC)
+
 
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:

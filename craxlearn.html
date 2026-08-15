@@ -1909,6 +1909,7 @@ async function recStart(){
   REC.sink = sink; REC.chunks = sink ? null : []; REC.bytes = 0;
   REC.t0 = Date.now(); REC.queue = Promise.resolve();
   REC.cap = sink ? 0 : REC_MEM_MS;
+  REC.ending = false;
 
   rec.ondataavailable = function(e){
     if(!e.data || !e.data.size) return;
@@ -1943,12 +1944,23 @@ function recStop(msg){
   if(REC.rec && REC.rec.state !== "inactive"){
     REC.msg = msg || "";
     try{ REC.rec.stop(); }catch(e){ recFinish(); }
-  }else{
-    recFinish();
+    return;
   }
+  /* Nothing running. Only finish if there is something left to finish —
+     otherwise a second stop lands on an already-finished recording and
+     reports "Nothing was recorded" over the message that said where the
+     file went. A teacher who stopped a good recording would read the last
+     line and believe they had lost it. */
+  if(REC.view || REC.sink || REC.chunks) recFinish();
 }
 
 async function recFinish(){
+  /* Once per recording, whatever ends it.
+     There are three ways in — the button, the notice, and the browser's own
+     "Stop sharing" bar ending the track — and on a bad day two of them
+     arrive together. */
+  if(REC.ending) return;
+  REC.ending = true;
   var sink = REC.sink, chunks = REC.chunks, name = REC.name;
   var msg = REC.msg || "";
   var type = (REC.rec && REC.rec.mimeType) || "video/webm";
