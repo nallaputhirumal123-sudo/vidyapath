@@ -567,6 +567,38 @@ body.gated .gatesources{display:none}
 
 /* The recording notice styles itself — see record.js. */
 
+/* The Ask window.
+ *
+ * It floats over the work rather than taking a space of its own: a question
+ * about one word should not rearrange the lesson underneath it. Dragged by
+ * its bar, resized by its corner, closed by its ✕ — and it stays where it
+ * was put, because a window that jumps back to the middle of the screen
+ * every time is a window a teacher stops using.
+ *
+ * `resize: both` needs `overflow` to be anything but visible, which is why
+ * the body scrolls rather than the window growing to fit a long lesson. */
+.askfloat{position:fixed;right:18px;bottom:18px;z-index:80;
+  width:min(30rem,92vw);height:min(28rem,70vh);min-width:16rem;
+  min-height:9rem;max-width:96vw;max-height:92vh;
+  display:flex;flex-direction:column;overflow:hidden;resize:both;
+  background:var(--panel,#151a21);color:inherit;
+  border:1px solid rgba(255,255,255,.18);border-radius:12px;
+  box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.askfloat[hidden]{display:none}
+.askfloat-bar{flex:0 0 auto;display:flex;align-items:center;gap:.5rem;
+  padding:.45rem .6rem;cursor:move;touch-action:none;
+  background:rgba(255,255,255,.06);
+  border-bottom:1px solid rgba(255,255,255,.12);user-select:none}
+.askfloat-name{font-size:.82rem;font-weight:650;letter-spacing:.01em}
+.askfloat-grow{flex:1 1 auto}
+.askfloat-x{border:0;background:transparent;color:inherit;font-size:1rem;
+  cursor:pointer;padding:.1rem .35rem;border-radius:6px;line-height:1}
+.askfloat-x:hover{background:rgba(255,255,255,.12)}
+/* The lesson scrolls inside it. The padding is here rather than on the
+   window so the drag bar still runs edge to edge. */
+.askfloat-body{flex:1 1 auto;min-height:0;overflow:auto;padding:.7rem .8rem}
+@media print{.askfloat{display:none}}
+
 /* A viewer takes whatever is left after the controls above it, and follows
    the space when it is dragged. A fixed height is wrong in both directions
    at once on a board: a small picture on a wall, or a picture taller than
@@ -1081,7 +1113,16 @@ function remember(arg){
   if(PANES[i]) PANES[i].arg = arg;
 }
 
+/* Where a page draws.
+ *
+ * Normally the body of the space being drawn. While the floating Ask panel
+ * is being filled it is that panel instead — which is what lets the whole
+ * board renderer, written against a single screen, work inside a window
+ * that floats over one without knowing it is doing so. */
+var FLOAT_HOST = null;
+
 function paneBody(){
+  if(FLOAT_HOST) return FLOAT_HOST;
   var p = document.querySelector('.paneBody[data-i="' + DRAW + '"]');
   return p || document.querySelector(".paneBody") || el("app");
 }
@@ -5765,42 +5806,106 @@ async function phet(pick){
  * drawing mode it is drawing, and a stroke must never turn into a text
  * selection halfway through a diagram.
  */
-/* Beside what is being read, not instead of it.
+/* Over what is being read, not beside it and not instead of it.
  *
- * Replacing the pane took the lesson off the screen to answer a question
- * about the lesson — the class loses the sentence they were looking at, and
- * the teacher has to find their way back to it. So the board opens in a
- * second space and the reading stays where it was.
+ * Three tries at this. Replacing the pane took the lesson off the screen to
+ * answer a question about the lesson: the class loses the sentence they
+ * were looking at and the teacher has to find their way back to it. So it
+ * opened a SECOND space — and on a board already split in two that made a
+ * third, which reflowed everything on the screen to make room. A question
+ * about one word should not rearrange the lesson.
  *
- * If a board is already open in another space it is reused rather than a
- * third one added: every tool names its fields by id, so two boards would
- * both write into the same box.
+ * It is a window now. It floats above the work, it can be dragged anywhere,
+ * resized by its corner, and closed — and until it is closed it stays where
+ * the teacher put it, so asking a second question does not move it back to
+ * where the code thought it should go.
+ *
+ * If a space is ALREADY showing the board, that one is used instead. Every
+ * tool names its fields by id, and two boards on one screen would both
+ * write into the same box.
  */
-function askBeside(q){
+var ASKPOS = null;          /* kept for the session, so it stays put */
+
+function askFloat(q){
   if(!q) return;
-  var at = -1;
   for(var i = 0; i < PANES.length; i++){
-    if(toolOf(PANES[i].page) === "board" && i !== LIVE){ at = i; break; }
+    if(toolOf(PANES[i].page) === "board"){
+      PANES[i] = { page: "board", arg: q, flex: PANES[i].flex };
+      LIVE = i;
+      paintPanes();
+      return;
+    }
   }
-  if(at < 0 && PANES.length < MAX_PANES){
-    PANES = PANES.map(function(p){
-      return { page: p.page, arg: p.arg, flex: 1 };
-    });
-    PANES.push({ page: "board", arg: q, flex: 1 });
-    at = PANES.length - 1;
-  }else if(at < 0){
-    // No room to split. Teaching it in place beats refusing.
-    at = LIVE;
+  var box = el("askFloat") || buildAskFloat();
+  var body = el("askFloatBody");
+  box.hidden = false;
+  /* The whole board renderer draws into this, unchanged, because main() is
+     "the body being drawn into" and for these few lines that is here. */
+  FLOAT_HOST = body;
+  try{ board(q); }
+  finally{ FLOAT_HOST = null; }
+}
+/* The name it had when it opened a pane. Kept so nothing else has to know
+   that it stopped being one. */
+function askBeside(q){ return askFloat(q); }
+
+function buildAskFloat(){
+  var box = document.createElement("div");
+  box.id = "askFloat";
+  box.className = "askfloat";
+  box.innerHTML =
+    '<div class="askfloat-bar" id="askFloatBar">' +
+      '<span class="askfloat-name">⚡ Ask Axle</span>' +
+      '<span class="askfloat-grow"></span>' +
+      '<button class="askfloat-x" id="askFloatShut" title="Close">✕</button>' +
+    "</div>" +
+    '<div class="askfloat-body" id="askFloatBody"></div>';
+  document.body.appendChild(box);
+  if(ASKPOS){
+    box.style.left = ASKPOS.left; box.style.top = ASKPOS.top;
+    box.style.width = ASKPOS.w; box.style.height = ASKPOS.h;
   }
-  PANES[at] = { page: "board", arg: q, flex: PANES[at].flex };
-  LIVE = at;
-  var b = el("splitBtn");
-  if(b){
-    b.title = PANES.length >= MAX_PANES
-      ? "Back to one space"
-      : "Open another space (" + PANES.length + " of 4)";
-  }
-  paintPanes();
+  el("askFloatShut").onclick = function(){
+    remember_ask(box);
+    box.hidden = true;
+    el("askFloatBody").innerHTML = "";
+  };
+
+  /* Dragged by its bar, with pointer events so a finger on a board and a
+     mouse on a laptop are the same code. The pointer is captured, so a fast
+     drag that leaves the bar does not drop the window halfway. */
+  var bar = el("askFloatBar"), from = null;
+  bar.addEventListener("pointerdown", function(e){
+    if(e.target.id === "askFloatShut") return;
+    var r = box.getBoundingClientRect();
+    from = { x: e.clientX, y: e.clientY, left: r.left, top: r.top };
+    bar.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  bar.addEventListener("pointermove", function(e){
+    if(!from) return;
+    var w = box.offsetWidth, h = box.offsetHeight;
+    /* Never off the screen. A window dragged past the edge of a board is a
+       window nobody in the room can reach, and there is no window list to
+       get it back from. */
+    var x = Math.max(8 - w + 60,
+              Math.min(window.innerWidth - 60, from.left + e.clientX - from.x));
+    var y = Math.max(0,
+              Math.min(window.innerHeight - 40, from.top + e.clientY - from.y));
+    box.style.left = x + "px";
+    box.style.top = y + "px";
+    box.style.right = "auto";
+    box.style.bottom = "auto";
+  });
+  bar.addEventListener("pointerup", function(){ from = null; remember_ask(box); });
+  bar.addEventListener("pointercancel", function(){ from = null; });
+  return box;
+}
+
+function remember_ask(box){
+  var r = box.getBoundingClientRect();
+  ASKPOS = { left: r.left + "px", top: r.top + "px",
+             w: r.width + "px", h: r.height + "px" };
 }
 
 
