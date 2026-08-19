@@ -5513,8 +5513,16 @@ def get_progress(user: User = Depends(current_user), db: Session = Depends(get_d
         # Saved explanations are whole lessons and are deliberately
         # absent here. This payload is sent on every page load; their
         # bodies are fetched by the notes page when it is opened.
-        "notes": {n.k: n.v for n in notes
-                  if not n.k.startswith(SAVED_PREFIX)},
+        #
+        # Ask's saved answers need their TITLES on every page load — that is
+        # what draws the "Saved answers" list — and nothing more. They used
+        # to arrive whole, which is why the client kept them under five
+        # thousand characters with a blind slice: a page load carrying twenty
+        # lessons is twenty lessons nobody asked for. A stub draws the list;
+        # the body is fetched when one is opened or downloaded.
+        "notes": {n.k: (_saved_stub(n.v) if n.k.startswith(ASK_SAVED_PREFIX)
+                        else n.v)
+                  for n in notes if not n.k.startswith(SAVED_PREFIX)},
         "path": user.path,
         "stats": _compute_stats(rows, all_quizzes, notes),
     }
@@ -5548,6 +5556,32 @@ def post_quiz(body: QuizIn, user: User = Depends(current_user), db: Session = De
 
 
 SAVED_PREFIX = "sbsave_"
+# Ask Axle keeps its answers under a prefix of its own. It is a saved lesson
+# by every measure that matters here — same size, same "it fails when you
+# read it back, not when you save it" failure — and it was missing from
+# every rule written for the other one.
+ASK_SAVED_PREFIX = "asksave_"
+SAVED_PREFIXES = (SAVED_PREFIX, ASK_SAVED_PREFIX)
+
+
+def _saved_stub(v: str) -> str:
+    """Enough of a saved answer to list it, and none of the lesson.
+
+    The list needs a title, the question and when it was kept. Returning the
+    whole thing on every page load is how the client ended up slicing lessons
+    to 4,900 characters to keep the payload down — and a lesson cut at 4,900
+    characters is invalid JSON, which fails silently when it is read back.
+    """
+    try:
+        d = json.loads(v)
+    except Exception:
+        return v          # already unreadable; hand it over rather than hide it
+    return json.dumps({"title": d.get("title") or "Saved answer",
+                       "q": d.get("q") or "",
+                       "subject": d.get("subject") or "",
+                       "level": d.get("level") or "",
+                       "ts": d.get("ts") or 0,
+                       "stub": True})
 
 
 @app.get("/api/notes/saved")
@@ -5577,7 +5611,7 @@ def saved_list(user: User = Depends(current_user), db: Session = Depends(get_db)
 def saved_one(key: str, user: User = Depends(current_user),
               db: Session = Depends(get_db)):
     """One saved explanation, opened on purpose."""
-    if not key.startswith(SAVED_PREFIX):
+    if not key.startswith(SAVED_PREFIXES):
         raise HTTPException(400, "Not a saved explanation.")
     row = db.query(Note).filter(Note.user_id == user.id, Note.k == key).first()
     if not row:
@@ -5613,7 +5647,7 @@ def post_note(body: NoteIn, user: User = Depends(current_user), db: Session = De
     # find out that something did not keep.
     if body.key.startswith("resume"):
         cap = 600_000
-    elif body.key.startswith(SAVED_PREFIX):
+    elif body.key.startswith(SAVED_PREFIXES):
         cap = 80_000
     else:
         cap = 5000

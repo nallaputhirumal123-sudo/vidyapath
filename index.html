@@ -6016,10 +6016,21 @@ async function askSubmit(raw){
 }
 
 /* ---- Save answers for later, and export to PDF ---- */
+/* An answer that did not survive storage is still shown, and can be removed.
+ *
+ * These were dropped on the floor — JSON.parse threw and the entry returned
+ * null, so a record cut in half by the old 4,900-character slice was invisible
+ * on screen and permanent in the database: nothing listed it, so nothing
+ * offered a Remove button for it. It lists as damaged now, which is honest
+ * about what happened and gives it a way out. */
 function askSavedList(){
   return Object.keys(S.notes||{}).filter(k=>k.startsWith("asksave_"))
-    .map(k=>{ try{return {k,...JSON.parse(S.notes[k])};}catch(e){return null;} })
-    .filter(Boolean).sort((a,b)=>(b.ts||0)-(a.ts||0));
+    .map(k=>{
+      try{ return {k, ...JSON.parse(S.notes[k])}; }
+      catch(e){ return {k, title:"Saved answer (damaged — remove it)",
+                        damaged:true, ts:Number(k.slice(8))||0}; }
+    })
+    .sort((a,b)=>(b.ts||0)-(a.ts||0));
 }
 /* Saying an answer is wrong.
  *
@@ -6107,13 +6118,38 @@ async function askReport(){
   }
 }
 
+/* Keeping an answer, in the shape the download already expects.
+ *
+ * This built its own record — title, steps, takeaway — and then cut the
+ * whole thing to 4,900 characters to fit a note cap meant for checklists.
+ * Both halves of that were broken:
+ *
+ *   - A lesson cut at 4,900 characters is invalid JSON, and JSON.parse
+ *     throws when it is READ, not when it is written. So the answer looked
+ *     saved, and then was simply not in the list — every reader of it
+ *     (the list, Open, Download) caught the throw and did nothing.
+ *   - The record left out the pictures, so a chapter taught with a diagram
+ *     came back as a description of a diagram. pdfRecordOf exists precisely
+ *     so there is ONE answer to "which fields go in", and this was the
+ *     second copy its comment warns about.
+ *
+ * It is pdfRecordOf now, so what is kept is exactly what is downloaded.
+ * Inline images are dropped: those are pages of a PDF somebody uploaded,
+ * hundreds of kilobytes each, and the file they came from is still theirs.
+ * Pictures with a real URL are kept and fetched again at download time. */
 function askSaveCurrent(){
   if(!ASK.lesson)return;
-  const l=ASK.lesson;
-  const rec={q:ASK.question,subject:ASK.subject,level:ASK.level,
-    title:l.title,steps:l.steps,takeaway:l.takeaway,ts:Date.now()};
-  const key="asksave_"+rec.ts, val=JSON.stringify(rec).slice(0,4900);
-  S.notes[key]=val;
+  const rec=pdfRecordOf(ASK.lesson,
+    {q:ASK.question,subject:ASK.subject,level:ASK.level,ts:Date.now()});
+  const keepUrl=p=>p&&p.src&&!/^data:/i.test(p.src);
+  rec.pictures=(rec.pictures||[]).filter(keepUrl);
+  const key="asksave_"+rec.ts, val=JSON.stringify(rec);
+  /* The server keeps 80,000 characters for a saved answer. Nothing we write
+     comes close, but if one ever did, say so rather than store half of it —
+     half of it is the bug this replaced. */
+  if(val.length>80000){ toast("That answer is too long to keep. Download it as a PDF instead."); return; }
+  S.notes[key]=JSON.stringify({title:rec.title,q:rec.q,subject:rec.subject,
+    level:rec.level,ts:rec.ts,stub:true});
   api.post("/api/note",{key,value:val}).catch(()=>{});
   ASK.justSaved=true; renderAsk();
 }
@@ -6122,21 +6158,49 @@ function askDeleteSaved(key){
   api.post("/api/note",{key,value:""}).catch(()=>{});
   renderAsk();
 }
-function askOpenSaved(key){
-  try{ const rec=JSON.parse(S.notes[key]);
-    ASK.lesson={title:rec.title,steps:rec.steps,takeaway:rec.takeaway};
-    ASK.question=rec.q||""; if(rec.subject)ASK.subject=rec.subject; if(rec.level)ASK.level=rec.level;
-    ASK.fromCache=false; ASK.page=0; ASK.spoken=-1; askBuildSlides(ASK.lesson); renderAsk();
-    window.scrollTo({top:0,behavior:"smooth"});
-  }catch(e){}
+/* The body of a saved answer, fetched when it is actually wanted.
+ *
+ * The list is drawn from stubs — a title and a date — because this payload
+ * arrives on every page load and twenty whole lessons on every page load is
+ * what started all of this. */
+async function askSavedBody(key){
+  let rec=null;
+  try{ rec=JSON.parse(S.notes[key]||"null"); }catch(e){}
+  if(rec && !rec.stub && rec.steps) return rec;      // saved before this change
+  return await api.get("/api/notes/saved/"+encodeURIComponent(key));
 }
+async function askOpenSaved(key){
+  let rec;
+  try{ rec=await askSavedBody(key); }
+  catch(e){ toast((e&&e.message)||"Could not open that saved answer."); return; }
+  ASK.lesson={title:rec.title,steps:rec.steps,takeaway:rec.takeaway,
+              photo:rec.photo||null,pictures:rec.pictures||[]};
+  ASK.question=rec.q||""; if(rec.subject)ASK.subject=rec.subject; if(rec.level)ASK.level=rec.level;
+  ASK.fromCache=false; ASK.page=0; ASK.spoken=-1; askBuildSlides(ASK.lesson); renderAsk();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+/* The PDF writer, from this server first.
+ *
+ * It was fetched from cdnjs.cloudflare.com, which a school network is as
+ * likely to block as not — and that is the whole market. Every download on
+ * the site goes through here, so on a filtered network nothing downloads at
+ * all, and the only thing anyone sees is "Check your connection" on a
+ * connection that is working fine.
+ *
+ * The library ships with the app now. The CDN stays as a second try, for the
+ * one case the local copy cannot cover: an old deployment served from cache
+ * that predates the file. Same version either way. */
 function ensureJsPDF(){
-  return new Promise((res,rej)=>{
-    if(window.jspdf&&window.jspdf.jsPDF)return res();
+  const load=src=>new Promise((res,rej)=>{
     const s=document.createElement("script");
-    s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-    s.onload=res; s.onerror=rej; document.head.appendChild(s);
+    s.src=src;
+    s.onload=()=>(window.jspdf&&window.jspdf.jsPDF)?res():rej(new Error("loaded but empty"));
+    s.onerror=()=>rej(new Error("could not load "+src));
+    document.head.appendChild(s);
   });
+  if(window.jspdf&&window.jspdf.jsPDF)return Promise.resolve();
+  return load("/jspdf.umd.min.js").catch(()=>
+    load("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"));
 }
 /* jsPDF's built-in fonts only cover Latin-1. Maths symbols, subscripts,
    arrows and smart quotes get dropped and mangle the whole line. Convert
@@ -6232,8 +6296,18 @@ function pdfPicturesOf(rec){
   return out;
 }
 
+/* Nothing in here is allowed to fail quietly.
+ *
+ * A download that throws halfway leaves no file and no message, and there is
+ * no way for the person at the board to tell that apart from a button that
+ * is not wired up — which is what this looked like. */
 async function askPDF(rec){
-  try{ await ensureJsPDF(); }catch(e){ alert("Could not load the PDF tool. Check your connection."); return; }
+  try{ return await askPDFWrite(rec); }
+  catch(e){ toast("Could not make the PDF: "+((e&&e.message)||"unknown error")); }
+}
+async function askPDFWrite(rec){
+  try{ await ensureJsPDF(); }
+  catch(e){ throw new Error("the PDF tool would not load — check the connection"); }
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:"pt",format:"a4"});
   const M=54, W=doc.internal.pageSize.getWidth()-M*2, H=doc.internal.pageSize.getHeight();
@@ -6274,7 +6348,15 @@ async function askPDF(rec){
   line(rec.title||"Axle's answer",20,true); y+=2;
   line(`${rec.subject||""}  -  ${rec.level||""}`,10,false,"#777",8);
   if(rec.q) line("Question: "+rec.q,11,false,"#555",10);
-  (rec.steps||[]).forEach(s=>line("-  "+s.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4));
+  /* String(s) rather than s.replace: a step is a line of text from Ask and
+     an object from the board, and calling .replace on the object threw
+     halfway through writing the file — which looks exactly like the button
+     doing nothing. pdfRecordOf flattens them; this is the belt to its
+     braces, because there is more than one way into here. */
+  (rec.steps||[]).forEach(s=>{
+    const t=(typeof s==="string"?s:(s&&s.t)||"").trim();
+    if(t) line("-  "+t.replace(/\*\*(.+?)\*\*/g,"$1"),12,false,"#1a1a1a",4);
+  });
   if(rec.takeaway){ y+=6; line("Remember: "+rec.takeaway,12,true,"#8a5a00",0); }
 
   /* The pictures.
@@ -6307,7 +6389,11 @@ async function askPDF(rec){
     if(credit) line(credit, 8.5, false, "#8a8f99", 8);
     else y += 8;
   }
-  const name=(rec.title||"vidya-answer").replace(/[^a-z0-9]+/gi,"-").toLowerCase().slice(0,40);
+  /* The file lands in a downloads folder next to a hundred others, so it is
+     named after the lesson — and when there is no title, after us, not after
+     the name this product had two rebrands ago. */
+  const name=(rec.title||"craxle-answer").replace(/[^a-z0-9]+/gi,"-")
+    .replace(/^-+|-+$/g,"").toLowerCase().slice(0,40)||"craxle-answer";
   doc.save(name+".pdf");
 }
 
@@ -6706,7 +6792,7 @@ function renderAskInner(){
         <div class="ask-savedttl">${esc(r.title||r.q||"Answer")}</div>
         <div class="ask-savedsub">${esc(r.subject||"")} · ${esc(r.level||"")}${r.q?" · "+esc(r.q):""}</div>
       </div>
-      <button class="ask-abtn sm" data-ask="pdfsaved" data-key="${r.k}">⬇ PDF</button>
+      ${r.damaged?"":`<button class="ask-abtn sm" data-ask="pdfsaved" data-key="${r.k}">⬇ PDF</button>`}
       <button class="ask-abtn sm danger" data-ask="delsaved" data-key="${r.k}">Remove</button>
     </div>`).join("")}
   </div>`:""}`;
@@ -6921,7 +7007,17 @@ document.addEventListener("click",e=>{
   else if(kind==="pdf"){ if(ASK.lesson)askPDF(pdfRecordOf(ASK.lesson,
     {q:ASK.question,subject:ASK.subject,level:ASK.level})); }
   else if(kind==="opensaved"){ askOpenSaved(key); }
-  else if(kind==="pdfsaved"){ try{ askPDF(JSON.parse(S.notes[key])); }catch(err){} }
+  /* This read the saved record straight out of S.notes and handed it to the
+     PDF writer, and every way that could fail failed silently — a truncated
+     record threw in JSON.parse, and an untruncated one whose steps are
+     objects threw INSIDE the writer, where this try never reached it. Both
+     looked identical from the outside: press Download PDF, nothing happens.
+     The record is fetched and normalised now, and a failure says so. */
+  else if(kind==="pdfsaved"){
+    askSavedBody(key)
+      .then(rec => askPDF(pdfRecordOf(rec, {q:rec.q,subject:rec.subject,level:rec.level})))
+      .catch(err => toast((err&&err.message)||"Could not download that answer."));
+  }
   else if(kind==="delsaved"){ askDeleteSaved(key); }
 });
 // warm up the voice list and learn whether the AI teacher is enabled

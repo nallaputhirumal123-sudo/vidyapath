@@ -106,8 +106,13 @@ ck("but not the practice ones",
 ck("and the lesson request carries the code's token",
    'window.bapi.post("/api/board/lesson"' in SRC,
    "a board is not signed in; the token says which room is asking")
-ck("so does the calculator",
-   'window.bapi.post("/api/craxlearn/calc"' in SRC)
+# The calculator used to post here too, and this checked that it carried the
+# code's token. It carries nothing now: arithmetic does not need a network,
+# and a calculator that works in a power cut is a better calculator. The
+# route it called asked who was asking, which a board cannot answer.
+ck("and the calculator asks nobody anything",
+   'window.bapi.post("/api/craxlearn/calc"' not in SRC
+   and "Calc.run(inp.value)" in SRC)
 
 print("")
 print("the board is not signed in, and cannot be")
