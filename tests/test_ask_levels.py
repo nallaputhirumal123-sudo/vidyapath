@@ -1,11 +1,21 @@
-"""Three level buttons, three different lessons — and one wait, not two.
+"""Three level buttons that became none, and one wait instead of two.
 
-**The levels were the same answer three times.** The picker offers Beginner,
-Intermediate and Advanced, and the prompt said "the learner's level is:
-Advanced" and, further down, "language matched to the stated level". A model
-given that writes one lesson with slightly different adjectives. A level is
-not a tone: it is a decision about what may be assumed, how far to go, and
-what to leave out, so it is written here as those decisions.
+**The levels were the same answer three times.** The picker offered
+Beginner, Intermediate and Advanced, and the prompt said "the learner's level
+is: Advanced" and, further down, "language matched to the stated level". A
+model given that writes one lesson with slightly different adjectives.
+
+The first fix was to write three genuinely different sets of instructions —
+what may be assumed, how far to go, what to leave out. They still came back
+close enough that nobody using it could tell which chip was lit, and they
+were part of the cache key, so one question was paid for three times.
+
+**So the picker is gone.** The evidence was always in the question: "what is
+a derivative" and "prove the chain rule from the limit definition" do not
+need a chip to tell them apart, and the person asking should not have to
+classify themselves before they are allowed to ask. The three named levels
+stay in the server for the classroom board, which genuinely knows the class
+in front of it.
 
 **And the answer waited for a second model.** Asking a question made two
 calls in a row — write the lesson, then read it back looking for errors —
@@ -47,27 +57,47 @@ def ck(name, cond, why=""):
     (P if cond else F).append(name)
 
 
-print("\nthe three levels ask for three different lessons")
+print("\nnobody is asked to classify themselves first")
+ck("the level chips are gone from the page",
+   'data-ask="level"' not in IDX and "ASK_LEVELS" not in IDX,
+   "three chips, three answers too close to tell apart, and three cache "
+   "entries for one question")
+ck("and nothing is left styling them",
+   ".ask-picker{" not in IDX and ".ask-plabel{" not in IDX)
+ck("the chip styles the board still uses stay",
+   ".ask-chip{" in IDX,
+   "the board's trail of topics is built from them")
+ck("the page starts with no level",
+   'const ASK={subject:"General",level:"",' in IDX,
+   'it started as "Class 6-8", from a scheme replaced twice over, matching '
+   "none of the chips on screen — so until somebody pressed one, every "
+   "question was asked at a level the server had never heard of")
+
+print("\nand the question is read for the level instead")
+UNSET = main._ask_prompt("what is a derivative", "Maths", "")
+ck("an unstated level says so", "LEVEL: READ IT FROM THE QUESTION" in UNSET)
+ck("it is told where to look", "the question itself says more" in UNSET)
+ck("and it is the default for anything unrecognised",
+   all("LEVEL: READ IT FROM THE QUESTION" in main._ask_prompt("q", "s", lv)
+       for lv in (None, "", "Class 6-8", "Wizard")),
+   "a stale client sending an old value must not fall into a hole")
+
+print("\nthe named levels stay for the board, which does know its class")
 PROMPTS = {lv: main._ask_prompt("what is a derivative", "Maths", lv)
            for lv in ("Beginner", "Intermediate", "Advanced")}
-ck("they are not the same prompt", len(set(PROMPTS.values())) == 3,
-   "three buttons and one answer is three buttons that do nothing")
+ck("they are still three different prompts", len(set(PROMPTS.values())) == 3)
 for lv in PROMPTS:
     ck(lv + " says what it means",
        ("LEVEL: " + lv.upper()) in PROMPTS[lv])
-
-# The differences that actually change a lesson, rather than its adjectives.
 ck("beginner defines its terms",
    "Define every term the first time it appears" in PROMPTS["Beginner"])
-ck("intermediate does not re-teach the grounding",
-   "do not re-teach it" in PROMPTS["Intermediate"])
 ck("advanced assumes the vocabulary",
    "are known and are not explained" in PROMPTS["Advanced"])
-ck("and advanced is depth rather than more words",
-   "depth, not breadth" in PROMPTS["Advanced"])
-ck("an unknown level still gets a lesson",
-   "LEVEL: INTERMEDIATE" in main._ask_prompt("q", "s", "Wizard"),
-   "a level nobody offers must not produce a prompt with a hole in it")
+ck("a photo question is not pitched differently from a typed one",
+   'level: str = Form(default="")' in io.open(
+       os.path.join(ROOT, "main.py"), encoding="utf-8").read(),
+   "coercing it to Intermediate there would answer the same question two "
+   "ways depending on whether it arrived as a picture")
 
 print("\nand the answer no longer waits for the second model")
 ASK = inspect.getsource(main.ask_axle) if hasattr(main, "ask_axle") else ""

@@ -733,8 +733,8 @@ footer{border-top:1px solid var(--line);margin-top:50px;padding-top:22px;font-si
 
 .ask-note{background:rgba(255,180,90,.12);border:1px solid rgba(255,180,90,.4);color:var(--warn);
   padding:11px 14px;border-radius:10px;font-size:13.5px;margin:0 0 16px}
-.ask-picker{margin:4px 0 18px}
-.ask-plabel{font-size:12px;text-transform:uppercase;letter-spacing:.5px;opacity:.6;margin-bottom:8px}
+/* .ask-picker and .ask-plabel went with the level chooser they styled.
+   .ask-chip and .ask-chips stay: the board's trail of topics uses them. */
 .ask-chips{display:flex;gap:8px;flex-wrap:wrap}
 .ask-chip{background:var(--panel);border:1px solid var(--line,#2a3340);color:var(--text);
   font-size:13.5px;padding:8px 13px;border-radius:999px;cursor:pointer;font-family:inherit;transition:.15s}
@@ -4064,10 +4064,15 @@ const ASK_SUBJECTS=[
   {k:"Physics",   icon:"🧲"},
   {k:"Chemistry", icon:"⚗️"},
 ];
-/* Three levels, not six school classes. Craxle serves working and
-   job-seeking adults; "Class 6–8" was never the right frame, and six
-   options made people stop and choose instead of asking. */
-const ASK_LEVELS=["Beginner","Intermediate","Advanced"];
+/* There is no level chooser any more. It went from six school classes to
+   three levels — "Class 6–8" was never the right frame for working adults,
+   and six options made people stop and choose instead of asking — and now to
+   none, because three still made them stop and the three answers were too
+   close together to be worth stopping for. The question says the level.
+
+   ASK.level stays as a field because the classroom board sets it: a board
+   teaching a named class genuinely knows who is in front of it. On this
+   page it is empty, and the server reads the level out of the question. */
 const ASK_SAMPLES={
   "General":["Why is the sky blue?","How does the internet work?","What is inflation?"],
   "Science":["What is photosynthesis?","Why do we feel friction?","How do vaccines work?"],
@@ -4112,7 +4117,11 @@ function askSamples(){
  * right to look somewhere explicit: a second file reaching into another
  * file's lexical scope is the arrangement that broke, and it broke silently.
  */
-const ASK={subject:"General",level:"Class 6–8",question:"",lesson:null,
+/* level starts empty, and on this page it stays empty. It was "Class 6–8" —
+   a value from a scheme that was replaced twice over and matched none of the
+   chips that were on screen, so until somebody pressed one, every question
+   was asked at a level the server had never heard of. */
+const ASK={subject:"General",level:"",question:"",lesson:null,
   page:0,spoken:-1,slides:[[]],
   loading:false,speaking:false,listening:false,voiceOn:true,fromCache:false,
   cacheHits:0,justSaved:false,error:"",enabled:null,cancel:false,recog:null};
@@ -6677,23 +6686,25 @@ function renderAskInner(){
   <p class="sub">Ask any question — by voice or by typing. The whole answer appears on the board and Axle reads it aloud, line by line. Long answers become slides. Save any answer or download it as a PDF.</p>
   ${disabledNote}
 
-  <!-- The subject chooser is gone, and it was not a cosmetic cut.
-       It named the subject in the prompt and then told the model "if the
-       question is not about it, still answer helpfully", so the answer was
-       the same whichever chip was lit — and it was part of the CACHE KEY, so
-       the same question under ten subjects could be paid for ten times, on a
-       product whose economics rest on calling a model once per question and
-       keeping the answer forever.
-       A question carries its own subject in its words. Asking a learner to
-       classify their question before they are allowed to ask it is a thing
-       nobody wants to do and nobody was any good at. The LEVEL stays: it
-       genuinely changes the answer, and nothing in the question says it. -->
-  <div class="ask-picker">
-    <div class="ask-plabel">Level</div>
-    <div class="ask-chips">
-      ${ASK_LEVELS.map(lv=>`<button class="ask-chip ${(ASK_LEVELS.includes(a.level)?a.level:"Intermediate")===lv?"on":""}" data-ask="level" data-val="${esc(lv)}">${esc(lv)}</button>`).join("")}
-    </div>
-  </div>
+  <!-- Both choosers are gone now, for the same reason.
+       The SUBJECT chip named a subject in the prompt and then told the model
+       "if the question is not about it, still answer helpfully", so the
+       answer was the same whichever one was lit — and it was part of the
+       CACHE KEY, so one question under ten subjects could be paid for ten
+       times, on a product whose economics rest on calling a model once per
+       question and keeping the answer forever.
+       The LEVEL chips lasted longer because the argument for them was
+       better: a level really does change what a lesson should contain. It
+       just did not change what came back. The first attempt at fixing that
+       was to write three genuinely different sets of instructions, and the
+       three answers stayed close enough that nobody using it could tell
+       which chip was lit. They were also in the cache key, so the same
+       question was paid for three times over.
+       What is left is the question, which was always the better evidence.
+       "What is a derivative" and "prove the chain rule from the limit
+       definition" do not need a picker to tell them apart, and the person
+       asking should not have to classify themselves before they are allowed
+       to ask. -->
 
   <div class="ask-stage">
     <div style="flex:1;min-width:0">
@@ -6989,8 +7000,7 @@ document.addEventListener("click",e=>{
 document.addEventListener("click",e=>{
   const b=e.target.closest("[data-ask]"); if(!b)return;
   const kind=b.dataset.ask, val=b.dataset.val, key=b.dataset.key;
-  if(kind==="level"){ ASK.level=val; renderAsk(); }
-  else if(kind==="sample"){ ASK.question=val; renderAsk(); askSubmit(val); }
+  if(kind==="sample"){ ASK.question=val; renderAsk(); askSubmit(val); }
   else if(kind==="send"){ askSubmit(); }
   else if(kind==="stop"){ askStop(); }
   else if(kind==="voice"){ askVoiceInput(); }

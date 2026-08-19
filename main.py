@@ -5840,6 +5840,22 @@ _LEVELS = {
         "case of, how it meets the neighbouring ideas. State conditions and "
         "edge cases precisely. Do not spend lines on definitions they already "
         "have; the value here is depth, not breadth.\n\n",
+    # Nobody said. This is now the normal case on Ask Axle: the three chips
+    # were removed because they were a question asked before the question,
+    # and the answer to them was already sitting in the words of the thing
+    # being asked. "What is a derivative" and "prove the chain rule from the
+    # limit definition" do not need a picker to tell them apart.
+    #
+    # The named levels above stay, for the callers that genuinely know one —
+    # the classroom board is told the class it is teaching.
+    "": "LEVEL: READ IT FROM THE QUESTION. Nobody has stated a level, and "
+        "the question itself says more than a chip would: what it takes for "
+        "granted, the notation it reaches for, whether it asks what a thing "
+        "IS or why it holds. Pitch it there. Define a term when the question "
+        "suggests it is new, and do not re-explain what the asker has "
+        "clearly already got. When it is genuinely ambiguous, teach the "
+        "middle and let the depth come at the end, where it costs a reader "
+        "who did not need it nothing.\n\n",
 }
 
 
@@ -5847,7 +5863,7 @@ def _ask_prompt(question: str, subject: str, level: str) -> str:
     return (
         f"You are Axle, a warm, patient teacher in India explaining on a "
         f"blackboard. A learner asked: \"{question}\"\n\n"
-        f"{_LEVELS.get(level, _LEVELS['Intermediate'])}"
+        f"{_LEVELS.get(level or '', _LEVELS[''])}"
         'NO GREETING, NO PREAMBLE. The first line is the first real thing you have to say. Never open with "Welcome", "Dear students", "Let us look at this together", "Great question" or any other pleasantry, and never spend a line restating the question back — the learner has it in front of them and the board only shows a few lines at a time, so a line that carries nothing is a line of the lesson thrown away. Begin with the substance and keep going.\n\nANSWER THE QUESTION THAT WAS ASKED. Read it closely enough to notice what it is really asking, then answer that. If it is a problem to solve, solve it and reach the actual answer — do not restate the setup, describe an approach, and stop. Work each step so the reader can follow the arithmetic or the argument, and finish. If the question has no clean answer, or the answer is that no solution exists, say so and show what rules the others out. Every claimed answer gets substituted back into the original problem and checked before you state it.\n\nINDIA FIRST, WHEN AN EXAMPLE IS NEEDED. Set examples here: rupees rather than dollars, Indian cities, Indian firms, the exams and boards people here actually sit, Indian regulations and Indian case law. Use a foreign example only when the subject genuinely is foreign — a US statute in a lesson on US law, a landmark experiment done where it was done. Never reach for another country\'s setting when a local one would serve.\n\n'
         f"Explain it the way a good teacher writes on the board: short lines, "
         f"one idea per line, at the level set above, with a "
@@ -11566,7 +11582,7 @@ async def ask_talk(body: TalkIn, user: User = Depends(axle_user),
 async def ask_with_image(image: UploadFile = File(...),
                          question: str = Form(default=""),
                          subject: str = Form(default="General"),
-                         level: str = Form(default="Intermediate"),
+                         level: str = Form(default=""),
                          user: User = Depends(axle_user),
                          db: Session = Depends(get_db)):
     """Ask Axle a question about a picture.
@@ -11597,7 +11613,10 @@ async def ask_with_image(image: UploadFile = File(...),
 
     q = (question or "").strip()[:400]
     subject = (subject or "General").strip()[:60]
-    level = (level or "Intermediate").strip()[:60]
+    # Empty is the normal case now that the level chips are gone, and it
+    # must stay empty: coercing it to "Intermediate" here would pitch a
+    # question about a photograph differently from the same question typed.
+    level = (level or "").strip()[:60]
     digest = hashlib.sha256(raw).hexdigest()[:32]
     scope = _scope_of(db, user)
     qkey = _cl.key(scope, "askimg", digest, _norm_q(level), _norm_q(q))[:500]
