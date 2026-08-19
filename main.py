@@ -204,6 +204,30 @@ THINK_HARD = int(env("THINK_HARD", "2048") or 2048)
 # Affordable because of the daily limit and nowhere else: five papers a
 # person is what makes it reasonable to buy real reasoning per question.
 THINK_PAPER = int(env("THINK_PAPER", "8192") or 8192)
+
+# Which recipe built a cached lesson.
+#
+# A cached lesson is served verbatim and forever, and nothing in its key said
+# which prompt wrote it. So every improvement to how a lesson is built reached
+# only topics nobody had asked yet: teach the board to draw a table, and the
+# first topic anybody tried was the one already in the cache from last week,
+# still prose. It looks exactly like the change not working, and there is no
+# way to tell the two apart from the outside.
+#
+# Bumping this makes every existing row unreachable, so the next person to
+# ask each topic pays for one real model call. That is the whole cost, it is
+# paid once per topic, and it is why this is a constant somebody changes on
+# purpose rather than a hash of the prompt text: hashing would throw the
+# cache away on every wording tweak, and on this product the cache IS the
+# economics.
+#
+# Bump it when what a lesson can CONTAIN changes — a new kind of figure, a
+# different shape of reply, a materially different instruction. Not for a
+# typo, and not for anything that only changes the wording of a line.
+#
+#   r2  the board can draw tables and pie charts; the level chips are gone
+#       and an unstated level is read out of the question
+RECIPE = "r2"
 # Used only where the writing quality is the product: the apply kit's
 # cover note and screening answers. Everything else stays on the cheap
 # model, because scoring and classifying do not read any better on a
@@ -12981,7 +13005,8 @@ async def ask_vidya(body: AskIn, user: User = Depends(axle_user),
     level = (body.level or "Intermediate").strip()[:60]
     question = body.question.strip()
     scope = _scope_of(db, user)
-    qkey = _cl.key(scope, "ask", _norm_q(level), _norm_q(question))[:500]
+    qkey = _cl.key(scope, "ask", RECIPE, _norm_q(level),
+                   _norm_q(question))[:500]
     _record_learning(db, user, scope, "ask", question, subject, level)
 
     # 1) Cache hit — free and instant, and counts a hit for the stats.
@@ -13082,7 +13107,7 @@ async def ask_review(body: ReviewIn, user: User = Depends(current_user),
     critical = any(r.get("severity") == "critical" for r in review)
     if critical and question:
         level = (body.level or "Intermediate").strip()[:60]
-        qkey = _cl.key(_scope_of(db, user), "ask", _norm_q(level),
+        qkey = _cl.key(_scope_of(db, user), "ask", RECIPE, _norm_q(level),
                        _norm_q(question))[:500]
         try:
             row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
@@ -17974,7 +17999,7 @@ async def board_lesson(body: BoardIn,
     # refraction are two different lessons now, and sharing one cache entry
     # would hand whichever came second the other year's answer.
     scope = _scope_of(db, user)
-    qkey = _cl.key(scope, "board", _norm_q(level),
+    qkey = _cl.key(scope, "board", RECIPE, _norm_q(level),
                    _norm_q(f"{_grade_of(klass)}|{topic}"))[:500]
     _record_learning(db, user, scope, "board", topic, "board", level)
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
@@ -18215,7 +18240,7 @@ async def board_lesson_review(body: BoardReviewIn,
             klass = (k.name if k else "") or ""
         # Built exactly as board_lesson builds it. Two spellings of this key
         # would mean the flagged lesson stays cached and nobody notices.
-        qkey = _cl.key(_scope_of(db, user), "board",
+        qkey = _cl.key(_scope_of(db, user), "board", RECIPE,
                        _norm_q(body.level.strip() or "Intermediate"),
                        _norm_q(f"{_grade_of(klass)}|{topic}"))[:500]
         try:
