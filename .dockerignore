@@ -1,0 +1,49 @@
+# What does NOT go into the image.
+#
+# The Dockerfile ends with `COPY . .`, and without this file that means the
+# whole checkout — including .git, which is 324 MB of history for an app that
+# never reads it. Nothing at runtime shells out to git; the version comes
+# from the VERSION file.
+#
+# This is not tidiness. A build has a disk quota and an image has a size, and
+# both were being spent on a copy of every version of every file this project
+# has ever had. What the app actually needs is main.py, the pages, the
+# corpus, pyodide, and the fonts.
+#
+# What is NOT excluded, deliberately: corpus.db.gz and corpus-pics.db (the
+# NCERT text and the chapter diagrams — the product cannot do what it is sold
+# for without them), pyodide/ (the Python lab runs offline), and the vendored
+# libraries (pdf.js, pdf-lib, jsPDF, three.js — a school network filters).
+
+.git
+.gitignore
+.gitattributes
+
+# Local development only. Never in the image, and .venv in particular is a
+# Windows virtualenv whose binaries would not run in a Linux container.
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets never travel in an image layer. .env is gitignored too, so this is
+# belt and braces — but an image is passed around more freely than a repo.
+.env
+.env.*
+
+# The test suite runs before a deploy, not inside the container.
+tests/
+
+# Editor, agent and OS leavings.
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Sales material and build leftovers.
+deckshots/
+*.pptx.tmp
+cloudflared.exe
