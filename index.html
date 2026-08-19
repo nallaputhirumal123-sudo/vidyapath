@@ -19,7 +19,10 @@
      merely named: almost nobody has it installed, so the stack silently fell
      through to Segoe UI. display=swap so text paints immediately in the
      fallback and never blocks on the network. -->
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin/>
+<!-- The preconnect to cdn.jsdelivr.net is gone with the libraries that used
+     it: pdf.js and its worker now come from this server, and jsdelivr is
+     only a fallback. Warming a connection to a host we hope never to use
+     costs a DNS lookup and a TLS handshake on every page load. -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="stylesheet" media="print" onload="this.media='all'"
@@ -4712,20 +4715,43 @@ function sbPdfCloseView(){
  * and a page rendered at three times the size costs the same to read while
  * taking four times as long to send from a school connection.
  */
+/* The PDF reader, from this server first.
+ *
+ * pdf.js came from cdn.jsdelivr.net, and its worker came from there too —
+ * which matters more than the library, because the worker is fetched later,
+ * from inside the library, and a network that blocks it produces a failure
+ * with no obvious cause after the reader has apparently loaded fine.
+ *
+ * Both ship with the app now. A school filters its network, and every part
+ * of this product that reads a PDF — marking homework on the board, turning
+ * a chapter into a lesson, reading a scanned paper — went through a host the
+ * school does not control.
+ *
+ * The worker is the same file the library came from, always: a worker from
+ * one version and a library from another fails in ways that read as a
+ * corrupt document. */
+function ensurePdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  const CDN="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/";
+  const load=base=>new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src=base+"pdf.min.js";
+    s.onload=()=>{
+      if(!window.pdfjsLib) return rej(new Error("loaded but empty"));
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc=base+"pdf.worker.min.js";
+      res(window.pdfjsLib);
+    };
+    s.onerror=()=>rej(new Error("could not load "+s.src));
+    document.head.appendChild(s);
+  });
+  return load("/").catch(()=>load(CDN)).catch(()=>{
+    throw new Error("The PDF reader could not load — this network may be "
+      +"blocking it.");
+  });
+}
+
 async function pdfPagesAsImages(file, cap){
-  const lib = await (async()=>{
-    if(window.pdfjsLib) return window.pdfjsLib;
-    await new Promise((res,rej)=>{
-      const s=document.createElement("script");
-      s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
-      s.onload=res; s.onerror=()=>rej(new Error(
-        "The PDF reader could not load — this network may be blocking it."));
-      document.head.appendChild(s);
-    });
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-    return window.pdfjsLib;
-  })();
+  const lib = await ensurePdfJs();
   const buf = await file.arrayBuffer();
   const doc = await lib.getDocument({data:new Uint8Array(buf)}).promise;
   const out = [];

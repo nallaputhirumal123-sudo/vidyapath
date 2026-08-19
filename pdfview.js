@@ -19,13 +19,17 @@
  * exactly as they were, with the writing on top. The file that comes out is
  * the file that went in, edited.
  *
- * Two libraries, both from a CDN and both optional: pdf.js to draw the
- * pages, pdf-lib to write them back. If either is blocked the caller is
- * told plainly rather than being handed a blank pane.
+ * Two libraries: pdf.js to draw the pages, pdf-lib to write them back. They
+ * came from a public CDN, which is the wrong place for them — a smart board
+ * lives on a school network, and a school network filters. Both ship with
+ * the app now and are fetched from this server; the CDN is a fallback for a
+ * deployment older than the files. If both fail the caller is told plainly
+ * rather than being handed a blank pane.
  */
 (function (global) {
   "use strict";
 
+  var HERE = "/";
   var PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/";
   var PDFLIB = "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";
 
@@ -39,16 +43,28 @@
     });
   }
 
+  /* The worker comes from wherever the library came from. A worker of one
+     version under a library of another fails while reading the document,
+     which reads as a corrupt file rather than a mismatched pair. */
+  function pdfjsFrom(base) {
+    return script(base + "pdf.min.js").then(function () {
+      if (!global.pdfjsLib) throw new Error("loaded but empty");
+      global.pdfjsLib.GlobalWorkerOptions.workerSrc = base + "pdf.worker.min.js";
+      return global.pdfjsLib;
+    });
+  }
+
   async function pdfjs() {
     if (global.pdfjsLib) return global.pdfjsLib;
-    await script(PDFJS + "pdf.min.js");
-    global.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js";
-    return global.pdfjsLib;
+    try { return await pdfjsFrom(HERE); }
+    catch (e) { return await pdfjsFrom(PDFJS); }
   }
 
   async function pdflib() {
     if (global.PDFLib) return global.PDFLib;
-    await script(PDFLIB);
+    try { await script(HERE + "pdf-lib.min.js"); }
+    catch (e) { await script(PDFLIB); }
+    if (!global.PDFLib) throw new Error("blocked");
     return global.PDFLib;
   }
 
@@ -62,9 +78,8 @@
     var lib;
     try { lib = await pdfjs(); }
     catch (e) {
-      throw new Error("The PDF viewer could not load. It comes from a "
-        + "public CDN — this board may be offline or the network may be "
-        + "blocking it.");
+      throw new Error("The PDF viewer could not load — neither from this "
+        + "site nor from its public fallback. The board may be offline.");
     }
     var doc = await lib.getDocument({ data: bytes.slice(0) }).promise;
     host.innerHTML = "";
@@ -112,9 +127,8 @@
     var PL;
     try { PL = await pdflib(); }
     catch (e) {
-      throw new Error("The PDF writer could not load. It comes from a "
-        + "public CDN — this board may be offline or the network may be "
-        + "blocking it.");
+      throw new Error("The PDF writer could not load — neither from this "
+        + "site nor from its public fallback. The board may be offline.");
     }
     var doc = await PL.PDFDocument.load(rec.bytes.slice(0));
     var pages = doc.getPages();
