@@ -249,6 +249,46 @@ for tok in ("--text:", "--body:", "--dim:", "--muted:", "--line:",
        "a token that flips with the page theme must not reach inside a "
        "surface that does not flip with it")
 
+print("\nfull screen on a phone shows the whole lesson, not the middle of it")
+# Measured on a 375x812 screen with an eight-step lesson: 249px of the board
+# was above the top of the screen and 249px below the bottom, and neither was
+# reachable, because the rule centred the board and set no scroller.
+#
+# It centred and overflowed. A flex container that centres a child taller
+# than itself pushes the overflow ABOVE the scroll origin, where it cannot be
+# scrolled to even when a scroller exists — and here there was none.
+#
+# The fallback below it was fixed for exactly this, with a comment saying so.
+# This rule was not, and it is the one that matters most: iOS refuses element
+# full screen and takes the fallback, so ANDROID — the phones actually in
+# these classrooms — is the only place the broken path ran.
+FULL = IDX.split(".ask-frame:fullscreen{")[1].split("}")[0]
+ck("the lesson starts at the top", "align-items:flex-start" in FULL,
+   "centred, a lesson taller than the screen is cropped at BOTH ends")
+ck("and it can be scrolled", "overflow-y:auto" in FULL,
+   "without this there is nothing to scroll, so the cropped part is simply "
+   "gone")
+ck("a scroll that reaches the end does not drag the page behind it",
+   "overscroll-behavior:contain" in FULL)
+
+# One rule per pseudo-class, never a comma-joined list: a browser that does
+# not know one selector in a list discards the whole rule, which would take
+# the working selector down with the unknown one.
+ck("older WebKit gets the same rule", ".ask-frame:-webkit-full-screen{" in IDX)
+WEBKIT = IDX.split(".ask-frame:-webkit-full-screen{")[1].split("}")[0]
+for bit in ("align-items:flex-start", "overflow-y:auto"):
+    ck("and it carries " + bit, bit in WEBKIT)
+ck("they are separate rules, not one comma-joined selector",
+   ":fullscreen,.ask-frame:-webkit-full-screen" not in IDX
+   and ":-webkit-full-screen,.ask-frame:fullscreen" not in IDX)
+
+# Full screen on a phone is edge to edge, so the first line of the lesson
+# lands under the camera cut-out unless the inset is respected.
+PHONE = IDX.split("@media(max-width:640px){")[1].split("\n}")[0]
+ck("the notch and the home bar are cleared",
+   "env(safe-area-inset-bottom)" in PHONE and "env(safe-area-inset-left)"
+   in PHONE)
+
 print("\n".join("FAIL " + x for x in F) if F else "")
 print(f"\n{len(P)} passed, {len(F)} failed")
 sys.exit(1 if F else 0)

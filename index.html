@@ -464,19 +464,48 @@ input.ask-input{overflow-x:auto;white-space:nowrap}
 .sb-ol.on{color:var(--text);border-color:var(--accent)}
 .sb-ol.on .n{background:var(--accent);color:#1a1205}
 /* In full screen the board fills the device and everything else gets out of
-   the way — the tools stay reachable underneath by scrolling. */
+   the way — the tools stay reachable underneath by scrolling.
+ *
+ * align-items:flex-start and overflow-y:auto, which this rule did not have.
+ * It centred the board and let it overflow with no scroller, so on a phone a
+ * lesson of eight steps was cut off at BOTH ends — 249px hidden above and
+ * 249px below on a 375x812 screen — with no way to reach either. The
+ * fallback below was fixed for exactly this a while ago and this rule, the
+ * one Android actually uses, was left as it was: iOS refuses element full
+ * screen and takes the fallback, so the broken path was the one that never
+ * got tested on the phone in the room.
+ *
+ * The -webkit- copy is a separate rule on purpose. A browser that does not
+ * know one pseudo-class in a selector list throws away the whole rule, so
+ * these cannot be combined with a comma. */
 .ask-frame:fullscreen{background:var(--bg);padding:26px;display:flex;
-  align-items:center;justify-content:center}
+  align-items:flex-start;justify-content:center;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .ask-frame:fullscreen .ask-board{width:100%;max-width:1100px;min-height:72vh;
   font-size:19px}
+.ask-frame:-webkit-full-screen{background:var(--bg);padding:26px;display:flex;
+  align-items:flex-start;justify-content:center;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.ask-frame:-webkit-full-screen .ask-board{width:100%;max-width:1100px;
+  min-height:72vh;font-size:19px}
 /* Phones get less padding and a smaller step, or the lesson has nowhere to
    sit once the board's own controls are on it. */
 @media(max-width:640px){
-  .ask-frame:fullscreen{padding:8px}
+  /* Padding that clears the notch and the home bar. Full screen on a phone
+     is edge to edge, so 8px on every side puts the first line of the lesson
+     under the camera cut-out on the phones that have one. */
+  .ask-frame:fullscreen{padding:8px calc(8px + env(safe-area-inset-right))
+                                calc(14px + env(safe-area-inset-bottom))
+                                calc(8px + env(safe-area-inset-left))}
+  .ask-frame:-webkit-full-screen{padding:8px calc(8px + env(safe-area-inset-right))
+                                        calc(14px + env(safe-area-inset-bottom))
+                                        calc(8px + env(safe-area-inset-left))}
   /* min-height, not a fixed height: the board must be free to be taller than
      the screen and scroll, which is what it does on every real lesson. 86vh
      forced it to fill exactly one screen and hid the rest. */
   .ask-frame:fullscreen .ask-board{min-height:auto;font-size:16px;padding:14px}
+  .ask-frame:-webkit-full-screen .ask-board{min-height:auto;font-size:16px;
+    padding:14px}
   .ask-frame.sb-focus .ask-board{min-height:auto;font-size:16px;padding:14px}
   .ask-frame.sb-focus{padding:10px calc(10px + env(safe-area-inset-right))
                               calc(18px + env(safe-area-inset-bottom))
