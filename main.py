@@ -18072,6 +18072,7 @@ async def board_lesson(body: BoardIn,
             # somebody who wants to check a number has nowhere to go.
             if refs:
                 lesson["references"] = _reference.credits(refs)
+            _tr.phase("parse")
             # Inside the same client, because the molecule can only be looked
             # up once the lesson says which one it wants.
             swapped = await _real_molecules(_pic_client, lesson, topic)
@@ -18080,6 +18081,7 @@ async def board_lesson(body: BoardIn,
                     swapped += 1
             except Exception as e:
                 print(f"Scene offer skipped: {type(e).__name__}: {e}")
+            _tr.phase("molecules+scene")
             # Something to LOOK at on every step that has nothing, not
             # only on the first one. Free lookups against the open
             # catalogues, widening from the step's own heading to the topic
@@ -18097,7 +18099,12 @@ async def board_lesson(body: BoardIn,
             if swapped:
                 print(f"Molecules on {topic!r}: {swapped} given real "
                       f"coordinates from PubChem")
-        _tr.phase("parse")
+        # These three were all inside a phase called "parse", which is a
+        # tenth of a second of json.loads standing in front of however long
+        # PubChem, the scene lookup and the picture catalogues take. A trace
+        # exists to say where the time went, and that one said "parse" and
+        # meant "three rounds of network calls".
+        _tr.phase("step pictures")
     except Exception as e:
         print(f"Smart board failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
         _tr.done(f"failed: {type(e).__name__}: {str(e)[:120]}")
