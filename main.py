@@ -18112,18 +18112,21 @@ async def board_lesson(body: BoardIn,
     # substituted back into its own equation — and, where we retrieved our own
     # lessons on this, whether the numbers agree with them.
     found, verdict = _check_lesson(lesson, sources=sources)
-    # The deterministic checks read the numbers. This reads the argument —
-    # the dipole treated as a monopole, the formula in the wrong units — which
-    # nothing else here can see. One extra call per new topic, cached with the
-    # lesson, so only the first person to ask pays for it.
-    review = await _review_lesson(topic, lesson)
-    if review:
-        found = review + found
-        if any(r["severity"] == "critical" for r in review):
-            verdict = {"cache": False, "confidence": "low", "state": "flagged"}
-        elif verdict["confidence"] == "high":
-            verdict = dict(verdict, confidence="medium", state="checked")
-    _tr.phase("checks+review")
+    # The reading-back pass — the one that catches a dipole treated as a
+    # monopole, or a formula in the wrong units — used to run HERE, and the
+    # teacher waited for it. It is a whole model call on top of a lesson that
+    # already existed, on the slowest request this product makes: the board's
+    # own call runs at THINK_HARD, and this sat behind it.
+    #
+    # It moved to /api/board/lesson/review, which the board asks for once the
+    # lesson is on the screen. Same move as /api/ask/review, for the same
+    # reason, and the caching rule survives it the same way: the row is
+    # written now, and a critical finding deletes it there.
+    #
+    # The deterministic checks stay right here. They read the numbers, they
+    # cost nothing, and a lesson with a wrong constant in it should never be
+    # written to the cache in the first place.
+    _tr.phase("checks")
     if found:
         print(f"Checks on {topic!r}: {verdict['state']} "
               f"({len(found)} finding(s)) — {found[0]['problem'][:120]}")
@@ -18155,6 +18158,72 @@ async def board_lesson(body: BoardIn,
     # names the exact text that was shown, not a topic that may have been
     # regenerated since.
     return {"lesson": lesson, "cached": False, "qkey": qkey}
+
+
+class BoardReviewIn(BaseModel):
+    topic: str = Field(min_length=2, max_length=200)
+    level: str = Field(default="Intermediate", max_length=20)
+    lesson: dict = {}
+
+
+@app.post("/api/board/lesson/review")
+async def board_lesson_review(body: BoardReviewIn,
+                              who=Depends(_learner_or_board),
+                              db: Session = Depends(get_db)):
+    """Read a board lesson back, after the class is already looking at it.
+
+    This ran inside /api/board/lesson and the teacher waited for it — a
+    second model call stacked on the slowest request this product makes.
+    The lesson goes up first now and this marks it when it lands.
+
+    **A critical finding deletes the cached copy.** The row is written by the
+    time this runs, and caching is what turns one wrong lesson into every
+    class's wrong lesson. The key is recomputed here from the topic and the
+    board's own token rather than accepted from the caller: a key handed in
+    would be a way to ask this endpoint to delete somebody else's row.
+
+    Never fails the caller. A checker that is down must not turn a lesson
+    already on the board into an error message in front of a class.
+    """
+    user, grant = who
+    if grant is not None:
+        user = db.get(User, grant["teacher_id"]) if grant["teacher_id"] else None
+    lesson = body.lesson if isinstance(body.lesson, dict) else {}
+    if user is None or not ASK_ENABLED or not (lesson.get("steps") or []):
+        return {"findings": [], "state": "unchecked"}
+
+    topic = body.topic.strip()
+    try:
+        review = await _review_lesson(topic, lesson)
+    except Exception as e:
+        print(f"Board review failed: {type(e).__name__}: {e}")
+        return {"findings": [], "state": "unchecked"}
+    if not review:
+        return {"findings": [], "state": "checked"}
+
+    if any(r.get("severity") == "critical" for r in review):
+        klass = ""
+        if grant is not None:
+            k = db.get(Klass, int(grant.get("class_id") or 0))
+            klass = (k.name if k else "") or ""
+        # Built exactly as board_lesson builds it. Two spellings of this key
+        # would mean the flagged lesson stays cached and nobody notices.
+        qkey = _cl.key(_scope_of(db, user), "board",
+                       _norm_q(body.level.strip() or "Intermediate"),
+                       _norm_q(f"{_grade_of(klass)}|{topic}"))[:500]
+        try:
+            row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+            if row:
+                db.delete(row)
+                db.commit()
+                print(f"Board review dropped a cached lesson: {topic[:60]!r}")
+        except Exception as e:
+            db.rollback()
+            print(f"Could not drop the cached lesson: {type(e).__name__}: {e}")
+        return {"findings": _note_findings(review), "state": "flagged",
+                "confidence": "low"}
+    return {"findings": _note_findings(review), "state": "checked",
+            "confidence": "medium"}
 
 
 # ==========================================================================

@@ -7331,6 +7331,29 @@ async function teach(){
              pages: lessonPages(L, topic), at: 0,
              view: lessonView(), tail: tail };
   paintLesson();
+
+  /* The reading-back pass, now that the room can see the lesson.
+   *
+   * It used to run inside the request above, so a class watched "Building
+   * the lesson…" through a second model call for a lesson the server had
+   * already finished. It marks the lesson when it lands, and a critical
+   * finding drops the cached copy on the server so the next class does not
+   * get the same one. Not awaited, and its failure is silence: a checker
+   * that is down must not put an error on a board in front of a class. */
+  if(!d.cached && (L.steps || []).length){
+    window.bapi.post("/api/board/lesson/review",
+                     { topic:topic, level:level, lesson:L })
+      .then(function(rev){
+        if(mine !== TEACHING || !LESSON) return;   // a newer question won
+        if(rev && rev.findings && rev.findings.length){
+          LESSON.raw.findings = rev.findings;
+          LESSON.raw.confidence = rev.confidence || LESSON.raw.confidence;
+          LESSON.pages = lessonPages(LESSON.raw, topic);
+          paintLesson();
+        }
+      })
+      .catch(function(){});
+  }
 }
 
 /* Put a lesson we already hold onto the board, without asking for it again.

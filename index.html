@@ -4426,6 +4426,27 @@ async function sbTeach(topic,keepTrail){
     SB.lesson=r.lesson; SB.i=0;
     // Kept so a reported error names the exact cached answer.
     if(SB.lesson && r.qkey) SB.lesson.qkey=r.qkey;
+    /* The reading-back pass, asked for now that the lesson is up rather than
+       before it. It used to run inside the request above, so a class stood
+       and watched a blank board through a second model call for a lesson the
+       server was already holding. Its findings mark the lesson when they
+       land, and a critical one drops the cached copy server-side. Not
+       awaited, and never allowed to become an error: a checker that is down
+       must not take down a lesson that is already on the board. */
+    if(!r.cached && SB.lesson && SB.lesson.steps && SB.lesson.steps.length){
+      api.post("/api/board/lesson/review",
+               {topic:SB.topic, level:ASK.level||"Intermediate",
+                lesson:SB.lesson})
+        .then(rev=>{
+          if(seq!==SB.seq || !SB.lesson) return;   // a newer question won
+          if(rev && rev.findings && rev.findings.length){
+            SB.lesson.findings=rev.findings;
+            SB.lesson.confidence=rev.confidence||SB.lesson.confidence;
+            renderAsk();
+          }
+        })
+        .catch(()=>{});
+    }
   }catch(e){
     if(seq!==SB.seq) return;
     // Includes anything thrown before the request was even sent, which
