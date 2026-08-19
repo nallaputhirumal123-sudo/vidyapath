@@ -5775,14 +5775,48 @@ def _fallback_lesson(subject: str, level: str) -> dict:
     }
 
 
+# What the three levels actually mean, in the only place it can matter.
+#
+# The picker offers Beginner, Intermediate and Advanced, and the prompt said
+# "the learner's level is: Advanced" and, further down, "language matched to
+# the stated level". A model given that writes the same lesson three times
+# with slightly different adjectives — which is what a teacher saw: three
+# buttons and one answer.
+#
+# A level is not a tone. It is a decision about what may be assumed, how far
+# to go, and what to leave out, so it is written here as those decisions.
+_LEVELS = {
+    "Beginner":
+        "LEVEL: BEGINNER. Assume no background at all. Define every term the "
+        "first time it appears, in ordinary words, before using it. Prefer a "
+        "concrete picture to a general rule, and put the picture first. No "
+        "symbol where a word will do, and no formula without the sentence "
+        "saying what it means. Short lines, more of them, one small step at a "
+        "time. Better to leave out an exception than to lose them on it.\n\n",
+    "Intermediate":
+        "LEVEL: INTERMEDIATE. Assume the ordinary school grounding in this "
+        "subject and do not re-teach it. Use the standard terms and notation, "
+        "defining only what is genuinely new here. Give the rule AND the "
+        "reason it holds. One worked example, then the general case. Name the "
+        "common mistake and why it is tempting.\n\n",
+    "Advanced":
+        "LEVEL: ADVANCED. Assume fluency: the standard results, the notation "
+        "and the vocabulary are known and are not explained. Go to the "
+        "mechanism — why it is true, where it fails, what it is a special "
+        "case of, how it meets the neighbouring ideas. State conditions and "
+        "edge cases precisely. Do not spend lines on definitions they already "
+        "have; the value here is depth, not breadth.\n\n",
+}
+
+
 def _ask_prompt(question: str, subject: str, level: str) -> str:
     return (
         f"You are Axle, a warm, patient teacher in India explaining on a "
-        f"blackboard. The learner's level is: "
-        f"{level}. A learner asked: \"{question}\"\n\n"
+        f"blackboard. A learner asked: \"{question}\"\n\n"
+        f"{_LEVELS.get(level, _LEVELS['Intermediate'])}"
         'NO GREETING, NO PREAMBLE. The first line is the first real thing you have to say. Never open with "Welcome", "Dear students", "Let us look at this together", "Great question" or any other pleasantry, and never spend a line restating the question back — the learner has it in front of them and the board only shows a few lines at a time, so a line that carries nothing is a line of the lesson thrown away. Begin with the substance and keep going.\n\nANSWER THE QUESTION THAT WAS ASKED. Read it closely enough to notice what it is really asking, then answer that. If it is a problem to solve, solve it and reach the actual answer — do not restate the setup, describe an approach, and stop. Work each step so the reader can follow the arithmetic or the argument, and finish. If the question has no clean answer, or the answer is that no solution exists, say so and show what rules the others out. Every claimed answer gets substituted back into the original problem and checked before you state it.\n\nINDIA FIRST, WHEN AN EXAMPLE IS NEEDED. Set examples here: rupees rather than dollars, Indian cities, Indian firms, the exams and boards people here actually sit, Indian regulations and Indian case law. Use a foreign example only when the subject genuinely is foreign — a US statute in a lesson on US law, a landmark experiment done where it was done. Never reach for another country\'s setting when a local one would serve.\n\n'
         f"Explain it the way a good teacher writes on the board: short lines, "
-        f"one idea per line, language matched to the stated level, with a "
+        f"one idea per line, at the level set above, with a "
         f"small real-life Indian example where natural. Be accurate. The "
         f"question says what it is about; answer THAT, whatever field it "
         f"turns out to belong to. If it "
@@ -12923,13 +12957,18 @@ async def ask_vidya(body: AskIn, user: User = Depends(axle_user),
     found, verdict = _check_lesson(lesson)
     # The same second pass the board gets. This is the most-used surface on
     # the site, so guarding only the board would be guarding the wrong one.
-    review = await _review_lesson(question, lesson)
-    if review:
-        found = review + found
-        if any(r["severity"] == "critical" for r in review):
-            verdict = {"cache": False, "confidence": "low", "state": "flagged"}
-        elif verdict["confidence"] == "high":
-            verdict = dict(verdict, confidence="medium", state="checked")
+    # The review does NOT run here any more.
+    #
+    # It is a second model call, and it used to finish before the learner saw
+    # anything — so the answer existed after about five seconds and sat in
+    # this function while another model read it back. That is where the ten
+    # seconds went, on the most-used screen on the site.
+    #
+    # It is /api/ask/review now, asked for by the page once the lesson is on
+    # the board, and its findings land on the lesson when they arrive. The
+    # same shape as the paper solver's checking pass, and for the same
+    # reason: a check that delays the thing being checked is a check nobody
+    # waits for.
     if found:
         print(f"Checks on ask {question[:60]!r}: {verdict['state']} — "
               f"{found[0]['problem'][:120]}")
@@ -12949,6 +12988,61 @@ async def ask_vidya(body: AskIn, user: User = Depends(axle_user),
         # the answer they wanted sat in memory.
         db.rollback()
     return {"lesson": lesson, "cached": False}
+
+
+class ReviewIn(BaseModel):
+    question: str = Field(default="", max_length=2000)
+    level: str = Field(default="Intermediate", max_length=60)
+    lesson: dict = {}
+
+
+@app.post("/api/ask/review")
+async def ask_review(body: ReviewIn, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Read a finished lesson back, and say what is wrong with it.
+
+    Its own request because it is a second model call, and one that used to
+    stand between a learner and an answer that already existed. The lesson
+    reaches the board as soon as it is written; this arrives after it and
+    marks it.
+
+    **A critical finding removes the cached copy.** Annotating the lesson on
+    one screen is not enough — caching is what turns one wrong answer into
+    everybody's wrong answer, and the row was written before this ran. So
+    the entry is deleted and the next person to ask gets a fresh attempt.
+
+    Never fails the caller. An unavailable checker must not turn a lesson
+    that is on the screen into an error message.
+    """
+    lesson = body.lesson if isinstance(body.lesson, dict) else {}
+    if not ASK_ENABLED or not (lesson.get("steps") or []):
+        return {"findings": [], "state": "unchecked"}
+    question = (body.question or "").strip()
+    try:
+        review = await _review_lesson(question, lesson)
+    except Exception as e:
+        print(f"Ask review failed: {type(e).__name__}: {e}")
+        return {"findings": [], "state": "unchecked"}
+    if not review:
+        return {"findings": [], "state": "checked"}
+
+    critical = any(r.get("severity") == "critical" for r in review)
+    if critical and question:
+        level = (body.level or "Intermediate").strip()[:60]
+        qkey = _cl.key(_scope_of(db, user), "ask", _norm_q(level),
+                       _norm_q(question))[:500]
+        try:
+            row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
+            if row:
+                db.delete(row)
+                db.commit()
+                print(f"Ask review dropped a cached answer: {question[:60]!r}")
+        except Exception as e:
+            db.rollback()
+            print(f"Could not drop the cached answer: {type(e).__name__}: {e}")
+    return {"findings": _note_findings(review),
+            "state": "flagged" if critical else "checked",
+            "confidence": "low" if critical else "medium"}
 
 
 # ---------------------------- live jobs -----------------------------------

@@ -5985,6 +5985,26 @@ async function askSubmit(raw){
     // quiet was to press Stop after every answer.
     askShow(res.lesson);
     recordAsk(q,"ask");
+    /* Read back afterwards, not before.
+       The lesson used to wait on a second model call that read it over
+       looking for mistakes — so an answer that existed after five seconds
+       reached the board after ten. It is asked for here instead, once the
+       lesson is up, and its findings land on it when they arrive. A check
+       that delays the thing being checked is a check nobody waits for. */
+    if(!res.cached && res.lesson){
+      api.post("/api/ask/review",
+               {question:q, level:ASK.level, lesson:res.lesson})
+        .then(rev => {
+          if(!rev || !(rev.findings||[]).length) return;
+          /* Only if the learner is still looking at the same answer — by
+             the time this lands they may have asked another. */
+          if(ASK.question !== q || !ASK.lesson) return;
+          ASK.lesson.findings = rev.findings;
+          ASK.lesson.confidence = rev.confidence || ASK.lesson.confidence;
+          askShow(ASK.lesson);
+        })
+        .catch(()=>{ /* an unavailable checker costs nobody their answer */ });
+    }
   }catch(e){
     ASK.loading=false;
     ASK.error=(e&&e.message)||"Axle could not reach the board just now. Try again.";
@@ -6418,7 +6438,7 @@ function askVoiceInput(){
 
 function askBoardHTML(){
   if(ASK.loading) return `<div class="ask-empty">Axle is thinking…</div>`;
-  if(!ASK.lesson) return `<div class="ask-empty">Namaste! I am Axle.<br>Pick a subject, then ask anything —<br>I'll explain it on the board.</div>`;
+  if(!ASK.lesson) return `<div class="ask-empty">Namaste! I am Axle.<br>Ask me anything —<br>I'll explain it on the board.</div>`;
   const l=ASK.lesson, pg=Math.min(ASK.page||0,ASK.slides.length-1), slide=ASK.slides[pg]||[];
   let h=`<div class="ask-title">${mathText(esc(l.title))}</div>`;
   slide.forEach(step=>{
