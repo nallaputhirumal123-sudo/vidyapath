@@ -16243,9 +16243,25 @@ def _out_of_scope_ids(db):
     separate SQL condition. Two rules that are supposed to agree and are
     written twice always end up disagreeing, and the day they do, this
     deletes rows the board was still serving.
+
+    **A posting somebody saved or applied to is never in this list**, however
+    far out of scope it has drifted. Out of scope means "a crawl today would
+    not fetch this", which is a statement about the board; it is not a reason
+    to delete a row out from under the person who applied through it and is
+    waiting to hear back. Their tracked application would lose the posting it
+    points at.
+
+    That rule was written — _protected_job_ids exists and a second prune
+    endpoint honoured it — but that endpoint was registered on a path another
+    one already had, so FastAPI never reached it and the protection had never
+    run once. Putting it here means the count and the delete agree, which is
+    the same argument as the paragraph above.
     """
+    keep = _protected_job_ids(db)
     out = []
     for j in db.query(Job).all():
+        if j.id in keep:
+            continue
         row = {"country": j.country or "", "location": j.location or "",
                "title": j.title or "", "category": j.category or ""}
         if not _job_in_scope(row):
@@ -22133,43 +22149,16 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@app.post("/api/admin/jobs/prune")
-def admin_jobs_prune(dry: int = 1, user: User = Depends(admin_user),
-                     db: Session = Depends(get_db)):
-    """Delete stored postings that fall outside the board's scope.
-
-    An endpoint rather than a migration because the scope is configurable:
-    widen JOB_COUNTRIES or JOB_FAMILIES later and this needs running again.
-    Defaults to a dry run — pass ?dry=0 to actually delete, so nobody wipes
-    the board by clicking a button they were curious about.
-    """
-    rows = db.query(Job).all()
-    keep = _protected_job_ids(db)
-    # Location matters here as much as country: the rows that survived the
-    # last prune are precisely the ones whose country field was empty and
-    # whose location said Hamburg.
-    doomed = [j for j in rows
-              if j.id not in keep
-              and not _job_in_scope({"category": j.category, "country": j.country,
-                                     "location": j.location, "skills": j.skills,
-                                     "title": j.title})]
-    by_country, by_family = {}, {}
-    for j in doomed:
-        label = j.country or (f"(blank) {j.location or '?'}"[:40])
-        by_country[label] = by_country.get(label, 0) + 1
-        by_family[(j.category or "(none)")] = by_family.get(j.category or "(none)", 0) + 1
-    if not dry:
-        for j in doomed:
-            db.delete(j)
-        db.commit()
-    return {"dry_run": bool(dry),
-            "total_stored": len(rows),
-            "out_of_scope": len(doomed),
-            "would_keep" if dry else "kept": len(rows) - len(doomed),
-            "by_country": dict(sorted(by_country.items(), key=lambda x: -x[1])[:15]),
-            "by_family": dict(sorted(by_family.items(), key=lambda x: -x[1])[:15]),
-            "scope": {"countries": sorted(ALLOWED_COUNTRIES),
-                      "families": sorted(ALLOWED_FAMILIES)}}
+# There was a second POST /api/admin/jobs/prune here, registered on a path
+# this file already had. FastAPI serves the first match, so it had never run
+# once — and it was the one that honoured _protected_job_ids, so the
+# protection it was written for had never run either. That rule now lives in
+# _out_of_scope_ids, where the count and the delete both read it.
+#
+# Removed rather than moved to a path of its own: the surviving pair does the
+# same job better. GET /api/admin/jobs/out-of-scope is the dry run, and the
+# POST asks for a typed sentence rather than ?dry=0, which is the right gate
+# on something with no undo.
 
 
 @app.post("/api/admin/board/cache/clear")

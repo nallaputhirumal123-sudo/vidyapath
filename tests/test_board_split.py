@@ -186,8 +186,12 @@ print("\ntwo questions do not race")
 # LAST won: a new question sometimes produced the new answer and sometimes
 # the old one, with no pattern visible from outside.
 check("each ask is numbered", "var TEACHING = 0;" in page)
+# myTurn, not `mine`. The token was called `mine`, and the same function
+# re-declared `var mine = (ME.classes||[])...` eighty lines further down —
+# one function-scoped binding, so below that point this guard compared an
+# array to a number and was true forever.
 check("and a superseded reply is thrown away",
-      "if(mine !== TEACHING) return;" in page)
+      "if(myTurn !== TEACHING) return;" in page)
 check("the button is held while one is building",
       'go.textContent = "Teaching…";' in page,
       "so pressing twice is not how somebody discovers this")

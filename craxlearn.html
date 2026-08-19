@@ -7262,7 +7262,15 @@ async function teach(){
   remember(topic);
   var level = roomLevel();
   var out = el("bOut");
-  var mine = ++TEACHING;
+  /* myTurn, not `mine`. This was `var mine = ++TEACHING`, and eighty lines
+     further down the same function does `var mine = (ME.classes||[])...` —
+     one `var` binding, function-scoped, so from that line on the sequence
+     token IS the list of the teacher's classes. Every guard after it read
+     `mine !== TEACHING`, compared an array to a number, and was true
+     forever. Harmless while the only guards sat above the reassignment;
+     the moment a callback was added below it, the guard silently rejected
+     every reply. */
+  var myTurn = ++TEACHING;
   var go = el("bGo"), was = go ? go.textContent : "";
   if(go){ go.disabled = true; go.textContent = "Teaching…"; }
   out.innerHTML = '<div class="card muted">Building the lesson…</div>';
@@ -7275,17 +7283,17 @@ async function teach(){
     d = await window.bapi.post("/api/board/lesson",
                                { topic:topic, level:level });
   }catch(e){
-    if(mine === TEACHING){
+    if(myTurn === TEACHING){
       out.innerHTML = '<div class="note bad">' + esc(e.message) + "</div>";
     }
-    if(go && mine === TEACHING){ go.disabled = false; go.textContent = was; }
+    if(go && myTurn === TEACHING){ go.disabled = false; go.textContent = was; }
     return;
   }finally{
-    if(go && mine === TEACHING){ go.disabled = false; go.textContent = was; }
+    if(go && myTurn === TEACHING){ go.disabled = false; go.textContent = was; }
   }
   /* A reply to a question that has been superseded is thrown away rather
      than drawn over the one the room is waiting for. */
-  if(mine !== TEACHING) return;
+  if(myTurn !== TEACHING) return;
   var L = d.lesson || {};
 
   var mine = (ME.classes || []).filter(function(c){ return c.mine; });
@@ -7344,7 +7352,7 @@ async function teach(){
     window.bapi.post("/api/board/lesson/review",
                      { topic:topic, level:level, lesson:L })
       .then(function(rev){
-        if(mine !== TEACHING || !LESSON) return;   // a newer question won
+        if(myTurn !== TEACHING || !LESSON) return;   // a newer question won
         if(rev && rev.findings && rev.findings.length){
           LESSON.raw.findings = rev.findings;
           LESSON.raw.confidence = rev.confidence || LESSON.raw.confidence;

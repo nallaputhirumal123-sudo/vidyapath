@@ -145,8 +145,15 @@ check("no drawing means nothing to report",
 print("\nTHE NAMED DIAGRAM TYPES ARE GONE")
 # This is the change itself: five named types that only answered five
 # questions, replaced by a vocabulary that composes any of them.
-check("only the three chart kinds remain",
-      K.KINDS == ("plot", "bar", "timeline"), str(K.KINDS))
+#
+# Five kinds now, not three, and that is not a reversal of this change. Tree,
+# forces, circuit, venn and ray were PICTURES, and a picture composes out of
+# primitives. A table and a pie are DATA — names and values — and their
+# geometry is arithmetic. Asking a model to compose a pie out of arc paths is
+# asking it for angles, and a model that gets one wrong draws a confidently
+# wrong pie.
+check("only the kinds that carry data remain",
+      K.KINDS == ("plot", "bar", "timeline", "table", "pie"), str(K.KINDS))
 for gone in ("tree", "forces", "circuit", "venn", "ray"):
     check(f"{gone} is no longer a named kind", gone not in K.KINDS)
     check(f"and is not offered in the prompt", f'"{gone}"' not in K.PROMPT)

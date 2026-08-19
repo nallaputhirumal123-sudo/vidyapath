@@ -124,7 +124,30 @@ ck("the classroom board paints before asking",
 ck("it repaints only when there is something to show",
    "if(rev && rev.findings && rev.findings.length){" in CRX)
 ck("a superseded question is not marked there either",
-   "if(mine !== TEACHING || !LESSON) return;" in CRX)
+   "if(myTurn !== TEACHING || !LESSON) return;" in CRX)
+# The guard has to read the sequence token, and the token has to still BE
+# one. This was `var mine = ++TEACHING`, and eighty lines below, the same
+# function did `var mine = (ME.classes||[])...` — one function-scoped
+# binding, so from that line on the token was an array of classes and every
+# guard below it compared an array to a number and was true forever. It sat
+# harmless while every guard was above the reassignment, and went off the
+# moment a callback was added below it.
+# Comments stripped first. The paragraph above quotes the old code, and the
+# assertion below looks for exactly that text — so read against the raw file
+# this passes by finding its own explanation. That has now happened six times
+# in this repo, which is five more than it should have.
+CODE = re.sub(r"/\*.*?\*/|//[^\n]*", " ", CRX, flags=re.S)
+ck("and the token is not the name of something else in that function",
+   "var myTurn = ++TEACHING;" in CODE
+   and "var mine = ++TEACHING" not in CODE)
+TEACH = CODE.split("var myTurn = ++TEACHING;")[1].split("\nasync function ")[0]
+# `=` and not `==`: every legitimate use in here is a comparison, and
+# "myTurn =" matches "myTurn ===" as a substring, so the plain search
+# reported an assignment on each of the guards it was checking.
+ck("nothing reassigns it further down",
+   re.search(r"myTurn\s*=(?!=)", TEACH) is None,
+   "a guard that reads a variable something else has taken over does not "
+   "raise; it silently rejects every reply")
 ck("and its failure is silence",
    ".catch(function(){});" in CRX)
 
