@@ -28,11 +28,20 @@ print("NOTHING UNRECOGNISED SURVIVES")
 check("a made-up kind is dropped", K.clean({"kind": "mandala"}) is None)
 check("junk instead of an object is dropped", K.clean("nope") is None)
 check("no kind at all is dropped", K.clean({}) is None)
-# Three, not eight. Only the kinds with conventions worth encoding stay here:
-# an axis, a bar and a dated line are better purpose-built than composed from
-# primitives every time. Everything else is drawn, not named.
+# Five, not eight, and not three. Only the kinds with conventions worth
+# encoding stay here: an axis, a bar, a dated line, a grid and a share of a
+# whole are better purpose-built than composed from primitives every time.
+# Everything else is drawn, not named.
+#
+# The table and the pie joined late because they were missing entirely — a
+# lesson whose real shape was a table arrived as prose describing one, which
+# is the hardest form to read. They belong on this side rather than in `draw`
+# for the same reason the others do: they are DATA, and the geometry is
+# arithmetic. A pie composed from arc paths asks a model for angles, and a
+# model that gets one wrong draws a confidently wrong pie.
 check("only the kinds with real conventions remain",
-      set(K.KINDS) == {"plot", "bar", "timeline"}, str(K.KINDS))
+      set(K.KINDS) == {"plot", "bar", "timeline", "table", "pie"},
+      str(K.KINDS))
 
 print("\nPLOTS CARRY DATA, NOT FORMULAS")
 p = K.clean({"kind": "plot", "x": "t", "y": "v",
@@ -111,9 +120,107 @@ check("a nonsense colour is simply absent",
                                         "color": "puce"},
                                        {"name": "b", "value": 2}]})["bars"][0])
 
+print("\nA TABLE, WHICH THE BOARD COULD NOT DRAW AT ALL")
+# The shape of half of teaching: active against passive, two methods, the
+# halogens down a group, reactants and products. There was no way to put one
+# on this board, so those lessons arrived as prose describing a table — the
+# hardest form to read and the easiest to write.
+T = K.clean({"kind": "table", "columns": ["", "Active", "Passive"],
+             "rows": [["Subject", "does the action", "receives it"],
+                      ["Actor", "named", "can be hidden"]]})
+check("a table survives", T is not None)
+check("an empty first heading is KEPT, in place",
+      T["columns"] == ["", "Active", "Passive"],
+      "dropped, every column shifts one left and every value sits under the "
+      "wrong heading — and it still looks like a perfectly good table")
+check("the rows line up with it", T["rows"][0][0] == "Subject")
+check("a short row is padded rather than dropped",
+      K.clean({"kind": "table", "columns": ["A", "B", "C"],
+               "rows": [["one"]]})["rows"] == [["one", "", ""]],
+      "a comparison where one side has no equivalent is the common case, "
+      "and the empty cell is itself the answer")
+check("a long row is trimmed to the headings",
+      len(K.clean({"kind": "table", "columns": ["A", "B"],
+                   "rows": [["1", "2", "3", "4"]]})["rows"][0]) == 2)
+check("a trailing blank heading goes",
+      K.clean({"kind": "table", "columns": ["A", "B", ""],
+               "rows": [["1", "2", "3"]]})["columns"] == ["A", "B"])
+check("one column is not a table", K.clean(
+    {"kind": "table", "columns": ["A"], "rows": [["1"]]}) is None)
+check("nor is a table with no headings at all", K.clean(
+    {"kind": "table", "columns": ["", ""], "rows": [["1", "2"]]}) is None)
+check("nor one with no rows", K.clean(
+    {"kind": "table", "columns": ["A", "B"], "rows": []}) is None)
+check("columns are capped", len(K.clean(
+    {"kind": "table", "columns": [f"c{i}" for i in range(20)],
+     "rows": [["x"] * 20]})["columns"]) == K.MAX_COLS)
+check("rows are capped", len(K.clean(
+    {"kind": "table", "columns": ["A", "B"],
+     "rows": [["x", "y"]] * 40})["rows"]) == K.MAX_ROWS)
+# Everything else here draws into a fixed 300. Ten rows in 300 is 20 pixels
+# each: a spreadsheet printed small, not something readable from the back of
+# a classroom.
+check("a table asks for a height that fits its rows",
+      K.clean({"kind": "table", "columns": ["A", "B"],
+               "rows": [["x", "y"]] * 10})["height"] == 346)
+check("and it is bounded",
+      K.clean({"kind": "table", "columns": ["A", "B"],
+               "rows": [["x", "y"]] * 10})["height"] <= 380)
+
+print("\nA PIE, FOR THE ONE THING A BAR CHART DOES NOT SAY")
+P = K.clean({"kind": "pie", "unit": "dry air",
+             "slices": [{"name": "Nitrogen", "value": 78.09},
+                        {"name": "Oxygen", "value": 20.95},
+                        {"name": "Argon", "value": 0.93}]})
+check("a pie survives", P is not None)
+check("it keeps the values, not percentages", P["slices"][0]["value"] == 78.09,
+      "asked for both, a model will send values that disagree with its own "
+      "percentages, and then the drawing argues with the label on it")
+check("the whole it is of is kept", P["unit"] == "dry air")
+check("a zero share is refused, not drawn as a hairline",
+      len(K.clean({"kind": "pie",
+                   "slices": [{"name": "a", "value": 1},
+                              {"name": "b", "value": 2},
+                              {"name": "c", "value": 0}]})["slices"]) == 2)
+check("a negative share is refused",
+      len(K.clean({"kind": "pie",
+                   "slices": [{"name": "a", "value": 1},
+                              {"name": "b", "value": 2},
+                              {"name": "c", "value": -5}]})["slices"]) == 2)
+check("one slice is not a pie", K.clean(
+    {"kind": "pie", "slices": [{"name": "all", "value": 1}]}) is None)
+check("an unnamed slice goes", len(K.clean(
+    {"kind": "pie", "slices": [{"name": "a", "value": 1},
+                               {"name": "b", "value": 1},
+                               {"name": "", "value": 1}]})["slices"]) == 2)
+check("slices are capped", len(K.clean(
+    {"kind": "pie", "slices": [{"name": f"s{i}", "value": 1}
+                               for i in range(20)]})["slices"]) == K.MAX_SLICES)
+
+print("\nTHE RENDERER HAS ONE FOR EVERY KIND THE VALIDATOR PASSES")
+_JS = open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "sketch.js"), encoding="utf-8").read()
+for k in K.KINDS:
+    check(f"sketch.js draws {k}", f"DRAW.{k} = function" in _JS,
+          "a kind the server passes and the renderer has never heard of "
+          "draws nothing, silently")
+check("a share under one per cent says so rather than rounding to 0%",
+      'return "<1%"' in _JS,
+      "carbon dioxide in a pie of dry air is 0.04 per cent, and it is the "
+      "single most interesting number on that chart")
+check("a cell too wide for its column is clipped, not wrapped",
+      "function clipTo(" in _JS,
+      "a wrapped cell changes its row's height, and rows of different "
+      "heights are harder to read across than a truncated cell")
+
 print("\nTHE PROMPT MATCHES THE VALIDATOR")
 for k in K.KINDS:
     check(f"{k} is offered to the model", f'"{k}"' in K.PROMPT)
+check("the table is pushed, since it was missing entirely",
+      "USE THIS OFTEN" in K.PROMPT)
+check("and the pie says what it is not for",
+      "that is \"bar\"" in K.PROMPT,
+      "a pie of unrelated quantities is the commonest chart mistake there is")
 check("it says to send points, not a formula", "Never send a formula" in K.PROMPT)
 check("it says a sketch and a scene are alternatives",
       "alternatives, not a pair" in K.PROMPT)

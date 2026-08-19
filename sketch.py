@@ -6,11 +6,18 @@ curve seen in perspective is a curve you cannot read values off, a timeline
 with a vanishing point is worse than a line, and nobody has ever understood a
 free-body diagram better for being able to orbit it.
 
-So this is the other half: eight kinds of drawing that live on a plane. Same
-discipline as everywhere else — the model sends numbers and short labels, this
-rebuilds them field by field, and the renderer draws. There is no field here
-that can carry markup or code, so there is nothing to sanitise, only a shape
-to enforce.
+So this is the other half: the drawings that live on a plane. Same discipline
+as everywhere else — the model sends numbers and short labels, this rebuilds
+them field by field, and the renderer draws. There is no field here that can
+carry markup or code, so there is nothing to sanitise, only a shape to
+enforce.
+
+The same discipline is why the table and the pie live here rather than being
+composed from `draw`. A pie built out of arc paths asks a model for angles,
+and a model that gets one wrong draws a confidently wrong pie; a table built
+out of rectangles asks it for column positions, and gets them wrong on the
+first long cell. Both are DATA — names and values — and the geometry is
+arithmetic that belongs on this side of the wire.
 
 Points are sent as data, not as formulas. A model that could send "the
 function to plot" would be sending something to evaluate in a browser, and a
@@ -22,7 +29,7 @@ nicer curve is not worth that.
 # get no picture at all, because a question that is none of them got nothing.
 # They are all reachable from the drawing primitives now. The renderers stay
 # in draw.js's sibling for anything already cached, but nothing offers them.
-KINDS = ("plot", "bar", "timeline")
+KINDS = ("plot", "bar", "timeline", "table", "pie")
 
 # Free-body arrows point in eight directions and no others. A free angle
 # invites 37.4 degrees, which is a worse drawing than the nearest eighth.
@@ -37,6 +44,20 @@ MAX_SERIES = 4
 MAX_POINTS = 80
 MAX_BARS = 10
 MAX_EVENTS = 8
+# A table is the thing a board could not do at all, and it is what half of
+# teaching wants: active against passive, the alkali metals down a column,
+# reactants against products, a comparison of three methods. There was no way
+# to put one on the board, so those lessons arrived as prose describing a
+# table, which is the hardest form to read and the easiest to write.
+#
+# Six columns and ten rows. Past that it is a spreadsheet, not a blackboard,
+# and it stops being readable from the back of a classroom — which is the only
+# measure that matters for this screen.
+MAX_COLS = 6
+MAX_ROWS = 10
+# Eight slices. A pie with more is a pie nobody can read; the ninth thing is
+# "other", and saying so is better than drawing a sliver.
+MAX_SLICES = 8
 MAX_PARTS = 6
 MAX_ARROWS = 6
 MAX_NODES = 24
@@ -131,6 +152,61 @@ def clean(d):
         if len(bars) < 2:
             return None
         out.update(bars=bars, y=_label(d.get("y"), 30))
+        return out
+
+    if kind == "table":
+        heads = [_label(h, 26) for h in (d.get("columns") or [])[:MAX_COLS]]
+        # Empty headings are kept IN PLACE, not filtered out. The first
+        # column usually carries the thing being compared and its heading is
+        # blank — dropping it shifted every column one to the left, so the
+        # table still drew, still looked like a table, and had every value
+        # under the wrong heading. Trailing blanks go, since those are a
+        # column nobody filled in.
+        while heads and not heads[-1]:
+            heads.pop()
+        if len(heads) < 2 or not any(heads):
+            return None
+        rows = []
+        for r in (d.get("rows") or [])[:MAX_ROWS]:
+            if not isinstance(r, (list, tuple)):
+                continue
+            # Padded and trimmed to the header, rather than dropped. A row
+            # with a cell missing is the common case — a comparison where one
+            # side has no equivalent — and it should draw as an empty cell,
+            # which is itself the answer, not vanish.
+            cells = [_label(c, 42) for c in list(r)[:len(heads)]]
+            cells += [""] * (len(heads) - len(cells))
+            if any(cells):
+                rows.append(cells)
+        if not rows:
+            return None
+        # A table asks for its own height. Everything else here is drawn into
+        # a fixed 300 and looks right; ten rows in 300 are 20 pixels each,
+        # which is a spreadsheet printed small rather than something readable
+        # from the back of a room.
+        out.update(columns=heads, rows=rows,
+                   height=min(380, 46 + 30 * len(rows)))
+        return out
+
+    if kind == "pie":
+        slices = []
+        for s in (d.get("slices") or [])[:MAX_SLICES]:
+            if not isinstance(s, dict):
+                continue
+            nm = _label(s.get("name"), 24)
+            # Negative and zero shares are not small slices, they are a
+            # drawing that cannot be made. A pie is a whole divided up.
+            val = _n(s.get("value"), 0, 1e9)
+            if not nm or val <= 0:
+                continue
+            item = {"name": nm, "value": val}
+            c = _colour(s.get("color"))
+            if c is not None:
+                item["color"] = c
+            slices.append(item)
+        if len(slices) < 2:
+            return None
+        out.update(slices=slices, unit=_label(d.get("unit"), 16))
         return out
 
     if kind == "timeline":
@@ -228,9 +304,9 @@ def clean(d):
     return None
 
 
-PROMPT = """CHARTS, as `sketch`. Three kinds, for the three things that have conventions
-worth keeping: an axis, a bar and a dated line. Anything else you want to
-draw, compose with `draw` instead.
+PROMPT = """CHARTS AND TABLES, as `sketch`. Five kinds, for the five things that have
+conventions worth keeping: an axis, a bar, a dated line, a grid and a share of
+a whole. Anything else you want to draw, compose with `draw` instead.
 
 "plot"      {"kind":"plot","x":"time (s)","y":"velocity (m/s)",
              "series":[{"name":"with drag","points":[[0,0],[1,8],[2,13]]}],
@@ -247,6 +323,36 @@ draw, compose with `draw` instead.
 "timeline"  {"kind":"timeline","events":[{"at":"1789","name":"Estates-General",
              "note":"called for the first time since 1614"}]}
             History, a legal sequence, a geological period, project phases.
+
+"table"     {"kind":"table","columns":["","Active","Passive"],
+             "rows":[["Subject","does the action","receives it"],
+                     ["Example","The board deleted the logs",
+                      "The logs were deleted"],
+                     ["Actor","named","can be hidden"]]}
+            USE THIS OFTEN. It is the shape of half of teaching and the board
+            could not draw one until now, so lessons whose real form is a
+            table were arriving as prose describing a table — the hardest
+            form to read. Anything compared across cases belongs here:
+            active against passive, two methods, the halogens down a group,
+            reactants and products, before and after, advantages and costs,
+            a declension, the parts of a system and what each does.
+            Two to six columns, up to ten rows. Keep cells short — a few
+            words, not sentences; long cells are clipped. The first column
+            carries the thing being compared and its heading may be empty.
+
+"pie"       {"kind":"pie","unit":"dry air",
+             "slices":[{"name":"Nitrogen","value":78},
+                       {"name":"Oxygen","value":21},
+                       {"name":"Argon","value":0.9},
+                       {"name":"Other","value":0.1}]}
+            A share of ONE whole, which is the thing a bar chart does not
+            say: the composition of air or of the atmosphere, where a rupee
+            of tax goes, a population split, a budget. Send the values; the
+            percentages are worked out from them and drawn for you, so never
+            send both. Two to eight slices, and if there are more, sum the
+            tail into "Other" rather than drawing slivers.
+            Not for comparing separate quantities — that is "bar". If the
+            parts do not add up to one whole, it is the wrong chart.
 
 Rules:
 - A sketch and a 3D scene are alternatives, not a pair. Pick whichever

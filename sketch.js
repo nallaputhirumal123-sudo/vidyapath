@@ -213,6 +213,198 @@
     });
   };
 
+  /* A table.
+   *
+   * The board could not draw one at all, so every lesson whose real shape is
+   * a table — active against passive, the alkali metals down a column,
+   * reactants against products — arrived as prose describing a table. That is
+   * the hardest form to read and the easiest to write, which is exactly the
+   * wrong way round.
+   *
+   * Column widths come from the content, not from an equal split: a column of
+   * one-word labels beside a column of sentences should not get half the
+   * board each. Measured from the actual text, then scaled to fit.
+   */
+  DRAW.table = function (c, s, W, H) {
+    var I = ink(), L = 8, R = 8, T = 6;
+    var cols = s.columns, rows = s.rows;
+    var n = cols.length;
+
+    c.font = "12px system-ui, -apple-system, sans-serif";
+    var want = cols.map(function (h, i) {
+      var w = c.measureText(h).width;
+      rows.forEach(function (r) {
+        w = Math.max(w, c.measureText(r[i] || "").width);
+      });
+      return w + 22;
+    });
+    var total = want.reduce(function (a, b) { return a + b; }, 0);
+    var avail = W - L - R;
+    var widths = want.map(function (w) { return w / total * avail; });
+    // Nothing narrower than will hold its own heading's first word, or the
+    // heading is what gets clipped — and a table whose headings are cut off
+    // is a grid of numbers with no meaning attached.
+    var min = Math.min(64, avail / n);
+    var short = 0;
+    widths = widths.map(function (w) {
+      if (w < min) { short += min - w; return min; }
+      return w;
+    });
+    if (short > 0) {
+      var slack = widths.reduce(function (a, w) {
+        return a + Math.max(0, w - min); }, 0);
+      if (slack > short) {
+        widths = widths.map(function (w) {
+          return w > min ? w - (w - min) / slack * short : w; });
+      }
+    }
+
+    var rowH = Math.min(30, Math.max(20, (H - T - 34) / Math.max(1, rows.length)));
+    var headH = rowH + 4;
+
+    // The heading band, so the first row reads as headings rather than data.
+    c.fillStyle = I.line;
+    c.globalAlpha = 0.55;
+    c.fillRect(L, T, avail, headH);
+    c.globalAlpha = 1;
+
+    var x = L;
+    cols.forEach(function (h, i) {
+      c.font = "600 12px system-ui, -apple-system, sans-serif";
+      plain(c, clipTo(c, h, widths[i] - 16), x + 8, T + headH / 2 + 4,
+            I.text, 12, "left", 1);
+      x += widths[i];
+    });
+
+    c.strokeStyle = I.line;
+    c.lineWidth = 1;
+    var y = T + headH;
+    rows.forEach(function (r, k) {
+      // A faint band on every other row. Ruled lines between every row make
+      // a dense grid; alternating shade tracks across a wide table better.
+      if (k % 2) {
+        c.fillStyle = I.line;
+        c.globalAlpha = 0.22;
+        c.fillRect(L, y, avail, rowH);
+        c.globalAlpha = 1;
+      }
+      var cx = L;
+      r.forEach(function (cell, i) {
+        c.font = "12px system-ui, -apple-system, sans-serif";
+        if (cell) {
+          plain(c, clipTo(c, cell, widths[i] - 16), cx + 8, y + rowH / 2 + 4,
+                I.text, 12, "left", 1);
+        }
+        cx += widths[i];
+      });
+      y += rowH;
+    });
+
+    // The frame and the column rules, drawn last so no fill covers them.
+    c.strokeStyle = I.line;
+    c.strokeRect(L, T, avail, y - T);
+    c.beginPath();
+    c.moveTo(L, T + headH); c.lineTo(L + avail, T + headH);
+    var rx = L;
+    for (var i = 0; i < n - 1; i++) {
+      rx += widths[i];
+      c.moveTo(rx, T); c.lineTo(rx, y);
+    }
+    c.stroke();
+  };
+
+  /* Text that fits its column, with an ellipsis when it does not. Clipped
+     rather than wrapped: a wrapped cell changes the row height, and a table
+     whose rows are different heights is harder to read across than one with
+     a truncated cell in it. */
+  function clipTo(c, text, max) {
+    if (max <= 8) return "";
+    if (c.measureText(text).width <= max) return text;
+    var s = text;
+    while (s.length > 1 && c.measureText(s + "…").width > max) {
+      s = s.slice(0, -1);
+    }
+    return s + "…";
+  }
+
+  /* A share as a percentage, at the precision it deserves.
+   *
+   * Rounding everything to a whole number put "0%" beside carbon dioxide in
+   * a pie of dry air, which is both wrong and the single most interesting
+   * number on that chart. Anything under one per cent says so rather than
+   * claiming a false zero. */
+  function pctOf(frac) {
+    var p = frac * 100;
+    if (p >= 10) return Math.round(p) + "%";
+    if (p >= 1) return p.toFixed(1) + "%";
+    return "<1%";
+  }
+
+  /* A pie.
+   *
+   * The share of a whole, which is the one thing a bar chart genuinely does
+   * not say: the composition of air, where a rupee of tax goes, the split of
+   * a population. Percentages are computed here from the values rather than
+   * taken as given — asked for both, a model will sooner or later send values
+   * that do not add to its own percentages, and then the drawing argues with
+   * the label on it.
+   */
+  DRAW.pie = function (c, s, W, H) {
+    var I = ink();
+    var total = s.slices.reduce(function (a, x) { return a + x.value; }, 0);
+    if (!(total > 0)) return;
+
+    // The legend takes the right-hand third; the pie centres in what is left.
+    var legendW = Math.min(200, Math.max(120, W * 0.34));
+    var cx = (W - legendW) / 2;
+    var cy = H / 2;
+    var r = Math.max(30, Math.min((W - legendW) / 2 - 14, H / 2 - 18));
+
+    var a0 = -Math.PI / 2;   // start at twelve o'clock, as a pie is read
+    s.slices.forEach(function (sl, i) {
+      var frac = sl.value / total;
+      var a1 = a0 + frac * Math.PI * 2;
+      var col = hex(sl.color, PAL[i % PAL.length]);
+      c.fillStyle = col;
+      c.beginPath();
+      c.moveTo(cx, cy);
+      c.arc(cx, cy, r, a0, a1);
+      c.closePath();
+      c.fill();
+      // A hairline between slices, so two similar colours still separate.
+      c.strokeStyle = I.line;
+      c.lineWidth = 1.5;
+      c.stroke();
+
+      // The percentage rides on the slice when there is room for it, and
+      // goes to the legend when there is not. A number half off its own
+      // slice is worse than a number in a list.
+      if (frac > 0.07) {
+        var mid = (a0 + a1) / 2;
+        plain(c, pctOf(frac), cx + Math.cos(mid) * r * 0.62,
+              cy + Math.sin(mid) * r * 0.62 + 4, "#101418", 12, "center", 1);
+      }
+      a0 = a1;
+    });
+
+    var ly = cy - (s.slices.length * 20) / 2 + 10;
+    s.slices.forEach(function (sl, i) {
+      var col = hex(sl.color, PAL[i % PAL.length]);
+      var lx = W - legendW + 6;
+      c.fillStyle = col;
+      c.fillRect(lx, ly - 9, 11, 11);
+      c.font = "11.5px system-ui, -apple-system, sans-serif";
+      plain(c, clipTo(c, sl.name, legendW - 62), lx + 17, ly, I.text,
+            11.5, "left", 1);
+      plain(c, pctOf(sl.value / total), W - 8, ly, I.muted, 11.5, "right", 1);
+      ly += 20;
+    });
+
+    if (s.unit) {
+      plain(c, "of " + s.unit, cx, H - 4, I.muted, 11, "center", 1);
+    }
+  };
+
   DRAW.timeline = function (c, s, W, H) {
     // Wide margins. The line used to run to within 30px of each edge, so
     // the first and last events — the two that matter most on a timeline —
