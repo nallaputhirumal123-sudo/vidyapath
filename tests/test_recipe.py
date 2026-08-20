@@ -59,9 +59,50 @@ ck("and it is not a hash of the prompt",
    "hashing would throw the cache away on every wording tweak, and the "
    "cache is this product's economics")
 
-print("\nevery key that reaches ask_cache carries it")
-# Found by pattern rather than by listing them: a sixth key added later must
-# fail this, which is the entire point.
+print("\nevery cache built by a versioned prompt carries it")
+# Asked the right way round: not "which keys did I remember to change" but
+# "which caches hold a lesson written by a prompt that has a recipe". The
+# first framing is how /api/ask/image was missed — it builds its lesson with
+# _ask_prompt, exactly like the typed question, and its key said "askimg" so
+# a search for ask|board never saw it. A photo of a question would have kept
+# serving the old answer forever while typing the same question got a new
+# one.
+VERSIONED = ("_ask_prompt(", "_board_prompt(")
+
+
+def _fn_holding(at):
+    """The source of the function a given offset sits in — and no more.
+
+    Bounded by the next top-level def, not by the next @app. route. Reaching
+    for the route decorator over-ran the end of _call_model — a helper that
+    calls _ask_prompt and caches nothing — and swept up an unrelated key from
+    a function three screens below it.
+    """
+    head = SRC[:at]
+    start = max(head.rfind("\nasync def "), head.rfind("\ndef "))
+    nxt = [p for p in (SRC.find("\ndef ", at), SRC.find("\nasync def ", at))
+           if p > 0]
+    return SRC[start:min(nxt) if nxt else len(SRC)]
+
+
+hits = 0
+for m in re.finditer("|".join(re.escape(v) for v in VERSIONED), SRC):
+    fn = _fn_holding(m.start())
+    if "_cl.key(" not in fn or "AskCache" not in fn:
+        continue                      # not a route that caches a lesson
+    hits += 1
+    key = fn[fn.index("_cl.key("):][:170]
+    name = re.search(r'"(\w+)"', key)
+    ck("the %s cache carries the recipe" % (name.group(1) if name else "?"),
+       "RECIPE" in key,
+       "its lesson is written by a prompt that has a recipe, so a change to "
+       "that prompt has to reach this cache as well")
+ck("and the search found the routes it should", hits >= 2,
+   "%d found — if this drops to nothing the check above passed vacuously"
+   % hits)
+
+# The two recomputed keys as well, which is a different failure: they do not
+# raise when they are wrong, they find no row and delete nothing.
 KEYS = re.findall(r'_cl\.key\((?:scope|_scope_of\(db, user\)),\s*'
                   r'"(ask|board)"(.{0,24})', SRC, re.S)
 ck("both kinds of key were found", len(KEYS) >= 4, str(len(KEYS)) + " found")

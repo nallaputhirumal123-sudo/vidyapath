@@ -6296,6 +6296,57 @@ def _papers_bump(db, user):
         db.add(Note(user_id=user.id, k=key, v="1"))
 
 
+REVIEWS_PER_DAY = int(env("REVIEWS_PER_DAY", "60") or 60)
+
+
+def _ai_may_spend(db, user) -> bool:
+    """May this account have one more reading-back review today?
+
+    The reviews are the reason this exists. They used to run INSIDE /api/ask
+    and /api/board/lesson, so whatever gate the parent had covered them.
+    Splitting them onto their own routes to get them off the answer's path
+    took them outside those gates: two endpoints that call a model, take the
+    payload from the caller, and had nothing between them and the bill.
+
+    /api/ask is deliberately uncapped, and that is safe there for one reason
+    only — the cache. The same question is paid for once and served forever,
+    so an uncapped route is not an uncapped spend. **A review has no cache at
+    all**: every call is a fresh model call whatever the body, which makes it
+    exactly the call that needs a brake, however open its parent is.
+
+    A budget of its own rather than the paid AI quota. That quota is a
+    lifetime allowance on the free plan and reads zero, so charging reviews
+    to it would have quietly switched the quality pass off for every free
+    learner while leaving /api/ask free — a real change to the product,
+    smuggled in as a fix. This caps abuse and nothing else: a review only
+    fires for an answer that was not cached, so sixty in a day is far past
+    anybody teaching or learning, and nowhere near a loop.
+
+    Soft, never fatal. These run behind a lesson that is already on the
+    screen, so being over budget means quietly not reviewing — not an error
+    in front of a class.
+    """
+    if getattr(user, "is_admin", False):
+        return True
+    key = f"rvw_{now().strftime('%Y%m%d')}"
+    try:
+        row = db.query(Note).filter(Note.user_id == user.id,
+                                    Note.k == key).first()
+        used = int(row.v) if row and (row.v or "").isdigit() else 0
+        if used >= REVIEWS_PER_DAY:
+            return False
+        if row:
+            row.v = str(used + 1)
+        else:
+            db.add(Note(user_id=user.id, k=key, v="1"))
+        db.commit()
+    except Exception as e:                       # a broken meter must not
+        db.rollback()                            # block a lesson from being
+        print(f"Review budget check failed: {type(e).__name__}: {e}")
+        return True                              # checked
+    return True
+
+
 def _ai_bump(db, user):
     """Count one billable AI call against the day, the month and the lifetime
     total. Three counters because the free tier is a lifetime allowance, Basic
@@ -11643,7 +11694,12 @@ async def ask_with_image(image: UploadFile = File(...),
     level = (level or "").strip()[:60]
     digest = hashlib.sha256(raw).hexdigest()[:32]
     scope = _scope_of(db, user)
-    qkey = _cl.key(scope, "askimg", digest, _norm_q(level), _norm_q(q))[:500]
+    # RECIPE here too. This route builds its lesson with _ask_prompt, the
+    # same prompt the typed question uses, so a change to that prompt has
+    # to reach both — otherwise the photo of a question keeps serving the
+    # old answer forever while typing the same question gets a new one.
+    qkey = _cl.key(scope, "askimg", RECIPE, digest,
+                   _norm_q(level), _norm_q(q))[:500]
     row = db.query(AskCache).filter(AskCache.qkey == qkey).first()
     cached = _cached_json(db, row)
     if cached:
@@ -13094,6 +13150,11 @@ async def ask_review(body: ReviewIn, user: User = Depends(current_user),
     """
     lesson = body.lesson if isinstance(body.lesson, dict) else {}
     if not ASK_ENABLED or not (lesson.get("steps") or []):
+        return {"findings": [], "state": "unchecked"}
+    # Metered here, where /api/ask itself is not. That route is safe uncapped
+    # because the cache answers the second person to ask free; this one has
+    # no cache and calls a model every time, on a body the caller supplies.
+    if not _ai_may_spend(db, user):
         return {"findings": [], "state": "unchecked"}
     question = (body.question or "").strip()
     try:
@@ -18238,6 +18299,15 @@ async def board_lesson_review(body: BoardReviewIn,
         user = db.get(User, grant["teacher_id"]) if grant["teacher_id"] else None
     lesson = body.lesson if isinstance(body.lesson, dict) else {}
     if user is None or not ASK_ENABLED or not (lesson.get("steps") or []):
+        return {"findings": [], "state": "unchecked"}
+    # The same gates its parent has. They used to cover this call because it
+    # ran inside that request; moving it out here left a model call with a
+    # caller-supplied body and nothing in front of it.
+    try:
+        require_paid(user, "The smart board")
+    except HTTPException:
+        return {"findings": [], "state": "unchecked"}
+    if not _ai_may_spend(db, user):
         return {"findings": [], "state": "unchecked"}
 
     topic = body.topic.strip()

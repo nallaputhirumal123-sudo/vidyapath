@@ -151,6 +151,37 @@ ck("nothing reassigns it further down",
 ck("and its failure is silence",
    ".catch(function(){});" in CRX)
 
+print("\nand the review has a brake, which its parent route did not give it")
+# Splitting a model call onto its own route takes it outside whatever gate
+# the parent had. /api/ask is uncapped, and that is safe there for one reason
+# only: the cache answers the second person to ask for free. A review has NO
+# cache — every call is a fresh model call on a body the caller supplies — so
+# it is exactly the call that needs a brake, however open its parent is.
+ck("there is a budget for reviews",
+   isinstance(main.REVIEWS_PER_DAY, int) and main.REVIEWS_PER_DAY > 0)
+REV_ASK = inspect.getsource(main.ask_review)
+for name, src in (("ask", REV_ASK), ("board", REV)):
+    ck("the %s review is metered" % name, "_ai_may_spend(db, user)" in src)
+    ck("and the %s review refuses quietly when it is out" % name,
+       src.count('{"findings": [], "state": "unchecked"}') >= 2,
+       "these run behind a lesson already on the screen; over budget is not "
+       "an error to put in front of a class")
+
+BUDGET = inspect.getsource(main._ai_may_spend)
+ck("the budget is its own, not the plan's AI quota",
+   "_ai_enforce_limit" not in BUDGET and "rvw_" in BUDGET,
+   "that quota is a lifetime allowance reading zero on the free plan, so "
+   "charging reviews to it would have switched the quality pass off for "
+   "every free learner while /api/ask stayed free — a product change "
+   "smuggled in as a fix")
+ck("and a review does not spend the plan's quota either",
+   "_ai_bump" not in REV_ASK and "_ai_bump" not in REV,
+   "counting a background call against what the plan sells pushes a paying "
+   "customer to their limit for something they never asked for")
+ck("a broken meter does not block the check", "except Exception" in BUDGET)
+ck("and the board review still asks whether the school pays",
+   'require_paid(user, "The smart board")' in REV)
+
 print("\n" + ("PASSED %d   FAILED %d" % (len(P), len(F))))
 if F:
     for name in F:
