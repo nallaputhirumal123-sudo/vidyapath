@@ -230,6 +230,61 @@ ck("and the server does not let a plan in either",
        MAIN.split("def _school_only(db, user):")[1].split("\n@app.")[0],
    "the menu and the route have to agree; offering something and then "
    "refusing it is the worst of both")
+# The gate, exercised rather than read. It said one thing and _at_school two
+# functions below said the opposite, and the whole suite passed anyway — the
+# assertions above check that the gate EXISTS and what it says, which is true
+# of a gate that refuses the wrong people.
+#
+# is_admin means whoever runs Craxle, not whoever runs a school. Conflating
+# the two locked the owner out of the product: the paper solver answered a
+# 403 on the account that had every other surface on the site. Meanwhile
+# _at_school says "Admins pass, as everywhere — running the site means
+# needing every surface to debug it", and never got asked.
+print("\nwho the gate actually lets through")
+import os as _os                                                # noqa: E402
+_os.environ.setdefault("DATABASE_URL", "sqlite:///./vidyapath.db")
+_os.environ.setdefault("ALLOW_SQLITE", "1")
+_os.environ.setdefault("JWT_SECRET", "d" * 40)
+import main as _m                                               # noqa: E402
+
+
+class _Who:
+    """Just enough of a user for the gate to read."""
+
+    def __init__(self, **kw):
+        self.id = 0
+        self.is_admin = False
+        self.kind = ""
+        self.email = "x@example.com"
+        self.__dict__.update(kw)
+
+
+def _lets_in(who, staff=False, at_school=False):
+    real_teacher, real_school = _m.teacher_row, _m._at_school
+    _m.teacher_row = lambda u, d: (object() if staff else None)
+    _m._at_school = lambda d, u: at_school or bool(u.is_admin)
+    try:
+        _m._school_only(None, who)
+        return True
+    except Exception:
+        return False
+    finally:
+        _m.teacher_row, _m._at_school = real_teacher, real_school
+
+
+ck("the site admin gets in", _lets_in(_Who(is_admin=True)),
+   "is_admin is whoever runs Craxle, not a school's office — refusing it "
+   "here locked the owner out of their own paper solver, and every other "
+   "gate in that file lets an admin through on its first line")
+ck("a school's pupil gets in",
+   _lets_in(_Who(kind="classcode"), at_school=True))
+ck("a teacher does not", not _lets_in(_Who(), staff=True),
+   "that part was decided on purpose: papers are for the student sitting "
+   "the exam")
+ck("and a personal account does not", not _lets_in(_Who()),
+   "selling a school's material to somebody who walked in off the street "
+   "undercuts the school that paid for it")
+
 ck("the paper search opens first for both of them",
    'if(!EXAMV.tab) EXAMV.tab = "papers";' in IDX,
    "a student revising and a teacher setting a paper want the same thing; "

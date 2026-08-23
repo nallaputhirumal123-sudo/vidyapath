@@ -11326,15 +11326,27 @@ def _school_only(db, user):
     """
     # The person sitting the exam, and nobody else.
     #
-    # Not a teacher and not an admin: they run the school, assign the roles
-    # and post the updates. This was in an admin's sidebar and then refused
-    # them when they pressed Solve, which is the worst of both — offered and
-    # then denied.
+    # Not a teacher and not a school's office: they run the school, assign
+    # the roles and post the updates. This was in their sidebar and then
+    # refused them when they pressed Solve, which is the worst of both —
+    # offered and then denied.
     #
     # A school's own pupil is in because their school bought it, and that
     # is the whole of the list. Refused here and not only hidden in the
     # menu, because a hidden menu item is still a menu item.
-    if getattr(user, "is_admin", False) or teacher_row(user, db) is not None:
+    #
+    # **The site admin is NOT school staff, and used to be refused here.**
+    # is_admin means whoever runs Craxle, not whoever runs a school — and
+    # this line conflated the two, so the owner of the product could not
+    # open the product. Two functions below, _at_school says the opposite in
+    # as many words: "Admins pass, as everywhere — running the site means
+    # needing every surface to debug it", and it never got the chance,
+    # because this line refuses before that one is asked. Every other gate
+    # in this file lets an admin through on its first line. This one now
+    # does too; a school's teachers and office are still out, which was the
+    # part that was actually decided.
+    if teacher_row(user, db) is not None and not getattr(user, "is_admin",
+                                                         False):
         raise HTTPException(
             403, "Past papers and entrance syllabuses are for the student "
                  "sitting the exam. A teaching or office account does not "
@@ -19138,19 +19150,33 @@ async def solve_batch(body: SolveBatch,
     read_row = (db.query(AskCache)
                   .filter(AskCache.qkey == f"readpaper|{paper}").first()
                 if paper else None)
-    on_paper = set()
+    on_paper, words_on_paper = set(), set()
     if read_row is not None:
         try:
             for q in (json.loads(read_row.lesson) or {}).get("questions", []):
                 on_paper.add(_solver.fingerprint(q.get("n"), q.get("text")))
+                words_on_paper.add(_solver.text_key(q.get("text")))
         except Exception:
-            on_paper = set()
+            on_paper, words_on_paper = set(), set()
     if not on_paper:
         raise HTTPException(
             400, "Upload the paper first — solving works on a paper that "
                  "has been read.")
+    # The words are what the receipt is really for: a batch may only carry
+    # questions that are on a paper somebody paid to have read, so that this
+    # is not a route which takes arbitrary text and returns whatever a model
+    # says about it. That property lives entirely in the TEXT.
+    #
+    # So a question whose text is on the paper is accepted even if it comes
+    # back numbered differently. It used to be refused — and not on its own:
+    # one relabelled number failed the whole batch with "those questions are
+    # not on the paper that was read", on a paper that had just been read
+    # successfully. Nothing is loosened by this; a question that is not on
+    # the paper is still refused, by the only test that was ever doing that
+    # work.
     stray = [q["n"] for q in chunk
-             if _solver.fingerprint(q["n"], q["text"]) not in on_paper]
+             if _solver.fingerprint(q["n"], q["text"]) not in on_paper
+             and _solver.text_key(q["text"]) not in words_on_paper]
     if stray:
         raise HTTPException(
             400, "Those questions are not on the paper that was read. "

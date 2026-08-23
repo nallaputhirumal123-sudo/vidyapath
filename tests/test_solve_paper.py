@@ -890,5 +890,78 @@ ck("and the certificate is not still called something else",
    "it is the single most-shared thing this site produces — a learner "
    "puts it in front of an employer")
 
+
+print("\nevery way an Indian paper numbers a question")
+# Papers do not agree on numbering, and the parser has to. Each of these is
+# one real question, and six of them were read as none at all.
+STYLES = """
+1. Define osmosis.
+2) State Ohm's law.
+(3) What is the SI unit of force?
+Q4. Name the process by which plants make food.
+Q.5 Give one example of a redox reaction.
+Q 6 Write the formula for kinetic energy.
+7 . Differentiate between speed and velocity.
+8- What is the value of g on Earth?
+9 - Name two alkali metals.
+10 : State Newton's third law.
+11] Define refraction.
+12(a) Find the area of a circle of radius 7 cm.
+12 (b) Find its circumference.
+13(i) What is an acid?
+14 (ii) What is a base?
+15.(a) State the law of conservation of mass.
+16. Write the balanced equation for the reaction of Fe with O2.
+17. Explain the use of a catalyst in the Haber process.
+18. A line segment AB is divided into three equal parts. Find each.
+"""
+_read = solver.questions(STYLES)
+ck("all nineteen are read", len(_read) == 19, "%d read" % len(_read))
+_ns = [" ".join(str(q["n"]).split()) for q in _read]
+ck("a sub-part after a dot is a question", "15.(a)" in _ns,
+   "the dot ended the number and the bracket started nothing, so 15.(a) "
+   "parsed as no question at all")
+ck("and Q with a space before the number is too", "6" in _ns)
+
+print("\nthe rubric filter drops instructions, not questions")
+# "write the" sat in the rubric list as a bare fragment. It opens "Write the
+# answers in the space provided" and it equally opens "Write the balanced
+# chemical equation" — so every question beginning that way was dropped from
+# every paper, which is most of a chemistry paper.
+for _q in ("Write the formula for kinetic energy.",
+           "Write the balanced chemical equation for the reaction.",
+           "Write the IUPAC name of the following compound.",
+           "Explain the use of a catalyst in the Haber process.",
+           "A line segment AB is divided into three equal parts.",
+           "State which of the following are allowed transitions."):
+    ck("kept: " + _q[:42], solver._looks_like_question(_q))
+for _r in ("Attempt all questions.",
+           "Answer any five of the following.",
+           "This question paper contains 38 questions.",
+           "It is divided into five Sections A, B, C, D and E.",
+           "Use of a simple calculator is allowed.",
+           "Use of logarithmic tables is not permitted.",
+           "Write the answers in the space provided.",
+           "Write the question number clearly.",
+           "Figures to the right indicate full marks.",
+           "All questions are compulsory."):
+    ck("dropped: " + _r[:42], not solver._looks_like_question(_r))
+
+print("\na question keeps its identity however its number is written")
+# The receipt check refused a batch whose numbering came back spelled even
+# slightly differently — and it refused the WHOLE batch, on a paper that had
+# just been read successfully.
+_base = solver.fingerprint("12 (b)", "Find its circumference.")
+for _n in ("12(b)", "12 (B)", "Q12(b)", "12.(b)", " 12 (b) "):
+    ck("the same question as %r" % _n,
+       solver.fingerprint(_n, "Find its circumference.") == _base)
+ck("but two sub-parts stay apart",
+   solver.fingerprint("12(a)", "Find the area.")
+   != solver.fingerprint("12(b)", "Find the area."))
+ck("and the words alone identify it",
+   solver.text_key("Find  its\ncircumference.") == "Find its circumference.",
+   "the words are what the receipt check is really for; the number never "
+   "contributed to it and only ever added ways to refuse a real batch")
+
 print("\nPASSED " + str(len(P)) + "   FAILED " + str(len(F)))
 sys.exit(1 if F else 0)

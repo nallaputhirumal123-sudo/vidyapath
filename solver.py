@@ -211,8 +211,12 @@ appear, with the same number the paper printed. Never merge two questions."""
 # paper prints it, because renumbering a paper is how a solution ends up
 # filed against the wrong question.
 # The number itself: 12, iii, (3), and with a sub-part — 12(a), 7 (ii).
+# The separator before a sub-part is optional and may be punctuation:
+# "12(a)", "7 (ii)" and "15.(a)" are all one question with a part, and the
+# last was read as no question at all — the dot ended the number and the
+# bracket started nothing.
 _NUM = (r"\(?(?:\d{1,3}|[ivxlIVXL]{1,5})\)?"
-        r"(?:\s*\(\s*(?:[a-hj-z]|[ivx]{1,4})\s*\))?")
+        r"(?:\s*[.)]?\s*\(\s*(?:[a-hj-z]|[ivx]{1,4})\s*\))?")
 # Two ways a question starts, and the difference is what is allowed to
 # separate the number from the words.
 #
@@ -222,8 +226,13 @@ _NUM = (r"\(?(?:\d{1,3}|[ivxlIVXL]{1,5})\)?"
 _Q_LOOSE = re.compile(r"^\s*Q\s*\.?\s*(" + _NUM + r")\s*[.)\]:—–-]?\s+(.+)$")
 # A bracketed sub-part is its own punctuation: "12(a) Find the area" needs no
 # full stop after it to be unmistakably a question.
+# The separator is optional and may be a dot: "15.(a) State the law" is
+# question 15 part a, and it parsed as no question at all — the strict
+# pattern wants punctuation AFTER the whole number and there is only a
+# space, and this one did not allow the dot in the middle.
 _Q_PART = re.compile(
-    r"^\s*((?:\d{1,3}|[ivxlIVXL]{1,5})\s*\(\s*(?:[a-hj-z]|[ivx]{1,4})\s*\))"
+    r"^\s*((?:\d{1,3}|[ivxlIVXL]{1,5})\s*[.)]?\s*"
+    r"\(\s*(?:[a-hj-z]|[ivx]{1,4})\s*\))"
     r"\s*[.)\]:—–-]?\s+(.+)$")
 _Q_STRICT = re.compile(r"^\s*(" + _NUM + r")\s*[.)\]:—–-]\s+(.+)$")
 
@@ -437,12 +446,37 @@ _SECTION = re.compile(r"^\s*(?:section|part|खण्ड|"
 # What actually differs is the verb. A paper's rubric talks ABOUT the paper:
 # its questions, its sections, its marks, its calculator rule. A question
 # asks you to find, prove, explain or choose something.
+# The paper talking about itself, rather than asking something.
+#
+# Five of these used to be written as bare fragments, and a fragment is not
+# a rubric — it is a phrase that a rubric happens to use and a question uses
+# just as often. "write the" was the worst: it is the opening of "Write the
+# answers in the space provided", and it is equally the opening of "Write
+# the balanced chemical equation", "Write the IUPAC name", "Write the value
+# of sin 30" — so EVERY question that began that way was silently dropped
+# from every paper, which is most of a chemistry paper.
+#
+# The others: "use of a" caught "Explain the use of a catalyst"; "divided
+# into" caught "A line segment AB is divided into three equal parts";
+# "are allowed" caught "which of the following are allowed transitions";
+# "calculator" and "attempt" were bare enough to catch a question about
+# either word.
+#
+# Each is anchored to what the rubric actually says now. A rubric talks
+# about the PAPER — its sections, its marks, what you may bring — and a
+# question talks about the subject.
 _RUBRIC_WORDS = re.compile(
     r"(?:all questions|this (?:question )?paper|the question paper|"
-    r"question paper|attempt|compulsory|calculator|marks are|"
-    r"indicate full marks|internal choice|is not allowed|are allowed|"
-    r"divided into|sections?.*carry|use of a|figures? to the right|"
-    r"write the|answer any|carry equal marks|first attempt|"
+    r"question paper|attempt all|attempt any|compulsory|marks are|"
+    r"indicate full marks|internal choice|"
+    r"(?:use|using) of (?:a |an |the )?(?:simple |scientific |non-?programmable )?"
+    r"calculators?(?: is| are)?(?: not)?(?: (?:allowed|permitted))?|"
+    r"log(?:arithmic)? tables?(?: is| are)?(?: not)?(?: (?:allowed|permitted))|"
+    r"(?:paper|it) is divided into|sections?.*carry|"
+    r"figures? to the right|"
+    r"write the (?:answers?|question numbers?|serial number|seat|roll|"
+    r"register|index|code)|"
+    r"answer any|carry equal marks|first attempt|"
     r"will be evaluated|given credit|seat no|max\.? marks|time allowed)",
     re.I)
 
@@ -668,16 +702,49 @@ def questions(text):
     return out[:MAX_QUESTIONS]
 
 
+def _norm_n(n):
+    """A question number, as an identity rather than as printed.
+
+    "12 (b)", "12(b)", "Q12(b)", "12.(b)" and "12 (B)" are one question
+    written five ways, and the number used to be compared exactly. A paper
+    whose numbering came back spelled even slightly differently had its
+    whole batch refused with "those questions are not on the paper that was
+    read" — which is the paper solver not working, on a paper that had just
+    been read successfully.
+
+    Sub-parts survive, which is the part that matters: 12a and 12b stay
+    different. Only the punctuation and the Q go.
+    """
+    s = str(n or "").strip().lower()
+    if s.startswith("q"):
+        s = s[1:]
+    return "".join(ch for ch in s if ch.isalnum())
+
+
+def text_key(text):
+    """A question's identity from its words alone.
+
+    The words are what make it that question, and they are what the receipt
+    check is really for: a batch may only contain questions that are on the
+    paper somebody paid to have read, so that this is not a route which
+    takes arbitrary text and returns whatever a model says about it.
+
+    The NUMBER never contributed to that. It only ever added ways for a
+    legitimate batch to be refused.
+    """
+    return " ".join(str(text or "").split())
+
+
 def fingerprint(n, text):
     """A question's identity, for checking it is on the paper it claims.
 
     Whitespace-insensitive, because the question travels to the browser as
-    JSON and back and a rewrapped line is the same question. Not
+    JSON and back and a rewrapped line is the same question. The text is not
     case-folded: a chemistry paper's Mg and mg are different things, and a
-    check that cannot tell them apart is not much of a check.
+    check that cannot tell them apart is not much of a check. The number is
+    folded, because "Q12(b)" and "12 (b)" are not different things.
     """
-    return " ".join(str(n or "").split()) + "\x1f" + \
-        " ".join(str(text or "").split())
+    return _norm_n(n) + "\x1f" + text_key(text)
 
 
 def cache_key(q):

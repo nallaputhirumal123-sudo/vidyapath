@@ -1488,7 +1488,24 @@ const api = {
       throw new Error("Could not reach the server. Check your connection.");
     }
     clearTimeout(timer);
-    if(r.status===401){ AUTHED=false; showGate(); throw new Error("Not signed in"); }
+    /* A 401 ends the session — but only for a request the person MADE.
+     *
+     * Background work must never be able to sign anybody out. The lesson
+     * review is the case that proved it: it fires on its own, moments after
+     * an answer arrives, and nobody asked for it. Routed through here it
+     * inherited the power to throw the user back to the sign-in screen the
+     * instant it got a 401 — which is what "sometimes it logs me out right
+     * after the answer" looks like from the other side of the screen. Its
+     * whole contract is to fail silently, and this line was quietly
+     * overriding that.
+     *
+     * A real dead session is still caught: the next thing the person does
+     * makes a request of their own, and that one signs them out properly,
+     * with the reason the server gave. */
+    if(r.status===401){
+      if(opts.quiet) throw new Error("Not signed in");
+      AUTHED=false; showGate(); throw new Error("Not signed in");
+    }
     const txt = await r.text();
     /* A non-JSON body means the response did not come from us — a Cloudflare
        or Railway error page. Never surface it: it is a full HTML document, and
@@ -4434,9 +4451,10 @@ async function sbTeach(topic,keepTrail){
        awaited, and never allowed to become an error: a checker that is down
        must not take down a lesson that is already on the board. */
     if(!r.cached && SB.lesson && SB.lesson.steps && SB.lesson.steps.length){
-      api.post("/api/board/lesson/review",
-               {topic:SB.topic, level:ASK.level||"Intermediate",
-                lesson:SB.lesson})
+      api.call("/api/board/lesson/review",
+               {method:"POST", quiet:true,
+                body:{topic:SB.topic, level:ASK.level||"Intermediate",
+                      lesson:SB.lesson}})
         .then(rev=>{
           if(seq!==SB.seq || !SB.lesson) return;   // a newer question won
           if(rev && rev.findings && rev.findings.length){
@@ -6077,8 +6095,11 @@ async function askSubmit(raw){
        lesson is up, and its findings land on it when they arrive. A check
        that delays the thing being checked is a check nobody waits for. */
     if(!res.cached && res.lesson){
-      api.post("/api/ask/review",
-               {question:q, level:ASK.level, lesson:res.lesson})
+      /* quiet: this fires on its own after the answer lands, so a 401 here
+         must not throw the learner back to the sign-in screen. */
+      api.call("/api/ask/review",
+               {method:"POST", quiet:true,
+                body:{question:q, level:ASK.level, lesson:res.lesson}})
         .then(rev => {
           if(!rev || !(rev.findings||[]).length) return;
           /* Only if the learner is still looking at the same answer — by
