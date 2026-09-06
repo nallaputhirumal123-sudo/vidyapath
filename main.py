@@ -21904,6 +21904,270 @@ async def interview_guide(category: str = "", job_id: int = 0,
     }
 
 
+# ---- mock interview: practising out loud ----------------------------------
+# The prep sheet tells somebody what to say. This is where they find out
+# whether they can actually say it, which is a different skill and the one
+# that gets tested in the room.
+#
+# **The microphone never reaches this server.** Recognition and speech are
+# the browser's own (see voice.js) - the audio stays on the machine and only
+# the finished transcript is posted here. That is a cost decision as much as
+# a privacy one: a paid speech API would bill per second of somebody
+# thinking, which is the most open-ended thing in the product.
+#
+# Scoring one answer IS a model call, and it is one per answer by choice - a
+# rubric that counts keywords cannot tell "I led the migration" from "I
+# watched the migration", and that distinction is the whole of interview
+# feedback. What is kept cheap instead: the prompt is small, the reply is
+# capped at 900 tokens, delivery is measured in the browser and handed over
+# as fact rather than paid for, and an identical answer to an identical
+# question is served from cache.
+
+
+def _mock_prompt(question, answer, ctx):
+    """Score one spoken answer. Small on purpose - this runs per answer."""
+    role = ctx.get("role") or "the role"
+    company = ctx.get("company") or ""
+    why = ctx.get("why") or ""
+    model = ctx.get("model_answer") or ""
+    jd = (ctx.get("jd") or "")[:900]
+    d = ctx.get("delivery") or {}
+    dl = (f"They spoke for {d.get('seconds', 0)} seconds, {d.get('words', 0)} "
+          f"words ({d.get('wpm', 0)} per minute), with "
+          f"{d.get('fillers', 0)} filler words.")
+    return (
+        "You are an interviewer who has just heard this answer out loud, and "
+        "you are giving the candidate honest feedback.\n\n"
+        f"ROLE: {role}" + (f" at {company}" if company else "") + "\n"
+        + (f"FROM THE POSTING: {jd}\n" if jd else "")
+        + f"QUESTION ASKED: {question}\n"
+        + (f"WHAT IT IS TESTING: {why}\n" if why else "")
+        + (f"A STRONG ANSWER LOOKS LIKE: {model}\n" if model else "")
+        + f"\nWHAT THEY ACTUALLY SAID (transcribed from speech, so expect "
+          f"stumbles and no punctuation):\n{answer}\n\n"
+        + f"DELIVERY, ALREADY MEASURED: {dl}\n\n"
+        "Respond with ONLY valid JSON, no markdown fences:\n"
+        '{"score":<0-100>,'
+        '"verdict":"<one sentence a candidate can act on, said to their face>",'
+        '"covered":["<something they genuinely did well, quoting their own '
+        'words where you can>"],'
+        '"missed":["<something this answer needed and did not have>"],'
+        '"structure":"<one sentence on how the answer was built - the '
+        'situation, what they did, the result - and what was missing>",'
+        '"delivery":"<one sentence on pace, fillers and length, using the '
+        'measurements above. Say nothing about accent>",'
+        '"model_answer":"<60-110 words. The answer THEY should have given, '
+        'built from what they actually said - keep their real projects, '
+        'numbers and words, and fix the shape. Never invent an experience '
+        'they did not mention>",'
+        '"followup":"<the follow-up question a real interviewer would now '
+        'ask, given what they said>"}\n\n'
+        "Score honestly: 80+ is an answer that would pass this round, 50-70 "
+        "is recoverable, below 40 is a fail. A transcript stumble is not a "
+        "content fault - judge what they meant, not how the recogniser spelt "
+        "it. If the answer is empty, off-topic or gave no real evidence, say "
+        "so plainly and score it low rather than finding something kind."
+    )
+
+
+def _clean_mock(d):
+    """Validate the score. Text only - nothing here is rendered as markup,
+    and the board's rule applies equally: what a model wrote never reaches
+    another user's page as HTML."""
+    def txt(v, n=600):
+        return str(v or "").strip()[:n]
+
+    try:
+        score = int(float(d.get("score", 0)))
+    except Exception:
+        score = 0
+    score = max(0, min(100, score))
+
+    def lst(k, n, cap):
+        return [txt(x, n) for x in (d.get(k) or [])[:cap] if txt(x, n)]
+
+    return {
+        "score": score,
+        "verdict": txt(d.get("verdict"), 300),
+        "covered": lst("covered", 300, 4),
+        "missed": lst("missed", 300, 4),
+        "structure": txt(d.get("structure"), 400),
+        "delivery": txt(d.get("delivery"), 400),
+        "model_answer": txt(d.get("model_answer"), 1200),
+        "followup": txt(d.get("followup"), 300),
+    }
+
+
+class MockIn(BaseModel):
+    question: str = Field(default="", max_length=600)
+    answer: str = Field(default="", max_length=8000)
+    why: str = Field(default="", max_length=400)
+    model_answer: str = Field(default="", max_length=1500)
+    job_id: int = 0
+    category: str = Field(default="", max_length=40)
+    round: str = Field(default="", max_length=60)
+    seconds: int = 0
+    words: int = 0
+    fillers: int = 0
+
+
+@app.post("/api/interview/mock")
+async def interview_mock(body: MockIn, user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """Score one spoken answer against one question."""
+    if not ASK_ENABLED:
+        raise HTTPException(503, "Answer scoring needs an AI provider "
+                                 "configured. The practice questions and the "
+                                 "prep sheet still work without one.")
+    q = (body.question or "").strip()
+    a = (body.answer or "").strip()
+    if len(q) < 5:
+        raise HTTPException(400, "No question to score against.")
+    # Below this there is nothing to judge, and paying a model to say "you
+    # did not answer" is paying for something the client already knows.
+    if len(a.split()) < 8:
+        return {"score": 0,
+                "verdict": "That was too short to score - give it a proper go "
+                           "and I will mark it properly.",
+                "covered": [], "missed": ["An actual answer"],
+                "structure": "", "delivery": "", "model_answer": "",
+                "followup": "", "free": True}
+
+    # Same rule as the prep sheet: practising the canned questions for a role
+    # family is open to everyone, practising against a SPECIFIC posting is
+    # the paid product.
+    job = db.get(Job, body.job_id) if body.job_id else None
+    if job is not None:
+        require_paid(user, "Practice against a specific job")
+
+    # An identical answer to an identical question is the same marking twice.
+    # It happens more than it sounds: people re-run a question to compare a
+    # phrasing, and a double tap on the button must never bill twice.
+    key = ("mk|" + _norm_q(q)[:200] + "|"
+           + hashlib.sha256(a.lower().encode("utf-8", "ignore")).hexdigest()[:16])
+    row = db.query(AskCache).filter(AskCache.qkey == key).first()
+    got = _cached_json(db, row, need=None)
+    if got:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {**got, "cached": True}
+
+    words = len(a.split())
+    secs = max(1, int(body.seconds or 0))
+    ctx = {
+        "role": (job.title if job else "") or CATEGORY_LABELS.get(
+            (body.category or "").strip().lower(), "the role"),
+        "company": (job.company if job else ""),
+        "why": body.why,
+        "model_answer": body.model_answer,
+        "jd": ((job.description or job.text or "") if job else ""),
+        "delivery": {"seconds": secs, "words": words,
+                     "wpm": int(words * 60 / secs) if secs else 0,
+                     "fillers": max(0, int(body.fillers or 0))},
+    }
+
+    _ai_enforce_limit(db, user)
+    try:
+        text = await _ai_text(_mock_prompt(q, a[:6000], ctx), 900,
+                              json_mode=True)
+        got = _clean_mock(_ai_json(text))
+    except Exception as e:
+        print(f"Mock scoring failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not got["verdict"]:
+        raise HTTPException(502, "That came back empty - try again.")
+    _ai_bump(db, user)
+    db.add(AskCache(qkey=key, subject="interview", level="mock",
+                    question=q[:2000], lesson=json.dumps(got), hits=0))
+    db.commit()
+    return {**got, "cached": False}
+
+
+@app.get("/api/interview/company")
+def interview_company(company: str = "", job_id: int = 0,
+                      user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """What we actually know about interviewing at one company.
+
+    Every number here is counted out of our own tables - the postings we hold
+    and the prep sheets already written against them - and none of it is a
+    model call, so this is free and stays free.
+
+    It is deliberately NOT "reported interview questions from the internet".
+    We do not hold those, scraping a reviews site for them is not something
+    this product does, and a round list invented by a model and presented as
+    what a company actually does is the one failure here that would cost
+    somebody a real interview. So the basis is stated on the page.
+    """
+    job = db.get(Job, job_id) if job_id else None
+    name = (company or (job.company if job else "") or "").strip()
+    if not name:
+        raise HTTPException(400, "No company to look up.")
+
+    jobs = (db.query(Job).filter(Job.company.ilike(name))
+              .order_by(Job.id.desc()).limit(60).all())
+    ids = [j.id for j in jobs]
+
+    # Rounds seen in prep already written for this company's postings. The
+    # cache row is the record that it was generated; reading it back costs
+    # nothing and is the closest thing to real history we honestly hold.
+    rounds, sheets = {}, 0
+    if ids:
+        rows = (db.query(AskCache)
+                  .filter(AskCache.subject == "interview",
+                          AskCache.level == "")
+                  .filter(or_(*[AskCache.qkey.like("iv|%d|%%" % i)
+                                for i in ids])).limit(200).all())
+        for r in rows:
+            data = _cached_json(db, r, need=None)
+            if not data:
+                continue
+            sheets += 1
+            for rd in (data.get("rounds") or []):
+                nm = (rd.get("name") or "").strip()[:60]
+                if nm:
+                    rounds[nm] = rounds.get(nm, 0) + 1
+
+    # This person's own history with them, which is the one piece of past
+    # data that is unambiguously real.
+    mine = (db.query(JobTrack)
+              .filter(JobTrack.user_id == user.id,
+                      JobTrack.company.ilike(name))
+              .order_by(JobTrack.updated_at.desc()).limit(20).all())
+
+    cats = {}
+    for j in jobs:
+        c = (j.category or "").strip()
+        if c:
+            cats[c] = cats.get(c, 0) + 1
+
+    return {
+        "company": (jobs[0].company if jobs else name),
+        "openings": len(jobs),
+        "roles": [{"id": j.id, "title": j.title or "",
+                   "location": j.location or "", "category": j.category or ""}
+                  for j in jobs[:12]],
+        "categories": [{"id": k, "label": CATEGORY_LABELS.get(k, k.title()),
+                        "n": v} for k, v in
+                       sorted(cats.items(), key=lambda kv: -kv[1])[:6]],
+        "rounds": [{"name": k, "n": v} for k, v in
+                   sorted(rounds.items(), key=lambda kv: -kv[1])[:8]],
+        "sheets": sheets,
+        "history": [{"title": t.title or "", "status": t.status or "",
+                     "label": TRACK_LABELS.get(t.status or "", t.status or ""),
+                     "when": (t.updated_at or t.created_at).strftime("%d %b %Y")
+                     if (t.updated_at or t.created_at) else ""}
+                    for t in mine],
+        # Said out loud on the page, because a count of our own cache rows
+        # looks like industry data if nobody labels it.
+        "basis": ("Counted from the %d posting%s we hold for this company and "
+                  "%d prep sheet%s already written for them - not reported "
+                  "interview questions."
+                  % (len(jobs), "" if len(jobs) == 1 else "s",
+                     sheets, "" if sheets == 1 else "s")),
+    }
+
+
 class ApplyKitIn(BaseModel):
     job_id: int
     resume: dict = {}

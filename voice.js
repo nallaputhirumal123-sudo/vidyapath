@@ -30,6 +30,12 @@
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+  // Speaking happens both inside the conversation loop and on its own, when
+  // the interview trainer reads a question out with no conversation running.
+  // say() used to abort unless V.on, so a question spoken outside the loop
+  // was silently dropped.
+  var SPEAKING = false;
+
   var V = {
     on: false,          // the conversation is running
     state: "idle",      // idle | listening | thinking | speaking
@@ -105,7 +111,7 @@
     }
     var parts = sentences(text), shown = "";
     for (var i = 0; i < parts.length; i++) {
-      if (!V.on) return;
+      if (!V.on && !SPEAKING) return;
       shown = shown ? shown + " " + parts[i] : parts[i];
       if (onPart) onPart(shown);
       await sayOne(parts[i]);
@@ -316,7 +322,206 @@
     }
   };
 
+  /* ---- saying something on its own -------------------------------- *
+   *
+   * The conversation loop speaks as a reply. The interview trainer speaks a
+   * question with nothing to reply to, so it needs the same chunked,
+   * sentence-by-sentence speaking without pretending a conversation is
+   * running. Same voice, same truncation fix, no loop.
+   */
+  V.speak = function (text, onPart) {
+    SPEAKING = true;
+    var clear = function () { SPEAKING = false; };
+    return say(text, onPart).then(clear, clear);
+  };
+
+  V.hushNow = function () {
+    SPEAKING = false;
+    hush();
+  };
+
+  /* ---- dictation: one long answer, not a conversation --------------- *
+   *
+   * An interview answer has thinking pauses in it. The loop above ends a
+   * turn at the first one, which is correct for a tutor being asked a
+   * question and completely wrong here: being cut off mid-sentence and then
+   * marked on half an answer is the one thing that would make practising
+   * against this worse than practising into a mirror.
+   *
+   * So dictation runs its own recogniser and restarts it inside onend,
+   * accumulating the finals across every restart. Chrome ends recognition
+   * at every pause no matter what `continuous` is set to, so the restart is
+   * not a fallback — it is the mechanism.
+   *
+   * Nothing here reaches the network. The transcript is handed to the
+   * caller and the audio is discarded, which is what keeps an hour of
+   * practice costing the same as a minute of it.
+   */
+  var D = {
+    on: false, stopping: false, rec: null, timer: null,
+    done: "",        // finals committed by recognisers that have already ended
+    cur: "",         // finals from the recogniser running right now
+    live: "",        // interim words, not yet final
+    text: "", error: "",
+    startedAt: 0, lastHeard: 0, hush: 0, maxHush: 0,
+    onChange: null, onDone: null
+  };
+  V.dict = D;
+  V.dictating = function () { return D.on; };
+
+  /* Counted here rather than paid for. The scorer is told how many fillers
+     there were as a fact, so no model call is spent measuring something a
+     regular expression can measure exactly. */
+  var FILLERS = ["um", "uh", "erm", "hmm", "like", "basically", "actually",
+                 "you know", "i mean", "sort of", "kind of", "literally"];
+
+  function fillerCount(s) {
+    var t = " " + String(s || "").toLowerCase()
+                  .replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ") + " ";
+    var n = 0;
+    FILLERS.forEach(function (w) {
+      var re = new RegExp("\\s" + w.replace(/ /g, "\\s+") + "\\s", "g");
+      var m = t.match(re);
+      if (m) n += m.length;
+    });
+    return n;
+  }
+
+  /* Words, pace and fillers for one answer. Public because the trainer shows
+     them live while somebody is still talking. */
+  V.answerStats = function (text, seconds) {
+    var t = String(text || "").trim();
+    var words = t ? t.split(/\s+/).length : 0;
+    var secs = Math.max(1, Math.round(seconds || 0));
+    return { text: t, words: words, seconds: secs,
+             wpm: Math.round(words * 60 / secs), fillers: fillerCount(t) };
+  };
+
+  function dtell() {
+    if (typeof D.onChange === "function") {
+      D.onChange({
+        text: D.text, live: D.live, error: D.error, hush: D.hush,
+        seconds: D.startedAt
+          ? Math.round((Date.now() - D.startedAt) / 1000) : 0
+      });
+    }
+  }
+
+  function dlisten() {
+    if (!D.on) return;
+    var r;
+    try { r = new SR(); } catch (e) { return; }
+    D.rec = r;
+    r.lang = "en-IN";
+    r.interimResults = true;
+    r.continuous = true;
+    r.maxAlternatives = 1;
+
+    r.onresult = function (ev) {
+      var interim = "";
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var t = ev.results[i][0].transcript;
+        if (ev.results[i].isFinal) D.cur += t + " ";
+        else interim += t;
+      }
+      D.live = interim.trim();
+      D.text = (D.done + " " + D.cur).replace(/\s+/g, " ").trim();
+      D.lastHeard = Date.now();
+      D.hush = 0;
+      dtell();
+    };
+
+    r.onerror = function (e) {
+      var name = (e && e.error) || "";
+      if (name === "not-allowed" || name === "service-not-allowed") {
+        D.error = "The microphone is blocked. Allow it in your browser to " +
+                  "answer out loud.";
+        V.endDictation();
+        return;
+      }
+      // no-speech, aborted, network: onend restarts us, which is the point.
+    };
+
+    r.onend = function () {
+      D.done = (D.done + " " + D.cur).replace(/\s+/g, " ").trim();
+      D.cur = "";
+      D.live = "";
+      D.rec = null;
+      D.text = D.done;
+      if (!D.on || D.stopping) return;
+      // The restart. Without it, one pause for thought ends the answer.
+      setTimeout(function () { if (D.on && !D.stopping) dlisten(); }, 120);
+    };
+
+    try {
+      r.start();
+    } catch (e) {
+      // start() while the previous one is still winding down.
+      setTimeout(function () { if (D.on && !D.stopping) dlisten(); }, 300);
+    }
+  }
+
+  /* Start taking an answer. opts: {onChange, onDone, maxHush}.
+     maxHush is seconds of continuous silence that ends the answer by itself;
+     0 means only the caller ends it, which is the honest default when
+     somebody may be thinking. */
+  V.dictate = function (opts) {
+    opts = opts || {};
+    if (!SR) {
+      D.error = "This browser cannot listen. Chrome on desktop or Android " +
+                "works best.";
+      if (typeof opts.onChange === "function") opts.onChange({ error: D.error });
+      return false;
+    }
+    if (V.on) stop();          // a conversation and an answer cannot share a mic
+    if (D.on) return true;
+    D.on = true; D.stopping = false;
+    D.done = ""; D.cur = ""; D.live = ""; D.text = ""; D.error = "";
+    D.startedAt = Date.now(); D.lastHeard = 0; D.hush = 0;
+    D.onChange = opts.onChange || null;
+    D.onDone = opts.onDone || null;
+    D.maxHush = opts.maxHush || 0;
+    V.hushNow();               // never listen over our own voice reading the question
+    dlisten();
+    if (D.timer) clearInterval(D.timer);
+    D.timer = setInterval(function () {
+      if (!D.on) return;
+      D.hush = D.lastHeard ? Math.round((Date.now() - D.lastHeard) / 1000) : 0;
+      dtell();
+      if (D.maxHush && D.lastHeard && D.hush >= D.maxHush) V.endDictation();
+    }, 500);
+    dtell();
+    return true;
+  };
+
+  /* Stop and hand back the answer with its delivery measured. */
+  V.endDictation = function () {
+    if (!D.on) return null;
+    D.stopping = true;
+    D.on = false;
+    if (D.timer) { clearInterval(D.timer); D.timer = null; }
+    if (D.rec) {
+      // stop(), not abort(): abort throws away finals the recogniser is
+      // still holding, which loses the end of the answer.
+      try { D.rec.stop(); } catch (e) {}
+      D.rec = null;
+    }
+    D.done = (D.done + " " + D.cur).replace(/\s+/g, " ").trim();
+    D.cur = "";
+    D.live = "";
+    D.text = D.done;
+    var out = V.answerStats(D.text, (Date.now() - D.startedAt) / 1000);
+    out.error = D.error;
+    dtell();
+    if (typeof D.onDone === "function") D.onDone(out);
+    return out;
+  };
+
+  function dstop() {
+    if (D.on) V.endDictation();
+  }
+
   // Leaving the page with the microphone live is not acceptable.
-  window.addEventListener("pagehide", stop);
-  window.addEventListener("hashchange", stop);
+  window.addEventListener("pagehide", function () { stop(); dstop(); });
+  window.addEventListener("hashchange", function () { stop(); dstop(); });
 })();
