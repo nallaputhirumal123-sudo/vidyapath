@@ -101,6 +101,67 @@ _HISTORICAL = re.compile(
     r"revolution|independence|freedom struggle", re.I)
 
 
+# A photograph of a person, where the question was not about a person.
+#
+# _ARTEFACT above catches the word "portrait", "bust" or "statue" in a
+# filename. It does not catch a plain press photograph captioned with a name
+# and a job title, which is what an image search returns for anything
+# touching government, an institution or a country -- and what put a
+# politician's face on a question that had nothing to do with him.
+#
+# Role words and honorifics only. Deliberately NOT a list of names, and
+# deliberately not "any two capitalised words": "Golden Gate Bridge", "Taj
+# Mahal" and "Indian Ocean" are all two capitalised words and all perfectly
+# good pictures.
+_PERSON = re.compile(
+    r"\b(prime[ _-]?minister|chief[ _-]?minister|vice[ _-]?president|"
+    r"president|chancellor|governor|politician|statesman|senator|"
+    r"ambassador|\bmla\b|\bmp\b|minister|mayor|"
+    r"excellency|hon'?ble|honourable|shri|smt\.?|"
+    r"headshot|selfie|mugshot|"
+    r"actor|actress|singer|cricketer|footballer|celebrity)\b", re.I)
+
+
+def person(query: str, url: str, title: str = "") -> bool:
+    """Is this a picture of somebody, rather than of the subject asked about?
+
+    Same shape as artefact() and for the same reason: a lesson that IS about
+    the Prime Minister should get a picture of one, so the gate lifts as soon
+    as the question uses the word itself.
+    """
+    name = str(url or "").rsplit("/", 1)[-1] + " " + str(title or "")
+    hit = _PERSON.search(name)
+    if not hit:
+        return False
+    return not re.search(re.escape(hit.group(0)), str(query or ""), re.I)
+
+
+def uninformative(title: str) -> bool:
+    """Does this title say anything at all about what the picture shows?
+
+    "C535 large", "DSC_0042", "IMG 1234", "" -- a camera or an accession
+    number, which is most of what Flickr and museum archives carry. For
+    those, Openverse's own ranking over tags and descriptions is a better
+    signal than the title, and trusting it is what the fallback is for.
+
+    "Narendra Modi" is not one of these. A title made of real words is
+    evidence, and when that evidence disagrees with the question it has to
+    be allowed to lose the picture.
+    """
+    t = str(title or "").strip()
+    if not t:
+        return True
+    words = [w for w in re.findall(r"[a-z]+", t.lower())
+             if len(w) > 2 and w not in _STOP]
+    # Nothing but codes, numbers and stop words.
+    if not words:
+        return True
+    # "C535 large", "P1010842 small": one vague size word and the rest codes.
+    return all(w in {"large", "small", "medium", "img", "dsc", "scan",
+                     "photo", "image", "picture", "file", "copy", "final",
+                     "original", "thumb", "crop", "edit"} for w in words)
+
+
 def artefact(query: str, url: str, title: str = "") -> bool:
     """Is this picture a relic of the subject rather than the subject?"""
     q = str(query or "")
@@ -453,6 +514,9 @@ def _parse(search_body, meta_body, query="") -> dict:
         # so the next candidate gets its chance.
         if artefact(query, url, title):
             continue
+        # And a photograph of somebody, when nobody was asked about.
+        if person(query, url, title):
+            continue
         # Scored against the query, not taken on Wikimedia's own ranking.
         # Its first result is the best ARTICLE for the words; we want the
         # best article for the SUBJECT, and for a query of several words
@@ -677,7 +741,20 @@ async def _from_openverse(client, topic):
     # descriptions and titles together. So: prefer a result whose title
     # ALSO reads as relevant, and otherwise take what the search ranked
     # first rather than nothing.
-    usable, best = [], None
+    #
+    # The fallback below is the reason this function needed rewriting once.
+    # It used to be `usable[0]` -- literally whatever Openverse ranked first,
+    # past every gate the Wikimedia path applies. A question that mentioned a
+    # country or an institution could therefore be illustrated with a press
+    # photograph of a politician, at full width, in a classroom.
+    #
+    # The fallback is kept, because the case it was written for is real: a
+    # museum photograph called "C535 large" is the right picture of
+    # Sriharikota and judging it on its title throws it away. But it now only
+    # applies where the title genuinely says nothing. A title made of real
+    # words is evidence about the subject, and evidence that disagrees with
+    # the question has to be able to lose.
+    best, blind = None, None
     for it in results:
         thumb = str(it.get("thumbnail") or "")
         if not thumb.startswith("https://api.openverse.org/"):
@@ -685,6 +762,11 @@ async def _from_openverse(client, topic):
         lic = str(it.get("license") or "").upper()
         ver = str(it.get("license_version") or "")
         title = str(it.get("title") or "").strip()
+        # Applied to every candidate from this source too, not just to
+        # Wikimedia's. Openverse indexes far more photographs OF PEOPLE than
+        # an encyclopaedia does, so this is the source that needed it most.
+        if person(topic, thumb, title) or artefact(topic, thumb, title):
+            continue
         pic = {"url": thumb,
                "width": int(it.get("width") or 800) or 800,
                # Falling back to the query, so a picture never arrives
@@ -693,10 +775,11 @@ async def _from_openverse(client, topic):
                "author": str(it.get("creator") or "")[:160],
                "license": (f"{lic} {ver}".strip() if lic else ""),
                "page": str(it.get("foreign_landing_url") or "")[:600]}
-        usable.append(pic)
-        if best is None and title and relevant(topic, title):
-            best = pic
-    return best or (usable[0] if usable else {})
+        if title and relevant(topic, title):
+            best = best or pic
+        elif blind is None and uninformative(title):
+            blind = pic
+    return best or blind or {}
 
 
 async def _nasa_asset(client, nasa_id):

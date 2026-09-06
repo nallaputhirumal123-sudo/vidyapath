@@ -339,5 +339,74 @@ for _q, _f, _t, _want, _why in _ART:
 # rules and the compound-modifier checks — was written, committed, and never
 # once executed. A test that cannot run is worse than no test: it is a claim
 # on the file that nobody has checked.
+
+# ---------------------------------------------------------------------------
+# A question must never be illustrated with a photograph of a person.
+#
+# The hole was the last line of _from_openverse: `best or usable[0]`. When no
+# result's title read as relevant it fell back to whatever Openverse ranked
+# first, past every gate the Wikimedia path applies -- so a question that
+# merely touched a country or an institution could be illustrated with a
+# press photograph of a politician, full width, on a classroom screen.
+#
+# The fallback is kept, because the case it was written for is real: a museum
+# photograph called "C535 large" is the right picture of Sriharikota and
+# judging it on its title throws it away. It now applies only where the title
+# genuinely says nothing.
+
+
+def pick(topic, titles):
+    """The selection in _from_openverse, over titles alone."""
+    best, blind = None, None
+    for t in titles:
+        if (images.person(topic, "https://x/f.jpg", t)
+                or images.artefact(topic, "https://x/f.jpg", t)):
+            continue
+        if t and images.relevant(topic, t):
+            best = best or t
+        elif blind is None and images.uninformative(t):
+            blind = t
+    return best or blind or None
+
+
+check("a politician is not the picture for photosynthesis",
+      pick("what is photosynthesis", ["Narendra Modi"]) is None)
+check("nor for a fraction",
+      pick("what is a fraction", ["Prime Minister Narendra Modi"]) is None)
+check("the subject wins over the person when both come back",
+      pick("the water cycle", ["Modi at COP26", "Water cycle"]) == "Water cycle")
+check("a role word is refused outright",
+      images.person("how does parliament work", "https://x/a.jpg",
+                    "Prime Minister addressing the nation"))
+check("an honorific too",
+      images.person("what is democracy", "https://x/a.jpg", "Shri Somebody"))
+
+# ...unless the question is about the office, in which case it is the right
+# picture and the gate has to lift. Same shape as artefact().
+check("a lesson about the office still gets the office",
+      not images.person("the role of the prime minister", "https://x/a.jpg",
+                        "Prime Minister Narendra Modi"))
+
+# The reason the fallback exists, which must keep working.
+check("a title that says nothing is still trusted to the ranking",
+      pick("sriharikota launch pad", ["C535 large"]) == "C535 large")
+check("and a camera filename is too",
+      pick("pslv rocket", ["DSC_0042"]) == "DSC_0042")
+for _dull in ("C535 large", "DSC_0042", "IMG 1234", "", "P1010842 small"):
+    check(f"{_dull!r} says nothing about the picture",
+          images.uninformative(_dull))
+for _real in ("Narendra Modi", "Golden Gate Bridge", "Leaf cross section"):
+    check(f"{_real!r} is evidence and must match",
+          not images.uninformative(_real))
+
+# Ordinary subjects that happen to be two capitalised words are untouched --
+# this is why the gate is role words and not "any name-shaped title".
+for _q, _t in (("suspension bridge", "Golden Gate Bridge"),
+               ("mughal architecture", "Taj Mahal"),
+               ("ocean currents", "Indian Ocean")):
+    check(f"{_t!r} is not mistaken for a person",
+          not images.person(_q, "https://x/a.jpg", _t))
+
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}" + (f"   SKIPPED {SKIP}" if SKIP else ""))
 sys.exit(1 if FAIL else 0)

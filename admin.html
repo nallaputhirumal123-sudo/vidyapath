@@ -126,6 +126,7 @@ tr.click:hover{background:var(--panel2);cursor:pointer}
       <button class="nv" data-p="students"><span>👥</span> Students</button>
       <button class="nv" data-p="funnel"><span>📉</span> Drop-off</button>
       <button class="nv" data-p="content"><span>📝</span> Content</button>
+      <button class="nv" data-p="career"><span>🧭</span> Career &amp; skills</button>
       <button class="nv" data-p="employers"><span>🏢</span> Employers</button>
       <button class="nv" data-p="schools"><span>🏫</span> Schools &amp; teachers</button>
       <button class="nv" data-p="reset"><span>⚠️</span> Start everybody again</button>
@@ -212,8 +213,82 @@ function go(p){
   PAGE=p;
   document.querySelectorAll(".nv[data-p]").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
   $("#main").innerHTML='<div class="empty">Loading…</div>';
-  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,employers:renderEmployers,schools:renderSchools,reset:renderReset}[p])();
+  ({dash:renderDash,money:renderMoney,students:renderStudents,funnel:renderFunnel,content:renderContent,career:renderCareer,employers:renderEmployers,schools:renderSchools,reset:renderReset}[p])();
   window.scrollTo(0,0);
+}
+
+/* ===================== CAREER & SKILLS ===================== */
+/* The job board and the curriculum, side by side, which is the only place
+   they are shown together.
+
+   The reason to open this page is the gap table: the skills the live board
+   asks for most, that no lesson teaches. That is the board telling the
+   curriculum what to write next, ranked by how many real postings are
+   waiting for it — and it is counted off columns we already store, so it
+   costs nothing and is current every time it loads. */
+async function renderCareer(){
+  let d; try{ d = await api.get("/api/admin/career"); }
+  catch(e){ $("#main").innerHTML = `<div class="h1">Career &amp; skills</div>
+    <p class="sub">${esc(e.message)}</p>`; return; }
+
+  const b=d.board||{}, c=d.curriculum||{}, mk=d.mock||{};
+  const pct = b.open ? Math.round((b.with_skills||0)/b.open*100) : 0;
+
+  const gapRows = (c.gap||[]).map(g=>`<tr>
+    <td><b>${esc(g.skill)}</b></td>
+    <td>${g.postings}</td>
+    <td style="color:var(--dim)">no lesson</td></tr>`).join("");
+
+  const taughtRows = (c.taught||[]).map(t=>`<tr>
+    <td><b>${esc(t.skill)}</b></td>
+    <td>${t.postings}</td>
+    <td>${(t.lessons||[]).map(l=>esc(l.title)).join(", ")||"—"}</td></tr>`).join("");
+
+  const demandRows = (d.top_demand||[]).map(x=>`<tr>
+    <td><b>${esc(x.skill)}</b></td>
+    <td>${x.postings}</td>
+    <td>${x.taught?'<span style="color:var(--ok)">taught</span>'
+                  :'<span style="color:var(--dim)">not taught</span>'}</td></tr>`).join("");
+
+  $("#main").innerHTML=`
+  <div class="h1">Career &amp; skills</div>
+  <p class="sub">The live board and the curriculum in one place. Every number
+    here is counted from stored columns &mdash; no AI call, current on every load.</p>
+
+  <div class="grid g5" style="margin-bottom:24px">
+    <div class="card"><div class="statlbl">Open postings</div><div class="stat">${b.open||0}</div>
+      <div class="statsub">${b.with_skills||0} with skills parsed (${pct}%)</div></div>
+    <div class="card"><div class="statlbl">Distinct skills wanted</div><div class="stat">${b.distinct_skills||0}</div>
+      <div class="statsub">across the whole live board</div></div>
+    <div class="card"><div class="statlbl">Skills we teach</div><div class="stat">${c.skills_taught||0}</div>
+      <div class="statsub">${c.of_top_40_taught||0} of the 40 most wanted</div></div>
+    <div class="card"><div class="statlbl">Answers marked</div><div class="stat">${mk.answers_marked||0}</div>
+      <div class="statsub">${mk.cache_hits||0} served free from cache</div></div>
+    <div class="card"><div class="statlbl">Average mock score</div><div class="stat">${mk.average_score||0}</div>
+      <div class="statsub">${mk.prep_sheets||0} prep sheets written</div></div>
+  </div>
+
+  <div class="h2" style="margin-bottom:6px">What the market wants and we do not teach</div>
+  <p class="sub">Ranked by open postings. This is the list to write lessons
+    against &mdash; each row is demand with nothing behind it.</p>
+  ${gapRows ? `<div class="tbl" style="margin-bottom:24px"><table>
+    <tr><th>Skill</th><th>Open postings</th><th>Coverage</th></tr>
+    ${gapRows}</table></div>`
+   : `<div class="empty" style="margin-bottom:24px">Every one of the most
+      wanted skills has a lesson. That is unlikely &mdash; check the skill
+      index is building.</div>`}
+
+  <div class="h2" style="margin-bottom:6px">What we teach that the board is asking for</div>
+  ${taughtRows ? `<div class="tbl" style="margin-bottom:24px"><table>
+    <tr><th>Skill</th><th>Open postings</th><th>Lessons</th></tr>
+    ${taughtRows}</table></div>`
+   : `<div class="empty" style="margin-bottom:24px">No overlap yet between the
+      curriculum and the live board.</div>`}
+
+  <div class="h2" style="margin-bottom:6px">Most demanded skills on the board</div>
+  <div class="tbl"><table>
+    <tr><th>Skill</th><th>Open postings</th><th></th></tr>
+    ${demandRows}</table></div>`;
 }
 
 /* ===================== EMPLOYERS ===================== */

@@ -2273,7 +2273,7 @@ def _backfill_job_skills():
         t0 = _t.monotonic()
         for j in rows:
             found = {w for w in _words(j.text or "") if w in _SKILLS}
-            j.skills = ",".join(sorted(found))[:2000] if found else "none"
+            j.skills = ",".join(sorted(found))[:2000] if found else _NO_SKILLS
         db.commit()
         print(f"Startup: parsed skills for {len(rows)} postings in "
               f"{_t.monotonic() - t0:.1f}s — matching no longer reparses them")
@@ -15891,17 +15891,22 @@ def _ats_view(rtext: str, scored: list, impact: float, parsing: float,
 def match_tier(score: int) -> dict:
     """The band a score falls in, in the language recruiters actually use.
 
-    The bands were 85 / 70 / 55, set when scoring was looser. Measured across
-    the live board with four resume profiles, the best score any of them
-    reached was 77 — so "Exceptional fit" was unreachable and most real
-    matches were being labelled "Average". A band nobody can reach does not
-    set a high standard, it tells good candidates they are mediocre. These
-    match what the scoring actually produces.
+    The bands were 85 / 70 / 55, set when scoring was looser, then 72 / 60 /
+    45 once the best score any of four profiles reached was 77. A band nobody
+    can reach does not set a high standard, it tells good candidates they are
+    mediocre.
+
+    Re-measured after the fit score stopped carrying 25% of constant: the
+    same four profiles now spread from 21 to 96 instead of sitting inside a
+    62-80 band, so the old cuts would have called 8% of every result
+    exceptional and kept climbing. Across the pooled top fifty of each,
+    75 is the top 8%, 62 the top 25% and 45 the top 48% — and those are
+    already the best matches on the board, not a random sample.
     """
-    if score >= 72:
+    if score >= 75:
         return {"tier": "S", "label": "Exceptional fit",
                 "note": "Strong overlap on skills, seniority and evidence."}
-    if score >= 60:
+    if score >= 62:
         return {"tier": "A", "label": "Strong candidate",
                 "note": "Meets the core requirements with minor gaps."}
     if score >= 45:
@@ -15909,6 +15914,21 @@ def match_tier(score: int) -> dict:
                 "note": "Real overlap, with gaps you can name and close."}
     return {"tier": "C", "label": "Weak fit",
             "note": "Significant mismatch on skills or experience level."}
+
+
+def _employer_words(job):
+    """Tokens of the employer's own name.
+
+    A posting at Adobe says "adobe"; a posting at GitLab says "gitlab". Those
+    are not skills the employer is asking for, and counting them as such made
+    the board's most-demanded list partly a list of companies that happen to
+    also be products: 86 of the 91 postings that "wanted" Adobe were jobs AT
+    Adobe, and 36 of 44 for GitLab.
+
+    Removed per posting rather than struck from the vocabulary, because
+    Salesforce is a real skill on the 58 postings that are not Salesforce.
+    """
+    return set(_words(getattr(job, "company", "") or ""))
 
 
 def _job_skills(job):
@@ -15926,6 +15946,13 @@ def _job_skills(job):
     if got is None:
         got = (set(job.skills.split(",")) if job.skills
                else {w for w in _words(job.text or "") if w in _SKILLS})
+        # The column stores a sentinel for "parsed, found nothing", so the
+        # backfill does not read the same 259 postings again on every boot.
+        # It is a marker, not a skill, and it must not leave this function:
+        # it was being counted as a requirement, which put "none" fourth on
+        # the list of most demanded skills on the board.
+        got.discard(_NO_SKILLS)
+        got -= _employer_words(job)
         try:
             job._skills_memo = got
         except Exception:          # not an ORM row; nothing to cache on
@@ -15945,7 +15972,11 @@ def _job_req_skills(job):
     if memo is not None:            # filled in bulk by the match endpoint
         return memo
     got = getattr(job, "req_skills", "") or ""
-    return set(got.split(",")) if got else set()
+    if not got:
+        return set()
+    out = set(got.split(","))
+    out.discard(_NO_SKILLS)
+    return out - _employer_words(job)
 
 
 # Words in a job title that say what the role IS, so a resume aimed at one
@@ -16063,8 +16094,19 @@ def _score_job(job, skills, keywords, level, idf=None, my_fams=None,
     #    role family, which is the only industry signal a posting reliably gives.
     f_domain = fam
 
-    score = 100 * (0.33 * f_skills + 0.27 * f_role + 0.17 * f_impact
-                   + 0.15 * f_domain + 0.08 * f_parse)
+    # Fit only. impact and parsing describe the RESUME, not the fit: they are
+    # identical for every posting in one search, so they could never reorder
+    # anything — they only lifted the whole list and squashed it. With them
+    # in, a same-field job matching zero skills still scored 46, a perfect
+    # one reached 94, and a real top-fifty landed inside a 62-80 band, which
+    # is why two very different jobs looked nine points apart.
+    #
+    # Both are still measured and still shown, as your_impact_score and
+    # your_readability_score — they belong next to the resume, not inside a
+    # number labelled "match". The remaining three weights are the old ones
+    # renormalised (0.33/0.27/0.15 over 0.75), so their proportions to each
+    # other are untouched and only the constant is gone.
+    score = 100 * (0.44 * f_skills + 0.36 * f_role + 0.20 * f_domain)
 
     # Impact and readability are 25% of the weight and identical for every
     # posting in a search — they describe the resume, not the fit. On a job in
@@ -20524,8 +20566,13 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
                 texts[jid] = txt or ""
         for j in need_text:
             t = texts.get(j.id, "")
-            j._skills_memo = {w for w in _words(t) if w in _SKILLS}
-            j._req_memo = {w for w in _words(_requirement_text(t)) if w in _SKILLS}
+            # Filtered here as well as in _job_skills: these two attributes
+            # are read back directly and short-circuit the functions that
+            # would otherwise have dropped the employer's own name.
+            mine = _employer_words(j)
+            j._skills_memo = {w for w in _words(t) if w in _SKILLS} - mine
+            j._req_memo = ({w for w in _words(_requirement_text(t))
+                            if w in _SKILLS} - mine)
 
         # Keep it. This was computed into an attribute on a transient ORM
         # object and thrown away when the request ended, so every match
@@ -20636,14 +20683,18 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
             "top_gaps": top_gaps,
             # What the score is made of, so a user can see why it moved.
             "scoring": {
-                "weights": {"hard_skills": 33, "role_and_seniority": 27,
-                            "impact_evidence": 17, "domain": 15, "readability": 8},
+                # The fit score is these three. Impact and readability are
+                # reported below because they matter, but they describe the
+                # resume and are the same on every posting, so they are no
+                # longer folded into a per-job number.
+                "weights": {"hard_skills": 44, "role_and_seniority": 36,
+                            "domain": 20},
                 "your_impact_score": round(impact * 100),
                 "your_readability_score": round(parsing * 100),
                 # Kept in step with match_tier — these were still quoting the
                 # old 85/70/55 bands after the scoring was rebalanced.
-                "tiers": {"S": "72-100 exceptional", "A": "60-71 strong",
-                          "B": "45-59 worth applying", "C": "below 45 weak"},
+                "tiers": {"S": "75-100 exceptional", "A": "62-74 strong",
+                          "B": "45-61 worth applying", "C": "below 45 weak"},
             },
             # skills goes in so the score can be measured from the document
             # rather than from whatever the filters happened to leave behind;
@@ -21538,6 +21589,212 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
         "work_authorized": "", "needs_sponsorship": "",
         "willing_to_relocate": "", "how_heard": "",
         "synced_at": now().isoformat(),
+    }
+
+
+# ---- what to learn next ---------------------------------------------------
+# The one thing this codebase can say that a job board cannot, and a course
+# platform cannot either: not "Python is in demand" but "learn FastAPI and
+# these 275 postings, counted this morning, open up — here they are, and here
+# is the lesson."
+#
+# Both halves already existed and had never been joined. `jobs.skills` is
+# filled at ingest from the same vocabulary the resume is read with, and the
+# curriculum is sitting in `tracks`/`lessons`. Nothing here is a model call:
+# it is a set difference over columns we already store, which is what makes
+# it free to run on every visit and honest enough to put a number on.
+#
+# The metric that matters is NOT how many postings mention a skill. It is how
+# many postings are blocked by *only* that skill — the ones that open the day
+# you learn it. "Mentioned in 400 jobs" is a statistic; "unlocks 37 jobs you
+# otherwise match completely" is a reason to start this evening.
+
+_NO_SKILLS = "none"      # the "parsed, found nothing" marker in jobs.skills
+
+# Skill names that are also ordinary words, so finding one in a lesson body
+# proves nothing about what the lesson teaches. Every one of these earned its
+# place: "node" is in every lesson on linked lists, "pandas" could be an
+# animal in a school track, and "spark", "swift", "rust", "excel", "oracle",
+# "unity" and "sketch" all have a life outside this vocabulary.
+_AMBIGUOUS_SKILLS = {"node", "soc", "spark", "swift", "rust", "vault",
+                     "sketch", "chef", "puppet", "consul", "apache",
+                     "excel", "oracle", "unity", "unreal", "elk", "helm",
+                     "rag", "pandas", "iam", "go", "c"}
+
+# Built once from the curriculum, which changes when somebody writes a lesson
+# and not otherwise. Rebuilt on demand rather than at import, because at
+# import there is no database yet.
+_SKILL_LESSONS = None
+
+
+def _skill_lesson_index(db):
+    """Which lesson teaches which skill, and how strongly.
+
+    A lesson that says "aws" once in a footnote does not teach AWS. The title
+    is worth far more than the body for exactly that reason, and a body
+    mention has to happen more than once to count at all — otherwise every
+    lesson that name-drops a tool becomes a recommendation for it, and the
+    feature's whole claim is that its numbers can be trusted.
+    """
+    global _SKILL_LESSONS
+    if _SKILL_LESSONS is not None:
+        return _SKILL_LESSONS
+
+    idx = {}
+    try:
+        rows = (db.query(Lesson, Track)
+                  .join(Track, Lesson.track_id == Track.id)
+                  .filter(Lesson.published.is_(True),
+                          Track.published.is_(True)).all())
+    except Exception as e:
+        print(f"Skill/lesson index skipped ({type(e).__name__}) — "
+              f"'what to learn next' will still count jobs")
+        _SKILL_LESSONS = {}
+        return _SKILL_LESSONS
+
+    for les, tr in rows:
+        # The same extractor the resume and the postings go through, so a
+        # lesson, a CV and a job advert all agree on what counts as a skill
+        # and on the phrases a plain token split would lose.
+        title_skills, _kw = _profile((les.title or "") + " " + (tr.name or ""))
+        body_hits = {}
+        for w in _words((les.content or "")[:12000]):
+            if w in _SKILLS:
+                body_hits[w] = body_hits.get(w, 0) + 1
+        for skill in title_skills | set(body_hits):
+            in_title = skill in title_skills
+            body = body_hits.get(skill, 0)
+            # A title is a promise about what the lesson is; a body mention
+            # is not. "node" appears throughout every lesson on linked
+            # lists, which is how Node.js came to be taught by "Linked
+            # lists" — so for words that lead a double life, only the title
+            # counts, and for the rest a body has to say it repeatedly.
+            if not (in_title or
+                    (body >= 8 and skill not in _AMBIGUOUS_SKILLS)):
+                continue
+            score = (100 if in_title else 0) + body
+            idx.setdefault(skill, []).append({
+                "track": tr.slug, "track_name": tr.name or "",
+                "audience": tr.audience or "", "level": tr.level or "",
+                "slug": les.slug, "title": les.title or "",
+                "mins": les.mins or 0, "_score": score})
+    for skill, lst in idx.items():
+        lst.sort(key=lambda x: -x["_score"])
+        del lst[6:]
+        for x in lst:
+            x.pop("_score", None)
+    _SKILL_LESSONS = idx
+    return idx
+
+
+@app.get("/api/career/next-skills")
+def career_next_skills(category: str = "", limit: int = 8,
+                       user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """The shortest route from this resume to more of this board.
+
+    Free, and deliberately so: it is a set difference over stored columns,
+    it costs nothing to serve, and it is the best argument for the paid
+    product that exists — somebody who can see exactly which two skills
+    stand between them and forty jobs has a reason to stay.
+    """
+    note = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k == "resume_uptext").first()
+    rtext = (note.v if note else "") or ""
+    if len(rtext.strip()) < 120:
+        return {"ready": False,
+                "message": "Upload your resume and this will show which "
+                           "skills stand between you and the rest of the "
+                           "board.", "skills": []}
+
+    have, _kw = _profile(rtext)
+    cat = (category or "").strip().lower()
+
+    # Only the columns needed. The description and the search text are the
+    # heavy ones and nothing here reads them; loading them for 15,000 rows
+    # is how this would become a slow page instead of an instant one.
+    q = (db.query(Job.id, Job.title, Job.company, Job.category, Job.url,
+                  Job.location, Job.skills, Job.req_skills)
+           .filter(Job.is_open.is_(True)))
+    if cat:
+        q = q.filter(Job.category == cat)
+    rows = q.limit(20000).all()
+
+    demand, unlocks, nearly = {}, {}, {}   # wants it / blocked by only it /
+                                           # two skills away
+    samples = {}
+    already = 0
+    considered = 0
+
+    for r in rows:
+        req = set((r.req_skills or "").split(",")) if r.req_skills else set()
+        req.discard(_NO_SKILLS)
+        req.discard("")
+        if not req:
+            req = set((r.skills or "").split(","))
+            req.discard(_NO_SKILLS)
+            req.discard("")
+        # A posting at GitLab lists "gitlab"; a posting at Adobe lists
+        # "adobe". Counting the employer's own name as a skill to go and
+        # learn produced precisely the wrong advice: 86 of the 91 postings
+        # that "wanted" Adobe were jobs AT Adobe, which put it top of the
+        # page. Dropped per posting rather than globally, so Salesforce
+        # stays a real skill on the 58 postings that are not Salesforce.
+        req -= set(_words(r.company or ""))
+        if not req:
+            continue
+        considered += 1
+        missing = req - have
+        if not missing:
+            already += 1
+            continue
+        for s in missing:
+            demand[s] = demand.get(s, 0) + 1
+        if len(missing) == 1:
+            s = next(iter(missing))
+            unlocks[s] = unlocks.get(s, 0) + 1
+            if len(samples.setdefault(s, [])) < 4:
+                samples[s].append({
+                    "id": r.id, "title": r.title or "",
+                    "company": r.company or "", "location": r.location or "",
+                    "url": r.url or ""})
+        elif len(missing) == 2:
+            for s in missing:
+                nearly[s] = nearly.get(s, 0) + 1
+
+    lessons = _skill_lesson_index(db)
+
+    # Ranked by what it opens, not by what shouts loudest. A skill mentioned
+    # by six hundred postings you are five skills away from is not the next
+    # thing to learn; the one standing alone in front of thirty is.
+    ranked = sorted(demand.keys(),
+                    key=lambda s: (-unlocks.get(s, 0), -nearly.get(s, 0),
+                                   -demand.get(s, 0), s))
+
+    out = []
+    for s in ranked[:max(1, min(int(limit or 8), 20))]:
+        out.append({
+            "skill": s,
+            "unlocks": unlocks.get(s, 0),
+            "nearly": nearly.get(s, 0),
+            "demand": demand.get(s, 0),
+            "jobs": samples.get(s, []),
+            "lessons": lessons.get(s, []),
+        })
+
+    return {
+        "ready": True,
+        "have": sorted(have),
+        "have_n": len(have),
+        "matched_now": already,
+        "considered": considered,
+        "category": cat,
+        "skills": out,
+        # Said on the page, because a number without its denominator is a
+        # marketing claim rather than a measurement.
+        "basis": ("Counted across %d open postings on the board right now, "
+                  "against the %d skills your resume shows."
+                  % (considered, len(have))),
     }
 
 
@@ -22805,6 +23062,97 @@ def admin_stats(user: User = Depends(admin_user), db: Session = Depends(get_db))
         "funnel": funnel,
         "biggest_drop": drop,
         "quiz": [{"track": t, "attempts": a, "passed": int(p or 0)} for t, a, p in quiz_rows],
+    }
+
+
+@app.get("/api/admin/career")
+def admin_career(user: User = Depends(admin_user),
+                 db: Session = Depends(get_db)):
+    """Everything the career half is doing, in one place.
+
+    The part worth opening this page for is the curriculum gap: the skills
+    the live board asks for most, next to whether we teach any of them. It
+    is the job board telling the curriculum what to write next, ranked by
+    how many real postings are waiting for it, and it costs nothing to
+    compute because both halves are already stored.
+    """
+    open_q = db.query(Job).filter(Job.is_open.is_(True))
+    total_open = open_q.count()
+
+    # What the board demands, counted off the stored columns rather than
+    # re-parsed. The employer's own name is dropped per posting: 86 of the 91
+    # postings that "wanted" Adobe were jobs AT Adobe.
+    rows = (db.query(Job.company, Job.skills, Job.req_skills, Job.category)
+              .filter(Job.is_open.is_(True)).limit(20000).all())
+    demand, unparsed = {}, 0
+    cats = {}
+    for r in rows:
+        c = (r.category or "").strip() or "unsorted"
+        cats[c] = cats.get(c, 0) + 1
+        got = set((r.skills or "").split(","))
+        got.discard(_NO_SKILLS)
+        got.discard("")
+        if not got:
+            unparsed += 1
+            continue
+        got -= set(_words(r.company or ""))
+        for s in got:
+            demand[s] = demand.get(s, 0) + 1
+
+    lessons = _skill_lesson_index(db)
+    ranked = sorted(demand.items(), key=lambda kv: -kv[1])
+    covered = [s for s, _n in ranked if lessons.get(s)]
+
+    # The gap, said plainly: demanded often, taught nowhere.
+    gap = [{"skill": s, "postings": n}
+           for s, n in ranked[:40] if not lessons.get(s)][:20]
+
+    taught = [{"skill": s, "postings": n,
+               "lessons": [{"title": x["title"], "track": x["track_name"],
+                            "slug": x["slug"]} for x in lessons.get(s, [])[:3]]}
+              for s, n in ranked[:40] if lessons.get(s)][:20]
+
+    # What the mock interview is costing and doing. Each marked answer is one
+    # model call; a cache hit is one that cost nothing.
+    mock_rows = (db.query(AskCache)
+                   .filter(AskCache.subject == "interview",
+                           AskCache.level == "mock").all())
+    scores, hits = [], 0
+    for r in mock_rows:
+        hits += (r.hits or 0)
+        data = _cached_json(db, r, need=None)
+        if data and isinstance(data.get("score"), int):
+            scores.append(data["score"])
+    prep_sheets = (db.query(func.count(AskCache.id))
+                     .filter(AskCache.subject == "interview",
+                             AskCache.level == "").scalar()) or 0
+
+    return {
+        "board": {
+            "open": total_open,
+            "with_skills": total_open - unparsed,
+            "unparsed": unparsed,
+            "distinct_skills": len(demand),
+            "categories": sorted(
+                [{"id": k, "label": CATEGORY_LABELS.get(k, k.title()), "n": v}
+                 for k, v in cats.items()], key=lambda x: -x["n"])[:12],
+        },
+        "curriculum": {
+            "skills_taught": len(lessons),
+            "of_top_40_taught": len([s for s, _n in ranked[:40] if lessons.get(s)]),
+            "covered": covered[:20],
+            "taught": taught,
+            "gap": gap,
+        },
+        "mock": {
+            "answers_marked": len(mock_rows),
+            "cache_hits": hits,
+            "average_score": (round(sum(scores) / len(scores))
+                              if scores else 0),
+            "prep_sheets": prep_sheets,
+        },
+        "top_demand": [{"skill": s, "postings": n,
+                        "taught": bool(lessons.get(s))} for s, n in ranked[:25]],
     }
 
 

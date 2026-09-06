@@ -1394,7 +1394,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="marker.js?v=7660307525"></script>
 <script src="ink.js?v=8790aded96"></script>
 <script src="scanner.js?v=efc3e69c9e"></script>
-<script src="voice.js?v=0034d2362d"></script>
+<script src="voice.js?v=158bdb5991"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=44ce3eb589"></script>
 <link rel="stylesheet" href="katex.css?v=0000000000">
@@ -1405,7 +1405,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="three3d.js?v=7d05d639a7"></script>
 <script src="lab.js?v=c536df7feb"></script>
 <script src="bot.js?v=176bf0cdda"></script>
-<script src="mock.js?v=d92ba0171b"></script>
+<script src="learn.js?v=9029c17a32"></script>
+<script src="mock.js?v=28187e91ff"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -11166,6 +11167,7 @@ function jbTabsHTML(){
     ${tab("find","🔍 Find jobs",0)}
     ${tab("track","📋 My applications",applied)}
     ${tab("prep","🎤 Interview prep",0)}
+    ${tab("learn","📈 What to learn next",0)}
     ${tab("mock","🗣️ Practice out loud",0)}
     ${tab("invites","💼 Employer invites",(JB.invites||{}).pending||0)}
     ${JB.tab==="track"?"":""}
@@ -11559,6 +11561,7 @@ document.addEventListener("click",e=>{
      It returns false for anything that is not one, so this cannot
      swallow a click meant for the tabs below it. */
   if(JB.tab==="mock" && window.Mock && Mock.click(e)) return;
+  if(JB.tab==="learn" && window.Learn && Learn.click(e)) return;
   const m=e.target.closest("[data-jbmode]");
   if(m){ jbReadInputs(); JB.mode=m.dataset.jbmode; JB.jobs=[]; JB.ran=false; JB.msg=""; renderCareers(); return; }
   const g=e.target.closest("[data-jbgo]");
@@ -11577,6 +11580,7 @@ document.addEventListener("click",e=>{
           if(JB.tab==="track") jbLoadTracks().then(renderCareers);
           else if(JB.tab==="prep"){ renderCareers(); if(!PREP) jbLoadPrep(""); }
           else if(JB.tab==="mock"){ renderCareers(); if(window.Mock) Mock.open(); }
+          else if(JB.tab==="learn"){ renderCareers(); if(window.Learn) Learn.openTab(); }
           else renderCareers();
           return; }
   const pcat=e.target.closest("[data-prepcat]");
@@ -11664,7 +11668,7 @@ function renderCareers(){
   <p class="sub">This is where the learning turns into work. Real roles, where the skills are actually used on the job, real places to apply, and practice that mirrors what you'd do on day one.</p>
 
   ${jbTabsHTML()}
-  ${JB.tab==="track"?jbTrackerHTML():JB.tab==="prep"?jbPrepHTML():JB.tab==="mock"?(window.Mock?Mock.html():""):JB.tab==="invites"?jbInvitesHTML():jbSectionHTML()}
+  ${JB.tab==="track"?jbTrackerHTML():JB.tab==="prep"?jbPrepHTML():JB.tab==="mock"?(window.Mock?Mock.html():""):JB.tab==="learn"?(window.Learn?Learn.html():""):JB.tab==="invites"?jbInvitesHTML():jbSectionHTML()}
 
   ${JB.tab==="find"?jbChecksHTML():""}
 
