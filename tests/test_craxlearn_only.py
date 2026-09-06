@@ -421,7 +421,13 @@ TEACHING = ("/api/ask", "/api/board", "/api/class", "/api/course",
             # question. Teaching, and more than that: these routes refuse
             # anyone whose account a school did NOT issue, which is the
             # opposite direction of travel from the job half.
-            "/api/exams")
+            "/api/exams",
+            # What somebody could not do yet, and when to ask again. Squarely
+            # teaching: it is built out of wrong answers to lessons and
+            # quizzes, it never touches a posting, and a school that bought
+            # only the teaching product needs it more than anyone -- revising
+            # what you got wrong IS the product for a class.
+            "/api/recall")
 unfiled = []
 for r_ in main.app.routes:
     p = getattr(r_, "path", "")

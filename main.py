@@ -399,6 +399,46 @@ class Progress(Base):
     __table_args__ = (UniqueConstraint("user_id", "lesson_slug", name="uq_user_lesson"),)
 
 
+class Recall(Base):
+    """One thing this person could not do yet, and the date to ask again.
+
+    The platform recorded that a lesson was finished and what a quiz scored.
+    Neither is learning: finishing is a timestamp and a score is a photograph
+    of one afternoon. Nothing remembered what somebody got WRONG, and nothing
+    ever brought it back.
+
+    That is the entire difference between this and asking an assistant. An
+    assistant explains it beautifully, you nod, and it is gone by Thursday --
+    it does not know what you failed at on Monday and has no reason to ask.
+    A row here does.
+    """
+    __tablename__ = "recall"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    kind = Column(String(20), default="ask")     # quiz|sql|code|interview|ask
+    topic = Column(String(160), default="")
+    prompt = Column(Text, default="")
+    # A hash of the question rather than the question, so the same thing
+    # failed twice is one row that got harder instead of two that both come
+    # back. The unique index enforces it rather than a read-then-write that
+    # races itself.
+    prompt_key = Column(String(64), nullable=False)
+    expect = Column(Text, default="")
+    source = Column(String(160), default="")
+    strength = Column(Integer, default=0)        # 0-5, indexes RECALL_DAYS
+    due_at = Column(DateTime(timezone=True))
+    seen = Column(Integer, default=0)
+    right = Column(Integer, default=0)
+    wrong = Column(Integer, default=0)
+    last_attempt = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    __table_args__ = (
+        UniqueConstraint("user_id", "prompt_key", name="uq_recall_user_prompt"),
+    )
+
+
 class QuizResult(Base):
     __tablename__ = "quiz_results"
     id = Column(Integer, primary_key=True)
@@ -21592,6 +21632,220 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
     }
 
 
+# ---- recall: the thing an assistant cannot do -----------------------------
+# Ask a chat assistant to explain recursion and it will do it better than any
+# lesson here. Then it forgets you, and on Thursday so do you. It has no
+# record of what you could not do on Monday and no reason to ask you again,
+# and that -- not the quality of the explanation -- is why people finish a
+# conversation feeling they have learned something and cannot reproduce it.
+#
+# Two rules, and they are the whole feature:
+#
+#   1. NEVER ANSWER FIRST. A question is served without its answer. The
+#      answer is only released once an attempt has been posted, and that is
+#      enforced here rather than in the page, because a rule the client
+#      enforces is a rule anybody can skip by reading the network tab. It is
+#      also the difference between recognising an answer and producing one,
+#      which is the difference between feeling taught and being taught.
+#
+#   2. IT COMES BACK. Right and the gap widens; wrong and it is tomorrow.
+#
+# Nothing here is a model call. It is a table and a date, which is why it can
+# run for every learner on every visit and cost nothing -- and why it gets
+# better the longer somebody uses it, which no single conversation can.
+
+# Days until a thing is due again, by strength. The familiar shape: an easy
+# win pushes it a long way out, a failure brings it back tomorrow, and the
+# early gaps are short because that is where forgetting actually happens.
+RECALL_DAYS = [1, 2, 4, 9, 21, 45]
+RECALL_MAX = 60          # served in one sitting; more is a chore, not a habit
+
+
+def _recall_key(prompt: str) -> str:
+    """One row per question, however it was typed."""
+    return hashlib.sha256(_norm_q(prompt or "").encode("utf-8", "ignore")).hexdigest()[:40]
+
+
+def _recall_due_in(strength: int) -> int:
+    s = max(0, min(int(strength or 0), len(RECALL_DAYS) - 1))
+    return RECALL_DAYS[s]
+
+
+def recall_add(db, user, kind, topic, prompt, expect="", source="", due_days=1):
+    """Remember that somebody could not do this. Idempotent.
+
+    Called from wherever a wrong answer already happens rather than as a
+    thing a learner has to opt into: the moment worth capturing is the moment
+    it was got wrong, and asking somebody to press "add this to revision"
+    then is asking them to volunteer for more of what just went badly.
+    """
+    prompt = (prompt or "").strip()
+    if not prompt or not user:
+        return None
+    key = _recall_key(prompt)
+    row = db.query(Recall).filter(Recall.user_id == user.id,
+                                  Recall.prompt_key == key).first()
+    if row:
+        # Already known. Getting it wrong again makes it harder, not newer.
+        return row
+    row = Recall(user_id=user.id, kind=(kind or "ask")[:20],
+                 topic=(topic or "")[:160], prompt=prompt[:4000],
+                 prompt_key=key, expect=(expect or "")[:4000],
+                 source=(source or "")[:160], strength=0,
+                 due_at=now() + dt.timedelta(days=max(0, int(due_days or 1))))
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two tabs, one question. The unique index is the arbiter.
+        db.rollback()
+        row = db.query(Recall).filter(Recall.user_id == user.id,
+                                      Recall.prompt_key == key).first()
+    return row
+
+
+def _recall_json(r, with_answer=False):
+    """A card. The answer is absent unless it has been earned.
+
+    with_answer is False everywhere except the response to an attempt. That
+    is the rule the whole feature rests on, so it is a parameter that has to
+    be passed deliberately rather than a field somebody forgets to strip.
+    """
+    out = {"id": r.id, "kind": r.kind or "ask", "topic": r.topic or "",
+           "prompt": r.prompt or "", "strength": r.strength or 0,
+           "seen": r.seen or 0, "right": r.right or 0, "wrong": r.wrong or 0,
+           "source": r.source or "",
+           "due_at": r.due_at.isoformat() if r.due_at else None}
+    if with_answer:
+        out["expect"] = r.expect or ""
+        out["last_attempt"] = r.last_attempt or ""
+    return out
+
+
+class RecallIn(BaseModel):
+    kind: str = Field(default="ask", max_length=20)
+    topic: str = Field(default="", max_length=160)
+    prompt: str = Field(default="", max_length=4000)
+    expect: str = Field(default="", max_length=4000)
+    source: str = Field(default="", max_length=160)
+
+
+@app.post("/api/recall/add")
+def recall_add_route(body: RecallIn, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Keep this, because I could not do it."""
+    row = recall_add(db, user, body.kind, body.topic, body.prompt,
+                     body.expect, body.source)
+    if row is None:
+        raise HTTPException(400, "Nothing to remember.")
+    return {"saved": True, "item": _recall_json(row)}
+
+
+@app.get("/api/recall/due")
+def recall_due(limit: int = 20, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """What this person owes today, oldest debt first.
+
+    No answers in this response. That is not an oversight.
+    """
+    lim = max(1, min(int(limit or 20), RECALL_MAX))
+    q = db.query(Recall).filter(Recall.user_id == user.id)
+    due = (q.filter(Recall.due_at <= now())
+            .order_by(Recall.due_at.asc()).limit(lim).all())
+    total = q.count()
+    due_n = q.filter(Recall.due_at <= now()).count()
+    # The next one to come back, so a finished session can say when rather
+    # than just "nothing to do" — which reads as "this is over".
+    nxt = (q.filter(Recall.due_at > now())
+            .order_by(Recall.due_at.asc()).first())
+    strong = q.filter(Recall.strength >= 4).count()
+    return {
+        "items": [_recall_json(r) for r in due],
+        "due": due_n, "total": total, "solid": strong,
+        "next_at": nxt.due_at.isoformat() if (nxt and nxt.due_at) else None,
+        "note": ("Try it before you look. Recognising an answer and being "
+                 "able to produce one are different skills, and only the "
+                 "second one is the one you came for."),
+    }
+
+
+class RecallAnswerIn(BaseModel):
+    id: int
+    attempt: str = Field(default="", max_length=8000)
+    # What the learner says happened, for the kinds nothing can mark. Anki
+    # has worked on exactly this for fifteen years: a person who has just
+    # tried to produce something knows perfectly well whether they could.
+    verdict: str = Field(default="", max_length=10)   # got | almost | missed
+
+
+@app.post("/api/recall/answer")
+def recall_answer(body: RecallAnswerIn, user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """Mark an attempt, move the date, and only now hand over the answer."""
+    r = db.query(Recall).filter(Recall.id == body.id,
+                                Recall.user_id == user.id).first()
+    if not r:
+        raise HTTPException(404, "Not one of yours.")
+
+    attempt = (body.attempt or "").strip()
+    verdict = (body.verdict or "").strip().lower()
+
+    # Marked rather than self-reported wherever the answer is a fact. A quiz
+    # option either matches or it does not, and asking somebody to grade
+    # themselves on something a string comparison can settle invites the
+    # kindest possible marking at exactly the wrong moment.
+    graded = None
+    if (r.kind or "") == "quiz" and (r.expect or "").strip():
+        graded = _norm_q(attempt) == _norm_q(r.expect)
+    if graded is None:
+        if verdict not in ("got", "almost", "missed"):
+            raise HTTPException(400, "Say whether you got it: got, almost "
+                                     "or missed.")
+    else:
+        verdict = "got" if graded else "missed"
+
+    r.seen = (r.seen or 0) + 1
+    r.last_attempt = attempt[:4000]
+    if verdict == "got":
+        r.right = (r.right or 0) + 1
+        r.strength = min((r.strength or 0) + 1, len(RECALL_DAYS) - 1)
+    elif verdict == "almost":
+        # Held, not advanced. A near miss is not a failure and it is
+        # certainly not a success, and pretending either way is how a
+        # schedule stops matching what somebody actually knows.
+        r.right = r.right or 0
+    else:
+        r.wrong = (r.wrong or 0) + 1
+        # Down two, not to zero. One bad evening should not throw away a
+        # month of work on something known perfectly well last week.
+        r.strength = max((r.strength or 0) - 2, 0)
+
+    days = 0 if verdict == "missed" else _recall_due_in(r.strength)
+    if verdict == "missed":
+        days = 1
+    elif verdict == "almost":
+        days = max(1, _recall_due_in(max(0, (r.strength or 0) - 1)))
+    r.due_at = now() + dt.timedelta(days=days)
+    db.commit()
+
+    return {"item": _recall_json(r, with_answer=True),
+            "verdict": verdict, "graded": graded is not None,
+            "next_in_days": days}
+
+
+@app.delete("/api/recall/{rid}")
+def recall_drop(rid: int, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Somebody who knows it does not need to be asked again."""
+    r = db.query(Recall).filter(Recall.id == rid,
+                                Recall.user_id == user.id).first()
+    if not r:
+        raise HTTPException(404, "Not one of yours.")
+    db.delete(r)
+    db.commit()
+    return {"deleted": True}
+
+
 # ---- what to learn next ---------------------------------------------------
 # The one thing this codebase can say that a job board cannot, and a course
 # platform cannot either: not "Python is in demand" but "learn FastAPI and
@@ -21661,7 +21915,15 @@ def _skill_lesson_index(db):
         for w in _words((les.content or "")[:12000]):
             if w in _SKILLS:
                 body_hits[w] = body_hits.get(w, 0) + 1
-        for skill in title_skills | set(body_hits):
+        # A lesson is ABOUT what its title says. If the title names a skill,
+        # every other skill in the body is supporting material, not the
+        # subject -- "What a database is, and asking it questions" sits in
+        # the SQL track and mentions python and sql thirteen times each, and
+        # it was being offered as the place to learn Python, which is the
+        # third most demanded skill on the board. Better to teach nothing for
+        # a skill than to teach it somewhere it is not taught.
+        candidates = title_skills if title_skills else set(body_hits)
+        for skill in candidates:
             in_title = skill in title_skills
             body = body_hits.get(skill, 0)
             # A title is a promise about what the lesson is; a body mention
@@ -22337,6 +22599,21 @@ async def interview_mock(body: MockIn, user: User = Depends(current_user),
     db.add(AskCache(qkey=key, subject="interview", level="mock",
                     question=q[:2000], lesson=json.dumps(got), hits=0))
     db.commit()
+
+    # An answer that would not have passed the round is a thing this person
+    # cannot do yet, so it is kept and asked again. Captured here rather than
+    # offered as a button: the moment worth keeping is the moment it went
+    # badly, and asking somebody to press "add this to revision" then is
+    # asking them to volunteer for more of what just went wrong.
+    if (got.get("score") or 0) < 60:
+        try:
+            recall_add(db, user, "interview",
+                       (ctx.get("role") or "Interview")[:160], q,
+                       got.get("model_answer") or "",
+                       source="mock interview")
+        except Exception as e:
+            # Revision is not worth failing a marking over.
+            print(f"Recall capture skipped ({type(e).__name__}): {e}")
     return {**got, "cached": False}
 
 

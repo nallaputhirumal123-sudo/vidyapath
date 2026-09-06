@@ -1405,6 +1405,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="three3d.js?v=7d05d639a7"></script>
 <script src="lab.js?v=c536df7feb"></script>
 <script src="bot.js?v=176bf0cdda"></script>
+<script src="recall.js?v=14272c2bf1"></script>
 <script src="learn.js?v=9029c17a32"></script>
 <script src="mock.js?v=28187e91ff"></script>
 <script>
@@ -2187,7 +2188,7 @@ async function logout(){
 const HASH_PAGES = new Set(["home", "messages", "paths", "projects",
   "resources", "ask", "scan", "lab", "net", "sqlboard", "class", "careers",
   "notices", "fees", "attend", "learners", "tmsgs", "asking",
-  "resume", "plans", "hiring", "studio", "exams"]);
+  "resume", "plans", "hiring", "studio", "exams", "revise"]);
 
 function restoreView(){
   // An employer account has no learner pages, so a stale hash must not put
@@ -2459,6 +2460,7 @@ function renderNav(){
    + (staff ? "" : nav("paths","🧭","Choose a path"))
    + (staff ? "" : nav("projects","🛠️","Projects"))
    + ((!staff || teaching) ? nav("ask","💬","Ask Axle anything") : "")
+   + nav("revise","🔁","Bring it back")
    + ((!staff || teaching) ? nav("scan","📷","Scan a problem") : "")
    + (staff ? "" : nav("lab","🧪","The lab"))
    + (staff ? "" : nav("net","🌐","Trace a packet"))
@@ -11557,6 +11559,7 @@ function jbSectionHTML(){
   </div>`;
 }
 document.addEventListener("click",e=>{
+  if(S.view.page==="revise" && window.Revise && Revise.click(e)) return;
   /* The mock interview owns every data-mk* control on the careers page.
      It returns false for anything that is not one, so this cannot
      swallow a click meant for the tabs below it. */
@@ -13270,6 +13273,7 @@ function render(){
     if(canSeePapers()) renderExams(); else renderHome();
   }
   else if(v.page==="ask")       renderAsk();
+  else if(v.page==="revise")    renderRevise();
   else if(v.page==="sqlboard")  renderSqlBoard();
   else if(v.page==="scan")      renderScanner();
   else if(v.page==="lab")       renderLab();
@@ -13388,6 +13392,7 @@ document.addEventListener("click",e=>{
   else if(n==="ask")       S.view={page:"ask"};
   else if(n==="sqlboard")  S.view={page:"sqlboard"};
   else if(n==="scan")      S.view={page:"scan"};
+  else if(n==="revise")    S.view={page:"revise"};
   else if(n==="lab")       S.view={page:"lab"};
   /* Missing from this chain, which is why the button did nothing. The nav
      item existed, the router had a branch for it, and "net" was in
@@ -13424,6 +13429,7 @@ document.addEventListener("click",e=>{
   render();
 });
 document.addEventListener("input",e=>{ if(e.target.id==="search") renderNav(); });
+document.addEventListener("input",e=>{ if(window.Revise) Revise.input(e); });
 </script>
 </body>
 </html>
