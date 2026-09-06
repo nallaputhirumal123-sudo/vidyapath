@@ -244,6 +244,26 @@ async function renderCareer(){
     <td>${t.postings}</td>
     <td>${(t.lessons||[]).map(l=>esc(l.title)).join(", ")||"—"}</td></tr>`).join("");
 
+  setTimeout(()=>{
+    const go=$("#dmGo"); if(!go) return;
+    go.onclick=async()=>{
+      const email=($("#dmEmail").value||"").trim();
+      const password=($("#dmPass").value||"").trim();
+      const out=$("#dmOut");
+      if(!email||password.length<8){
+        out.innerHTML=`<span style="color:var(--warn)">An email and a password of at least 8 characters.</span>`;
+        return; }
+      out.textContent="Building it…";
+      try{
+        const r=await api.post("/api/admin/demo",{email,password,name:"Craxle Demo"});
+        out.innerHTML=`<span style="color:var(--ok)">`+
+          (r.created?"Created":"Reset")+` &mdash; sign out, then sign in at `+
+          `<b>/</b> as <b>${esc(r.email)}</b>. Plan: ${esc(r.plan)}, `+
+          `${r.tracked} job(s) tracked, resume loaded.</span>`;
+      }catch(e){ out.innerHTML=`<span style="color:#e05a5a">${esc(e.message)}</span>`; }
+    };
+  },0);
+
   const demandRows = (d.top_demand||[]).map(x=>`<tr>
     <td><b>${esc(x.skill)}</b></td>
     <td>${x.postings}</td>
@@ -266,6 +286,25 @@ async function renderCareer(){
       <div class="statsub">${mk.cache_hits||0} served free from cache</div></div>
     <div class="card"><div class="statlbl">Average mock score</div><div class="stat">${mk.average_score||0}</div>
       <div class="statsub">${mk.prep_sheets||0} prep sheets written</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px;border-color:var(--accent)">
+    <b style="font-size:15px">🧪 A demo account, for showing this to somebody</b>
+    <div style="font-size:13px;color:var(--dim);margin:6px 0 10px;line-height:1.6">
+      Creates a normal <b>Pro learner</b> &mdash; not an administrator, so it
+      cannot reset users or delete a school. It arrives with a resume and
+      three real postings already tracked, because every screen worth showing
+      reads one or the other and an empty account demos as a set of headings.
+      Signing in as staff shows the school sidebar and no Career board at
+      all, which is why a separate login is needed to show the job side.
+      <br>Safe to run again &mdash; it resets the same account to a known state.
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="dmEmail" placeholder="demo@craxle.com" style="min-width:220px"/>
+      <input id="dmPass" type="text" placeholder="password (min 8)" style="min-width:180px"/>
+      <button class="btn" id="dmGo">Create / reset demo account</button>
+    </div>
+    <div id="dmOut" style="font-size:13px;margin-top:10px"></div>
   </div>
 
   <div class="h2" style="margin-bottom:6px">What the market wants and we do not teach</div>
