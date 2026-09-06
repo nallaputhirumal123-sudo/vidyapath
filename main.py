@@ -23333,6 +23333,152 @@ class PwResetIn(BaseModel):
     password: str = Field(min_length=8, max_length=200)
 
 
+class PlanIn(BaseModel):
+    plan: str = Field(default="pro", max_length=20)
+    days: int = 365
+
+
+@app.post("/api/admin/student/{uid}/plan")
+def admin_set_plan(uid: int, body: PlanIn,
+                   user: User = Depends(admin_user),
+                   db: Session = Depends(get_db)):
+    """Put an account on a plan without it paying.
+
+    There was no way to do this at all, which meant the only account that
+    could be shown to somebody with every paid feature working was an admin
+    one — and an admin account also carries "start everybody again" and
+    "delete school". A demo login should see the product, not the controls
+    that can destroy it.
+
+    Deliberately recorded. A plan granted by hand is a plan Stripe knows
+    nothing about, so renewal, cancellation and the revenue page must all be
+    able to tell it apart from a sale.
+    """
+    plan = (body.plan or "").strip().lower()
+    if plan not in ("free",) + PAID_PLANS:
+        raise HTTPException(400, f"Unknown plan. Use free or "
+                                 f"{', '.join(PAID_PLANS)}.")
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "Student not found")
+
+    if plan == "free":
+        u.plan = "free"
+        u.plan_expires = None
+        u.plan_provider = ""
+    else:
+        u.plan = plan
+        u.plan_expires = now() + dt.timedelta(days=max(1, min(int(body.days or 365), 3650)))
+        # Not "stripe". The revenue page counts what was sold, and a granted
+        # plan is not a sale — labelling it as one would quietly inflate
+        # every figure on that page.
+        u.plan_provider = "granted"
+        u.plan_cancelled_at = None
+    db.commit()
+    print(f"Plan {plan} granted to user {u.id} ({u.email}) by admin {user.id}")
+    return {"id": u.id, "email": u.email, "plan": plan_of(u),
+            "expires": u.plan_expires.isoformat() if u.plan_expires else None,
+            "provider": u.plan_provider or ""}
+
+
+class DemoIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+    name: str = Field(default="Demo Account", max_length=120)
+
+
+DEMO_RESUME = """Priya Raman
+priya.raman@example.com  |  Bengaluru, India
+Backend Engineer — 3 years
+
+EXPERIENCE
+Backend Engineer, Northwind Technologies (2023 - present)
+  Built and ran Python services with FastAPI on PostgreSQL, containerised
+  with Docker and deployed on Linux. Reduced p95 latency 40% by rewriting
+  the reporting queries and adding an index nobody had noticed was missing.
+  Led a team of 2 through the migration.
+Junior Developer, Craxle Labs (2022 - 2023)
+  Wrote SQL for the analytics pipeline and maintained the internal admin
+  tools. Cut a nightly job from 50 minutes to 6.
+
+SKILLS
+Python, FastAPI, PostgreSQL, SQL, Docker, Linux, Git, REST APIs, pytest
+
+EDUCATION
+B.E. Computer Science, Anna University, 2022
+"""
+
+
+@app.post("/api/admin/demo")
+def admin_make_demo(body: DemoIn, user: User = Depends(admin_user),
+                    db: Session = Depends(get_db)):
+    """Create (or refresh) an account worth showing somebody.
+
+    An empty account demos badly: every screen that matters here reads a
+    resume or a tracked job, so without them the skill ladder, the match
+    score, interview prep and the tracker are all a paragraph explaining
+    what would be there. This fills them in.
+
+    Safe to run twice — it updates the account rather than failing on it, so
+    a demo can be reset to a known state before a call.
+    """
+    email = str(body.email).strip().lower()
+    u = db.query(User).filter(func.lower(User.email) == email).first()
+    created = False
+    if not u:
+        u = User(email=email, name=(body.name or "Demo Account")[:120],
+                 password_hash=hash_pw(body.password),
+                 is_active=True)
+        db.add(u)
+        created = True
+    else:
+        u.password_hash = hash_pw(body.password)
+        u.name = (body.name or u.name or "Demo Account")[:120]
+        u.is_active = True
+    # An adult, stated: REQUIRE_DOB closes the whole job side on an account
+    # that has never said how old it is, which is most of what is being shown.
+    u.dob = dt.date(1998, 4, 12)
+    u.plan = "pro"
+    u.plan_provider = "granted"
+    u.plan_cancelled_at = None
+    u.plan_expires = now() + dt.timedelta(days=365)
+    u.is_admin = False          # a demo login is not an administrator
+    db.commit()
+    db.refresh(u)
+
+    # The resume, which is what the ladder, the match and the prep all read.
+    note = db.query(Note).filter(Note.user_id == u.id,
+                                 Note.k == "resume_uptext").first()
+    if note:
+        note.v = DEMO_RESUME
+    else:
+        db.add(Note(user_id=u.id, k="resume_uptext", v=DEMO_RESUME))
+
+    # A few real postings, so the tracker and the company panel have content.
+    # Taken from the live board rather than invented, because a demo of a job
+    # board showing jobs that do not exist is the one thing a client will
+    # check.
+    tracked = 0
+    picked = (db.query(Job).filter(Job.is_open.is_(True),
+                                   Job.category == "backend")
+                .order_by(Job.id.desc()).limit(3).all())
+    for j, status in zip(picked, ("interviewing", "applied", "saved")):
+        row = db.query(JobTrack).filter(JobTrack.user_id == u.id,
+                                        JobTrack.job_id == j.id).first()
+        if not row:
+            db.add(JobTrack(user_id=u.id, job_id=j.id, status=status,
+                            title=j.title or "", company=j.company or "",
+                            location=j.location or "", url=j.url or ""))
+            tracked += 1
+    db.commit()
+
+    return {"created": created, "id": u.id, "email": u.email,
+            "plan": plan_of(u), "tracked": tracked,
+            "resume": True,
+            "note": ("Sign in at / with this email and the password you set. "
+                     "It is a normal Pro account, not an administrator.")}
+
+
 @app.post("/api/admin/student/{uid}/reset-password")
 def admin_reset_password(uid: int, body: PwResetIn,
                          user: User = Depends(admin_user), db: Session = Depends(get_db)):
