@@ -63,5 +63,51 @@ for page, name, stamped in refs:
 check("no local script is loaded unstamped", not unstamped,
       ", ".join(unstamped[:4]))
 
+
+# ---------------------------------------------------------------------------
+# A file that is not there must say so.
+#
+# The 404 handler is also the single-page fallback, so every unmatched path
+# was answered with index.html and a 200 -- including /typo.js. A browser
+# then parses 700KB of HTML as JavaScript, the inline script dies on the
+# first tag, and the entire application goes blank over one mistyped src,
+# while the network tab shows a confident green 200.
+#
+# Client routes never carry a file extension, which is what makes it safe to
+# split the two apart on exactly that.
+import os as _os                                               # noqa: E402
+
+_os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+_os.environ["ALLOW_SQLITE"] = "1"
+_os.environ["JOBS_ENABLED"] = "0"
+_os.environ.setdefault("JWT_SECRET", "d" * 40)
+_os.environ["DOTENV_PATH"] = "nonexistent.env"
+sys.path.insert(0, ROOT)          # this file otherwise only reads from disk
+import main as _main                                           # noqa: E402
+from fastapi.testclient import TestClient                      # noqa: E402
+
+_C = TestClient(_main.app)
+
+for _p in ("/nope.js", "/missing.css", "/gone.png", "/absent.woff2"):
+    _r = _C.get(_p)
+    check(f"{_p} is a 404, not the whole app", _r.status_code == 404,
+          f"{_r.status_code}, {len(_r.content)} bytes")
+    check(f"{_p} does not return HTML",
+          "text/html" not in _r.headers.get("content-type", ""),
+          _r.headers.get("content-type", ""))
+
+# ...and the fallback still does its job, or every deep link breaks.
+for _p in ("/careers", "/home", "/some/deep/client/route"):
+    _r = _C.get(_p)
+    check(f"{_p} still gets the app", _r.status_code == 200
+          and "text/html" in _r.headers.get("content-type", ""),
+          str(_r.status_code))
+
+# A file that IS there is untouched by any of this.
+_r = _C.get("/mock.js")
+check("a real script is still served", _r.status_code == 200
+      and len(_r.content) > 1000, str(_r.status_code))
+
+
 print(f"\nPASSED {PASS}   FAILED {FAIL}")
 sys.exit(1 if FAIL else 0)

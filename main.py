@@ -24395,6 +24395,19 @@ def not_found(request: Request, exc):
         # route at all, which is the only case that has nothing to say.
         detail = getattr(exc, "detail", None)
         return JSONResponse({"detail": detail or "Not found"}, status_code=404)
+    # A missing FILE is not a client route. This handler is the single-page
+    # fallback, so /careers and /home correctly get the app -- but a path
+    # ending in a real asset extension is asking for a file that is not
+    # there, and answering it with 200 and 700KB of HTML is worse than
+    # useless: the browser parses a web page as JavaScript, the inline
+    # script dies on the first tag, and the whole application goes blank
+    # over one mistyped src. A 404 says what happened.
+    #
+    # Client routes never carry a file extension, which is what makes this
+    # safe to split on.
+    suffix = os.path.splitext(request.url.path)[1].lower()
+    if suffix and suffix in STATIC_TYPES:
+        return JSONResponse({"detail": "Not found"}, status_code=404)
     # On a Craxlearn-only server the main app is not what anybody typing a
     # wrong URL wanted, and serving it would put a job board in front of a
     # classroom by way of a typo.
