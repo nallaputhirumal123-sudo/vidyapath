@@ -41,7 +41,8 @@
   var M = {
     /* setup → asking → answering → scoring → scored → done */
     mode: "setup",
-    src: "category",        // "category" | "job"
+    src: "category",        // "category" | "job" | "jd"
+    jd: "", jdCompany: "", jdTitle: "",   // a posting pasted in by hand
     cat: "", catLabel: "",
     jobId: 0, jobTitle: "", company: "",
     round: "",              // the round being practised, "" = a mixed set
@@ -117,6 +118,20 @@
   M.loadQuestions = async function () {
     M.guideBusy = true; M.err = ""; repaint();
     try {
+      // A pasted posting is a POST, because a job description is longer
+      // than a query string should carry and this is the one somebody
+      // actually has an interview for.
+      if (M.src === "jd") {
+        var data0 = await api.post("/api/interview/jd", {
+          jd: M.jd, company: M.jdCompany, title: M.jdTitle });
+        M.guide = data0;
+        M.qs = fromGuide(data0);
+        if (!M.qs.length) {
+          M.err = "No questions came back for that description.";
+        }
+        M.guideBusy = false;
+        return repaint();
+      }
       var p = new URLSearchParams();
       if (M.src === "job" && M.jobId) {
         p.set("job_id", String(M.jobId));
@@ -280,6 +295,8 @@
         why: cur.why || "",
         model_answer: cur.model || "",
         job_id: M.src === "job" ? M.jobId : 0,
+        jd: M.src === "jd" ? M.jd : "",
+        company: M.src === "jd" ? M.jdCompany : "",
         category: M.cat || "",
         round: cur.round || M.round || "",
         seconds: (M.stats && M.stats.seconds) || 0,
@@ -343,10 +360,10 @@
     var doc = new jsPDF({ unit: "pt", format: "a4" });
     var M0 = 48, W = doc.internal.pageSize.getWidth() - M0 * 2;
     var H = doc.internal.pageSize.getHeight();
-    var y = 54;
+    var y = 62;                       // clears the craxle.com header band
     var safe = pdfSafe || function (s) { return String(s == null ? "" : s); };
 
-    function room(h) { if (y + (h || 0) > H - 46) { doc.addPage(); y = 54; } }
+    function room(h) { if (y + (h || 0) > H - 46) { doc.addPage(); y = 62; } }
     function write(t, size, opt) {
       opt = opt || {};
       doc.setFont("helvetica", opt.bold ? "bold" : "normal");
@@ -407,6 +424,31 @@
       if (sc.followup) write("They would then ask: " + sc.followup, 9.5, { color: "#555" });
       y += 10; rule();
     });
+
+    // Stamped on every page at the end rather than as each page is started:
+    // pages are added from inside room() whenever the text runs off the
+    // bottom, so there is no single place that knows a page has begun.
+    // A recap gets reread the night before an interview and forwarded to
+    // people; it should say where it came from on every sheet.
+    var pages = doc.internal.getNumberOfPages();
+    for (var pn = 1; pn <= pages; pn++) {
+      doc.setPage(pn);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor("#2b3a5b");
+      // Once per page, and once only. A name repeated in a header AND a
+      // footer on every sheet stops reading as a source and starts reading
+      // as an advertisement, which is not what somebody wants in their hand
+      // the night before an interview.
+      doc.text("craxle.com", M0, 30);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor("#8a8a8a");
+      doc.text("Mock interview recap", M0 + 62, 30);
+      doc.text("Page " + pn + " of " + pages, M0 + W, 30, { align: "right" });
+      doc.setDrawColor(210, 214, 222);
+      doc.setLineWidth(0.6);
+      doc.line(M0, 36, M0 + W, 36);
+    }
 
     var name = (M.src === "job" && M.jobTitle ? M.jobTitle : (M.catLabel || "interview"));
     doc.save(name.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 40) +
@@ -519,10 +561,26 @@
         '<div class="ask-chips" style="margin-bottom:10px">' +
           '<button class="ask-chip ' + (M.src === "job" ? "on" : "") + '" data-mksrc="job">' +
             'A job I have applied to</button>' +
+          '<button class="ask-chip ' + (M.src === "jd" ? "on" : "") + '" data-mksrc="jd">' +
+            'Paste a job description</button>' +
           '<button class="ask-chip ' + (M.src === "category" ? "on" : "") + '" data-mksrc="category">' +
             'A role in general</button>' +
         '</div>' +
-        (M.src === "job"
+        (M.src === "jd"
+          ? '<textarea id="mkJd" class="pj-note" style="min-height:150px;' +
+            'width:100%" placeholder="Paste the whole job description here — ' +
+            'responsibilities, requirements, the lot. The questions are ' +
+            'written from it.">' + esc(M.jd) + '</textarea>' +
+            '<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">' +
+            '<input id="mkJdCo" placeholder="Company (optional)" value="' +
+            escAttr(M.jdCompany) + '" style="flex:1;min-width:160px"/>' +
+            '<input id="mkJdTitle" placeholder="Job title (optional)" value="' +
+            escAttr(M.jdTitle) + '" style="flex:1;min-width:160px"/></div>' +
+            '<div style="font-size:11.5px;color:var(--dim);margin-top:8px">' +
+            'For the interview you actually have. The board holds a hundred ' +
+            'thousand postings and none of them is the one you are sitting ' +
+            'on Thursday. Part of a paid plan.</div>'
+          : M.src === "job"
           ? jobRows +
             '<div style="font-size:11.5px;color:var(--dim);margin-top:8px">Questions ' +
             'are written from that job description and your resume, so they ask ' +
@@ -568,7 +626,8 @@
       (M.err ? '<div class="card" style="color:#e05a5a;font-size:13px">' + esc(M.err) + '</div>' : "") +
 
       '<button class="btn" data-mkstart ' +
-        ((M.src === "job" && !M.jobId) || (M.src === "category" && !M.cat) ? "disabled" : "") +
+        ((M.src === "job" && !M.jobId) || (M.src === "category" && !M.cat)
+          || (M.src === "jd" && M.jd.trim().length < 80) ? "disabled" : "") +
         ' style="width:100%">' +
         (M.guideBusy ? "Writing your questions…" : "Start the mock interview →") +
       '</button>';
@@ -814,6 +873,9 @@
       return true;
     }
     if (t.id === "mkType") { M.draft = t.value; return true; }
+    if (t.id === "mkJd") { M.jd = t.value; return true; }
+    if (t.id === "mkJdCo") { M.jdCompany = t.value; return true; }
+    if (t.id === "mkJdTitle") { M.jdTitle = t.value; return true; }
     return false;
   };
 

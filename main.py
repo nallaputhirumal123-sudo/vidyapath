@@ -22443,6 +22443,66 @@ async def interview_guide(category: str = "", job_id: int = 0,
 # question is served from cache.
 
 
+# Practice has its own daily allowance, deliberately separate from the
+# general AI quota.
+#
+# It was sharing the ordinary one, and that is wrong in both directions. A
+# real practice session is fifteen or twenty answers in a sitting -- so a
+# candidate preparing properly for a Thursday interview was spending the
+# allowance they also need for apply kits and job matches, and a couple of
+# honest sessions could leave them unable to apply to anything. And the
+# abuse brake that stops runaway spend on one-shot generation is the wrong
+# shape for a loop somebody is meant to stay inside.
+#
+# So: its own counter, and a ceiling set where a person practising hard all
+# day still never reaches it, but a script cannot run up an unbounded bill.
+MOCK_DAILY_LIMIT = 120          # scored answers per person per day
+
+
+def _mock_used_today(db, user):
+    """Answers marked today. Cache hits are not counted -- they cost nothing."""
+    row = db.query(Note).filter(
+        Note.user_id == user.id,
+        Note.k == f"mock_{now().strftime('%Y%m%d')}").first()
+    try:
+        return int(row.v) if row else 0
+    except Exception:
+        return 0
+
+
+def _mock_bump(db, user):
+    if getattr(user, "is_admin", False):
+        return
+    key = f"mock_{now().strftime('%Y%m%d')}"
+    row = db.query(Note).filter(Note.user_id == user.id,
+                                Note.k == key).first()
+    if row:
+        try:
+            row.v = str(int(row.v) + 1)
+        except Exception:
+            row.v = "1"
+    else:
+        db.add(Note(user_id=user.id, k=key, v="1"))
+    db.commit()
+
+
+def _mock_enforce_limit(db, user):
+    """Paid practice is not metered against the general quota.
+
+    Free is still free-of-AI -- that is a pricing decision, not this
+    function's to make -- so it falls through to the ordinary gate and gets
+    the ordinary message about upgrading.
+    """
+    if getattr(user, "is_admin", False):
+        return
+    if plan_of(user) == "free":
+        return _ai_enforce_limit(db, user)      # says "upgrade", correctly
+    if _mock_used_today(db, user) >= MOCK_DAILY_LIMIT:
+        raise HTTPException(429, f"That is {MOCK_DAILY_LIMIT} answers marked "
+                                 f"today, which is a lot of practice. It "
+                                 f"resets tomorrow.")
+
+
 def _mock_prompt(question, answer, ctx):
     """Score one spoken answer. Small on purpose - this runs per answer."""
     role = ctx.get("role") or "the role"
@@ -22523,6 +22583,12 @@ class MockIn(BaseModel):
     why: str = Field(default="", max_length=400)
     model_answer: str = Field(default="", max_length=1500)
     job_id: int = 0
+    # A job description pasted in, for the interview somebody actually has —
+    # which is usually not a posting on this board. Without this, practising
+    # for a real interview meant finding the nearest thing we happened to
+    # have crawled.
+    jd: str = Field(default="", max_length=12000)
+    company: str = Field(default="", max_length=120)
     category: str = Field(default="", max_length=40)
     round: str = Field(default="", max_length=60)
     seconds: int = 0
@@ -22556,7 +22622,8 @@ async def interview_mock(body: MockIn, user: User = Depends(current_user),
     # family is open to everyone, practising against a SPECIFIC posting is
     # the paid product.
     job = db.get(Job, body.job_id) if body.job_id else None
-    if job is not None:
+    jd_text = (body.jd or "").strip()
+    if job is not None or jd_text:
         require_paid(user, "Practice against a specific job")
 
     # An identical answer to an identical question is the same marking twice.
@@ -22576,16 +22643,16 @@ async def interview_mock(body: MockIn, user: User = Depends(current_user),
     ctx = {
         "role": (job.title if job else "") or CATEGORY_LABELS.get(
             (body.category or "").strip().lower(), "the role"),
-        "company": (job.company if job else ""),
+        "company": (job.company if job else (body.company or "").strip()),
         "why": body.why,
         "model_answer": body.model_answer,
-        "jd": ((job.description or job.text or "") if job else ""),
+        "jd": (jd_text or ((job.description or job.text or "") if job else "")),
         "delivery": {"seconds": secs, "words": words,
                      "wpm": int(words * 60 / secs) if secs else 0,
                      "fillers": max(0, int(body.fillers or 0))},
     }
 
-    _ai_enforce_limit(db, user)
+    _mock_enforce_limit(db, user)
     try:
         text = await _ai_text(_mock_prompt(q, a[:6000], ctx), 900,
                               json_mode=True)
@@ -22595,7 +22662,7 @@ async def interview_mock(body: MockIn, user: User = Depends(current_user),
         raise HTTPException(503, _ai_error_message(e))
     if not got["verdict"]:
         raise HTTPException(502, "That came back empty - try again.")
-    _ai_bump(db, user)
+    _mock_bump(db, user)
     db.add(AskCache(qkey=key, subject="interview", level="mock",
                     question=q[:2000], lesson=json.dumps(got), hits=0))
     db.commit()
@@ -22615,6 +22682,80 @@ async def interview_mock(body: MockIn, user: User = Depends(current_user),
             # Revision is not worth failing a marking over.
             print(f"Recall capture skipped ({type(e).__name__}): {e}")
     return {**got, "cached": False}
+
+
+class JDIn(BaseModel):
+    jd: str = Field(default="", max_length=12000)
+    company: str = Field(default="", max_length=120)
+    title: str = Field(default="", max_length=160)
+
+
+@app.post("/api/interview/jd")
+async def interview_from_jd(body: JDIn, user: User = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    """Questions for the interview somebody actually has.
+
+    The board holds a hundred thousand postings and none of them is the one
+    they are interviewing for on Thursday. Practising against "the nearest
+    backend role we happened to crawl" is practising for the wrong job, and
+    the whole argument for this feature is that the questions come from the
+    posting in front of you.
+
+    Cached on the JD and the resume together, so re-opening it -- or two
+    people preparing for the same advertised role -- costs nothing.
+    """
+    if not ASK_ENABLED:
+        raise HTTPException(503, "Writing questions needs an AI provider "
+                                 "configured.")
+    require_paid(user, "Practice against a job description")
+    jd = (body.jd or "").strip()
+    if len(jd) < 80:
+        raise HTTPException(400, "Paste the full job description — a couple "
+                                 "of lines is not enough to write questions "
+                                 "from.")
+    note = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k == "resume_uptext").first()
+    rtext = (note.v if note else "") or ""
+    if len(rtext.strip()) < 120:
+        raise HTTPException(400, "Add your resume first — the questions are "
+                                 "written against it, and point at your own "
+                                 "experience where you have it.")
+
+    key = _ai_cache_key("ivjd", rtext[:2500], jd[:3500],
+                        scope=_scope_of(db, user))
+    cached = _ai_cache_get(db, key)
+    if cached is not None:
+        return {"guide": cached, "cached": True}
+
+    # A stand-in for a Job row, so the prompt this has always used is the
+    # prompt this uses. Two prompts for "questions from a posting" would
+    # drift apart, and the pasted one would be the one nobody noticed.
+    class _Pasted:
+        pass
+    j = _Pasted()
+    j.title = (body.title or "").strip()[:160] or "this role"
+    j.company = (body.company or "").strip()[:120] or "this employer"
+    j.text = jd
+    j.description = jd
+    j.id = 0
+
+    skills, _kw = _profile(rtext)
+    wanted = {w for w in _words(jd) if w in _SKILLS}
+    missing = sorted(wanted - skills)
+
+    _ai_enforce_limit(db, user)
+    try:
+        text = await _ai_text(_interview_prompt(j, rtext, missing), 2600,
+                              json_mode=True)
+        guide = _clean_interview(_ai_json(text), j.title)
+    except Exception as e:
+        print(f"JD prep failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not guide["rounds"]:
+        raise HTTPException(502, "That came back empty — try again.")
+    _ai_bump(db, user)
+    _ai_cache_put(db, key, guide)
+    return {"guide": guide, "cached": False}
 
 
 @app.get("/api/interview/company")

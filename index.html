@@ -1393,7 +1393,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="quizui.js?v=fc745ee388"></script>
 <script src="marker.js?v=7660307525"></script>
 <script src="ink.js?v=8790aded96"></script>
-<script src="scanner.js?v=efc3e69c9e"></script>
+<script src="scanner.js?v=91a90c33fa"></script>
 <script src="voice.js?v=158bdb5991"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=44ce3eb589"></script>
@@ -1407,7 +1407,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="bot.js?v=176bf0cdda"></script>
 <script src="recall.js?v=c1341f88ff"></script>
 <script src="learn.js?v=9029c17a32"></script>
-<script src="mock.js?v=28187e91ff"></script>
+<script src="mock.js?v=abec9595b8"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -6437,9 +6437,13 @@ async function askPDFWrite(rec){
     doc.text("craxle.com  ·  "+when,M+W,38,{align:"right"});
     doc.setDrawColor("#e4e2dc"); doc.setLineWidth(0.8);
     doc.line(M,44,M+W,44);
+    /* The footer used to repeat "Craxle · craxle.com" under a header that
+       already says Craxle and craxle.com on the same page. Three mentions on
+       one sheet stops reading as a source and starts reading as an
+       advertisement, on a document somebody printed to study from. The
+       header keeps the name; the footer keeps the page number. */
     const n=doc.internal.getNumberOfPages();
     doc.setFontSize(8);
-    doc.text("Craxle · craxle.com",M,H-28);
     doc.text("Page "+n,M+W,H-28,{align:"right"});
   };
   let y=72;

@@ -743,7 +743,7 @@
   function download() {
     var s = SC.scan;
     if (!s) return;
-    var L = ["Craxle — craxle.com", "", (s.subject || "Scan"), "",
+    var L = ["craxle.com", "", (s.subject || "Scan"), "",
       "WHAT YOU ASKED", s.read, "", "WORKED THROUGH"];
     s.steps.forEach(function (st, i) {
       L.push("", (i + 1) + ". " + (st.heading || ""));
@@ -752,7 +752,8 @@
     });
     if (s.answer) L.push("", "ANSWER", s.answer);
     if (s.next) L.push("", s.next);
-    L.push("", "Saved from Craxle — craxle.com");
+    // The first line already says where this came from.
+    L.push("");
     var b = new Blob([L.join("\n")], { type: "text/plain;charset=utf-8" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(b);
