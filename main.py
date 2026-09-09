@@ -5749,6 +5749,7 @@ import orbits as _orbits                                            # noqa: E402
 import molecule as _molecule                                        # noqa: E402
 import protein as _protein                                          # noqa: E402
 import images as _images                                            # noqa: E402
+import roles as _roles                                              # noqa: E402
 import reference as _reference                                      # noqa: E402
 import papers as _papers                                            # noqa: E402
 import maths as _maths                                              # noqa: E402
@@ -22755,6 +22756,145 @@ async def interview_from_jd(body: JDIn, user: User = Depends(current_user),
         raise HTTPException(502, "That came back empty — try again.")
     _ai_bump(db, user)
     _ai_cache_put(db, key, guide)
+    return {"guide": guide, "cached": False}
+
+
+@app.get("/api/interview/roles")
+def interview_roles(q: str = "", category: str = "", limit: int = 40,
+                    user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """The jobs somebody can practise for, by name.
+
+    Nobody interviews for a family. They interview for Network Engineer, or
+    BIM Coordinator, or Site Reliability Engineer, and the questions for
+    those three have almost nothing in common — so offering six families was
+    offering a shelf and calling it a book.
+
+    Two sources, merged. The catalogue in roles.py is deliberately broader
+    than the board, because the board is whatever was crawled this week and
+    somebody preparing for a BIM/CAD interview should not be told the role
+    does not exist because nobody advertised one on Tuesday. The board's own
+    titles are added on top, with the number of openings, because those are
+    the roles being hired for right now and that is worth knowing.
+
+    Free, and no model call: a list and a GROUP BY.
+    """
+    lim = max(1, min(int(limit or 40), 120))
+    want = (q or "").strip()
+    cat = (category or "").strip().lower()
+
+    picked = _roles.search(want, cat, limit=lim)
+    seen = {r["role"].lower() for r in picked}
+    out = [{"role": r["role"], "category": r["category"],
+            "label": CATEGORY_LABELS.get(r["category"], r["category"]),
+            "openings": 0, "source": "catalogue"} for r in picked]
+
+    # What the board is actually advertising. Counted rather than listed, so
+    # a role with four hundred openings is visibly not the same suggestion
+    # as one with two.
+    try:
+        jq = (db.query(Job.title, func.count(Job.id))
+                .filter(Job.is_open.is_(True), Job.title != ""))
+        if cat:
+            jq = jq.filter(Job.category == cat)
+        if want:
+            jq = jq.filter(Job.title.ilike(f"%{want}%"))
+        rows = (jq.group_by(Job.title)
+                  .order_by(func.count(Job.id).desc()).limit(60).all())
+    except Exception:
+        rows = []
+    for title, n in rows:
+        t = (title or "").strip()
+        if not t or t.lower() in seen:
+            continue
+        seen.add(t.lower())
+        out.append({"role": t[:120], "category": cat, "openings": int(n or 0),
+                    "label": CATEGORY_LABELS.get(cat, ""), "source": "board"})
+
+    # The catalogue first, then the board by demand.
+    #
+    # Ranking on openings alone put "Staff Site Reliability Engineer
+    # (Linux/Network troubleshooting/Scripting)" above "Network Engineer",
+    # because one real posting beats a curated entry with no count. The
+    # catalogue exists precisely because it holds the clean, canonical name
+    # of the job somebody is actually preparing for; the board's own titles
+    # are the long tail underneath it.
+    out.sort(key=lambda r: (r["source"] != "catalogue", -r["openings"],
+                            len(r["role"])))
+    return {"roles": out[:lim], "q": want, "category": cat,
+            "families": [{"id": k, "label": CATEGORY_LABELS.get(k, k.title()),
+                          "n": len(v)} for k, v in _roles.ROLES.items()]}
+
+
+class RoleIn(BaseModel):
+    role: str = Field(default="", max_length=120)
+
+
+@app.post("/api/interview/role")
+async def interview_for_role(body: RoleIn, user: User = Depends(current_user),
+                             db: Session = Depends(get_db)):
+    """Questions for one named job, rather than for its family.
+
+    Cached on the ROLE ALONE, with no resume in the key, which is the whole
+    economics of this: the first person to practise for Network Engineer
+    pays for it and everybody after them gets it free, for ever. A few
+    hundred roles is a few hundred model calls in total across the entire
+    product, not one per person.
+
+    That is also why it is free to use. There is nothing personal in the
+    questions, so there is nothing to keep private and nothing to re-earn.
+    """
+    if not ASK_ENABLED:
+        raise HTTPException(503, "Writing questions needs an AI provider "
+                                 "configured.")
+    role = (body.role or "").strip()
+    if len(role) < 3:
+        raise HTTPException(400, "Which job? Pick one or type its title.")
+
+    key = "ivrole|" + _norm_q(role)[:120]
+    row = db.query(AskCache).filter(AskCache.qkey == key).first()
+    got = _cached_json(db, row, need=None)
+    if got:
+        row.hits = (row.hits or 0) + 1
+        db.commit()
+        return {"guide": got, "cached": True}
+
+    _ai_enforce_limit(db, user)
+    prompt = (
+        f"You are preparing somebody for an interview for the job titled: "
+        f"{role}.\n\n"
+        "Write the questions THIS job is actually asked, not generic "
+        "interview questions. If the title names a tool or a standard, the "
+        "questions should use it. A question that would fit any job in any "
+        "industry is a failure.\n\n"
+        "Respond with ONLY valid JSON, no markdown fences:\n"
+        '{"role":"<the job title>",'
+        '"opening":"<2 sentences on what this job is really assessed on>",'
+        '"rounds":[{"name":"<round, e.g. Screening / Technical / '
+        'Practical / Manager>",'
+        '"what_they_test":"<one sentence>",'
+        '"questions":[{"q":"<a question they would really be asked>",'
+        '"why":"<what it is checking>",'
+        '"answer_with":"<what a strong answer contains: the specific things '
+        'to name, the shape to use. Not a script>"}]}],'
+        '"gaps":[{"skill":"<something people in this job are commonly weak '
+        'on>","say":"<how to handle being asked about it honestly>"}],'
+        '"ask_them":["<a question worth asking the interviewer>"]}\n\n'
+        "3 to 4 rounds, 4 to 6 questions each. Cover the practical work of "
+        "the job, not only theory."
+    )
+    try:
+        text = await _ai_text(prompt, 2800, json_mode=True)
+        guide = _clean_interview(_ai_json(text), role)
+    except Exception as e:
+        print(f"Role prep failed ({AI_PROVIDER}): {type(e).__name__}: {e}")
+        raise HTTPException(503, _ai_error_message(e))
+    if not guide["rounds"]:
+        raise HTTPException(502, "That came back empty — try again.")
+    _ai_bump(db, user)
+    db.add(AskCache(qkey=key, subject="interview", level="role",
+                    question=role[:2000], lesson=json.dumps(guide), hits=0))
+    db.commit()
     return {"guide": guide, "cached": False}
 
 

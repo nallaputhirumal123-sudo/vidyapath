@@ -56,13 +56,26 @@ def ck(name, cond, why=""):
 
 print("\nthe button is on the board and wired to something")
 ck("the board's top bar has it", 'id="recBtn"' in BOARD)
-ck("and the website has one too", 'id="recFab"' in IDX,
+# On the website it lives in Settings rather than in the corner of every
+# page. It was a third permanent floating button for something almost nobody
+# does in a session, and only a teacher ever wants. The control still has to
+# EXIST and still has to be wired — that is what this pair checks, and the
+# move does not weaken either — it just checks the id it moved to.
+#
+# Safe to move because stopping never depended on it: while a recording runs
+# #recPill sits across the top of every screen and tapping it stops, which is
+# asserted further down.
+ck("and the website has one too", 'id="acRec"' in IDX,
    "setting a paper, or walking a class through a solved question, "
    "happens here rather than on the board")
 ck("and pressing it does something",
-   'el("recBtn").onclick' in BOARD and '#recFab' in IDX,
+   'el("recBtn").onclick' in BOARD and '#acRec' in IDX,
    "a button in the bar with no handler is the fault this board has had "
    "three times, and it fails silently every time")
+ck("and it is reachable without a recording already running",
+   'Recorder.supported()' in IDX,
+   "an offer that fails when pressed is worse than no offer, so the card is "
+   "only shown where the browser can actually record")
 ck("one button starts and stops",
    "recOn() ? recStop(\"\") : recStart()" in REC,
    "a board is operated mid-sentence; one button pressed again is easier "

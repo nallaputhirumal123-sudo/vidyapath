@@ -43,6 +43,10 @@
     mode: "setup",
     src: "category",        // "category" | "job" | "jd"
     jd: "", jdCompany: "", jdTitle: "",   // a posting pasted in by hand
+    // The job itself, not its family. Nobody interviews for "Software
+    // engineering"; they interview for Backend Engineer or BIM Coordinator,
+    // and the questions for those two have almost nothing in common.
+    role: "", roleQ: "", roleList: [], roleBusy: false, families: [],
     cat: "", catLabel: "",
     jobId: 0, jobTitle: "", company: "",
     round: "",              // the round being practised, "" = a mixed set
@@ -115,6 +119,25 @@
     return out;
   }
 
+  /* The roles, searched or listed by family. Free and instant -- a
+     catalogue and a GROUP BY, no model call -- so it can run on every
+     keystroke without anybody paying for browsing. */
+  M.loadRoles = async function () {
+    M.roleBusy = true; repaint();
+    try {
+      var p = new URLSearchParams({ limit: "40" });
+      if (M.roleQ.trim()) p.set("q", M.roleQ.trim());
+      else if (M.cat) p.set("category", M.cat);
+      var d = await api.get("/api/interview/roles?" + p);
+      M.roleList = d.roles || [];
+      M.families = d.families || M.families;
+    } catch (e) {
+      M.roleList = [];
+    }
+    M.roleBusy = false;
+    repaint();
+  };
+
   M.loadQuestions = async function () {
     M.guideBusy = true; M.err = ""; repaint();
     try {
@@ -129,6 +152,17 @@
         if (!M.qs.length) {
           M.err = "No questions came back for that description.";
         }
+        M.guideBusy = false;
+        return repaint();
+      }
+      // A named job gets questions written for that job, cached on the
+      // title alone -- so the first person to practise for it pays and
+      // everybody after them gets it free, for ever.
+      if (M.src === "category" && M.role) {
+        var dr = await api.post("/api/interview/role", { role: M.role });
+        M.guide = dr;
+        M.qs = fromGuide(dr);
+        if (!M.qs.length) M.err = "No questions came back for that job.";
         M.guideBusy = false;
         return repaint();
       }
@@ -200,6 +234,12 @@
 
   /* ---- running one question ----------------------------------------- */
   M.begin = async function () {
+    // Somebody who typed a job we do not list still gets that job's
+    // questions. Refusing because it is not in the catalogue would be
+    // refusing the one person who knows exactly what they want.
+    if (M.src === "category" && !M.role && M.roleQ.trim().length >= 3) {
+      M.role = M.roleQ.trim();
+    }
     await M.loadQuestions();
     if (!M.qs.length) return;
     M.i = 0; M.session = []; M.startedAt = Date.now();
@@ -298,6 +338,7 @@
         jd: M.src === "jd" ? M.jd : "",
         company: M.src === "jd" ? M.jdCompany : "",
         category: M.cat || "",
+        company: M.src === "jd" ? M.jdCompany : M.company,
         round: cur.round || M.round || "",
         seconds: (M.stats && M.stats.seconds) || 0,
         words: (M.stats && M.stats.words) || 0,
@@ -305,6 +346,10 @@
       });
       M.session.push({
         q: cur.q, round: cur.round || "", answer: M.heard,
+        // The guide's own answer travels with the entry, so the recap PDF
+        // still has something to show for a question that was marked too
+        // short to score.
+        model: cur.model || "",
         stats: M.stats || null, score: M.score
       });
     } catch (e) {
@@ -317,8 +362,9 @@
     // Hearing the better answer is most of the value — reading it and
     // thinking "yes, obviously" is not the same as hearing how it sounds at
     // the pace you would have to say it.
-    if (M.score && M.readAloud && M.score.model_answer && global.Voice.speak) {
-      global.Voice.speak(M.score.model_answer);
+    var say = M.score && (M.score.model_answer || (cur && cur.model));
+    if (M.score && M.readAloud && say && global.Voice.speak) {
+      global.Voice.speak(say);
     }
   };
 
@@ -416,10 +462,11 @@
       (sc.missed || []).forEach(function (c) { write("–  " + c, 9.5, { color: "#9a3412", x: M0 + 10, w: W - 10 }); });
       if (sc.structure) write("Shape: " + sc.structure, 9.5, { color: "#444" });
       if (sc.delivery) write("Delivery: " + sc.delivery, 9.5, { color: "#444" });
-      if (sc.model_answer) {
+      var modelText = sc.model_answer || s.model || "";
+      if (modelText) {
         y += 3;
         write("Say it like this:", 9.5, { bold: true, color: "#2b3a5b" });
-        write(sc.model_answer, 10, { color: "#1a1a1a", x: M0 + 10, w: W - 10 });
+        write(modelText, 10, { color: "#1a1a1a", x: M0 + 10, w: W - 10 });
       }
       if (sc.followup) write("They would then ask: " + sc.followup, 9.5, { color: "#555" });
       y += 10; rule();
@@ -517,6 +564,58 @@
       esc(c.basis || "") + '</div></div>';
   }
 
+  /* Families, then the jobs inside one, then a search across all of them.
+     Six families was a shelf; this is what is on it. Board titles carry the
+     number of openings, because "Data Engineer (36 open)" is a different
+     suggestion from one with none. */
+  function rolePickerHTML() {
+    var fams = (M.families || []).slice().sort(function (a, b) {
+      return (b.n || 0) - (a.n || 0);
+    });
+    var chips = fams.map(function (f) {
+      return '<button class="ask-chip ' + (M.cat === f.id ? "on" : "") +
+        '" data-mkcat="' + escAttr(f.id) + '" data-mklabel="' +
+        escAttr(f.label) + '">' + esc(f.label) + '</button>';
+    }).join("");
+
+    // Nothing picked and nothing typed: show the fields only. A list of
+    // every role in the catalogue, ordered by how short its name is, is not
+    // a starting point -- it opened on "Chef, SDET, Rider, Driver".
+    var list = (!M.cat && !M.roleQ.trim())
+      ? '<div style="font-size:12.5px;color:var(--dim);padding:6px 0">' +
+        'Pick a field, or search for the job by name.</div>'
+      : M.roleBusy
+      ? '<div style="font-size:12.5px;color:var(--dim);padding:6px 0">Looking…</div>'
+      : (M.roleList.length
+        ? '<div class="ask-chips" style="margin-top:8px">' +
+          M.roleList.map(function (r) {
+            return '<button class="ask-chip ' +
+              (M.role === r.role ? "on" : "") + '" data-mkrole="' +
+              escAttr(r.role) + '">' + esc(r.role) +
+              (r.openings ? ' <b style="opacity:.7">' + r.openings +
+                ' open</b>' : "") + "</button>";
+          }).join("") + "</div>"
+        : (M.roleQ.trim()
+          ? '<div style="font-size:12.5px;color:var(--dim);padding:6px 0">' +
+            'No job by that name. Type it in full and press Start — the ' +
+            'questions are written from the title either way.</div>'
+          : '<div style="font-size:12.5px;color:var(--dim);padding:6px 0">' +
+            'Pick a field above, or search for the job by name.</div>'));
+
+    return '<input id="mkRoleQ" placeholder="Search a job title — network ' +
+      'engineer, BIM coordinator, data analyst…" value="' + escAttr(M.roleQ) +
+      '" style="width:100%;margin-bottom:10px"/>' +
+      (M.roleQ.trim() ? "" : '<div class="ask-chips">' + chips + "</div>") +
+      list +
+      '<div style="font-size:11.5px;color:var(--dim);margin-top:10px">' +
+      (M.role
+        ? 'Practising for <b style="color:var(--accent)">' + esc(M.role) +
+          '</b>. The questions are written for this job and shared with ' +
+          'everyone practising for it, so they cost nothing after the first time.'
+        : 'Questions written for the job itself, not for its whole field.') +
+      "</div>";
+  }
+
   function setupHTML() {
     var talk = canTalk();
     var jobRows = M.jobsBusy
@@ -585,10 +684,7 @@
             '<div style="font-size:11.5px;color:var(--dim);margin-top:8px">Questions ' +
             'are written from that job description and your resume, so they ask ' +
             'about what this employer actually wants. Part of a paid plan.</div>'
-          : '<div class="ask-chips">' + cats + '</div>' +
-            '<div style="font-size:11.5px;color:var(--dim);margin-top:8px">The ' +
-            'standard questions for this kind of role — free to practise ' +
-            'against.</div>') +
+          : rolePickerHTML()) +
       '</div>' +
 
       (M.src === "job" && M.jobId ? companyHTML() : "") +
@@ -626,7 +722,8 @@
       (M.err ? '<div class="card" style="color:#e05a5a;font-size:13px">' + esc(M.err) + '</div>' : "") +
 
       '<button class="btn" data-mkstart ' +
-        ((M.src === "job" && !M.jobId) || (M.src === "category" && !M.cat)
+        ((M.src === "job" && !M.jobId)
+          || (M.src === "category" && !M.role && !M.roleQ.trim())
           || (M.src === "jd" && M.jd.trim().length < 80) ? "disabled" : "") +
         ' style="width:100%">' +
         (M.guideBusy ? "Writing your questions…" : "Start the mock interview →") +
@@ -734,11 +831,17 @@
         '<div style="font-size:13px;color:var(--muted);line-height:1.65">' + esc(M.heard) + '</div>' +
         '</div>' : "") +
 
-      (s.model_answer ? '<div class="card" style="margin-bottom:12px;' +
+      /* The marker's model answer when there is one; the guide's own
+         otherwise. A too-short answer is short-circuited before any model
+         call, so it comes back with no model answer at all -- and the
+         screen then showed a score, a scolding, and nothing to learn from,
+         which is the one moment somebody most needs to see what the answer
+         was. The question set already carries it, so this costs nothing. */
+      ((s.model_answer || (cur && cur.model)) ? '<div class="card" style="margin-bottom:12px;' +
         'border-left:3px solid var(--ok)">' +
         '<div class="eyebrow" style="margin:0 0 4px">Say it like this</div>' +
         '<div style="font-size:14px;color:var(--body);line-height:1.7">' +
-        esc(s.model_answer) + '</div>' +
+        esc(s.model_answer || (cur && cur.model) || "") + '</div>' +
         (global.Voice && global.Voice.supported()
           ? '<button class="btn ghost sm" data-mkspeak style="margin-top:10px">' +
             '🔊 Hear it</button>' : "") +
@@ -799,6 +902,17 @@
     return runHTML();
   };
 
+  /* The start button, enabled or not, WITHOUT a repaint.
+     Repainting would rebuild the textarea somebody is typing into and throw
+     away their cursor, so the one attribute that actually changes is set
+     directly. This is why the button sat greyed out under a fully pasted
+     job description: M.jd only updated on blur, and nothing re-rendered the
+     button, so the disabled attribute survived from the first paint. */
+  function syncStart() {
+    var b = document.querySelector("[data-mkstart]");
+    if (b) b.disabled = M.jd.trim().length < 80;
+  }
+
   /* ---- clicks -------------------------------------------------------- */
   /* One handler, delegated from the careers page, so index.html needs to
      know about exactly one function here rather than a dozen. */
@@ -821,6 +935,15 @@
     if ((el = hit("data-mkcat"))) {
       M.cat = el.dataset.mkcat;
       M.catLabel = el.dataset.mklabel || "";
+      M.role = ""; M.roleQ = "";
+      M.loadRoles();
+      repaint(); return true;
+    }
+    if ((el = hit("data-mkrole"))) {
+      // Tapping the chosen one again clears it, so a wrong pick is not a
+      // trap.
+      var rn = el.dataset.mkrole;
+      M.role = (M.role === rn) ? "" : rn;
       repaint(); return true;
     }
     if ((el = hit("data-mkjob"))) {
@@ -852,7 +975,8 @@
     }
     if (hit("data-mkspeak")) {
       if (global.Voice && global.Voice.speak && M.score) {
-        global.Voice.speak(M.score.model_answer || "");
+        var c0 = M.qs[M.i];
+        global.Voice.speak(M.score.model_answer || (c0 && c0.model) || "");
       }
       return true;
     }
@@ -873,7 +997,15 @@
       return true;
     }
     if (t.id === "mkType") { M.draft = t.value; return true; }
-    if (t.id === "mkJd") { M.jd = t.value; return true; }
+    if (t.id === "mkJd") { M.jd = t.value; syncStart(); return true; }
+    if (t.id === "mkRoleQ") {
+      M.roleQ = t.value;
+      // Debounced: a search on every keystroke would repaint the box being
+      // typed into and take the cursor with it.
+      clearTimeout(M._roleT);
+      M._roleT = setTimeout(function () { M.loadRoles(); }, 260);
+      return true;
+    }
     if (t.id === "mkJdCo") { M.jdCompany = t.value; return true; }
     if (t.id === "mkJdTitle") { M.jdTitle = t.value; return true; }
     return false;
@@ -899,6 +1031,7 @@
         M.guide = g; M.guideBusy = false; repaint();
       }).catch(function () { M.guideBusy = false; });
     }
+    if (!M.roleList.length && !M.roleBusy) M.loadRoles();
     if (!M.quota) {
       api.get("/api/billing/me").then(function (b) {
         M.quota = (b && b.quota) || null;

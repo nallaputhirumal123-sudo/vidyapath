@@ -25,6 +25,11 @@
     recent: [],
     course: null,
     courseBusy: false,
+    // Photographing pages to make a PDF: a different job from solving one,
+     // and a different crop. Kept as its own list so a half-built document
+     // is never confused with the single shot the solver is holding.
+    pages: [],        // [{url, dataUrl, w, h}] in the order they go in
+    pdfBusy: false,
     quiz: {},         // questionId -> chosen option index
     open: {}          // moduleIndex -> expanded
   };
@@ -224,6 +229,105 @@
     paint();
   }
 
+  /* The whole frame, not the guide crop. A sheet of handwriting is the
+     subject here, and cropping to the middle of it would cut the writing in
+     half -- which is the crop the solver wants and the last thing this one
+     does. */
+  function grabPage() {
+    var v = $("#scVid");
+    if (!v || !v.videoWidth) return;
+    var cv = document.createElement("canvas");
+    cv.width = v.videoWidth;
+    cv.height = v.videoHeight;
+    cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
+    addPage(cv.toDataURL("image/jpeg", 0.85), cv.width, cv.height);
+  }
+
+  function addPage(dataUrl, w, h) {
+    SC.pages.push({ dataUrl: dataUrl, w: w, h: h });
+    SC.msg = "";
+    paint();
+  }
+
+  /* A chosen file has no width until it is decoded, and the PDF needs the
+     real dimensions to keep the page the right way up and the right shape. */
+  function addPageFile(file) {
+    var rd = new FileReader();
+    rd.onload = function () {
+      var im = new Image();
+      im.onload = function () {
+        addPage(String(rd.result), im.naturalWidth, im.naturalHeight);
+      };
+      im.onerror = function () {
+        SC.msg = "That file is not an image this can read.";
+        paint();
+      };
+      im.src = String(rd.result);
+    };
+    rd.onerror = function () {
+      SC.msg = "That file could not be read.";
+      paint();
+    };
+    rd.readAsDataURL(file);
+  }
+
+  function dropPage(i) {
+    SC.pages.splice(i, 1);
+    paint();
+  }
+
+  /* One photograph per sheet, scaled to fit with a margin and centred, so a
+     portrait page and a landscape one both come out the right shape rather
+     than stretched to the paper. */
+  async function pagesToPdf() {
+    if (!SC.pages.length || SC.pdfBusy) return;
+    if (typeof ensureJsPDF !== "function") {
+      /* The board loads this file too and has no PDF writer. Printing is the
+         honest fallback: every browser turns a print into a PDF. */
+      return printPages();
+    }
+    SC.pdfBusy = true; SC.msg = ""; paint();
+    try {
+      await ensureJsPDF();
+      var jsPDF = window.jspdf.jsPDF;
+      var doc = new jsPDF({ unit: "pt", format: "a4" });
+      var PW = doc.internal.pageSize.getWidth();
+      var PH = doc.internal.pageSize.getHeight();
+      var M = 28;
+      SC.pages.forEach(function (p, i) {
+        if (i) doc.addPage();
+        var s = Math.min((PW - M * 2) / p.w, (PH - M * 2) / p.h);
+        var w = p.w * s, h = p.h * s;
+        doc.addImage(p.dataUrl, "JPEG", (PW - w) / 2, (PH - h) / 2, w, h);
+      });
+      doc.save("craxle-pages-" +
+        new Date().toISOString().slice(0, 10) + ".pdf");
+    } catch (e) {
+      SC.msg = "Could not build the PDF: " +
+        ((e && e.message) || "unknown error");
+    }
+    SC.pdfBusy = false;
+    paint();
+  }
+
+  /* Opened synchronously so the pop-up blocker does not eat it. */
+  function printPages() {
+    var w = window.open("", "_blank");
+    if (!w) {
+      SC.msg = "Your browser blocked the print window. Allow pop-ups here.";
+      return paint();
+    }
+    w.document.write('<!doctype html><meta charset="utf-8">' +
+      "<title>Pages</title><style>" +
+      "body{margin:0}img{width:100%;display:block;page-break-after:always}" +
+      "@media print{@page{margin:10mm}}</style>" +
+      SC.pages.map(function (p) {
+        return '<img src="' + p.dataUrl + '">';
+      }).join(""));
+    w.document.close();
+    setTimeout(function () { try { w.print(); } catch (e) {} }, 400);
+  }
+
   function retake() {
     if (SC.shot) URL.revokeObjectURL(SC.shot);
     SC.shot = null; SC.shotFile = null; SC.msg = "";
@@ -389,9 +493,35 @@
     mountScenes();
   }
 
+  /* What is in the document so far, in order, each one removable. A page
+     photographed upside down or twice is the ordinary case, and finding that
+     out when the PDF opens is too late. */
+  function pagesHtml() {
+    if (!SC.pages.length) {
+      return '<div class="scidle">Photograph each page in order. They go ' +
+        "into the PDF exactly as you take them.</div>";
+    }
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px">' +
+      SC.pages.map(function (p, i) {
+        return '<div style="position:relative;width:82px">' +
+          '<img src="' + p.dataUrl + '" alt="page ' + (i + 1) + '" ' +
+          'style="width:82px;height:106px;object-fit:cover;border-radius:6px;' +
+          'border:1px solid rgba(255,255,255,.18)">' +
+          '<button class="btn ghost sm" data-scdrop="' + i + '" ' +
+          'style="position:absolute;top:2px;right:2px;padding:0 6px;' +
+          'line-height:18px">\u00d7</button>' +
+          '<div style="text-align:center;font-size:11px;opacity:.7">' +
+          (i + 1) + "</div></div>";
+      }).join("") + "</div>";
+  }
+
   function stageHtml() {
     var body;
-    if (SC.view === "cam") {
+    if (SC.view === "pdfcam") {
+      // No .scframe here: the guide belongs to the solver's crop, and
+      // showing it would promise a framing this mode does not use.
+      body = '<video id="scVid" playsinline muted></video>';
+    } else if (SC.view === "cam") {
       body = '<video id="scVid" playsinline muted></video>' +
         '<div class="scframe"></div>';
     } else if (SC.view === "shot") {
@@ -404,6 +534,9 @@
       body = '<div class="scidle">Point your camera at the problem, or ' +
         "choose a photo you already have.</div>";
     }
+    if (SC.view === "pdfcam" || SC.pages.length) {
+      body = (SC.view === "pdfcam" ? body : "") + pagesHtml();
+    }
 
     var bar;
     if (SC.view === "cam") {
@@ -414,10 +547,21 @@
         '<button class="btn ghost" id="scRetake">Retake</button>';
     } else if (SC.view === "busy") {
       bar = "";
+    } else if (SC.view === "pdfcam") {
+      bar = '<button class="btn" id="scAddPage">' +
+        (SC.pages.length ? "Add this page" : "Take the first page") +
+        "</button>" +
+        '<button class="btn ghost" id="scPagesPick">Choose photos</button>' +
+        '<button class="btn ghost" id="scPdfDone">' +
+        (SC.pdfBusy ? "Building\u2026" : "Make the PDF") + "</button>" +
+        '<button class="btn ghost" id="scPdfCancel">Done</button>' +
+        '<input type="file" id="scPages" accept="image/*" multiple hidden>';
     } else {
       bar = '<button class="btn" id="scOpen">Open the camera</button>' +
         '<button class="btn ghost" id="scPick">Choose a photo</button>' +
-        '<input type="file" id="scFile" accept="image/*" hidden>';
+        '<button class="btn ghost" id="scPdfMode">\u{1F4C4} Photo \u2192 PDF</button>' +
+        '<input type="file" id="scFile" accept="image/*" hidden>' +
+        '<input type="file" id="scPages" accept="image/*" multiple hidden>';
     }
     return '<div class="scstage">' + body + "</div>" +
       '<div class="scbar">' + bar + "</div>";
@@ -782,6 +926,16 @@
         SC.scan = null; SC.course = null; SC.quiz = {}; SC.view = "idle";
         paint();
       },
+      scPdfMode: function () {
+        SC.pages = []; SC.msg = ""; SC.view = "pdfcam";
+        startCam();
+      },
+      scAddPage: grabPage,
+      scPdfDone: pagesToPdf,
+      scPdfCancel: function () {
+        stopCam(); SC.view = "idle"; paint();
+      },
+      scPagesPick: function () { var f = $("#scPages"); if (f) f.click(); },
       scSave: download,
       scPdf: pdf,
       scCourse: buildCourse,
@@ -800,6 +954,17 @@
 
     var f = $("#scFile");
     if (f) f.onchange = function () { if (f.files[0]) hold(f.files[0]); };
+
+    /* Several at once, in the order the file picker gives them, which is the
+       order somebody selected them in. */
+    var fp = $("#scPages");
+    if (fp) fp.onchange = function () {
+      Array.prototype.slice.call(fp.files || []).forEach(addPageFile);
+      fp.value = "";           // so the same file can be picked again
+    };
+    document.querySelectorAll("[data-scdrop]").forEach(function (el) {
+      el.onclick = function () { dropPage(parseInt(el.dataset.scdrop, 10)); };
+    });
 
     document.querySelectorAll("[data-open]").forEach(function (el) {
       el.onclick = function () { reopen(el.dataset.open); };

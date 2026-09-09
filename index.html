@@ -138,23 +138,18 @@
 body{background-color:var(--bg)!important}
 
 /* theme toggle — visible on every screen */
-#themeFab,#msgFab,#recFab{position:fixed;top:14px;z-index:60;width:42px;height:42px;
+#themeFab,#msgFab{position:fixed;top:14px;z-index:60;width:42px;height:42px;
   border-radius:50%;background:var(--panel);border:1px solid var(--line);
   font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 4px 16px rgba(0,0,0,.18)}
 #themeFab{right:14px}
 #msgFab{right:64px;display:none}          /* shown once signed in */
-/* Third along, and hidden until a browser says it can record at all — an
-   offer that fails when pressed is worse than no offer. */
-#recFab{right:114px}
-#recFab[hidden]{display:none}
-#recFab.on{color:#d9534f;border-color:#d9534f}
-#themeFab:hover,#msgFab:hover,#recFab:hover{border-color:var(--accent)}
+#themeFab:hover,#msgFab:hover{border-color:var(--accent)}
 #msgFab .dot{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;
   border-radius:99px;background:#e05a5a;color:#fff;font-size:10.5px;font-weight:700;
   display:flex;align-items:center;justify-content:center;padding:0 5px;
   border:2px solid var(--bg)}
-@media print{#themeFab,#msgFab,#recFab{display:none}}
+@media print{#themeFab,#msgFab{display:none}}
 /* The solved paper, printed by the browser rather than drawn by jsPDF —
    the only way an Indian-language paper keeps its words, since jsPDF's
    built-in fonts are Latin-1 and drop every one of them. Black on white
@@ -1198,13 +1193,10 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <div class="loading" id="loading" aria-hidden="true">Loading…</div>
 
 <button id="msgFab" title="Messages">🔔</button>
-<!-- Recording, on the website too.
-     It was built into the classroom board and only the board, so a teacher
-     working through a solved paper here, or setting practice, or turning a
-     structure around, had no way to record any of it — which is most of
-     what they actually do at a desk. The browser asks what to capture: this
-     tab, another window, or the whole screen. -->
-<button id="recFab" title="Record this screen" hidden>⏺</button>
+<!-- Recording lives in Settings, not here. It was a third permanent
+     button in the corner of every page for something almost nobody does in
+     a given session. Stopping never depended on it: #recPill sits across
+     the top while a recording runs and tapping it stops. -->
 <button id="themeFab" title="Switch light / dark">🌙</button>
 
 <!-- ================= LANDING + AUTH ================= -->
@@ -1393,7 +1385,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="quizui.js?v=fc745ee388"></script>
 <script src="marker.js?v=7660307525"></script>
 <script src="ink.js?v=8790aded96"></script>
-<script src="scanner.js?v=91a90c33fa"></script>
+<script src="scanner.js?v=c5c3517f63"></script>
 <script src="voice.js?v=158bdb5991"></script>
 <script src="draw.js?v=89efe3a887"></script>
 <script src="sketch.js?v=44ce3eb589"></script>
@@ -1407,7 +1399,7 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
 <script src="bot.js?v=176bf0cdda"></script>
 <script src="recall.js?v=c1341f88ff"></script>
 <script src="learn.js?v=9029c17a32"></script>
-<script src="mock.js?v=abec9595b8"></script>
+<script src="mock.js?v=6de16d301b"></script>
 <script>
 /* Tutor is optional — the app works fine if tutor.js is missing */
 var TUTOR = window.Tutor || {
@@ -12120,6 +12112,29 @@ async function renderAccount(){
       <span id="acMsg" style="font-size:12.5px;color:var(--dim)"></span></div>
   </div>
 
+  ${window.Recorder && Recorder.supported() ? `
+  <div class="card" style="margin-bottom:14px">
+    <div class="eyebrow">Screen recording</div>
+    <div style="font-size:13.5px;color:var(--body);margin-top:6px;line-height:1.6">
+      Record what is on this screen — a derivation worked across four spaces,
+      a solved paper, a lesson — and keep the file. Your browser asks what to
+      capture: this tab, another window, or the whole screen.
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.55">
+      It is written straight to your own machine, not to us, so an hour of
+      recording is no heavier than a minute. While it runs, a red notice sits
+      across the top of every screen with the time it has been going —
+      <b>tap that notice to stop</b>, from wherever you are.
+    </div>
+    <div class="row" style="margin-top:10px;gap:8px;align-items:center">
+      <button class="btn sm ${Recorder.on() ? "" : "ghost"}" id="acRec"
+        title="${Recorder.on() ? "Stop recording" : "Record this screen"}">
+        ${Recorder.on() ? "⏹ Stop recording" : "⏺ Record this screen"}</button>
+      <span style="font-size:12.5px;color:var(--dim)">${
+        Recorder.on() ? "Recording now." : "Nothing is recorded until you press this."}</span>
+    </div>
+  </div>` : ""}
+
   <div class="card" style="margin-bottom:14px">
     <div class="eyebrow">Change your password</div>
     <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
@@ -13333,9 +13348,6 @@ if(window.Recorder){
       return String(v.lesson || v.track || v.page || "").slice(0, 40);
     }
   });
-  if(Recorder.supported()){
-    const rf=$("#recFab"); if(rf) rf.hidden = false;
-  }
 }
 
 document.addEventListener("click",e=>{
@@ -13347,9 +13359,9 @@ document.addEventListener("click",e=>{
     closeDrawer(); S.view={page:"messages"}; render();
     return;
   }
-  if(e.target.closest("#recFab")){
+  if(e.target.closest("#acRec")){
     Recorder.toggle();
-    const rf=$("#recFab");
+    const rf=$("#acRec");
     if(rf){
       /* The button says which state it is in, and the notice across the
          top says it to the room. On a laptop the button is enough; on a
@@ -13434,6 +13446,12 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{ if(e.target.id==="search") renderNav(); });
 document.addEventListener("input",e=>{ if(window.Revise) Revise.input(e); });
+/* Mock's fields have to update on INPUT, not only on change. A textarea
+   fires change on blur, so a pasted job description did not reach the state
+   until focus left the box — and the Start button, which is disabled until
+   there is enough of a description to write questions from, stayed greyed
+   out under a posting somebody had plainly just pasted. */
+document.addEventListener("input",e=>{ if(window.Mock) Mock.change(e); });
 </script>
 </body>
 </html>
