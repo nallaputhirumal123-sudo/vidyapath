@@ -22293,11 +22293,29 @@ def _interview_prompt(job, rtext, missing):
         '"say":"<how to answer honestly about it without losing the room>"}],'
         '"ask_them":["<a question worth asking the interviewer, specific to '
         'this company or posting>"]}\n\n'
-        "3 to 4 rounds, 3 to 5 questions each. Every question must be "
-        "answerable from the posting — if the posting says Terraform and "
-        "on-call, ask about Terraform and on-call. A question that would fit "
-        "any job in the industry is a failure. Where the resume already has "
-        "the evidence, say which line to use; where it does not, say so "
+        "3 to 4 rounds, 3 to 5 questions each.\n\n"
+        "NAMING THE TOOL IS THE FLOOR, NOT THE QUESTION. If the posting says "
+        "Terraform, do not ask \'what experience do you have with "
+        "Terraform\'. Ask what somebody who has really used it would be "
+        "asked:\n"
+        "  BAD:  \'What experience do you have with MongoDB?\'\n"
+        "  GOOD: \'A query that ran in 50ms last week now takes 4 seconds "
+        "and nothing in the code changed. How do you find out why?\'\n"
+        "  BAD:  \'Can you describe your experience with CI/CD pipelines?\'\n"
+        "  GOOD: \'A deploy half-succeeded and production is running two "
+        "versions at once. Walk me through the next ten minutes.\'\n"
+        "  BAD:  \'How do you stay current with new technology?\'\n"
+        "  GOOD: \'What did you adopt in the last year that you now regret, "
+        "and what did it cost to back out?\'\n\n"
+        "BANNED phrasings, because they ask for a noun instead of for "
+        "thinking: \'what experience do you have with...\', \'can you "
+        "describe your experience...\', \'are you familiar with...\', "
+        "\'how do you stay current...\', \'tell me about your background "
+        "in...\'. Every question must put the candidate INSIDE the work: a "
+        "situation, a symptom, a trade-off, a decision, or a number.\n\n"
+        "A question that would fit any job in the industry is a failure, and "
+        "so is one answerable with a list of tools. Where the resume already "
+        "has the evidence, say which line to use; where it does not, say so "
         "plainly rather than inventing experience."
     )
 
@@ -22368,7 +22386,12 @@ async def interview_guide(category: str = "", job_id: int = 0,
         rtext = (note.v if note else "") or ""
         if len(rtext.strip()) >= 120:
             rn = round.strip()[:60]
-            key = ("ivr|" + str(job.id) + "|"
+            # Prefix bumped to v2: everything cached under the old one was
+            # written by a prompt that returned "what experience do you have
+            # with MongoDB". Those rows would be served for ever, so the fix
+            # would have shipped and reached nobody who had already opened
+            # the job. Orphaned rows are cache and cost nothing to leave.
+            key = ("ivr2|" + str(job.id) + "|"
                    + hashlib.sha256(rtext.encode("utf-8", "ignore")).hexdigest()[:12]
                    + "|" + _norm_q(rn))
             row = db.query(AskCache).filter(AskCache.qkey == key).first()
@@ -22402,7 +22425,12 @@ async def interview_guide(category: str = "", job_id: int = 0,
                                      Note.k == "resume_uptext").first()
         rtext = (note.v if note else "") or ""
         if len(rtext.strip()) >= 120:
-            key = ("iv|" + str(job.id) + "|"
+            # Prefix bumped to v2: everything cached under the old one was
+            # written by a prompt that returned "what experience do you have
+            # with MongoDB". Those rows would be served for ever, so the fix
+            # would have shipped and reached nobody who had already opened
+            # the job. Orphaned rows are cache and cost nothing to leave.
+            key = ("iv2|" + str(job.id) + "|"
                    + hashlib.sha256(rtext.encode("utf-8", "ignore")).hexdigest()[:16])
             row = db.query(AskCache).filter(AskCache.qkey == key).first()
             got = _cached_json(db, row, need=None)
@@ -22739,7 +22767,7 @@ async def interview_from_jd(body: JDIn, user: User = Depends(current_user),
                                  "written against it, and point at your own "
                                  "experience where you have it.")
 
-    key = _ai_cache_key("ivjd", rtext[:2500], jd[:3500],
+    key = _ai_cache_key("ivjd2", rtext[:2500], jd[:3500],
                         scope=_scope_of(db, user))
     cached = _ai_cache_get(db, key)
     if cached is not None:
@@ -22868,7 +22896,7 @@ async def interview_for_role(body: RoleIn, user: User = Depends(current_user),
     if len(role) < 3:
         raise HTTPException(400, "Which job? Pick one or type its title.")
 
-    key = "ivrole|" + _norm_q(role)[:120]
+    key = "ivrole2|" + _norm_q(role)[:120]
     row = db.query(AskCache).filter(AskCache.qkey == key).first()
     got = _cached_json(db, row, need=None)
     if got:

@@ -192,6 +192,9 @@ ck("a pasted posting gets questions", r.status_code == 200,
 ck("which cost one call", CALLS["n"] == before + 1)
 ck("and the posting reaches the prompt", "Arista" in CALLS["last"]
    or "arista" in CALLS["last"].lower())
+# Captured here, not read later: by the end of the suite CALLS["last"] holds
+# the scoring prompt, which is a different prompt entirely.
+JD_PROMPT = CALLS["last"]
 before = CALLS["n"]
 r = A.post("/api/interview/jd", json={"jd": JD, "company": f"Northwind{stamp}",
                                       "title": "Senior Network Engineer"})
@@ -285,6 +288,34 @@ ck("the fallback questions cannot be answered with an adjective",
    and "Where do you want to be in three years?" not in src)
 ck("and it points at the thing actually worth practising",
    "these are the " in src and "not the ones this job gets" in src)
+
+
+# ---- the posting prompt asks about the work, not about the CV -----------
+# Read out of production, this one was returning "What experience do you have
+# with MongoDB?" and "How do you stay current with the latest trends?" --
+# a recruiter reading a CV out loud and waiting to hear a noun back. The
+# instruction that caused it told the model to MENTION the tool the posting
+# names, which it did, in the blandest frame available.
+jd_prompt = JD_PROMPT
+ck("naming the tool is called the floor, not the question",
+   "NAMING THE TOOL IS THE FLOOR" in jd_prompt)
+for bad in ("what experience do you have with", "can you describe your ",
+            "are you familiar with", "how do you stay current"):
+    ck(f"the phrasing {bad.strip()!r} is banned by name",
+       bad in jd_prompt.lower(), bad)
+ck("and it shows what to ask instead",
+   "BAD:" in jd_prompt and "GOOD:" in jd_prompt)
+ck("the candidate has to be put inside the work",
+   "INSIDE the work" in jd_prompt)
+ck("a question answerable with a list of tools is called a failure",
+   "answerable with a list of tools" in jd_prompt)
+
+# Changing what generates an answer does nothing while the old answer is
+# still cached under the same key.
+ck("the interview caches were bumped past the weak answers",
+   all(k in src for k in ('"iv2|"', '"ivr2|"', '"ivjd2"', '"ivrole2|"')))
+ck("and the old keys are gone",
+   not any(k in src for k in ('"iv|" + str(job.id)', '"ivrole|" +')))
 
 
 # ---- the page is wired ----------------------------------------------------
