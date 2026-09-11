@@ -22187,14 +22187,31 @@ INTERVIEW_GENERIC = {
                "The company's product, customers and competitors",
                "Your own three strongest, most relevant stories",
                "Tools named in the job description"],
+    # Universal, because a fallback has to be — but every one of these is
+    # really asked and every one rewards preparation. "Tell me about
+    # yourself" and "where do you want to be in three years" were here and
+    # are not any more: they can be answered with adjectives, which is why
+    # they teach nobody anything.
+    #
+    # This is the floor, not the product. Naming the job gets questions
+    # written for that job, which is the thing worth practising against.
     "questions": [
-        "Tell me about yourself.",
-        "Why this role and why us?",
-        "Tell me about a time you handled conflict.",
-        "Describe a failure and what changed afterwards.",
-        "Where do you want to be in three years?"],
+        "Walk me through the last piece of work you owned from start to "
+        "finish. What was it, and what went wrong along the way?",
+        "What part of this job do you expect to find hardest, and why that "
+        "part?",
+        "Tell me about something you got wrong. How did you find out, and "
+        "what do you do differently now?",
+        "When everything is urgent at once, how do you decide what to do "
+        "first? Give me a real example.",
+        "What would you need in your first month here to do this job "
+        "properly?",
+        "What is the last thing you learned because the job made you, "
+        "rather than because you chose to?"],
     "do": ["Prepare three stories in STAR form that can be reshaped to many questions",
-           "Write down two questions for them that a website could not answer"],
+           "Write down two questions for them that a website could not answer",
+           "Pick your actual job title in Practice out loud — these are the "
+           "questions everybody gets, not the ones this job gets"],
 }
 
 
@@ -22861,27 +22878,59 @@ async def interview_for_role(body: RoleIn, user: User = Depends(current_user),
 
     _ai_enforce_limit(db, user)
     prompt = (
-        f"You are preparing somebody for an interview for the job titled: "
-        f"{role}.\n\n"
-        "Write the questions THIS job is actually asked, not generic "
-        "interview questions. If the title names a tool or a standard, the "
-        "questions should use it. A question that would fit any job in any "
-        "industry is a failure.\n\n"
+        f"You are the person who actually interviews candidates for this "
+        f"job, and you are writing the questions you really ask.\n\n"
+        f"THE JOB: {role}\n\n"
+        "WHAT A REAL QUESTION LOOKS LIKE. It could only be asked of somebody "
+        "in THIS job. It names the work: the tool, the standard, the "
+        "document, the failure, the number. An interviewer asks it out loud "
+        "in one or two sentences, often as a situation, and then digs.\n\n"
+        "Two examples, in different fields, so the pattern is clear:\n"
+        "  Network Engineer\n"
+        "    BAD:  'Tell me about a challenge you faced.'\n"
+        "    GOOD: 'A user says the site is slow. Nothing is down and the "
+        "dashboards are green. Walk me through what you check, in order.'\n"
+        "  BIM Coordinator\n"
+        "    BAD:  'Where do you see yourself in three years?'\n"
+        "    GOOD: 'Architectural has moved a riser 300mm and the MEP model "
+        "has not been updated. How do you find out what it has broken, and "
+        "what do you do first?'\n\n"
+        "BANNED, because they fit every job on earth and teach nobody "
+        "anything: tell me about yourself; where do you see yourself in "
+        "three / five years; what are your strengths; what is your greatest "
+        "weakness; why should we hire you; why do you want this job; "
+        "describe a conflict with a colleague; are you a team player. If a "
+        "question could be pasted into an interview for a different job "
+        "without changing a word, delete it and write another.\n\n"
+        "REQUIRED MIX, across the rounds:\n"
+        "  - the work itself: how they actually do the core task, in steps\n"
+        "  - a scenario that has gone wrong, with symptoms, to be diagnosed\n"
+        "  - depth on one tool, standard or method the job names\n"
+        "  - a judgement call with a trade-off and no clean answer\n"
+        "  - one from their own experience, ANCHORED to this job's real "
+        "failures: a job they got wrong, a deadline they missed, a decision "
+        "they were overruled on -- not 'a conflict'\n"
+        "  - what they do when they do not know the answer\n\n"
+        "For a hands-on or site job, ask about the hands-on work: the "
+        "drawing, the machine, the patient, the shift, the inspection. Do "
+        "not turn every job into a software interview.\n\n"
         "Respond with ONLY valid JSON, no markdown fences:\n"
         '{"role":"<the job title>",'
         '"opening":"<2 sentences on what this job is really assessed on>",'
         '"rounds":[{"name":"<round, e.g. Screening / Technical / '
         'Practical / Manager>",'
         '"what_they_test":"<one sentence>",'
-        '"questions":[{"q":"<a question they would really be asked>",'
-        '"why":"<what it is checking>",'
+        '"questions":[{"q":"<the question, phrased the way you would '
+        'say it out loud>",'
+        '"why":"<what you are really checking, and what a weak '
+        'answer sounds like>",'
         '"answer_with":"<what a strong answer contains: the specific things '
-        'to name, the shape to use. Not a script>"}]}],'
+        'to name, the order to say them in. Not a script>"}]}],'
         '"gaps":[{"skill":"<something people in this job are commonly weak '
         'on>","say":"<how to handle being asked about it honestly>"}],'
-        '"ask_them":["<a question worth asking the interviewer>"]}\n\n'
-        "3 to 4 rounds, 4 to 6 questions each. Cover the practical work of "
-        "the job, not only theory."
+        '"ask_them":["<a question worth asking the interviewer, that '
+        'could only be asked at a place doing THIS work>"]}\n\n'
+        "3 to 4 rounds, 4 to 6 questions each."
     )
     try:
         text = await _ai_text(prompt, 2800, json_mode=True)

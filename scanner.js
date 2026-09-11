@@ -899,6 +899,18 @@
     // The first line already says where this came from.
     L.push("");
     var b = new Blob([L.join("\n")], { type: "text/plain;charset=utf-8" });
+
+    /* Where the browser will not honour a download attribute, the click
+       below does nothing and says nothing. Open it instead: the text is on
+       screen and can be saved or shared from there. */
+    if (!("download" in document.createElement("a"))) {
+      var w = window.open(URL.createObjectURL(b), "_blank");
+      if (!w) {
+        HOST.say("Your browser blocked the window. Allow pop-ups here, or "
+          + "use Download PDF.");
+      }
+      return;
+    }
     var a = document.createElement("a");
     a.href = URL.createObjectURL(b);
     a.download = "craxle-" + (s.subject || "scan")
