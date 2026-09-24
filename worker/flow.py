@@ -221,8 +221,23 @@ async def prepare(db, m, row, adapter, page, shots_dir, resume_path):
     if missing:
         asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
                   "options": q.options} for q in missing]
+
+        # Their own form first, matched on the QUESTION rather than on the
+        # field's label. filler.js already tried the label; when its reading
+        # failed, the answer was sitting in the details form unused and the
+        # row parked to ask for something they typed weeks ago. Free, exact,
+        # and it is the answer the person actually gave.
+        own = m.apply_from_details(db, user.id, asked)
+        if own:
+            m.apply_bank_write(db, user.id, own, by_ai=False)
+            _say(row, f"their own details answered {len(own)}")
+            missing = await adapter.answers(
+                page, load_bank(db, m, user.id))
+            asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
+                      "options": q.options} for q in missing]
         try:
-            got = await m.apply_ai_answers(db, user, asked)
+            got = (await m.apply_ai_answers(db, user, asked)
+                   if asked else {})
         except Exception as e:
             # Never fatal. A model that is down leaves the row exactly where
             # the deterministic path left it.

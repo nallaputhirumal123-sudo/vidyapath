@@ -857,6 +857,80 @@ else:
            (row.confirmation or "")[:60])
     os.environ["APPLY_HOLD_MINUTES"] = "15"
 
+# ---------------------------------------------- choosing from a dropdown
+print("")
+print("the commonest dropdown on a job application")
+# "6" against 0-2 / 3-5 / 6-10 / 10+. String matching cannot do this, and it
+# is why years-of-experience selects were left empty and the row parked.
+if not HAVE_PW:
+    skip("dropdown matching", "skipped (no playwright)")
+else:
+    _probe = io.open(os.path.join(ROOT, "worker", "probe.js"),
+                     encoding="utf-8").read()
+
+    async def choose(cases):
+        async with async_playwright() as pw:
+            b = await pw.chromium.launch(args=["--no-sandbox"])
+            pg = await (await b.new_context()).new_page()
+            await pg.goto("about:blank")
+            await pg.evaluate("() => {" + _probe + "}")
+            got = []
+            for want, opts, mode in cases:
+                i2 = await pg.evaluate(
+                    "([w, o, mo]) => window.__vpChoose(w, o, mo)",
+                    [want, opts, mode])
+                got.append(opts[i2] if i2 >= 0 else None)
+            await b.close()
+            return got
+
+    YEARS = ["Select...", "0-2 years", "3-5 years", "6-10 years", "10+ years"]
+    EEO = ["Select...", "Male", "Female", "Prefer not to say"]
+    HEARD = ["Select...", "LinkedIn", "Referral", "Other"]
+    YESNO = ["Select...", "Yes", "No"]
+    res = run(choose([
+        ("6", YEARS, "other"),
+        ("2", YEARS, "other"),
+        ("12", YEARS, "other"),
+        ("Yes", YESNO, "none"),
+        ("Slack community", HEARD, "other"),
+        ("", EEO, "decline"),
+        ("Martian", YESNO, "none"),
+    ]))
+    ck("6 years lands in the 6-10 band", res[0] == "6-10 years", str(res[0]))
+    ck("2 years lands in 0-2", res[1] == "0-2 years", str(res[1]))
+    ck("12 years takes the 10+ option", res[2] == "10+ years", str(res[2]))
+    ck("a plain Yes still matches exactly", res[3] == "Yes", str(res[3]))
+    ck("an unlisted source falls back to Other",
+       res[4] == "Other", str(res[4]))
+    ck("a demographic question declines rather than guessing",
+       res[5] == "Prefer not to say", str(res[5]))
+    ck("and a legal yes/no with no match picks NOTHING",
+       res[6] is None, str(res[6]))
+    ck("which is what makes that row park for the person",
+       res[6] is None,
+       "saying anything at all on a declaration we cannot answer is a "
+       "false statement, not a best guess")
+
+print("")
+print("no control characters in the matchers")
+# Four regexes in filler.js were committed with a literal backspace where a
+# word boundary belonged: /\breferr/ had become /<0x08>referr/, which matches
+# nothing. All four were EXCLUSIONS, so the referrer exclusion never fired
+# and a form with a "Referred by" section took the candidate's own name,
+# email and phone into the referrer boxes. Measured before and after.
+#
+# Survivable while only the extension used it — it never submits, so a
+# person saw the form first. The worker submits.
+for _f in ("extension/filler.js", "worker/filler.js", "worker/probe.js"):
+    _s = io.open(os.path.join(ROOT, _f), encoding="utf-8").read()
+    _bad = [hex(ord(c)) for c in _s if ord(c) < 9 or 13 < ord(c) < 32]
+    ck(f"{_f} has none", not _bad, ", ".join(_bad[:4]))
+ck("and the referrer exclusions are real word boundaries",
+   io.open(os.path.join(ROOT, "extension/filler.js"),
+           encoding="utf-8").read().count("/\\breferr/") >= 6,
+   "a heredoc that eats a backslash turns an exclusion into a no-op, and "
+   "the failure is invisible in every editor")
+
 # ------------------------------------------------------------------ cleanup
 db.query(m.ApplyQueue).filter(
     m.ApplyQueue.user_id.in_([me.id, other.id])).delete(

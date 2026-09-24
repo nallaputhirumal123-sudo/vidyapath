@@ -123,7 +123,7 @@ window.__vpFill = function (profile) {
     { key: "full_name", yes: [/first and last name/, /first & last name/,
         /full legal name/, /legal name/, /name \(first and last\)/,
         /first.{0,6}last name/],
-      no: [/referr/, /emergency/, /manager/, /spouse/, /company/, /school/] },
+      no: [/\breferr/, /emergency/, /manager/, /spouse/, /company/, /school/] },
     { key: "preferred_first_name", yes: [/preferred first name/, /preferred given name/],
       no: [/\breferr/, /emergency/] },
     { key: "preferred_middle_name", yes: [/preferred middle name/], no: [] },
@@ -139,12 +139,12 @@ window.__vpFill = function (profile) {
       no: [/post/, /zip/] },
     { key: "full_name", yes: [/\bfull[\s_-]*name\b/, /^name$/, /^full name$/,
         /\byour name\b/, /\bcandidate name\b/, /^name of applicant$/],
-      no: [/first/, /last/, /user ?name/, /company/, /school/, /referr/, /file/,
+      no: [/first/, /last/, /user ?name/, /company/, /school/, /\breferr/, /file/,
            /nickname/] },
     { key: "email", yes: [/\be-?mail\b/],
-      no: [/confirm/, /referr/, /manager/, /emergency/, /alternate/] },
+      no: [/confirm/, /\breferr/, /manager/, /emergency/, /alternate/] },
     { key: "phone", yes: [/\bphone\b/, /\bmobile\b/, /\btelephone\b/, /\bcontact number\b/],
-      no: [/emergency/, /referr/, /work phone/, /home phone/] },
+      no: [/emergency/, /\breferr/, /work phone/, /home phone/] },
     /* Deliberately narrow, and listed before the split address fields below
      * would otherwise lose to it. A bare "address" or "city" belongs to the
      * specific field, not to the one-line location — otherwise "Street

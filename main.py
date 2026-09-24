@@ -22371,6 +22371,116 @@ def apply_queue_answers(qid: int, body: ApplyAnswersIn,
 
 
 
+
+# Matching a question the form asked against a detail the person gave.
+#
+# filler.js already fills these, by reading each FIELD's label. When that
+# reading fails — a caption four divs away, a custom combobox — the answer is
+# sitting in the details form unused, and the row parks to ask for something
+# the person typed weeks ago.
+#
+# So this is a second, deterministic pass over the QUESTION text rather than
+# the field's label. Same idea, different input, and it costs nothing.
+#
+# The patterns are deliberately narrower than filler.js's: this runs after
+# the field-level matcher has already had its go, so it only has to catch the
+# plain phrasings, and a false match here writes a real answer into the wrong
+# box. `no` wins over `yes`, as it does there.
+APPLY_DETAIL_RULES = [
+    ("work_authorized",
+     [r"authoriz(ed|ation) to work", r"legally authoris?ed",
+      r"right to work", r"eligible to work", r"work authoris?ation"],
+     [r"sponsor"]),
+    ("needs_sponsorship",
+     [r"require.{0,20}sponsorship", r"need.{0,20}sponsorship",
+      r"visa sponsorship", r"will you.{0,20}sponsor"], []),
+    ("willing_to_relocate",
+     [r"willing to relocate", r"open to relocat", r"able to relocate"], []),
+    ("notice_period",
+     [r"notice period", r"how much notice", r"when can you (start|join)",
+      r"earliest start date", r"availability to start"], []),
+    ("desired_salary",
+     [r"salary expectation", r"expected (ctc|salary|compensation)",
+      r"desired salary", r"compensation expectation", r"expected pay"],
+     [r"current"]),
+    ("years_experience",
+     [r"years of (relevant )?experience", r"how many years",
+      r"total experience", r"years.{0,12}experience"], []),
+    ("how_heard",
+     [r"how did you hear", r"where did you (hear|find)",
+      r"referral source"], []),
+    ("linkedin", [r"linked ?in"], []),
+    ("github", [r"git ?hub"], []),
+    ("portfolio", [r"portfolio", r"personal (site|website)"], [r"company"]),
+    ("address", [r"street address", r"^address", r"mailing address",
+                 r"home address"], [r"email", r"city", r"line ?2"]),
+    ("city", [r"^city$", r"^town$", r"city/town", r"location \(city\)"], []),
+    ("state", [r"^state$", r"^province$", r"state/province", r"^region$"], []),
+    ("postcode", [r"post(al)? ?code", r"zip ?code", r"^zip$", r"pin ?code"],
+     []),
+    ("country", [r"^country$", r"country of residence"],
+     [r"code", r"citizen"]),
+    ("phone_country_code", [r"country code", r"dial(ling)? code"],
+     [r"post", r"zip"]),
+]
+_APPLY_DETAIL_RX = [
+    (key, [_re.compile(p) for p in yes], [_re.compile(p) for p in no])
+    for key, yes, no in APPLY_DETAIL_RULES
+]
+
+
+def apply_detail_answer(details, question):
+    """The detail this question is asking for, or "".
+
+    `details` is what apply_details() returned; `question` is the normalised
+    question text. Returns the person's own stored answer, never a guess.
+    """
+    q = (question or "").strip()
+    if not q or not details:
+        return ""
+    for key, yes, no in _APPLY_DETAIL_RX:
+        val = (details.get(key) or "").strip()
+        if not val:
+            continue
+        if any(rx.search(q) for rx in no):
+            continue
+        if any(rx.search(q) for rx in yes):
+            return val
+    return ""
+
+
+def apply_from_details(db, user_id, questions):
+    """{norm: answer} for every question the person's own form can answer.
+
+    Runs before the model and instead of it wherever it hits. A question this
+    settles costs nothing, cannot be wrong in the way a generated answer can,
+    and is the answer the person actually gave.
+    """
+    details = apply_details(db, user_id)
+    if not details:
+        return {}
+    out = {}
+    for q in questions or []:
+        key = (q.get("norm") or question_norm(q.get("label") or "")).strip()
+        if not key:
+            continue
+        val = apply_detail_answer(details, key)
+        if not val:
+            continue
+        opts = q.get("options") or []
+        if opts:
+            low = val.lower()
+            pick = next((o for o in opts if o.lower() == low), None)
+            if pick is None:
+                pick = next((o for o in opts if low in o.lower()
+                             or o.lower() in low), None)
+            if pick is None:
+                continue        # their answer is not on offer; ask them
+            val = pick
+        out[key] = val
+    return out
+
+
 # ---- the model, as a last resort and never as an author --------------------
 #
 # This path was built with no model in it at all, deliberately, and that was
@@ -22407,14 +22517,47 @@ def apply_queue_answers(qid: int, body: ApplyAnswersIn,
 # embarrassment, it is a false statement on an application. The second are
 # protected characteristics, which are voluntary by law and nobody's business
 # to guess -- including ours. Both are parked for the person, always.
-APPLY_NEVER_AI = (
+# A legal declaration. Nothing may answer these but the person: not the
+# model, and not an "Other" option either. Saying anything at all here when
+# we do not know is a false statement on an application.
+APPLY_LEGAL = (
     "sponsorship", "visa", "authoriz", "authoris", "right to work",
     "eligible to work", "work permit", "citizen", "security clearance",
     "felony", "conviction", "background check", "drug test",
-    "gender", "race", "ethnic", "disability", "veteran", "lgbt",
-    "sexual orientation", "date of birth", "age ", "marital",
-    "salary", "compensation", "ctc", "notice period",
+    "non-compete", "notice of termination",
 )
+
+# A protected characteristic. The model may not guess one — but these forms
+# carry "Prefer not to say" precisely because it is a real answer, and it is
+# the correct one when the person has not told us. So a decline IS allowed.
+APPLY_DEMOGRAPHIC = (
+    "gender", "race", "ethnic", "disability", "veteran", "lgbt",
+    "sexual orientation", "date of birth", "marital", "pronoun",
+    "self-identif", "self identif",
+)
+
+# Not sensitive — simply not in a CV. A model asked for somebody's expected
+# salary produces a plausible number, which is the failure that matters.
+# They are in the details form instead, where the person types them once.
+APPLY_NOT_IN_CV = ("salary", "compensation", "ctc", "notice period")
+
+APPLY_NEVER_AI = APPLY_LEGAL + APPLY_DEMOGRAPHIC + APPLY_NOT_IN_CV
+
+
+def apply_option_mode(question_norm_text: str) -> str:
+    """What a field may fall back to when no option matches its answer.
+
+    "none"    — a legal declaration: park it, always.
+    "decline" — a protected characteristic: "Prefer not to say" is a real
+                answer and the right one when nobody has said otherwise.
+    "other"   — anything else: a decline if offered, else "Other".
+    """
+    q = (question_norm_text or "").lower()
+    if any(bad in q for bad in APPLY_LEGAL):
+        return "none"
+    if any(bad in q for bad in APPLY_DEMOGRAPHIC):
+        return "decline"
+    return "other"
 
 
 def ai_may_answer(question_norm_text: str) -> bool:

@@ -166,7 +166,7 @@ class FormAdapter(Adapter):
         in one place — main.question_norm — so the key the API writes and the
         key read here cannot drift apart.
         """
-        from main import question_norm          # one normaliser, not two
+        from main import question_norm, apply_option_mode
 
         await _inject(page, "probe.js")
         fields = await page.evaluate("() => window.__vpAsk()") or []
@@ -174,11 +174,14 @@ class FormAdapter(Adapter):
         for f in fields:
             label = (f.get("label") or "").strip()
             norm = question_norm(label)
+            # What this field may fall back to when the answer matches none
+            # of its options. "none" on a legal declaration, so those park.
+            mode = apply_option_mode(norm)
             answer = bank.get(norm) if norm else None
             if answer:
                 ok = await page.evaluate(
-                    "([s, v]) => window.__vpSet(s, v)",
-                    [f.get("selector"), answer])
+                    "([s, v, mo]) => window.__vpSet(s, v, mo)",
+                    [f.get("selector"), answer, mode])
                 if ok:
                     continue
                 # The bank had an answer and the field would not take it —
@@ -186,6 +189,28 @@ class FormAdapter(Adapter):
                 # person, not a silent skip.
             if not f.get("required"):
                 continue
+            # About to park. If this is a required dropdown that offers an
+            # honest way out — "Prefer not to say" on a demographic
+            # question, "Other" on a harmless one — take it rather than
+            # stopping the whole application on a box the person cannot
+            # usefully fill either. Legal declarations get mode "none" and
+            # fall through to park, which is the point of the split.
+            if mode != "none" and (f.get("options") or []):
+                took = await page.evaluate(
+                    "([s, mo]) => { const el = document.querySelector(s);"
+                    " if (!el) return false;"
+                    " const ts = el.tagName === 'SELECT'"
+                    "   ? [...el.options].map(o => o.textContent) : [];"
+                    " if (!ts.length) return false;"
+                    " const i = window.__vpPick(ts, mo);"
+                    " if (i < 0) return false;"
+                    " el.value = el.options[i].value;"
+                    " el.dispatchEvent(new Event('input', {bubbles: true}));"
+                    " el.dispatchEvent(new Event('change', {bubbles: true}));"
+                    " return true; }",
+                    [f.get("selector"), mode])
+                if took:
+                    continue
             missing.append(Question(
                 selector=f.get("selector") or "",
                 label=label or "A question on the form we could not read",
