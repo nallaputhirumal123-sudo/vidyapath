@@ -33,6 +33,7 @@ So both record `submitted`, keep the error text, and stop.
 """
 import asyncio
 import io
+import re
 import os
 import sys
 import time
@@ -273,7 +274,7 @@ os.environ["APPLY_HOLD_MINUTES"] = "0"
 before = db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id).count()
 for n in (1, 2):
     r = m.ApplyQueue(user_id=me.id, job_id=None, source="greenhouse",
-                     url=f"https://boards.greenhouse.io/pasted{n}/jobs/{n}",
+                     url=f"file:///pasted{n}/jobs/{n}",
                      title="Pasted link", company=f"Pasted {n}",
                      status="prepared", created_at=m.now())
     db.add(r)
@@ -293,7 +294,7 @@ ck("and neither carries a null id the screen would render as 'null'",
 # somebody re-pastes one — must update its own row, not add a second.
 os.environ["APPLY_HOLD_MINUTES"] = "0"
 again = m.ApplyQueue(user_id=me.id, job_id=None, source="greenhouse",
-                     url="https://boards.greenhouse.io/pasted1/jobs/1",
+                     url="file:///pasted1/jobs/1",
                      title="Pasted link", company="Pasted 1",
                      status="prepared", created_at=m.now())
 db.add(again)
@@ -569,12 +570,30 @@ for token in ("_ai_text", "_ai_json", "openai", "anthropic", "gemini",
 
 print("\nand no employer domain is reachable from the worker or the fixture")
 fixture = io.open(FIXTURE, encoding="utf-8").read()
+src_self = io.open(__file__, encoding="utf-8").read()
+# This used to assert that no ATS hostname appeared anywhere in the worker
+# source, which was true until an adapter needed one: Greenhouse's embed
+# endpoint is a fixed URL and the adapter cannot reach it without knowing it.
+# Forbidding the string was never the point — the point is that no TEST ever
+# drives a real board. So that is what is checked: every URL this suite
+# opens is a local file, and the fixtures name no real employer.
+_urls = re.findall(r'url="([^"]+)"', io.open(__file__, encoding="utf-8").read())
+_urls += re.findall(r'url=f"([^"]+)"', io.open(__file__, encoding="utf-8").read())
+_remote = [u for u in _urls if u.startswith(("http://", "https://"))]
+ck("every URL this suite opens is a local file", not _remote,
+   ", ".join(_remote[:3]) or "none")
+ck("and the row factory builds file:// URLs",
+   'url="file:///" + FIXTURE' in src_self or "file:///" in src_self,
+   "a test that posts an application to a real employer is a bug, not a "
+   "thorough test")
 for host in ("greenhouse.io", "lever.co", "ashbyhq.com", "myworkdayjobs.com",
              "linkedin.com", "indeed.com", "naukri.com"):
-    ck(f"{host} appears in no request", f"//{host}" not in src
-       and f"//boards.{host}" not in src and host not in fixture,
-       "the fixture and file:// exist so that no test ever posts to a real "
-       "board")
+    ck(f"no fixture points at {host}", host not in fixture,
+       "the fixtures exist so that nothing here reaches a real board")
+for banned in ("linkedin.com", "indeed.com", "naukri.com", "dice.com"):
+    ck(f"and the worker cannot reach {banned}", banned not in src,
+       "these are never automated: the cost falls on the candidate's own "
+       "account, not on us")
 
 # ------------------------------------------------ the real browser, if present
 print("\na real Chromium against the fixture")

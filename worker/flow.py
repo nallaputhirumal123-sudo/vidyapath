@@ -206,6 +206,37 @@ async def prepare(db, m, row, adapter, page, shots_dir, resume_path):
     _say(row, f"filled {got.count}: {', '.join(got.filled) or 'nothing'}")
 
     missing = await adapter.answers(page, load_bank(db, m, user.id))
+
+    # What the deterministic path could not settle goes to the model — once,
+    # in one call, for the whole form. It is given this candidate's resume,
+    # the details they typed and every answer they have given before, and
+    # told to answer FROM THOSE ONLY and return nothing where the documents
+    # do not say. It is extracting, not composing.
+    #
+    # Questions that are legal declarations or protected characteristics
+    # never reach it (main.APPLY_NEVER_AI) and park for the person, as they
+    # should. Everything it does settle goes into the bank, so it is asked
+    # once across every application this account will ever make rather than
+    # once per form — which is what keeps a model in this path affordable.
+    if missing:
+        asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
+                  "options": q.options} for q in missing]
+        try:
+            got = await m.apply_ai_answers(db, user, asked)
+        except Exception as e:
+            # Never fatal. A model that is down leaves the row exactly where
+            # the deterministic path left it.
+            _say(row, f"model unavailable: {type(e).__name__}: {e}")
+            got = {}
+        if got:
+            m.apply_bank_write(db, user.id, got, by_ai=True)
+            _say(row, f"model answered {len(got)} of {len(missing)}")
+            # Filled by re-running the resolver against the enlarged bank,
+            # rather than writing values in here: one place decides how an
+            # answer reaches a field, and it already handles selects that
+            # refuse a value.
+            missing = await adapter.answers(page, load_bank(db, m, user.id))
+
     if missing:
         # Parked, not failed. The row is one answer away and the answer goes
         # into the bank, so this costs the candidate once and never again.

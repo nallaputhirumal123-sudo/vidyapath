@@ -22370,6 +22370,232 @@ def apply_queue_answers(qid: int, body: ApplyAnswersIn,
 
 
 
+
+# ---- the model, as a last resort and never as an author --------------------
+#
+# This path was built with no model in it at all, deliberately, and that was
+# the right default: an invented answer on a job application goes to an
+# employer over somebody's real name. But the cost of never asking was rows
+# that park forever on a question a person has already answered in their own
+# CV, and an application that never goes is worth nothing to anybody.
+#
+# So the model is a FALLBACK, with four rules that are the whole design:
+#
+#   1. It runs only on what the deterministic path could not settle. Label
+#      matching and the answer bank go first and are unchanged.
+#
+#   2. It is given the candidate's own resume and details and told to answer
+#      FROM THAT ONLY, returning nothing when the document does not say. It
+#      is extracting, not composing.
+#
+#   3. Some questions never reach it at all -- see APPLY_NEVER_AI. A legal
+#      declaration or a protected characteristic is not something software
+#      should answer on a person's behalf at any confidence.
+#
+#   4. What it produces goes into the answer bank tagged as machine-derived,
+#      so the same question is never asked again AND the person can see which
+#      answers were not typed by them.
+#
+# Rule 4 is also what keeps this inside the cost constraint. The model sees a
+# question once, ever, across every application this account makes -- not
+# once per application. On the twenty postings measured, that is a handful of
+# calls for a lifetime of forms.
+
+# Questions a model must never answer. Matched against the normalised text.
+#
+# The first group are legal declarations: a wrong answer is not an
+# embarrassment, it is a false statement on an application. The second are
+# protected characteristics, which are voluntary by law and nobody's business
+# to guess -- including ours. Both are parked for the person, always.
+APPLY_NEVER_AI = (
+    "sponsorship", "visa", "authoriz", "authoris", "right to work",
+    "eligible to work", "work permit", "citizen", "security clearance",
+    "felony", "conviction", "background check", "drug test",
+    "gender", "race", "ethnic", "disability", "veteran", "lgbt",
+    "sexual orientation", "date of birth", "age ", "marital",
+    "salary", "compensation", "ctc", "notice period",
+)
+
+
+def ai_may_answer(question_norm_text: str) -> bool:
+    """May a model be asked this question at all?
+
+    Salary and notice period are on the list and it is worth saying why:
+    they are not sensitive, they are simply not IN a resume. A model asked
+    for somebody's expected salary would produce a plausible number, and a
+    plausible number is exactly the failure mode that matters here. They are
+    in the details form instead, where the person types them once.
+    """
+    q = (question_norm_text or "").lower()
+    return not any(bad in q for bad in APPLY_NEVER_AI)
+
+
+APPLY_AI_PROMPT = (
+    "You are filling in a job application form on behalf of a candidate, "
+    "using ONLY the candidate's own documents below.\n\n"
+    "RULES, and the first one matters more than the rest:\n"
+    "- Answer ONLY from the documents. If they do not contain the answer, "
+    "return an empty string for that question. Do not infer, estimate, or "
+    "write something plausible. An empty answer is correct and useful; an "
+    "invented one is submitted to an employer in this person's name.\n"
+    "- Answer as the candidate, in the first person where that reads "
+    "naturally.\n"
+    "- Match the form's expected shape: a year is a year, a number is a "
+    "number, a yes/no question gets Yes or No.\n"
+    "- When a question lists options, answer with EXACTLY one of them, "
+    "copied character for character.\n"
+    "- Keep free-text answers under 60 words unless the question asks for "
+    "more.\n\n"
+    "CANDIDATE'S RESUME:\n{resume}\n\n"
+    "DETAILS THEY HAVE GIVEN:\n{details}\n\n"
+    "ANSWERS THEY HAVE GIVEN ON PREVIOUS FORMS:\n{bank}\n\n"
+    "QUESTIONS:\n{questions}\n\n"
+    'Return ONLY JSON: {{"answers": [{{"n": 1, "answer": ""}}, ...]}} '
+    "with one entry per question, in order."
+)
+
+
+async def apply_ai_answers(db, user, questions):
+    """Answer what the deterministic path could not. {} when it cannot help.
+
+    `questions` is a list of {label, norm, kind, options}. The return is
+    {norm: answer} for the ones it could settle from the candidate's own
+    documents, and nothing for the rest — which park, as before.
+
+    Never raises. A model that is down, rate-limited or unconfigured must
+    leave the row exactly where it was, not fail the application.
+    """
+    askable = [q for q in questions
+               if ai_may_answer(q.get("norm") or q.get("label") or "")]
+    if not askable or not ASK_ENABLED:
+        return {}
+
+    note = db.query(Note).filter(Note.user_id == user.id,
+                                 Note.k == "resume_uptext").first()
+    resume = ((note.v if note and note.v else "") or "").strip()[:9000]
+    if len(resume) < 40:
+        return {}                      # nothing to answer from
+
+    details = apply_details(db, user.id)
+    bank = {r.question_norm: r.answer for r in db.query(AnswerBank).filter(
+        AnswerBank.user_id == user.id).limit(60).all()}
+
+    lines = []
+    for i, q in enumerate(askable, 1):
+        opts = q.get("options") or []
+        lines.append(
+            f"{i}. {q.get('label', '')}"
+            + (f"\n   Options (answer with exactly one): {', '.join(opts[:25])}"
+               if opts else "")
+            + (f"\n   Field type: {q.get('kind')}" if q.get("kind") else ""))
+
+    prompt = APPLY_AI_PROMPT.format(
+        resume=resume,
+        details=json.dumps(details, indent=0) if details else "(none given)",
+        bank=json.dumps(bank, indent=0)[:2000] if bank else "(none yet)",
+        questions="\n".join(lines))
+
+    try:
+        raw = await _ai_text(prompt, 1400, json_mode=True)
+        got = _ai_json(raw)
+    except Exception as e:
+        print(f"apply: model could not answer: {type(e).__name__}: {e}")
+        return {}
+
+    out = {}
+    for item in (got.get("answers") or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            idx = int(item.get("n") or 0) - 1
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= idx < len(askable)):
+            continue
+        ans = str(item.get("answer") or "").strip()[:2000]
+        if not ans:
+            continue
+        q = askable[idx]
+        opts = q.get("options") or []
+        if opts:
+            # It was told to copy an option exactly. When it did not, take
+            # the closest real one rather than writing free text into a
+            # dropdown — and drop it if nothing matches, because a select
+            # holding a value it does not offer is worse than an empty one.
+            low = ans.lower()
+            pick = next((o for o in opts if o.lower() == low), None)
+            if pick is None:
+                pick = next((o for o in opts
+                             if low in o.lower() or o.lower() in low), None)
+            if pick is None:
+                continue
+            ans = pick
+        key = q.get("norm") or question_norm(q.get("label") or "")
+        if key:
+            out[key] = ans
+    return out
+
+
+_APPLY_AI_KEYS = "apply_ai_answers"
+
+
+def apply_ai_keys(db, user_id) -> set:
+    """Which banked answers came from the model rather than the person.
+
+    Kept in a Note row rather than a column on answer_bank, because a column
+    is a migration and a migration is a deploy that refuses to boot until it
+    has been applied. This is a small set of strings and nothing queries by
+    it; it only has to be readable when the screen draws the bank.
+    """
+    row = db.query(Note).filter(Note.user_id == user_id,
+                                Note.k == _APPLY_AI_KEYS).first()
+    try:
+        got = json.loads(row.v) if row and row.v else []
+    except Exception:
+        got = []
+    return {str(x) for x in got} if isinstance(got, list) else set()
+
+
+def apply_bank_write(db, user_id, answers, by_ai=False):
+    """Put answers in the bank so nothing asks twice.
+
+    A model never overwrites something the person typed. That is the whole
+    precedence rule: their own answer is the fact, the model's is a reading
+    of their CV, and a reading must not quietly replace a fact.
+    """
+    ai_keys = apply_ai_keys(db, user_id)
+    n = 0
+    for key, val in (answers or {}).items():
+        key = (key or "").strip()[:300]
+        val = str(val or "").strip()[:4000]
+        if not key or not val:
+            continue
+        row = db.query(AnswerBank).filter(
+            AnswerBank.user_id == user_id,
+            AnswerBank.question_norm == key).first()
+        if row is None:
+            row = AnswerBank(user_id=user_id, question_norm=key,
+                             created_at=now())
+            db.add(row)
+        elif by_ai and (row.answer or "").strip() and key not in ai_keys:
+            continue            # the person typed this; leave it alone
+        row.answer = val
+        row.updated_at = now()
+        if by_ai:
+            ai_keys.add(key)
+        else:
+            ai_keys.discard(key)
+        n += 1
+    note = db.query(Note).filter(Note.user_id == user_id,
+                                 Note.k == _APPLY_AI_KEYS).first()
+    if note is None:
+        note = Note(user_id=user_id, k=_APPLY_AI_KEYS, v="")
+        db.add(note)
+    note.v = json.dumps(sorted(ai_keys))[:20000]
+    db.commit()
+    return n
+
+
 # ---- a link somebody pasted -----------------------------------------------
 #
 # The queue above starts from the board we crawl. This starts from a URL a

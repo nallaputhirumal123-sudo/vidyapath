@@ -502,6 +502,94 @@ ck("and a stranger cannot queue anything at all",
    TestClient(main.app).post("/api/apply/link",
                              json={"url": LINK}).status_code == 401)
 
+# ------------------------------------------------- the model, and its limits
+print("")
+print("a model answers what a CV can answer, and nothing else")
+# The apply path was built with no model in it, deliberately. It has one now,
+# as a fallback after the deterministic path, because a row parked forever on
+# a question the person already answered in their own CV is an application
+# that never goes. What has to stay true is that it cannot invent a fact
+# about a person and send it to an employer in their name.
+for legal in ("Are you legally authorized to work in the United States?",
+              "Will you now or in the future require sponsorship?",
+              "Do you have a valid work permit?",
+              "Have you ever been convicted of a felony?",
+              "Do you hold an active security clearance?"):
+    ck(f"never asked: {legal[:44]}",
+       not main.ai_may_answer(main.question_norm(legal)),
+       "a wrong answer here is not an embarrassment, it is a false "
+       "statement on an application")
+for protected in ("Voluntary Self-Identification of Gender",
+                  "What is your race or ethnicity?",
+                  "Do you identify as having a disability?",
+                  "Are you a protected veteran?",
+                  "What is your date of birth?"):
+    ck(f"never asked: {protected[:44]}",
+       not main.ai_may_answer(main.question_norm(protected)),
+       "voluntary by law, and nobody's business to guess -- including ours")
+for money in ("What is your expected salary?",
+              "Current CTC (Fixed Component)?",
+              "What is your notice period?"):
+    ck(f"never asked: {money[:44]}",
+       not main.ai_may_answer(main.question_norm(money)),
+       "not sensitive -- simply not in a CV. A model would produce a "
+       "plausible number, which is the exact failure that matters")
+for fair in ("How many years of Python experience do you have?",
+             "Which university did you attend?",
+             "What is your current job title?",
+             "Describe a project you are proud of",
+             "What is your LinkedIn profile?"):
+    ck(f"may be asked: {fair[:44]}",
+       main.ai_may_answer(main.question_norm(fair)),
+       "this one IS in the document; refusing it is what left rows parked")
+
+print("")
+print("and what it answers is marked, and never overwrites a person")
+clean_queue()
+db.query(main.AnswerBank).filter(
+    main.AnswerBank.user_id == me.id).delete(synchronize_session=False)
+db.query(main.Note).filter(main.Note.user_id == me.id,
+                           main.Note.k == "apply_ai_answers").delete(
+    synchronize_session=False)
+db.commit()
+K = main.question_norm("What is your current job title?")
+main.apply_bank_write(db, me.id, {K: "Backend Engineer"}, by_ai=True)
+ck("a machine answer is banked", db.query(main.AnswerBank).filter(
+    main.AnswerBank.user_id == me.id,
+    main.AnswerBank.question_norm == K).first().answer == "Backend Engineer")
+ck("and recorded as machine-derived", K in main.apply_ai_keys(db, me.id),
+   "the screen has to be able to say which answers the person did not type")
+main.apply_bank_write(db, me.id, {K: "Senior Backend Engineer"}, by_ai=False)
+ck("a person overrides the machine", db.query(main.AnswerBank).filter(
+    main.AnswerBank.user_id == me.id,
+    main.AnswerBank.question_norm == K).first().answer
+    == "Senior Backend Engineer")
+ck("and it stops being marked as machine-derived",
+   K not in main.apply_ai_keys(db, me.id))
+main.apply_bank_write(db, me.id, {K: "Something The Model Guessed"},
+                      by_ai=True)
+ck("the machine never overwrites what a person typed",
+   db.query(main.AnswerBank).filter(
+       main.AnswerBank.user_id == me.id,
+       main.AnswerBank.question_norm == K).first().answer
+   == "Senior Backend Engineer",
+   "their answer is the fact; the model's is a reading of their CV, and a "
+   "reading must not quietly replace a fact")
+
+print("")
+print("with no key configured it simply does not help")
+import asyncio as _aio
+ck("no model, no answers, no crash",
+   _aio.new_event_loop().run_until_complete(
+       main.apply_ai_answers(db, me, [{"label": "Anything", "norm": "anything",
+                                       "kind": "text", "options": []}]))
+   == {} if not main.ASK_ENABLED else True,
+   "a model that is down must leave the row where it was, not fail the "
+   "application")
+db.query(main.AnswerBank).filter(
+    main.AnswerBank.user_id == me.id).delete(synchronize_session=False)
+db.commit()
+
 # ------------------------------------------------------------ the kill switch
 print("\nthe kill switch stops new work without a redeploy")
 os.environ["APPLY_KILL_SWITCH"] = "1"

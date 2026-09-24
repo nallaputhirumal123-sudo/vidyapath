@@ -84,6 +84,15 @@ class FormAdapter(Adapter):
     # than assumed.
     APPLY_PATHS = []
 
+    def alternates(self, url):
+        """Other URLs that might carry this posting's form, in order.
+
+        Suffixes by default — Ashby's /application, Lever's /apply. An
+        adapter overrides this when the alternative is not a suffix, which
+        Greenhouse's is not.
+        """
+        return [url.rstrip("/") + s for s in self.APPLY_PATHS]
+
     async def _fields(self, page):
         """How many things on this page can be filled in."""
         try:
@@ -115,9 +124,8 @@ class FormAdapter(Adapter):
         if await self._ready(page):
             return
 
-        # A dedicated application URL, if this board has one.
-        for suffix in self.APPLY_PATHS:
-            target = url.rstrip("/") + suffix
+        # Other places this board keeps the form.
+        for target in self.alternates(url):
             try:
                 r = await page.goto(target, wait_until="domcontentloaded",
                                     timeout=45000)

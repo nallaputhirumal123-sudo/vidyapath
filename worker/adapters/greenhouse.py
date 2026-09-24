@@ -13,6 +13,8 @@ board, the newer `job-boards.greenhouse.io` React embed, and the
 first selector that actually resolves is how one adapter covers all three
 without branching on a version it cannot reliably detect.
 """
+import re
+
 from .form import FormAdapter
 
 
@@ -35,3 +37,32 @@ class GreenhouseAdapter(FormAdapter):
     CONFIRMS = ["thank you for applying",
                 "your application has been submitted",
                 "application submitted", "thanks for applying"]
+
+    # token and job id out of a posting URL: /<token>/jobs/<id>
+    _PARTS = re.compile(r"greenhouse\.io/(?:embed/)?([^/]+)/jobs/(\d+)")
+
+    def alternates(self, url):
+        """Greenhouse's embed endpoint, which always serves the raw form.
+
+        Many boards redirect their posting URL to the company's own careers
+        site — boards.greenhouse.io/stripe/jobs/7962437 lands on
+        stripe.com/careers/listing/... which renders no form at all, so the
+        adapter reported the listing closed on a posting that was open and
+        taking applications.
+
+        The embed URL is the form itself, whatever the company has done with
+        their careers page. Measured: stripe 62 fields and 2 file inputs,
+        samsara 50, coinbase 48. A posting that really has gone still 404s
+        here, which is the answer we want in that case.
+
+        Tried AFTER the posting URL, never instead of it: when the posting
+        does serve its own form that is the page the employer intended, and
+        it carries the description and any board-specific questions.
+        """
+        out = super().alternates(url)
+        hit = self._PARTS.search(url or "")
+        if hit:
+            token, jid = hit.group(1), hit.group(2)
+            out.append("https://boards.greenhouse.io/embed/job_app"
+                       f"?for={token}&token={jid}")
+        return out
