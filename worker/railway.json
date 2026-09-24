@@ -1,0 +1,25 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "_comment": [
+    "The apply worker's own Railway config. Point the service's config-file",
+    "path at worker/railway.json in the dashboard, or it inherits the one at",
+    "the repo root -- which sets healthcheckPath /api/health.",
+    "",
+    "That inheritance is what makes a worker deploy fail. This service binds",
+    "no port and answers nothing: it polls a table and drives a browser. With",
+    "the root config applied, Railway waits for a health endpoint that will",
+    "never exist, times out, and reports a crash that has nothing to do with",
+    "the code -- which is exactly what it looks like from the logs.",
+    "",
+    "So: no healthcheckPath here, on purpose. The restart policy is kept,",
+    "because a worker that dies on a bad row should come back and carry on."
+  ],
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "worker/Dockerfile"
+  },
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

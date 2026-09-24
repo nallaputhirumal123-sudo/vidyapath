@@ -39,6 +39,19 @@ Run it locally against the fixture rather than against a board:
 
     python -m worker.run        # needs DATABASE_URL, JWT_SECRET
 
+## Deploying it
+
+A second Railway service from this repository. **Set the service's config
+file to `worker/railway.json`.** Without that it inherits the root
+`railway.json`, which sets `healthcheckPath: /api/health` — and this service
+binds no port and answers nothing, so Railway waits for an endpoint that
+will never exist and reports a crash that has nothing to do with the code.
+
+It needs `DATABASE_URL` and `JWT_SECRET`, the same as the app.
+
+Set `APPLY_KILL_SWITCH=1` on it for the first deploy. It boots, idles and
+sends nothing until you clear it, which takes effect on the next poll.
+
 Stop every worker everywhere, without a redeploy:
 
     APPLY_KILL_SWITCH=1
