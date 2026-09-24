@@ -39,6 +39,7 @@ import datetime as dt
 from sqlalchemy import func
 
 from .adapters.base import Unconfirmed
+from .adapters.workday import NeedsAccount, BadCredentials
 
 # Three, and then stop. A form that has failed three times is not going to
 # work on the fourth, and hammering an employer's ATS is exactly how one bad
@@ -229,6 +230,33 @@ async def _resolve(db, m, row, user, adapter, page, missing):
     return missing
 
 
+def _needs_login(db, m, row, site, label, why=""):
+    """Stop, and name the employer whose site wants an account.
+
+    Not a failure and not retried on a timer. The row sits here for as long
+    as it takes — the candidate has to register, wait for that employer's
+    verification email, click it, and save the sign-in. Whenever that
+    happens, saving a verified account flips every row waiting on that site
+    back to `prepared` and the next pass picks them up.
+
+    So there is no expiry here on purpose. A row that gave up after an hour
+    would throw away the application because somebody read their email in
+    the evening.
+    """
+    row.status = "needs_login"
+    row.missing_json = json.dumps([{"site": site, "label": label,
+                                    "kind": "account"}])[:20000]
+    row.error = why or (
+        f"{label} takes applications through their own careers account. "
+        "Create one on their site, click the link in their verification "
+        "email, then save the sign-in here — after that every job from this "
+        "employer goes through on its own.")
+    row.updated_at = m.now()
+    db.commit()
+    _say(row, f"waiting on an account for {site}")
+    return "needs_login"
+
+
 def _park(db, m, row, missing):
     """Stop and ask. Not a failure — the row is one answer from going."""
     row.status = "needs_answer"
@@ -248,7 +276,23 @@ async def prepare(db, m, row, adapter, page, shots_dir, resume_path):
     if user is None:
         return _fail(db, m, row, "The account is gone.")
 
-    await adapter.open(page, row.url)
+    # The candidate's own login for this employer's site, when they have set
+    # one up. None for the six ATSs that need no account, and None for a
+    # Workday employer they have not done yet — which is not a failure, it is
+    # a row waiting on a person. See _needs_login below.
+    acct = m.ats_account_for(db, user.id, row.url)
+    account = None
+    if acct is not None:
+        pw = m.cred_decrypt(acct.password_enc or "")
+        if acct.username and pw:
+            account = {"username": acct.username, "password": pw,
+                       "label": acct.label or acct.site}
+
+    await adapter.open(page, row.url, account)
+    if acct is not None:
+        acct.last_used = m.now()
+        acct.last_error = ""
+        db.commit()
     profile = build_profile(db, m, user)
 
     # A form with pages. Fill this one, settle its questions, attach the
@@ -451,6 +495,29 @@ async def run_row(db, m, row, adapter, page, shots_dir, resume_path=None):
                                resume_path)
     except Halted:
         raise
+    except NeedsAccount as e:
+        # Nothing is wrong. This employer takes applications through their
+        # own account and the candidate has not set that one up yet. No
+        # attempt is counted, because there was nothing to fail at.
+        return _needs_login(db, m, row, e.site, e.label)
+    except BadCredentials as e:
+        # The sign-in they saved was refused, or the account has not been
+        # verified yet. Recorded against the ACCOUNT as well as the row, so
+        # the screen can point at the one thing that needs fixing instead of
+        # at every application behind it.
+        site = m.ats_site_of(row.url)
+        acct = db.query(m.AtsAccount).filter(
+            m.AtsAccount.user_id == row.user_id,
+            m.AtsAccount.site == site).first()
+        if acct is not None:
+            acct.last_error = str(e)[:2000]
+            # Unverified again: it must not be retried until a person has
+            # been back to it, or every queued row hammers that login.
+            acct.verified_at = None
+            acct.updated_at = m.now()
+            db.commit()
+        return _needs_login(db, m, row, site,
+                            (acct.label if acct else "") or site, str(e))
     except Exception as e:
         row.attempt = (row.attempt or 0) + 1
         row.error = f"{type(e).__name__}: {e}"[:2000]

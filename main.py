@@ -708,9 +708,10 @@ TRACK_LABELS = {"viewed": "Recently viewed", "saved": "Saved",
 # "needs_answer" is the honest end of a question nothing could resolve. No
 # model is asked to invent one — the row stops and a person is asked, once,
 # and the answer goes into the bank so nothing asks again.
-APPLY_STATUSES = ["prepared", "needs_answer", "holding", "submitted",
-                  "confirmed", "failed", "cancelled"]
+APPLY_STATUSES = ["prepared", "needs_answer", "needs_login", "holding",
+                  "submitted", "confirmed", "failed", "cancelled"]
 APPLY_LABELS = {"prepared": "Ready to send", "needs_answer": "Needs an answer",
+                "needs_login": "Needs an account with this employer",
                 "holding": "Sending shortly — you can still stop it",
                 "submitted": "Sent", "confirmed": "Confirmed by the employer",
                 "failed": "Could not be sent", "cancelled": "Cancelled"}
@@ -765,6 +766,40 @@ class AnswerBank(Base):
     updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
     __table_args__ = (UniqueConstraint("user_id", "question_norm",
                                        name="uq_answer_user_question"),)
+
+
+class AtsAccount(Base):
+    """A login the candidate holds on one employer's careers site.
+
+    Workday, Taleo and iCIMS each make every employer a separate tenant with
+    its own account. The candidate creates it — registering accepts that
+    employer's terms and triggers a verification email to their inbox, and
+    both of those are theirs to do. What this stores is the result, so they
+    only ever do it once per employer.
+
+    The password is ENCRYPTED, not hashed, because it has to be typed into a
+    login form. That makes this the most dangerous column in the schema, so
+    it is keyed from the environment and refuses to store anything when no
+    key is set — the one thing worse than encrypted credentials is
+    credentials that were quietly saved in the clear.
+    """
+    __tablename__ = "ats_account"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    site = Column(String(200), nullable=False, index=True)
+    label = Column(String(200), default="")
+    username = Column(String(320), default="")
+    password_enc = Column(Text, default="")
+    # Until this is set the worker will not try the account, so it never
+    # loops against a registration nobody has confirmed yet.
+    verified_at = Column(DateTime(timezone=True))
+    last_used = Column(DateTime(timezone=True))
+    last_error = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    __table_args__ = (UniqueConstraint("user_id", "site",
+                                       name="uq_ats_user_site"),)
 
 
 class ApplyQueue(Base):
@@ -3657,11 +3692,31 @@ def _learner_or_board(request: Request, db: Session = Depends(get_db)):
     if grant is not None:
         return None, grant
     try:
-        return current_user(request, db), None
+        user = current_user(request, db)
     except HTTPException:
         raise HTTPException(
             401, "Sign in, or open this classroom with your subject code "
                  "first.")
+    # The office is not a learner and has no teaching to do with an answer.
+    #
+    # A school admin account carries every class, every register and every
+    # mark in the school; a general-purpose question box on top of that is
+    # the last thing it should hold. test_roles has asserted this for a long
+    # time and was passing for the wrong reason — with no AI key configured
+    # everybody got a 503 here, so "the office is refused" and "nobody can
+    # use this at all" looked identical. Configuring a key made the
+    # difference visible, and the refusal turned out never to have existed.
+    #
+    # A head who wants to teach signs in as a teacher, or opens the board
+    # with the subject's own code, which is what the code is for.
+    if not getattr(user, "is_admin", False):
+        t = teacher_row(user, db)
+        if t is not None and t.role == "head":
+            raise HTTPException(
+                403, "A school-admin account does not carry the teaching "
+                     "board. Open the board with the subject's code, or "
+                     "sign in with a teaching account.")
+    return user, None
 
 
 def _teacher_or_board(request: Request, db: Session = Depends(get_db)):
@@ -21743,6 +21798,194 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
 
 
 
+
+# ---- accounts on employers' own careers sites ------------------------------
+#
+# Workday is 872 of the open postings here, across 39 employers, and none of
+# them could be applied to at all: every tenant is a separate site with its
+# own login, so Mastercard and Adobe are two accounts, not one.
+#
+# The candidate makes the account. Registering accepts that employer's terms
+# and sends a verification email to their inbox, and both of those are theirs
+# to do rather than ours to do for them. The worker stops at the door, names
+# the employer, and waits.
+#
+# And then it never stops again for that employer. Mastercard alone is 367 of
+# the 872 — one setup, and the rest go through on their own.
+
+def _cred_key():
+    """The Fernet key, or None when none is configured.
+
+    APPLY_CRED_KEY holds a urlsafe base64 32-byte key, as produced by
+    Fernet.generate_key(). Deliberately its own variable rather than derived
+    from JWT_SECRET: rotating a session secret should not destroy every
+    stored credential, and the two have very different blast radii.
+    """
+    raw = env("APPLY_CRED_KEY")
+    if not raw:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(raw.encode())
+    except Exception as e:
+        print(f"APPLY_CRED_KEY is set but unusable: {type(e).__name__}: {e}")
+        return None
+
+
+def cred_encrypt(plain: str) -> str:
+    """Encrypt a password for storage. Raises when there is no key.
+
+    Raising rather than returning the plaintext is the whole point. A helper
+    that silently degrades would put passwords in the clear on the one
+    deployment where somebody forgot the variable, and nothing would say so
+    until the database leaked.
+    """
+    f = _cred_key()
+    if f is None:
+        raise HTTPException(
+            503, "This deployment cannot store site passwords yet: "
+                 "APPLY_CRED_KEY is not set. Nothing has been saved.")
+    return f.encrypt((plain or "").encode()).decode()
+
+
+def cred_decrypt(token: str) -> str:
+    """Back to plaintext, or "" when it cannot be read.
+
+    Returns empty rather than raising on a bad token, because the caller is
+    the worker and a credential it cannot read is a row to park, not a crash.
+    """
+    f = _cred_key()
+    if f is None or not token:
+        return ""
+    try:
+        return f.decrypt(token.encode()).decode()
+    except Exception:
+        return ""
+
+
+def ats_site_of(url: str) -> str:
+    """The host an account belongs to.
+
+    The full host, not the registrable domain: mastercard.wd1.myworkdayjobs.com
+    and adobe.wd5.myworkdayjobs.com are different employers and different
+    accounts, and collapsing them to myworkdayjobs.com would hand Adobe's
+    login to Mastercard.
+    """
+    try:
+        return (_urlparse(url or "").hostname or "").lower()[:200]
+    except Exception:
+        return ""
+
+
+def ats_account_for(db, user_id, url):
+    """The verified account for this posting's site, or None."""
+    site = ats_site_of(url)
+    if not site:
+        return None
+    return db.query(AtsAccount).filter(
+        AtsAccount.user_id == user_id, AtsAccount.site == site,
+        AtsAccount.verified_at.isnot(None)).first()
+
+
+def _ats_json(a):
+    return {"id": a.id, "site": a.site, "label": a.label or a.site,
+            "username": a.username or "",
+            "has_password": bool(a.password_enc),
+            "verified": a.verified_at is not None,
+            "verified_at": a.verified_at.isoformat() if a.verified_at else None,
+            "last_used": a.last_used.isoformat() if a.last_used else None,
+            "last_error": (a.last_error or "")[:300]}
+
+
+class AtsAccountIn(BaseModel):
+    site: str = Field(default="", max_length=200)
+    label: str = Field(default="", max_length=200)
+    username: str = Field(default="", max_length=320)
+    password: str = Field(default="", max_length=400)
+    # Set by the person once they have made the account AND clicked the
+    # verification link. The worker will not touch it before then.
+    verified: bool = False
+
+
+@app.get("/api/apply/accounts")
+def ats_accounts_list(user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """The employer sites this person has an account on.
+
+    Never returns a password, encrypted or otherwise. `has_password` is all
+    a screen needs in order to say whether one is stored.
+    """
+    rows = (db.query(AtsAccount).filter(AtsAccount.user_id == user.id)
+            .order_by(AtsAccount.site.asc()).all())
+    return {"accounts": [_ats_json(a) for a in rows],
+            "can_store": _cred_key() is not None}
+
+
+@app.put("/api/apply/accounts")
+def ats_accounts_save(body: AtsAccountIn, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Save the login for one employer's careers site.
+
+    The password is encrypted here and never leaves again through the API.
+    Marking it verified is what releases the queue: rows waiting on this site
+    go back to `prepared` and the worker picks them up on its next pass.
+    """
+    apply_gate(db, user, 0)
+    site = (body.site or "").strip().lower()
+    if site.startswith(("http://", "https://")):
+        site = ats_site_of(site)
+    if not site or "." not in site:
+        raise HTTPException(400, "Which site is this account for?")
+    row = db.query(AtsAccount).filter(AtsAccount.user_id == user.id,
+                                      AtsAccount.site == site).first()
+    if row is None:
+        row = AtsAccount(user_id=user.id, site=site, created_at=now())
+        db.add(row)
+    if body.label:
+        row.label = body.label.strip()[:200]
+    if body.username:
+        row.username = body.username.strip()[:320]
+    if body.password:
+        # Raises when no key is configured, so nothing is ever stored plain.
+        row.password_enc = cred_encrypt(body.password)
+    row.verified_at = now() if body.verified else None
+    row.last_error = ""
+    row.updated_at = now()
+    db.commit()
+
+    released = 0
+    if body.verified and row.username and row.password_enc:
+        for q in db.query(ApplyQueue).filter(
+                ApplyQueue.user_id == user.id,
+                ApplyQueue.status == "needs_login").all():
+            if ats_site_of(q.url) == site:
+                q.status = "prepared"
+                q.error = ""
+                q.updated_at = now()
+                released += 1
+        db.commit()
+    return {"account": _ats_json(row), "released": released,
+            "message": (f"Saved. {released} application"
+                        f"{'' if released == 1 else 's'} waiting on "
+                        f"{row.label or site} can go now."
+                        if released else "Saved.")}
+
+
+@app.delete("/api/apply/accounts/{aid}")
+def ats_accounts_delete(aid: int, user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Forget a login. The account on the employer's site is untouched."""
+    row = db.get(AtsAccount, aid)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(404, "No such account")
+    db.delete(row)
+    db.commit()
+    return {"ok": True,
+            "message": "Forgotten here. Your account with that employer "
+                       "still exists — this only removes our copy of the "
+                       "sign-in."}
+
+
 # ---- the answers a CV never carries and every form demands ----------------
 #
 # Address, notice period, expected salary, work authorisation. A resume has
@@ -21930,7 +22173,7 @@ def apply_max_per_company_hour() -> int:
 # require creating a per-tenant login, and creating one means accepting the
 # employer's terms as the candidate — which is not ours to do.
 APPLY_SOURCES = ("greenhouse", "lever", "ashby", "workable",
-                 "smartrecruiters", "recruitee")
+                 "smartrecruiters", "recruitee", "workday")
 
 # The ones there is actually an adapter for TODAY. A separate list from the
 # one above, and the distinction is the difference between "we are allowed to
@@ -21943,15 +22186,12 @@ APPLY_SOURCES = ("greenhouse", "lever", "ashby", "workable",
 # the second one fails the build rather than shipping a queue that silently
 # refuses half of what it accepts.
 APPLY_DRIVABLE = ("greenhouse", "lever", "ashby", "workable",
-                  "smartrecruiters", "recruitee")
+                  "smartrecruiters", "recruitee", "workday")
 
 # Sources that reach this far get a clear refusal rather than silence. An
 # aggregator row carries a redirect, not a form; a Workday row needs an
 # account. Both are things a person can still act on, so say which.
 APPLY_MANUAL = {
-    "workday": "Workday asks every applicant to create an account with that "
-               "employer, and agreeing to their terms is not something we "
-               "can do on your behalf. Open it and apply manually.",
     "adzuna": "This came from an aggregator, so the link goes to somebody "
               "else's site rather than to an application form. Open it and "
               "apply there.",
@@ -22822,8 +23062,12 @@ def apply_source_of(url: str):
         return None, "That does not look like a web address."
     if reg in APPLY_REFUSED_HOSTS:
         return None, _APPLY_NEVER.format(name=APPLY_REFUSED_HOSTS[reg])
+    # Workday is drivable now, with the candidate's own account. It is not a
+    # registrable-domain match like the others: every employer is a separate
+    # tenant on a subdomain, and that subdomain IS the account boundary.
     if reg == "myworkdayjobs.com" or host.endswith(".myworkdayjobs.com"):
-        return None, APPLY_MANUAL["workday"]
+        return ("workday", "") if "workday" in APPLY_DRIVABLE else (
+            None, "We do not drive Workday forms yet.")
     src = APPLY_HOSTS.get(reg)
     if not src:
         return None, ("That is not an application form we recognise. This "

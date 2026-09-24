@@ -128,7 +128,7 @@ class FormAdapter(Adapter):
             return True
         return (await self._first(page, self.FORMS)) is not None
 
-    async def open(self, page, url) -> None:
+    async def open(self, page, url, account=None) -> None:
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         await page.wait_for_timeout(self.SETTLE_MS)
 
@@ -159,10 +159,62 @@ class FormAdapter(Adapter):
                 await page.wait_for_timeout(self.SETTLE_MS + 600)
             except Exception:
                 pass            # an anchor that only scrolls; carry on
+
+        # Some employers put a sign-in in the way and most do not — on these
+        # boards it is a tenant setting, not a property of the ATS. So it is
+        # decided by what the page in front of us is actually asking for.
+        #
+        # With a stored account we use it. Without one the row waits for a
+        # person, which is a different and far better outcome than "no
+        # application form on that page" — the listing is open, we simply
+        # cannot get past the door yet.
+        if await self.at_signin(page) and not await self._ready(page):
+            from main import ats_site_of
+            from .workday import NeedsAccount
+            if account and account.get("username") and account.get("password"):
+                await self.sign_in(page, account)
+            else:
+                raise NeedsAccount(ats_site_of(url),
+                                   (account or {}).get("label") or "")
+
         if not await self._ready(page):
             raise RuntimeError(
                 "No application form on that page — the listing has closed, "
                 "or the link goes to a careers index rather than a posting.")
+
+    async def sign_in(self, page, account) -> None:
+        """Type the candidate's own credentials into the employer's form.
+
+        Workday overrides this with its proper markers; the generic version
+        is a best effort for a board that has newly grown a login. It never
+        creates an account, never resets a password, and never retries with
+        a variation — a worker trying passwords against an employer's login
+        is an attack on it whatever the intention behind it.
+        """
+        from .workday import BadCredentials
+        em = await self._first_visible(
+            page, ["input[type=email]", "input[name='username']",
+                   "input[name='email']"])
+        pw = await self._first_visible(page, ["input[type=password]"])
+        if em is None or pw is None:
+            raise BadCredentials("The sign-in form could not be read.")
+        await em.fill(account["username"])
+        await pw.fill(account["password"])
+        go = await self._first_visible(
+            page, ["button[type=submit]", "button:has-text('Sign In')",
+                   "button:has-text('Sign in')"])
+        if go is None:
+            raise BadCredentials("No sign-in button on that page.")
+        await go.click(timeout=15000)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=30000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(self.SETTLE_MS)
+        if await self.at_signin(page) and not await self._ready(page):
+            raise BadCredentials(
+                "That employer refused the sign-in, or the account has not "
+                "been verified yet.")
 
     async def fill(self, page, profile) -> FillResult:
         await _inject(page, "filler.js")
@@ -229,6 +281,27 @@ class FormAdapter(Adapter):
                 norm=norm, kind=f.get("kind") or "text",
                 required=True, options=list(f.get("options") or [])))
         return missing
+
+    # A sign-in wall, in the generic. Some employers on the same ATS ask for
+    # an account and some do not — it is a tenant setting, not a property of
+    # the board — so this is detected on the page in front of us rather than
+    # assumed from the source. An adapter with better markers overrides it.
+    SIGNIN_MARKS = ["input[type=password]",
+                    "[data-automation-id='signInFormo']",
+                    "button:has-text('Sign In')",
+                    "button:has-text('Sign in')",
+                    "a:has-text('Create Account')",
+                    "a:has-text('Create an account')"]
+
+    async def at_signin(self, page) -> bool:
+        """Is this page asking us to sign in rather than to apply?
+
+        A password box is the honest signal: an application form does not
+        have one and a sign-in always does. Checked visibly, because a
+        hidden password field is a browser autofill artefact on plenty of
+        pages that are not asking for anything.
+        """
+        return (await self._first_visible(page, self.SIGNIN_MARKS)) is not None
 
     async def _first_visible(self, page, selectors):
         """The first selector that resolves to something a person can see.

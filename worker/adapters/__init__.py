@@ -14,6 +14,8 @@ from .form import FormAdapter                            # noqa: F401
 from .greenhouse import GreenhouseAdapter
 from .ats import (LeverAdapter, AshbyAdapter, WorkableAdapter,
                   SmartRecruitersAdapter, RecruiteeAdapter)
+from .workday import (WorkdayAdapter, NeedsAccount,      # noqa: F401
+                      BadCredentials)
 
 # All six no-login ATSs. Everything behavioural lives in FormAdapter; each
 # of these is the selectors that board uses and the words it says back.
@@ -28,6 +30,9 @@ ADAPTERS = {
     WorkableAdapter.source: WorkableAdapter,
     SmartRecruitersAdapter.source: SmartRecruitersAdapter,
     RecruiteeAdapter.source: RecruiteeAdapter,
+    # The one that needs an account with the employer. The candidate makes
+    # it and verifies it; this only ever signs in with what they saved.
+    WorkdayAdapter.source: WorkdayAdapter,
 }
 
 

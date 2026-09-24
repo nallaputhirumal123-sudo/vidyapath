@@ -40,6 +40,8 @@ import time
 import datetime as dt
 import itertools
 
+from cryptography.fernet import Fernet
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.environ.setdefault("JWT_SECRET", "t" * 40)
@@ -161,10 +163,18 @@ class StubAdapter(Adapter):
         self.raise_on = raise_on            # "open" | "submit" | "unconfirmed"
         self.calls = []
 
-    async def open(self, page, url):
+    async def open(self, page, url, account=None):
         self.calls.append("open")
+        self.account = account
         if self.raise_on == "open":
             raise RuntimeError("the listing has closed")
+        if self.raise_on == "needs_account":
+            from worker.adapters.workday import NeedsAccount
+            raise NeedsAccount("mastercard.wd1.myworkdayjobs.com",
+                               "Mastercard")
+        if self.raise_on == "bad_creds":
+            from worker.adapters.workday import BadCredentials
+            raise BadCredentials("That employer refused the sign-in.")
 
     async def fill(self, page, profile):
         self.calls.append("fill")
@@ -1018,6 +1028,90 @@ else:
     ck("the resume was attached on the page that had the input",
        bool(_row.screenshot_path), _row.screenshot_path or "")
     os.environ["APPLY_HOLD_MINUTES"] = "15"
+
+# ------------------------------- an employer who wants an account first
+print("")
+print("Workday: stop, wait however long it takes, then carry on")
+# 872 of the open postings are Workday, across 39 employers, and every
+# tenant is a separate account. We do not create them: registering accepts
+# that employer's terms and sends a verification email to the candidate's
+# inbox, and both are theirs to do. So the row stops, names the employer,
+# and waits -- with no expiry, because giving up after an hour would throw
+# the application away for somebody who read their email in the evening.
+os.environ["APPLY_CRED_KEY"] = Fernet.generate_key().decode()
+db.query(m.AtsAccount).filter(
+    m.AtsAccount.user_id == me.id).delete(synchronize_session=False)
+db.commit()
+
+WD = "https://mastercard.wd1.myworkdayjobs.com/Careers/job/Backend-Engineer"
+wd_row = new_row(company="Mastercard")
+wd_row.source = "workday"
+wd_row.url = WD
+db.commit()
+ad = StubAdapter(raise_on="needs_account")
+out_ = run(flow.run_row(db, m, wd_row, ad, StubPage(), SHOTS,
+                        resume_path="x.pdf"))
+ck("it parks rather than failing", out_ == "needs_login", out_)
+ck("naming the employer, not a URL",
+   "Mastercard" in (wd_row.error or ""), (wd_row.error or "")[:70])
+ck("and telling them exactly what to do",
+   "verification" in (wd_row.error or "").lower()
+   and "sign-in here" in (wd_row.error or "").lower(),
+   (wd_row.error or "")[:110])
+ck("no retry was spent on it", (wd_row.attempt or 0) == 0,
+   "there was nothing to fail at")
+ck("and the worker will not pick it up again on its own",
+   wd_row.id not in [r.id for r in flow.due_rows(db, m, 50)],
+   "a row polled on a timer would hammer that login while somebody is "
+   "still waiting for the email")
+
+print("")
+print("and the moment they save the sign-in, it goes")
+# This is the whole point of the wait: they do it once per employer, and
+# every posting from that employer after it is automatic. Mastercard alone
+# is 367 of the 872.
+_acct = m.AtsAccount(user_id=me.id, site="mastercard.wd1.myworkdayjobs.com",
+                     label="Mastercard", username="ravi@example.com",
+                     password_enc=m.cred_encrypt("their-own-password"),
+                     verified_at=m.now(), created_at=m.now())
+db.add(_acct)
+db.commit()
+wd_row.status = "prepared"
+db.commit()
+ad = StubAdapter()
+out_ = run(flow.run_row(db, m, wd_row, ad, StubPage(), SHOTS,
+                        resume_path="x.pdf"))
+ck("the row proceeds", out_ == "holding", out_)
+ck("the adapter was handed their own sign-in",
+   (ad.account or {}).get("username") == "ravi@example.com",
+   str(ad.account))
+ck("with the real password, decrypted only at the point of use",
+   (ad.account or {}).get("password") == "their-own-password")
+ck("and nothing readable is stored",
+   "their-own-password" not in (_acct.password_enc or ""),
+   "encrypted, not hashed -- it has to be typed into a login form, which "
+   "is exactly why this column is the dangerous one")
+
+print("")
+print("a refused sign-in blames the account, not the application")
+wd_row.status = "prepared"
+db.commit()
+out_ = run(flow.run_row(db, m, wd_row, StubAdapter(raise_on="bad_creds"),
+                        StubPage(), SHOTS, resume_path="x.pdf"))
+db.expire_all()
+_acct = db.get(m.AtsAccount, _acct.id)
+ck("the row waits again", out_ == "needs_login", out_)
+ck("and the ACCOUNT carries the reason",
+   "refused" in (_acct.last_error or "").lower(),
+   (_acct.last_error or "")[:70])
+ck("it is un-verified so nothing retries it",
+   _acct.verified_at is None,
+   "every queued row would otherwise hammer that employer's login")
+
+db.query(m.AtsAccount).filter(
+    m.AtsAccount.user_id == me.id).delete(synchronize_session=False)
+db.commit()
+os.environ.pop("APPLY_CRED_KEY", None)
 
 # ------------------------------------------------------------------ cleanup
 db.query(m.ApplyQueue).filter(

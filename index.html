@@ -11456,7 +11456,7 @@ function jbPrepHTML(){
 const AQ={consent:null, rows:[], hold:15, paused:false, used:0, max:20,
           loaded:false, busy:false, msg:"", link:"",
           fields:[], values:{}, detailsOpen:false, detailsMsg:"",
-          minScore:75};
+          accounts:[], canStoreCreds:false, minScore:75};
 
 async function aqLoad(){
   try{
@@ -11470,6 +11470,8 @@ async function aqLoad(){
     // anybody expands it.
     const f=await api.get("/api/apply/details");
     AQ.fields=f.fields||[]; AQ.values=f.values||{};
+    const ac=await api.get("/api/apply/accounts");
+    AQ.accounts=ac.accounts||[]; AQ.canStoreCreds=!!ac.can_store;
   }catch(e){
     /* A free account gets a 402 here, which is not an error to shout about —
        the section simply says what it costs. */
@@ -11496,6 +11498,8 @@ function aqRowHTML(r){
         ${r.url?`<a class="btn ghost sm" href="${esc(r.url)}" target="_blank" rel="noopener">Open ↗</a>`:""}
         ${r.status==="needs_answer"&&(r.missing||[]).length
           ? `<button class="btn sm" data-aqans="${r.id}">Answer ${r.missing.length} question${r.missing.length===1?"":"s"}</button>` : ""}
+        ${r.status==="needs_login"
+          ? `<button class="btn sm" data-aqlogin="${r.id}">Set up ${esc(r.company||"this employer")}</button>` : ""}
         ${stoppable?`<button class="btn ghost sm" data-aqcancel="${r.id}">Stop it</button>`:""}
       </div>
     </div>
@@ -11549,6 +11553,7 @@ function aqDetailsHTML(){
       <button class="btn sm" data-aqsave="1">Save details</button>
       <span style="font-size:12.5px;color:var(--dim)">${esc(AQ.detailsMsg||"")}</span>
     </div>
+    ${aqAccountsHTML()}
   </div>`;
 }
 
@@ -11648,6 +11653,47 @@ function aqBind(){
   });
 }
 
+/* The employer accounts they have set up, and a way to remove one.
+ *
+ * Shown beside the form details, because they are the same kind of thing:
+ * something typed once that every later application reuses. GET returns
+ * has_password rather than the password — nothing sends it back out.
+ */
+function aqAccountsHTML(){
+  const rows=AQ.accounts||[];
+  if(!rows.length) return "";
+  return `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+    <b style="font-size:13.5px">🔐 Employer sign-ins</b>
+    <div style="font-size:12.5px;color:var(--dim);margin:3px 0 8px">
+      Sites that take applications through their own account. Set up once —
+      every later job from that employer goes on its own.</div>
+    ${rows.map(a=>`<div class="row" style="gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <span style="flex:1;min-width:150px;font-size:13px">
+        <b>${esc(a.label)}</b>
+        <span style="color:var(--dim)"> · ${esc(a.username||"no email saved")}</span>
+        ${a.verified?`<span style="color:var(--ok)"> · ready</span>`
+                    :`<span style="color:#e0b050"> · not verified yet</span>`}
+        ${a.last_error?`<div style="color:#e0b050;font-size:12px">${esc(a.last_error)}</div>`:""}
+      </span>
+      <button class="btn ghost sm" data-aqforget="${a.id}">Forget</button>
+    </div>`).join("")}
+  </div>`;
+}
+
+async function aqForget(id){
+  const a=(AQ.accounts||[]).find(x=>x.id===id);
+  if(!a) return;
+  if(!confirm(`Forget the sign-in for ${a.label}?\n\n`
+    +`Your account with them is not touched — this only removes our copy, `
+    +`so their jobs will wait for a sign-in again.`)) return;
+  try{
+    const d=await api.del("/api/apply/accounts/"+id);
+    AQ.detailsMsg=d.message||"Forgotten.";
+  }catch(e){ AQ.detailsMsg=e.message; }
+  await aqLoad();
+  renderCareers();
+}
+
 async function aqSaveDetails(){
   AQ.detailsMsg="Saving…"; renderCareers();
   try{
@@ -11708,6 +11754,53 @@ async function aqConsent(on){
     }
   }catch(e){ AQ.msg=e.message; }
   AQ.busy=false;
+  await aqLoad();
+  renderCareers();
+}
+
+/* Setting up an employer that takes applications through its own account.
+ *
+ * The candidate registers on the employer's site themselves — that accepts
+ * the employer's terms and sends the verification email to their inbox, and
+ * both are theirs to do. This only stores the result, so they do it once per
+ * employer and every later posting from that employer goes on its own.
+ *
+ * The password never comes back out of the API. It is written once, read
+ * only by the worker at the moment it signs in.
+ */
+async function aqLogin(id){
+  const row=AQ.rows.find(r=>r.id===id);
+  if(!row) return;
+  const who=row.company||"this employer";
+  let site="";
+  try{ site=new URL(row.url).hostname; }catch(e){ site=""; }
+  if(!site){ AQ.msg="That row has no site to set up."; return renderCareers(); }
+
+  if(!confirm(`${who} takes applications through their own careers account.\n\n`
+    +`1. Open their site and create an account\n`
+    +`2. Click the link in their verification email\n`
+    +`3. Come back and enter that email and password here\n\n`
+    +`After that, every ${who} job goes through on its own.\n\n`
+    +`Open their site now?`)) return;
+  window.open(row.url,"_blank","noopener");
+
+  const user=prompt(`The email you used to register with ${who}:`,"");
+  if(user===null) return;
+  const pass=prompt(`The password for that ${who} account:`,"");
+  if(pass===null) return;
+  if(!user.trim()||!pass.trim()){ AQ.msg="Both are needed."; return renderCareers(); }
+  if(!confirm(`Have you clicked the verification link in ${who}'s email?\n\n`
+    +`Say no if it has not arrived yet — nothing is lost, the application `
+    +`just keeps waiting and you can come back whenever it turns up.`)){
+    AQ.msg=`Saved nothing. Come back when ${who} has verified you.`;
+    return renderCareers();
+  }
+  try{
+    const d=await api.put("/api/apply/accounts",
+      {site:site, label:who, username:user.trim(), password:pass,
+       verified:true});
+    AQ.msg=d.message||"Saved.";
+  }catch(e){ AQ.msg=e.message; }
   await aqLoad();
   renderCareers();
 }
@@ -11961,6 +12054,10 @@ document.addEventListener("click",e=>{
   if(aSave){ aqSaveDetails(); return; }
   const aCan=e.target.closest("[data-aqcancel]");
   if(aCan){ aqCancel(+aCan.dataset.aqcancel); return; }
+  const aLog=e.target.closest("[data-aqlogin]");
+  if(aLog){ aqLogin(+aLog.dataset.aqlogin); return; }
+  const aFor=e.target.closest("[data-aqforget]");
+  if(aFor){ aqForget(+aFor.dataset.aqforget); return; }
   const aAns=e.target.closest("[data-aqans]");
   if(aAns){ aqAnswer(+aAns.dataset.aqans); return; }
   const tt=e.target.closest("[data-jbtrtab]");

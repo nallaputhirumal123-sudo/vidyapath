@@ -11,3 +11,6 @@ httpx==0.28.1
 pillow==11.1.0
 pypdf==5.1.0
 pdfplumber==0.11.4
+# Fernet, for the one column that stores a password we have to be
+# able to type back into a login form. See AtsAccount.
+cryptography==50.0.0

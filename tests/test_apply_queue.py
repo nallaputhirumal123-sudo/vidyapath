@@ -157,12 +157,16 @@ r = c.post("/api/apply/queue",
            json={"job_ids": [gh1.id, wd.id, agg.id, lev.id, agg2.id]})
 ck("the request succeeds", r.status_code == 200, r.text[:100])
 d = r.json()
-# Two: greenhouse and lever. Both are no-login ATSs with adapters, which is
-# what "drivable" means — the list grew and this number grows with it.
-ck("the drivable ones are queued", d.get("queued") == 2, str(d.get("queued")))
+# Three now: greenhouse, lever and workday. "Drivable" means there is an
+# adapter, not that it needs no account — Workday queues and then parks as
+# needs_login until the candidate has set that employer up.
+ck("the drivable ones are queued", d.get("queued") == 3, str(d.get("queued")))
 why = {s.get("job_id"): s.get("why", "") for s in d.get("skipped", [])}
-ck("workday is refused for needing an employer account",
-   "account" in why.get(wd.id, "").lower(), why.get(wd.id, ""))
+ck("workday is queued rather than refused now",
+   wd.id not in why,
+   "it used to be turned away at the door for needing an account; it is "
+   "accepted and parks as needs_login instead, which is a row somebody can "
+   "act on rather than a dead end")
 ck("the aggregator is refused for being a redirect, not a form",
    "aggregator" in why.get(agg.id, "").lower(), why.get(agg.id, ""))
 ck("a source we do not drive at all is refused plainly",
@@ -173,10 +177,18 @@ ck("every refusal says what to do instead",
 print("\nand the four that must never be automated are not on the list")
 for banned in ("linkedin", "indeed", "naukri", "dice"):
     ck(f"{banned} is not drivable", banned not in main.APPLY_SOURCES)
-ck("the six that are, all need no candidate account",
+ck("and the list is the seven we drive",
    set(main.APPLY_SOURCES) == {"greenhouse", "lever", "ashby", "workable",
-                               "smartrecruiters", "recruitee"},
+                               "smartrecruiters", "recruitee", "workday"},
    ", ".join(main.APPLY_SOURCES))
+ck("six of which need no account at all",
+   len(set(main.APPLY_SOURCES) - {"workday"}) == 6)
+ck("and the seventh signs in with one the candidate made",
+   main.apply_source_of(
+       "https://mastercard.wd1.myworkdayjobs.com/Careers/job/1")[0]
+   == "workday",
+   "a Workday link is accepted and waits for a sign-in, rather than being "
+   "refused outright")
 
 print("\nqueueing the same job twice does not send it twice")
 r = c.post("/api/apply/queue", json={"job_ids": [gh1.id]})
@@ -426,8 +438,12 @@ for junk in ("", "not a url", "ftp://boards.greenhouse.io/x"):
     ck(f"junk is refused: {junk!r}", src is None, str(src))
 src, why = main.apply_source_of(
     "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite")
-ck("Workday is refused for needing an employer account",
-   src is None and "account" in why, why[:70])
+ck("a Workday tenant is recognised as workday", src == "workday", str(src))
+ck("and each tenant is its own account boundary",
+   main.ats_site_of("https://nvidia.wd5.myworkdayjobs.com/x")
+   != main.ats_site_of("https://adobe.wd5.myworkdayjobs.com/x"),
+   "collapsing these to myworkdayjobs.com would hand one employer's login "
+   "to another")
 # Lever has an adapter now, so the link reader should accept it. The
 # "no adapter yet" branch still exists for whatever is added next.
 src, why = main.apply_source_of("https://jobs.lever.co/cred/abc")

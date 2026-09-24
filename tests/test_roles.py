@@ -204,9 +204,13 @@ allowed("the office has no Ask Axle",
         lambda c: c.post("/api/board/lesson",
                          json={"topic": "refraction",
                                "level": "Intermediate"}).status_code,
-        set(),
-        "nobody succeeds here without an AI key; what is pinned is that the "
-        "school admin is refused BEFORE the key is even looked at")
+        {"teacher", "student"} if main.ASK_ENABLED else set(),
+        "The school admin is refused before the key is looked at; a teacher "
+        "and a learner are not. This used to assert that NOBODY got through, "
+        "which was true only because no key meant a 503 for everyone — so "
+        "'the office is refused' and 'this is switched off' were "
+        "indistinguishable, and the refusal turned out never to have been "
+        "written. Configuring a key is what exposed it.")
 
 print("\nspeaking to the school")
 allowed("only the school admin addresses everybody",

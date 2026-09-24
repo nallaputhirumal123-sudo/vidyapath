@@ -91,8 +91,12 @@ class Adapter:
         """
         return False
 
-    async def open(self, page, url) -> None:
+    async def open(self, page, url, account=None) -> None:
         """Get to the application form itself.
+
+        `account` is the candidate's own login for this employer's site when
+        one is stored, and None otherwise. Only the ATSs that require an
+        account look at it; the other six ignore it.
 
         Not just the posting. Most ATSs put the form on the same page below
         the description; some need a button pressed first. A board that has
