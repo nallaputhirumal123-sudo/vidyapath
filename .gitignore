@@ -64,3 +64,4 @@ corpus.db*
 # the screenshots are somebody a form was filled out for.
 tests/fixtures/_shots/
 .vp-apply-shots/
+demo-shots/

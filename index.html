@@ -1055,6 +1055,8 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
    they sat on top of the sticky topbar and covered whatever was under them.
    Reserve their width instead of letting them overlap. */
 @media (max-width:900px){
+  /* Superseded below 680px, where the floating buttons no longer need
+     a third of the bar reserved for them. */
   .topbar{padding-right:112px}
 }
 /* A viewer you can actually see into.
@@ -1167,6 +1169,60 @@ input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
     min-width: 0;
     flex: 1 1 100%;
   }
+}
+
+/* A phone is not a narrow desktop.
+ *
+ * Everything above this point handles OVERFLOW on a small screen — wrapping
+ * rows, breaking long words, scrolling wide tables — and none of it changes
+ * a single size. So a 375pt phone kept the desktop frame: 44pt of page
+ * padding each side plus 24pt of card padding each side is 136 of 375 gone
+ * before a word is drawn, with a 29pt heading on top of it. That reads as a
+ * page someone has zoomed into, which is exactly what it was reported as.
+ *
+ * `.h1` is the clearest case: clamp(29px, 4vw, 42px) sounds responsive and
+ * is not — 4vw at this width is 15px, so it pins to the 29px FLOOR and the
+ * clamp only ever scales the other way, for desktops.
+ *
+ * So this scales the frame, not the text. Body copy stays 15px, because
+ * shrinking what people read to fit more of the furniture in is the wrong
+ * trade — it is the padding and the display type that were taking the room.
+ */
+@media (max-width: 680px) {
+  .main { padding: 18px 14px 72px; }
+  .card { padding: 15px 16px; }
+  .h1 { font-size: 25px; letter-spacing: -.03em; }
+  .sub { margin-bottom: 18px; font-size: 14.5px; }
+  .eyebrow { margin: 22px 0 9px; }
+  .hero { padding: 20px 17px; margin-bottom: 18px; border-radius: 14px; }
+  .hero h1 { font-size: 24px; letter-spacing: -.6px; }
+  .hero p { font-size: 14.5px; margin-bottom: 15px; }
+  .btn { padding: 11px 18px; }
+  .grid { gap: 11px; }
+
+  /* The two floating buttons are position:fixed over the top-right corner,
+     so the bar genuinely does have to keep its contents clear of them —
+     that is what the 112pt of right padding was for, and removing it put
+     the XP pill directly underneath the theme button. Measured: the pill
+     sat at 292-364, the buttons at 269-361.
+     
+     But reserving a third of a 375pt bar AND keeping five things in it is
+     the actual problem. The level and XP pill is the one thing here that
+     is decoration rather than navigation — the bell carries the count that
+     matters — so it goes, and the wordmark and plan badge get the room. */
+  .topbar { padding: 10px 104px 10px 12px; gap: 9px; }
+  .topbar .tb-brand { font-size: 16px; }
+  .topbar #topxp { display: none; }
+}
+
+/* The small ones, where the difference between 14 and 16 points of gutter
+   is a word per line. */
+@media (max-width: 400px) {
+  .main { padding: 14px 11px 64px; }
+  .card { padding: 13px 13px; }
+  .h1 { font-size: 22.5px; }
+  .hero h1 { font-size: 21px; }
+  .hero { padding: 16px 14px; }
 }
 
 @media (max-width: 560px) {
