@@ -1113,6 +1113,101 @@ db.query(m.AtsAccount).filter(
 db.commit()
 os.environ.pop("APPLY_CRED_KEY", None)
 
+# ------------------------------- the employer page, shown inside Craxle
+print("")
+print("a live session: frames out, clicks and typing back in")
+# An iframe cannot do this. Measured on the real boards: Ashby and Workday
+# both send X-Frame-Options: DENY, and Workday is exactly where a person
+# has to sign in. A picture is not an iframe, so this streams the worker's
+# own Chromium out as PNG and sends input back.
+#
+# The coordinate maths is the part that must be right. A click that lands
+# somewhere other than where the person pointed does not LOOK broken -- it
+# quietly does the wrong thing -- so this computes the field's real box and
+# checks the value arrived in that field.
+if not HAVE_PW:
+    skip("live session", "skipped (no playwright)")
+else:
+    from worker import sessions as _ses
+    import base64 as _b64, json as _j
+    db.query(m.ApplySession).filter(
+        m.ApplySession.user_id == me.id).delete(synchronize_session=False)
+    db.commit()
+    _s = m.ApplySession(user_id=me.id, queue_id=0, status="asked",
+                        url="file:///" + FIXTURE.replace(chr(92), "/"),
+                        width=900, height=620, created_at=m.now(),
+                        updated_at=m.now(),
+                        expires_at=m.now() + dt.timedelta(minutes=10))
+    db.add(_s)
+    db.commit()
+    db.refresh(_s)
+
+    async def _drive():
+        async with async_playwright() as pw:
+            b = await pw.chromium.launch(args=["--no-sandbox"])
+            got = {}
+            try:
+                await _ses.serve(b, db, m)
+                db.expire_all()
+                r = db.get(m.ApplySession, _s.id)
+                got["status1"] = r.status
+                got["png"] = _b64.b64decode(r.shot or "")[:4]
+                got["bytes"] = len(r.shot or "")
+                ctx, page = _ses._LIVE[_s.id]
+                box = await page.evaluate(
+                    "() => {const e=document.getElementById('first_name');"
+                    " const r=e.getBoundingClientRect();"
+                    " return {x:Math.round(r.x+r.width/2),"
+                    "         y:Math.round(r.y+r.height/2)};}")
+                r.acts = _j.dumps([
+                    {"kind": "click", "x": box["x"], "y": box["y"],
+                     "text": ""},
+                    {"kind": "type", "x": 0, "y": 0, "text": "Anjali"}])
+                db.commit()
+                await _ses.serve(b, db, m)
+                ctx, page = _ses._LIVE[_s.id]
+                got["value"] = await page.evaluate(
+                    "() => document.getElementById('first_name').value")
+                got["focus"] = await page.evaluate(
+                    "() => document.activeElement &&"
+                    " document.activeElement.id")
+                db.expire_all()
+                got["drained"] = not (db.get(m.ApplySession, _s.id).acts or "")
+                # Expiry must close the context, or the worker holds a
+                # browser per session it ever opened.
+                r = db.get(m.ApplySession, _s.id)
+                r.expires_at = m.now() - dt.timedelta(minutes=1)
+                db.commit()
+                await _ses.serve(b, db, m)
+                db.expire_all()
+                got["status2"] = db.get(m.ApplySession, _s.id).status
+                got["held"] = len(_ses._LIVE)
+                return got
+            finally:
+                await _ses.drop_all()
+                await b.close()
+
+    _g = run(_drive())
+    ck("the worker opens the page and goes live", _g["status1"] == "live",
+       _g["status1"])
+    ck("and sends back a real PNG frame",
+       _g["png"] == b"" + bytes([0x89]) + b"PNG" and _g["bytes"] > 1000,
+       f"{_g['bytes']} bytes")
+    ck("a click lands on the field it pointed at",
+       _g["focus"] == "first_name", str(_g["focus"]))
+    ck("and the typing goes into that field", _g["value"] == "Anjali",
+       repr(_g["value"]))
+    ck("the action queue is drained, not replayed", _g["drained"],
+       "a queue that is not cleared repeats every click on the next pass")
+    ck("an expired session is closed", _g["status2"] == "closed",
+       _g["status2"])
+    ck("and its browser context released",  _g["held"] == 0,
+       "a context per session ever opened is the leak that turns into "
+       "'the worker fell over' three days later")
+    db.query(m.ApplySession).filter(
+        m.ApplySession.user_id == me.id).delete(synchronize_session=False)
+    db.commit()
+
 # ------------------------------------------------------------------ cleanup
 db.query(m.ApplyQueue).filter(
     m.ApplyQueue.user_id.in_([me.id, other.id])).delete(

@@ -11500,6 +11500,10 @@ function aqRowHTML(r){
           ? `<button class="btn sm" data-aqans="${r.id}">Answer ${r.missing.length} question${r.missing.length===1?"":"s"}</button>` : ""}
         ${r.status==="needs_login"
           ? `<button class="btn sm" data-aqlogin="${r.id}">Set up ${esc(r.company||"this employer")}</button>` : ""}
+        ${["needs_login","needs_answer"].includes(r.status)
+          ? `<button class="btn ghost sm" data-sessopen="${r.id}"
+               title="Open the employer's page here, without leaving Craxle"
+             >🖥 Open it here</button>` : ""}
         ${stoppable?`<button class="btn ghost sm" data-aqcancel="${r.id}">Stop it</button>`:""}
       </div>
     </div>
@@ -11835,6 +11839,145 @@ async function aqAnswer(id){
   renderCareers();
 }
 
+/* The employer's page, running in the worker, shown here.
+ *
+ * Not an iframe, and it cannot be one: Ashby and Workday both send
+ * X-Frame-Options: DENY, and Workday is exactly where a sign-in happens.
+ * What arrives is a PNG of the worker's real browser; what goes back is
+ * where you clicked and what you typed.
+ *
+ * The one thing that has to be right is the coordinate maths. The frame is
+ * 1100 wide and the panel is whatever the screen allows, so a click at
+ * (300, 200) on a half-size image is (600, 400) in the page. Getting that
+ * wrong does not look broken — it silently clicks somewhere else, which is
+ * worse, so it is computed from the image's own naturalWidth rather than
+ * from any assumption about the layout.
+ */
+const SESS = {id:0, shot:"", w:1100, h:760, note:"", status:"", url:"",
+              timer:0, busy:false};
+
+function sessStop(){
+  if(SESS.timer){ clearInterval(SESS.timer); SESS.timer=0; }
+}
+
+async function sessOpen(qid){
+  const row=(AQ.rows||[]).find(r=>r.id===qid);
+  try{
+    const d=await api.post(`/api/apply/queue/${qid}/session`,{});
+    SESS.id=d.session.id; SESS.status=d.session.status;
+    SESS.note=d.session.note||""; SESS.shot="";
+    SESS.w=d.session.width||1100; SESS.h=d.session.height||760;
+    SESS.url=d.session.url||(row&&row.url)||"";
+  }catch(e){ AQ.msg=e.message; return renderCareers(); }
+  sessPaint();
+  sessStop();
+  /* Every second. The worker tightens its own loop to match while anybody
+     is watching, so this is a frame rather than a poll into the void. */
+  SESS.timer=setInterval(sessPoll, 1000);
+}
+
+async function sessPoll(){
+  if(!SESS.id || SESS.busy) return;
+  SESS.busy=true;
+  try{
+    const d=await api.get(`/api/apply/session/${SESS.id}`);
+    const s=d.session;
+    SESS.status=s.status; SESS.note=s.note||""; SESS.url=s.url||SESS.url;
+    SESS.w=s.width||SESS.w; SESS.h=s.height||SESS.h;
+    if(s.shot) SESS.shot=s.shot;
+    if(s.status==="closed"){ sessStop(); }
+    sessPaint();
+  }catch(e){
+    sessStop();
+    SESS.note=e.message;
+    sessPaint();
+  }finally{ SESS.busy=false; }
+}
+
+async function sessAct(kind, x, y, text){
+  if(!SESS.id || SESS.status!=="live") return;
+  try{
+    await api.post(`/api/apply/session/${SESS.id}/act`,
+                   {kind:kind, x:Math.round(x||0), y:Math.round(y||0),
+                    text:text||""});
+  }catch(e){ /* a dropped click is not worth an alert; the next frame shows */ }
+}
+
+async function sessClose(){
+  sessStop();
+  if(SESS.id){ try{ await api.post(`/api/apply/session/${SESS.id}/close`,{}); }
+               catch(e){} }
+  SESS.id=0; SESS.shot="";
+  const n=$("#sessWrap"); if(n) n.remove();
+  await aqLoad();
+  renderCareers();
+}
+
+function sessPaint(){
+  let n=$("#sessWrap");
+  if(!n){
+    n=document.createElement("div");
+    n.id="sessWrap";
+    n.style.cssText="position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.72);"
+      +"display:flex;align-items:center;justify-content:center;padding:14px";
+    document.body.appendChild(n);
+  }
+  const live=SESS.status==="live";
+  n.innerHTML=`<div style="background:var(--surface);border:1px solid var(--line);
+      border-radius:14px;max-width:min(1140px,96vw);width:100%;max-height:94vh;
+      display:flex;flex-direction:column;overflow:hidden">
+    <div class="row" style="gap:9px;align-items:center;padding:10px 12px;
+        border-bottom:1px solid var(--line);flex-wrap:wrap">
+      <b style="font-size:14px">🖥 The employer's page, here</b>
+      <span style="flex:1;min-width:120px;font-size:12px;color:var(--dim);
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(SESS.url)}</span>
+      <button class="btn ghost sm" data-sesskey="Enter">↵ Enter</button>
+      <button class="btn ghost sm" data-sesskey="Tab">⇥ Tab</button>
+      <button class="btn sm" data-sessclose="1">Done</button>
+    </div>
+    <div style="padding:7px 12px;font-size:12.5px;color:${live?"var(--dim)":"#e0b050"}">
+      ${esc(SESS.note||(live?"":"Opening…"))}</div>
+    <div style="flex:1;overflow:auto;background:#0b0e12;display:flex;
+        align-items:flex-start;justify-content:center">
+      ${SESS.shot
+        ? `<img id="sessShot" src="data:image/png;base64,${SESS.shot}"
+             style="max-width:100%;height:auto;display:block;cursor:crosshair">`
+        : `<div style="padding:40px;color:var(--dim);font-size:13.5px">
+             Waiting for the first frame — the worker picks this up within a
+             few seconds.</div>`}
+    </div>
+    <div class="row" style="gap:8px;padding:10px 12px;border-top:1px solid var(--line)">
+      <input class="ask-input" id="sessType" style="flex:1"
+        placeholder="${live?"Click a field above, then type here":"Not live yet"}"
+        ${live?"":"disabled"}>
+      <button class="btn sm" data-sesssend="1" ${live?"":"disabled"}>Type it</button>
+    </div>
+  </div>`;
+
+  const img=$("#sessShot");
+  if(img){
+    img.onclick=(e)=>{
+      /* Frame pixels, not display pixels. The image is scaled to fit and a
+         click at half size is double in the page — computed from the image's
+         own natural size so no layout assumption can get it wrong. */
+      const r=img.getBoundingClientRect();
+      const sx=(img.naturalWidth||SESS.w)/r.width;
+      const sy=(img.naturalHeight||SESS.h)/r.height;
+      sessAct("click",(e.clientX-r.left)*sx,(e.clientY-r.top)*sy);
+    };
+    img.onwheel=(e)=>{ e.preventDefault(); sessAct("scroll",0,e.deltaY); };
+  }
+  const t=$("#sessType");
+  if(t) t.onkeydown=(e)=>{ if(e.key==="Enter"){ sessSend(); } };
+}
+
+function sessSend(){
+  const t=$("#sessType");
+  if(!t||!t.value) return;
+  sessAct("type",0,0,t.value);
+  t.value="";
+}
+
 /* The pipeline view: what you saved, applied to, and how far each one got. */
 function jbTrackerHTML(){
   const t=JB.tracks;
@@ -12056,6 +12199,14 @@ document.addEventListener("click",e=>{
   if(aCan){ aqCancel(+aCan.dataset.aqcancel); return; }
   const aLog=e.target.closest("[data-aqlogin]");
   if(aLog){ aqLogin(+aLog.dataset.aqlogin); return; }
+  const sOpen=e.target.closest("[data-sessopen]");
+  if(sOpen){ sessOpen(+sOpen.dataset.sessopen); return; }
+  const sCls=e.target.closest("[data-sessclose]");
+  if(sCls){ sessClose(); return; }
+  const sKey=e.target.closest("[data-sesskey]");
+  if(sKey){ sessAct("key",0,0,sKey.dataset.sesskey); return; }
+  const sSnd=e.target.closest("[data-sesssend]");
+  if(sSnd){ sessSend(); return; }
   const aFor=e.target.closest("[data-aqforget]");
   if(aFor){ aqForget(+aFor.dataset.aqforget); return; }
   const aAns=e.target.closest("[data-aqans]");

@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main as m                                          # noqa: E402
 from worker import flow                                   # noqa: E402
+from worker import sessions                                # noqa: E402
 from worker.adapters import adapter_for                   # noqa: E402
 from worker.resume import resume_file_for                 # noqa: E402
 
@@ -149,6 +150,14 @@ async def main_loop():
                     continue
                 db = m.SessionLocal()
                 try:
+                    # Live sessions first, and every pass. Somebody watching
+                    # a page must not wait for a queue of applications to
+                    # drain before their next frame arrives — a second of
+                    # lag is a channel, ten is a broken feature.
+                    try:
+                        await sessions.serve(browser, db, m)
+                    except Exception:
+                        traceback.print_exc()
                     moved = await pass_once(browser, db)
                 except flow.Halted:
                     print("APPLY_KILL_SWITCH set mid-pass — stopping here.",
@@ -156,8 +165,16 @@ async def main_loop():
                     moved = 0
                 finally:
                     db.close()
-                await asyncio.sleep(POLL_SECONDS if not moved else 1)
+                # A live session needs frames, not a twenty-second poll. The
+                # loop tightens to a second while anybody is watching and
+                # goes back to its normal pace when nobody is.
+                watching = bool(sessions._LIVE)
+                await asyncio.sleep(
+                    1 if (moved or watching) else POLL_SECONDS)
         finally:
+            # Held session contexts go before the browser does, or their
+            # close() races a browser that has already gone.
+            await sessions.drop_all()
             await browser.close()
 
 

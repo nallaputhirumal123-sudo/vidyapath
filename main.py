@@ -768,6 +768,40 @@ class AnswerBank(Base):
                                        name="uq_answer_user_question"),)
 
 
+class ApplySession(Base):
+    """A live view of the worker's browser, for one stuck row.
+
+    An iframe cannot show these sites: Ashby and Workday both send
+    X-Frame-Options: DENY, and Workday is the one where a sign-in happens.
+    A picture is not an iframe, so this streams PNG frames out of the
+    worker's real Chromium and sends clicks and keystrokes back into it.
+
+    The worker holds the page; the web app has no Chromium and should not
+    grow one. This table is the channel between the two services, which
+    costs about a second of latency and no new infrastructure.
+
+    Scoped to one queued row on purpose. It exists to unstick that row, and
+    a session that could go anywhere would be a server-side proxy to the
+    whole internet with somebody else's IP on it.
+    """
+    __tablename__ = "apply_session"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    queue_id = Column(Integer, index=True)     # not a FK: rows get pruned
+    status = Column(String(20), default="asked", index=True)
+    url = Column(Text, default="")
+    shot = Column(Text, default="")            # base64 PNG, one frame
+    shot_at = Column(DateTime(timezone=True))
+    width = Column(Integer, default=1100)
+    height = Column(Integer, default=760)
+    acts = Column(Text, default="")            # JSON list the worker drains
+    note = Column(Text, default="")
+    expires_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
 class AtsAccount(Base):
     """A login the candidate holds on one employer's careers site.
 
@@ -21797,6 +21831,164 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
 
 
 
+
+
+
+# ---- reaching into the worker's browser, from inside Craxle ----------------
+#
+# An iframe cannot show these sites. Measured: Ashby and Workday both send
+# X-Frame-Options: DENY, and Workday is exactly where a person has to sign
+# in. That is their header and no amount of wanting changes it.
+#
+# A picture is not an iframe. The worker already runs a real Chromium, so
+# this hands its frames to the page as PNG and sends clicks and keystrokes
+# back. The candidate never leaves Craxle and no employer header is involved.
+#
+# Latency is about a second, because the channel between the web service and
+# the worker is this table rather than a socket. That is the right trade for
+# two Railway services that otherwise need no way to reach each other.
+
+# Short on purpose. A held browser context is memory in the worker AND an
+# open session on somebody's employer account; a person who wanders off must
+# not leave either running. Extended by activity, not by wishing.
+APPLY_SESSION_MINUTES = 12
+
+
+def _session_json(s, with_shot=False):
+    out = {"id": s.id, "queue_id": s.queue_id, "status": s.status or "",
+           "url": s.url or "", "note": (s.note or "")[:400],
+           "width": s.width or 1100, "height": s.height or 760,
+           "shot_at": s.shot_at.isoformat() if s.shot_at else None,
+           "expires_at": s.expires_at.isoformat() if s.expires_at else None,
+           "has_shot": bool(s.shot)}
+    if with_shot:
+        out["shot"] = s.shot or ""
+    return out
+
+
+class ApplyActIn(BaseModel):
+    # click | type | key | scroll | goto_note
+    kind: str = Field(default="", max_length=20)
+    x: int = 0
+    y: int = 0
+    text: str = Field(default="", max_length=400)
+
+
+@app.post("/api/apply/queue/{qid}/session")
+def apply_session_open(qid: int, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Ask the worker to open this row's page where the candidate can see it.
+
+    Only for a row that is actually stuck. A session on a row that is
+    proceeding would be a browser handed out for its own sake, and this is
+    not a browser — it is a way to unstick one application.
+    """
+    apply_gate(db, user, 0)
+    q = db.get(ApplyQueue, qid)
+    if q is None or q.user_id != user.id:
+        raise HTTPException(404, "No such application")
+    if q.status not in ("needs_login", "needs_answer", "prepared", "holding"):
+        raise HTTPException(
+            400, "That one is finished — there is nothing left to do on it.")
+
+    live = db.query(ApplySession).filter(
+        ApplySession.user_id == user.id, ApplySession.queue_id == qid,
+        ApplySession.status.in_(["asked", "live"])).first()
+    if live is not None:
+        live.expires_at = now() + dt.timedelta(minutes=APPLY_SESSION_MINUTES)
+        live.updated_at = now()
+        db.commit()
+        return {"session": _session_json(live), "reused": True}
+
+    # One at a time. Each live session is a browser context held open in the
+    # worker, and letting somebody open twenty is how the worker runs out of
+    # memory in a way that looks like the whole feature breaking.
+    for old in db.query(ApplySession).filter(
+            ApplySession.user_id == user.id,
+            ApplySession.status.in_(["asked", "live"])).all():
+        old.status = "closed"
+        old.updated_at = now()
+
+    s = ApplySession(user_id=user.id, queue_id=qid, status="asked",
+                     url=q.url or "", created_at=now(), updated_at=now(),
+                     expires_at=now() + dt.timedelta(
+                         minutes=APPLY_SESSION_MINUTES),
+                     note="Waiting for the worker to pick this up…")
+    db.add(s)
+    db.commit()
+    return {"session": _session_json(s), "reused": False,
+            "message": "Opening it here. The first frame takes a few seconds."}
+
+
+@app.get("/api/apply/session/{sid}")
+def apply_session_poll(sid: int, shot: int = 1,
+                       user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """The latest frame, and whatever the worker wants to say about it.
+
+    `shot=0` asks for the state without the image, which is what a screen
+    that already has the current frame should send — a base64 PNG on every
+    poll is a lot of bytes to move for no change.
+    """
+    s = db.get(ApplySession, sid)
+    if s is None or s.user_id != user.id:
+        raise HTTPException(404, "No such session")
+    return {"session": _session_json(s, with_shot=bool(shot))}
+
+
+@app.post("/api/apply/session/{sid}/act")
+def apply_session_act(sid: int, body: ApplyActIn,
+                      user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Queue one thing the person did, for the worker to apply.
+
+    Appended to a list rather than replacing a value: two clicks in quick
+    succession must not lose the first, and typing is a stream.
+
+    Coordinates are in FRAME pixels, which is why the frame carries its own
+    width and height — the screen scales the image to fit and has to scale
+    the click back, and getting that wrong means clicking somewhere the
+    person did not.
+    """
+    s = db.get(ApplySession, sid)
+    if s is None or s.user_id != user.id:
+        raise HTTPException(404, "No such session")
+    if s.status != "live":
+        raise HTTPException(409, "That session is not live yet.")
+    kind = (body.kind or "").strip().lower()
+    if kind not in ("click", "type", "key", "scroll"):
+        raise HTTPException(400, "Unknown action")
+    try:
+        acts = json.loads(s.acts) if s.acts else []
+    except Exception:
+        acts = []
+    if not isinstance(acts, list):
+        acts = []
+    # Bounded. A screen stuck in a loop must not be able to fill a column.
+    if len(acts) >= 40:
+        raise HTTPException(429, "Too many actions queued — give it a moment.")
+    acts.append({"kind": kind, "x": int(body.x), "y": int(body.y),
+                 "text": (body.text or "")[:400]})
+    s.acts = json.dumps(acts)[:20000]
+    # Touching it keeps it alive: somebody actively using a session should
+    # not have it closed underneath them.
+    s.expires_at = now() + dt.timedelta(minutes=APPLY_SESSION_MINUTES)
+    s.updated_at = now()
+    db.commit()
+    return {"queued": len(acts)}
+
+
+@app.post("/api/apply/session/{sid}/close")
+def apply_session_close(sid: int, user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Done with it. The worker drops the context on its next pass."""
+    s = db.get(ApplySession, sid)
+    if s is None or s.user_id != user.id:
+        raise HTTPException(404, "No such session")
+    s.status = "closed"
+    s.updated_at = now()
+    db.commit()
+    return {"ok": True}
 
 
 # ---- accounts on employers' own careers sites ------------------------------
