@@ -120,6 +120,13 @@ the whole crawl.
 terms, and it gets the crawler blocked. Paid aggregators exist precisely
 because that route is closed.
 
+The same rule applies with more force one step further on. The auto-apply
+worker drives ATS forms, and there the cost of getting this wrong is not a
+blocked crawler but a blocked *candidate*, at a company they wanted to work
+at. See `docs/ADDING-AN-APPLY-ADAPTER.md` — only the six ATSs that need no
+candidate account are ever driven, and aggregator rows are refused because a
+`redirect_url` is somebody else's site, not an application form.
+
 ---
 
 ## 3. What happens to the rows

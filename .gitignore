@@ -58,3 +58,9 @@ corpus.db*
 # the disk while both copies exist. The corpus is different — 24.5 MB of text
 # down to 10.2 — which is why that one is compressed and this one is not.
 !corpus-pics.db
+
+# Auto-apply: screenshots of filled forms and the resume PDFs built for
+# them. Both are generated per run and neither belongs in the repository —
+# the screenshots are somebody a form was filled out for.
+tests/fixtures/_shots/
+.vp-apply-shots/

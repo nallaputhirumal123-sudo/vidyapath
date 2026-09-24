@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Senior Backend Engineer — Example Co</title>
+<!--
+  A Greenhouse application form, reproduced from the structure of a real
+  board: the #application_form wrapper, the first_name / last_name / email /
+  phone ids, the question blocks Greenhouse generates for an employer's
+  custom questions, input[type=file]#resume, and #submit_app.
+
+  It is a fixture and not a saved copy of anybody's page. No employer's
+  markup, styling or copy is reproduced, and nothing here is fetched: the
+  worker is driven against this file over file:// so the suite never touches
+  a live board. A test that posts an application to a real employer is a
+  bug, not a thorough test.
+
+  The submit handler below is what lets submit() be exercised end to end
+  with no network at all — it swaps in the confirmation text Greenhouse
+  shows, which is the only evidence the adapter accepts.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 720px; padding: 32px; }
+  .field { margin: 0 0 18px; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type=text], input[type=email], input[type=tel], textarea, select {
+    width: 100%; padding: 8px; font: inherit; box-sizing: border-box; }
+  .hint { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Senior Backend Engineer</h1>
+<p>Example Co — Remote</p>
+
+<div id="application_form">
+  <form action="/applications" method="post" enctype="multipart/form-data">
+
+    <div class="field">
+      <label for="first_name">First Name <span aria-hidden="true">*</span></label>
+      <input type="text" id="first_name" name="job_application[first_name]" required>
+    </div>
+
+    <div class="field">
+      <label for="last_name">Last Name <span aria-hidden="true">*</span></label>
+      <input type="text" id="last_name" name="job_application[last_name]" required>
+    </div>
+
+    <div class="field">
+      <label for="email">Email <span aria-hidden="true">*</span></label>
+      <input type="email" id="email" name="job_application[email]" required>
+    </div>
+
+    <div class="field">
+      <label for="phone">Phone</label>
+      <input type="tel" id="phone" name="job_application[phone]">
+    </div>
+
+    <div class="field">
+      <label for="job_application_location">Location (City)</label>
+      <input type="text" id="job_application_location" name="job_application[location]">
+    </div>
+
+    <div class="field">
+      <label for="resume">Resume/CV <span aria-hidden="true">*</span></label>
+      <input type="file" id="resume" name="job_application[resume]"
+             accept=".pdf,.doc,.docx,.txt,.rtf" required>
+      <div class="hint">Attach or paste</div>
+    </div>
+
+    <div class="field">
+      <label for="job_application_answers_attributes_0_text_value">
+        LinkedIn Profile
+      </label>
+      <input type="text" id="job_application_answers_attributes_0_text_value"
+             name="job_application[answers_attributes][0][text_value]">
+    </div>
+
+    <!--
+      A required custom question with no counterpart in a resume. This is
+      the one the answer bank exists for: nothing in a CV says it, every
+      board asks it, and the worker must park the row rather than guess.
+    -->
+    <div class="field">
+      <label for="job_application_answers_attributes_1_boolean_value">
+        Are you legally authorized to work in the United States?
+        <span aria-hidden="true">*</span>
+      </label>
+      <select id="job_application_answers_attributes_1_boolean_value"
+              name="job_application[answers_attributes][1][boolean_value]"
+              required>
+        <option value="">-- Select --</option>
+        <option value="1">Yes</option>
+        <option value="0">No</option>
+      </select>
+    </div>
+
+    <!--
+      Optional, and deliberately left blank by the fixture. A row must NOT
+      park on this: parking on every optional question an employer offers
+      would park every application ever queued.
+    -->
+    <div class="field">
+      <label for="job_application_answers_attributes_2_text_value">
+        How did you hear about this job? (optional)
+      </label>
+      <input type="text" id="job_application_answers_attributes_2_text_value"
+             name="job_application[answers_attributes][2][text_value]">
+    </div>
+
+    <input type="submit" id="submit_app" value="Submit Application">
+  </form>
+</div>
+
+<script>
+  /* No network. The page swaps itself for the confirmation Greenhouse
+     shows, which is the text the adapter looks for and the only thing it
+     will accept as evidence that an application landed. */
+  document.querySelector("#application_form form")
+    .addEventListener("submit", function (e) {
+      e.preventDefault();
+      var picked = document.querySelector("#resume").files.length;
+      var auth = document.querySelector(
+        "#job_application_answers_attributes_1_boolean_value").value;
+      /* The two required things a real board would reject it for. Answering
+         "it went through" when the form was incomplete is the one result
+         this fixture must never produce. */
+      if (!picked || !auth) {
+        document.body.innerHTML =
+          "<h1>There was a problem with your application</h1>" +
+          "<p>Please complete the required fields.</p>";
+        return;
+      }
+      document.body.innerHTML =
+        "<h1>Thank you for applying</h1>" +
+        "<p>Your application has been submitted to Example Co.</p>";
+    });
+</script>
+</body>
+</html>

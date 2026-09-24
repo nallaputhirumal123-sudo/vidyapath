@@ -1,0 +1,707 @@
+"""The worker half: what happens to one queued row, and what stops it.
+
+Two passes over the same state machine.
+
+**The first needs no browser.** flow.py deliberately imports nothing from
+playwright — it takes a `page` and an `adapter` and does not care what they
+are — so the caps, the hold window, the retry ceiling, the kill switch and
+the consent recheck can all be driven with a stub. That is the half that has
+to run on every machine, every time, because it is the half where a mistake
+sends an application somebody did not authorise.
+
+**The second drives a real Chromium** against tests/fixtures/greenhouse_form.html
+over file://, and is skipped with `skipped (no playwright)` when the package
+is absent — the same convention the crawler uses for a missing credential,
+and for the same reason: a missing optional dependency must read as a
+missing dependency and never as a passing test.
+
+Nothing in this file touches a real employer. Not a mock of one, not a
+staging one, not one "just to check the selectors". A test that posts an
+application to a live board is a bug, and the fixture exists precisely so
+that nobody is ever tempted.
+
+The two ambiguous outcomes are worth naming, because both are deliberately
+resolved AGAINST retrying:
+
+  - the page did not confirm  (Unconfirmed)
+  - the submit step itself raised
+
+In both cases the click may have landed. "I clicked and could not read the
+response" and "I did not click" are indistinguishable from here, and
+retrying the first applies to the same job twice under somebody's real name.
+So both record `submitted`, keep the error text, and stop.
+"""
+import asyncio
+import io
+import os
+import sys
+import time
+import datetime as dt
+import itertools
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+os.environ.setdefault("JWT_SECRET", "t" * 40)
+os.environ["DATABASE_URL"] = "sqlite:///./vidyapath.db"
+os.environ["ALLOW_SQLITE"] = "1"
+os.environ["JOBS_ENABLED"] = "0"
+os.environ["COOKIE_SECURE"] = "0"
+os.environ.pop("APPLY_KILL_SWITCH", None)
+os.environ["APPLY_HOLD_MINUTES"] = "15"
+
+import main as m                                   # noqa: E402
+from worker import flow                            # noqa: E402
+from worker.adapters import ADAPTERS               # noqa: E402
+from worker.adapters.base import (Adapter, FillResult, Question,  # noqa: E402
+                                  Unconfirmed)
+from worker.resume import build_pdf, resume_file_for   # noqa: E402
+
+m.Base.metadata.create_all(bind=m.engine)
+m._migrate_columns()
+
+P, F, S = [], [], []
+
+
+def ck(n, c, d=""):
+    print(("PASS " if c else "FAIL ") + n + (f" — {d}" if d else ""),
+          flush=True)
+    (P if c else F).append(n)
+
+
+def skip(n, why):
+    print(f"SKIP {n} — {why}", flush=True)
+    S.append(n)
+
+
+FIXTURE = os.path.join(ROOT, "tests", "fixtures", "greenhouse_form.html")
+SHOTS = os.path.join(ROOT, "tests", "fixtures", "_shots")
+
+# ------------------------------------------------------------- the fixture
+u = f"{int(time.time())}{os.getpid()}"
+db = m.SessionLocal()
+me = m.User(name="Worker Person", email=f"worker{u}@example.com",
+            password_hash=m.hash_pw("WorkerPass1!"), dob=dt.date(1992, 5, 5),
+            plan="pro", city="Hyderabad")
+db.add(me)
+db.commit()
+db.refresh(me)
+db.add(m.ApplyConsent(user_id=me.id, granted_at=m.now(),
+                      scope="Apply on my behalf."))
+db.add(m.Note(user_id=me.id, k="resume_uptext", v=(
+    "ANJALI RAO\nBackend Engineer\nanjali.rao@example.com | +91 98765 43210 | "
+    "Hyderabad, India\nhttps://github.com/anjalirao\n\nSUMMARY\nBackend "
+    "engineer with six years building payment systems in Python and Go.\n\n"
+    "EXPERIENCE\nSenior Engineer, Northwind Pay (2021-2025)\n"
+    "- Rebuilt the settlement pipeline; cut reconciliation time by 40%.\n"
+    "- Ran the on-call rota for twelve services.\n\n"
+    "EDUCATION\nB.Tech Computer Science, JNTU Hyderabad, 2019\n")))
+db.add(m.Note(user_id=me.id, k="resume_data", v=(
+    '{"name": "Anjali Rao", "email": "anjali.rao@example.com", '
+    '"phone": "+91 98765 43210", "location": "Hyderabad, India", '
+    '"links": "https://github.com/anjalirao", '
+    '"exp": [{"role": "Senior Engineer", "company": "Northwind Pay"}], '
+    '"edu": [{"school": "JNTU Hyderabad", "degree": "B.Tech", '
+    '"year": "2019"}]}')))
+db.commit()
+
+job = m.Job(source="greenhouse", external_id=f"gh-{u}", title="Backend Engineer",
+            company=f"Example Co {u}", is_open=True,
+            url="file:///" + FIXTURE.replace("\\", "/"))
+db.add(job)
+db.commit()
+db.refresh(job)
+
+
+# Each row gets its own employer unless a test says otherwise. The
+# per-company hour is live for every submit, so a fixture that reuses one
+# company quietly starts blocking its own later cases - which is the cap
+# working correctly and the test lying about what it is measuring.
+_seq = itertools.count(1)
+
+
+def new_row(status="prepared", company=None, **kw):
+    row = m.ApplyQueue(user_id=me.id, job_id=job.id, source="greenhouse",
+                       url=job.url, title=job.title,
+                       company=company or f"{job.company} #{next(_seq)}",
+                       status=status, created_at=m.now(), updated_at=m.now(),
+                       **kw)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def clear_bank():
+    db.query(m.AnswerBank).filter(
+        m.AnswerBank.user_id == me.id).delete(synchronize_session=False)
+    db.commit()
+
+
+# --------------------------------------------------------------- the stubs
+class StubPage:
+    """Everything flow.py asks of a page, which is one method."""
+
+    def __init__(self):
+        self.shots = []
+
+    async def screenshot(self, path=None, full_page=False):
+        self.shots.append(path)
+        with open(path, "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n")       # enough to exist
+
+
+class StubAdapter(Adapter):
+    source = "greenhouse"
+
+    def __init__(self, missing=None, confirm="Thank you for applying",
+                 raise_on=None):
+        self.missing = missing or []
+        self.confirm = confirm
+        self.raise_on = raise_on            # "open" | "submit" | "unconfirmed"
+        self.calls = []
+
+    async def open(self, page, url):
+        self.calls.append("open")
+        if self.raise_on == "open":
+            raise RuntimeError("the listing has closed")
+
+    async def fill(self, page, profile):
+        self.calls.append("fill")
+        self.profile = profile
+        return FillResult(filled=["email", "first_name"], count=2)
+
+    async def answers(self, page, bank):
+        self.calls.append("answers")
+        self.bank_seen = dict(bank)
+        return [q for q in self.missing
+                if m.question_norm(q.label) not in bank]
+
+    async def attach(self, page, resume_path):
+        self.calls.append("attach")
+        self.attached = resume_path
+
+    async def submit(self, page):
+        self.calls.append("submit")
+        if self.raise_on == "submit":
+            raise RuntimeError("the button moved")
+        if self.raise_on == "unconfirmed":
+            raise Unconfirmed("the page did not say so")
+        return self.confirm
+
+
+AUTH_Q = Question(selector="#auth", norm="",
+                  label="Are you legally authorized to work in the "
+                        "United States?", kind="select", required=True,
+                  options=["Yes", "No"])
+
+
+def run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+# -------------------------------------------------------- the happy path
+print("\none row, from prepared to a hold window")
+clear_bank()
+row = new_row()
+ad = StubAdapter()
+page = StubPage()
+out = run(flow.run_row(db, m, row, ad, page, SHOTS, resume_path="x.pdf"))
+ck("it ends holding", out == "holding", out)
+ck("in the order a form needs",
+   ad.calls == ["open", "fill", "answers", "attach"], str(ad.calls))
+# flow.aware, not a raw subtraction: SQLite hands back a naive datetime
+# where Postgres gives an aware one, and comparing the two raises.
+ck("the hold window is set from the setting",
+   row.hold_until is not None
+   and 14 <= (flow.aware(row.hold_until) - m.now()).total_seconds() / 60 <= 15.1,
+   str(row.hold_until))
+ck("with a screenshot to look at", bool(row.screenshot_path)
+   and os.path.exists(row.screenshot_path),
+   "'we are about to send this' with nothing to see is a countdown, not a "
+   "review")
+ck("and it cost no retry, because nothing failed",
+   (row.attempt or 0) == 0,
+   "attempt counts failures, not passes: a candidate asked for two answers "
+   "on one awkward form must not reach the third with no retries left")
+ck("the profile carries the keys filler.js matches on",
+   {"first_name", "last_name", "email", "phone", "linkedin"}
+   <= set(ad.profile), sorted(ad.profile)[:6])
+ck("built from the stored resume, not invented",
+   ad.profile.get("email") == "anjali.rao@example.com",
+   ad.profile.get("email"))
+
+print("\nnothing goes out before the window is up")
+out = run(flow.run_row(db, m, row, ad, page, SHOTS))
+ck("a second pass inside the window does nothing", out == "holding", out)
+ck("and did not click submit", "submit" not in ad.calls, str(ad.calls))
+
+print("\nand goes when it is")
+row.hold_until = m.now() - dt.timedelta(seconds=1)
+db.commit()
+out = run(flow.run_row(db, m, row, ad, page, SHOTS))
+ck("it is confirmed", out == "confirmed", out)
+ck("with the employer's own words kept",
+   "Thank you for applying" in (row.confirmation or ""), row.confirmation)
+ck("and a submitted_at on it", row.submitted_at is not None)
+track = db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id,
+                                    m.JobTrack.job_id == job.id).first()
+ck("the tracker has it, where the rest of the history lives",
+   track is not None and track.status == "applied", str(track and track.status))
+ck("with the posting details copied in",
+   track is not None and track.company == row.company,
+   "jobs get pruned; a history that empties with the listing is not one")
+
+print("\na cancellation window that can actually be used")
+row = new_row(status="holding", hold_until=m.now() - dt.timedelta(minutes=1))
+row.status = "cancelled"
+db.commit()
+out = run(flow.run_row(db, m, row, StubAdapter(), StubPage(), SHOTS))
+ck("a cancelled row is never picked up", out == "cancelled", out)
+ck("and due_rows does not offer it",
+   row.id not in [r.id for r in flow.due_rows(db, m, 50)],
+   "a terminal status the worker still polls is a row that sends itself "
+   "after somebody stopped it")
+
+print("")
+print("a pasted link has no job_id, and two of them are two applications")
+# JobTrack was matched on job_id. A pasted link has none, and
+# `job_id == None` matches every other row with a null job_id — so the
+# second pasted application would have updated the first one's tracker
+# row and the first application would have vanished from the history.
+clear_bank()
+os.environ["APPLY_HOLD_MINUTES"] = "0"
+before = db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id).count()
+for n in (1, 2):
+    r = m.ApplyQueue(user_id=me.id, job_id=None, source="greenhouse",
+                     url=f"https://boards.greenhouse.io/pasted{n}/jobs/{n}",
+                     title="Pasted link", company=f"Pasted {n}",
+                     status="prepared", created_at=m.now())
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    run(flow.run_row(db, m, r, StubAdapter(), StubPage(), SHOTS,
+                     resume_path="x.pdf"))
+os.environ["APPLY_HOLD_MINUTES"] = "15"
+after = db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id).count()
+ck("two pasted applications make two tracker rows", after - before == 2,
+   f"{before} -> {after}")
+ck("and neither carries a null id the screen would render as 'null'",
+   db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id,
+                               m.JobTrack.job_id.is_(None)).count() == 0,
+   "the tracker card keys its controls off this attribute")
+# The same link applied for twice — which happens after a failure, or when
+# somebody re-pastes one — must update its own row, not add a second.
+os.environ["APPLY_HOLD_MINUTES"] = "0"
+again = m.ApplyQueue(user_id=me.id, job_id=None, source="greenhouse",
+                     url="https://boards.greenhouse.io/pasted1/jobs/1",
+                     title="Pasted link", company="Pasted 1",
+                     status="prepared", created_at=m.now())
+db.add(again)
+db.commit()
+db.refresh(again)
+run(flow.run_row(db, m, again, StubAdapter(), StubPage(), SHOTS,
+                 resume_path="x.pdf"))
+os.environ["APPLY_HOLD_MINUTES"] = "15"
+ck("the same link again updates its own row rather than adding another",
+   db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id).count() == after,
+   f"{after} -> "
+   f"{db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id).count()}")
+
+# ---------------------------------------------------- questions it cannot answer
+print("\na question with no deterministic answer parks the row")
+clear_bank()
+row = new_row()
+ad = StubAdapter(missing=[AUTH_Q])
+out = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS, resume_path="x.pdf"))
+ck("it parks rather than guessing", out == "needs_answer", out)
+ck("nothing was attached or sent",
+   "attach" not in ad.calls and "submit" not in ad.calls, str(ad.calls))
+ck("and the question is kept in the employer's own words",
+   "legally authorized" in (row.missing_json or ""), (row.missing_json or "")[:90])
+ck("with the options, so it can be answered without opening the form",
+   '"Yes"' in (row.missing_json or ""), (row.missing_json or "")[:120])
+
+print("\nand once answered, it never asks again")
+db.add(m.AnswerBank(user_id=me.id,
+                    question_norm=m.question_norm(AUTH_Q.label),
+                    answer="Yes", created_at=m.now()))
+row.status = "prepared"
+db.commit()
+ad = StubAdapter(missing=[AUTH_Q])
+out = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS, resume_path="x.pdf"))
+ck("the bank resolves it", out == "holding", out)
+ck("and the worker read the key the API wrote",
+   m.question_norm(AUTH_Q.label) in getattr(ad, "bank_seen", {}),
+   "two normalisers that disagree by a comma make a bank that never hits")
+
+# ------------------------------------------------------------- the refusals
+print("\nno resume, no application")
+clear_bank()
+row = new_row()
+out = run(flow.run_row(db, m, row, StubAdapter(), StubPage(), SHOTS,
+                       resume_path=None))
+ck("it fails rather than sending an empty form", out == "failed", out)
+ck("and says what to do", "resume" in (row.error or "").lower(), row.error)
+
+print("\nconsent is checked again immediately before the click")
+row = new_row(status="holding", hold_until=m.now() - dt.timedelta(minutes=1))
+for cs in db.query(m.ApplyConsent).filter(
+        m.ApplyConsent.user_id == me.id,
+        m.ApplyConsent.revoked_at.is_(None)).all():
+    cs.revoked_at = m.now()
+db.commit()
+ad = StubAdapter()
+out = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS))
+ck("a withdrawn consent cancels the row", out == "cancelled", out)
+ck("and nothing was submitted", "submit" not in ad.calls, str(ad.calls))
+ck("with the reason recorded", "withdrawn" in (row.error or "").lower(),
+   row.error)
+db.add(m.ApplyConsent(user_id=me.id, granted_at=m.now(), scope="again"))
+db.commit()
+
+print("\nthe kill switch stops an in-flight loop")
+row = new_row()
+os.environ["APPLY_KILL_SWITCH"] = "1"
+halted = False
+ad = StubAdapter()
+try:
+    run(flow.run_row(db, m, row, ad, StubPage(), SHOTS, resume_path="x.pdf"))
+except flow.Halted:
+    halted = True
+ck("run_row refuses to start", halted, "it raises rather than returning, so "
+   "the loop stops instead of spinning through the whole queue")
+ck("and touched nothing", ad.calls == [], str(ad.calls))
+db.refresh(row)
+ck("the row is left exactly as it was, not failed",
+   row.status == "prepared" and (row.attempt or 0) == 0,
+   f"{row.status}/{row.attempt}")
+
+# Mid-flight: prepared already, switch thrown before the submit pass.
+row.status = "holding"
+row.hold_until = m.now() - dt.timedelta(minutes=1)
+db.commit()
+halted = False
+try:
+    run(flow.run_row(db, m, row, StubAdapter(), StubPage(), SHOTS))
+except flow.Halted:
+    halted = True
+ck("a holding row will not send while it is set", halted)
+os.environ.pop("APPLY_KILL_SWITCH", None)
+out = run(flow.run_row(db, m, row, StubAdapter(), StubPage(), SHOTS))
+ck("and clearing it resumes without a redeploy", out == "confirmed", out)
+
+print("")
+print("and so is the subscription that bought the queue")
+row = new_row(status="holding", hold_until=m.now() - dt.timedelta(minutes=1))
+me.plan = "free"
+db.commit()
+ad = StubAdapter()
+out_ = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS))
+ck("a lapsed plan stops the row", out_ == "cancelled", out_)
+ck("before anything is sent", "submit" not in ad.calls, str(ad.calls))
+ck("and says why, so it can be fixed by renewing",
+   "Pro" in (row.error or ""), (row.error or "")[:90],)
+me.plan = "pro"
+db.commit()
+
+# ------------------------------------------------------------------- caps
+print("\nthe per-company hour defers, it does not fail")
+# One named employer, and a row already sent to it inside the hour.
+CO = f"Crowded Co {u}"
+db.add(m.ApplyQueue(user_id=me.id, job_id=job.id, source="greenhouse",
+                    company=CO, status="confirmed", submitted_at=m.now(),
+                    created_at=m.now()))
+db.commit()
+os.environ["APPLY_MAX_PER_COMPANY_HOUR"] = "1"
+row = new_row(status="holding", company=CO,
+              hold_until=m.now() - dt.timedelta(minutes=1))
+ad = StubAdapter()
+out = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS))
+ck("it stays holding", out == "holding", out)
+ck("nothing was sent", "submit" not in ad.calls, str(ad.calls))
+ck("the window is pushed out rather than the row being lost",
+   flow.aware(row.hold_until) > m.now(), str(row.hold_until))
+ck("and the reason names the employer",
+   CO in (row.error or ""), (row.error or "")[:110])
+os.environ["APPLY_MAX_PER_COMPANY_HOUR"] = "2"
+
+print("\nand so does the per-user day")
+os.environ["APPLY_MAX_PER_USER_DAY"] = "1"
+row.hold_until = m.now() - dt.timedelta(minutes=1)
+db.commit()
+out = run(flow.run_row(db, m, row, StubAdapter(), StubPage(), SHOTS))
+ck("it defers too", out == "holding", out)
+ck("rather than failing an application because the queue was busy",
+   row.status == "holding" and "limit" in (row.error or "").lower(),
+   row.error)
+os.environ["APPLY_MAX_PER_USER_DAY"] = "20"
+
+# --------------------------------------------------------------- retries
+print("\nthree attempts, then stop")
+row = new_row()
+ad = StubAdapter(raise_on="open")
+for i in range(1, 4):
+    out = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS,
+                           resume_path="x.pdf"))
+ck("it gives up on the third", out == "failed", out)
+ck("with the attempt count at the ceiling", row.attempt == flow.MAX_ATTEMPTS,
+   str(row.attempt))
+ck("and the error text kept, not cleared",
+   "listing has closed" in (row.error or ""), (row.error or "")[:110])
+ck("a failed row is not polled again",
+   row.id not in [r.id for r in flow.due_rows(db, m, 50)])
+
+# ------------------------------------------------- the two ambiguous endings
+print("\nsent but not confirmed is recorded as sent, and never retried")
+row = new_row(status="holding", hold_until=m.now() - dt.timedelta(minutes=1))
+out = run(flow.run_row(db, m, row, StubAdapter(raise_on="unconfirmed"),
+                       StubPage(), SHOTS))
+ck("the row is submitted, not failed", out == "submitted", out)
+ck("with no confirmation claimed", not (row.confirmation or ""),
+   "'submitted' with invented evidence is the one lie this must not tell")
+ck("and a person is told to check it",
+   "did not" in (row.error or "").lower(), (row.error or "")[:110])
+ck("the tracker still records the application",
+   db.query(m.JobTrack).filter(m.JobTrack.user_id == me.id,
+                               m.JobTrack.job_id == job.id).first() is not None)
+
+print("\nand a submit that raises is treated the same way")
+row = new_row(status="holding", hold_until=m.now() - dt.timedelta(minutes=1))
+out = run(flow.run_row(db, m, row, StubAdapter(raise_on="submit"),
+                       StubPage(), SHOTS))
+ck("also submitted rather than retried", out == "submitted", out,)
+ck("because a retry would apply twice under a real name",
+   "submit step failed" in (row.error or ""), (row.error or "")[:110])
+
+# ------------------------------------------------------- zero-minute hold
+print("\na hold of zero minutes means send it now")
+os.environ["APPLY_HOLD_MINUTES"] = "0"
+row = new_row()
+ad = StubAdapter()
+out = run(flow.run_row(db, m, row, ad, StubPage(), SHOTS,
+                       resume_path="x.pdf"))
+ck("it goes in the same pass", out == "confirmed", out)
+ck("having still filled and attached first",
+   ad.calls == ["open", "fill", "answers", "attach", "submit"], str(ad.calls))
+os.environ["APPLY_HOLD_MINUTES"] = "15"
+
+# ---------------------------------------------------------------- fairness
+print("\none row per person per pass")
+for _ in range(3):
+    new_row()
+other = m.User(name="Queue Hog", email=f"hog{u}@example.com",
+               password_hash=m.hash_pw("HogPass1!"), dob=dt.date(1991, 1, 1),
+               plan="pro")
+db.add(other)
+db.commit()
+db.refresh(other)
+for _ in range(3):
+    db.add(m.ApplyQueue(user_id=other.id, job_id=job.id, source="greenhouse",
+                        url=job.url, title=job.title, company=job.company,
+                        status="prepared", created_at=m.now()))
+db.commit()
+due = flow.due_rows(db, m, 50)
+per_user = {}
+for r in due:
+    per_user[r.user_id] = per_user.get(r.user_id, 0) + 1
+ck("nobody gets two rows in one sweep", all(v == 1 for v in per_user.values()),
+   str(per_user))
+ck("and both people are in it", len(per_user) >= 2, str(len(per_user)))
+
+# ------------------------------------------------------------ the resume file
+print("\nthe attachment is built from the resume we hold")
+pdf = os.path.join(SHOTS, "r.pdf")
+os.makedirs(SHOTS, exist_ok=True)
+build_pdf("ANJALI RAO\nBackend Engineer\n\nSUMMARY\nSix years in payments.",
+          pdf)
+raw = io.open(pdf, "rb").read()
+ck("it is a PDF", raw.startswith(b"%PDF-1.4"), raw[:8])
+ck("with a cross-reference table and a trailer",
+   b"\nxref\n" in raw and b"startxref" in raw and raw.rstrip().endswith(b"%%EOF"),
+   "a file some readers open and an ATS parser rejects is the worst of both")
+ck("and the text really in it", b"ANJALI RAO" in raw)
+got = resume_file_for(db, me.id, m, SHOTS)
+ck("a candidate with a resume gets a file", got and os.path.exists(got), str(got))
+ck("and one without gets None, not an empty file",
+   resume_file_for(db, other.id, m, SHOTS) is None,
+   "a row whose candidate has no resume must fail saying so, not submit a "
+   "form with nothing attached")
+
+# ------------------------------------------------------------ what we drive
+print("\nthe adapter list and the queue's list cannot drift")
+ck("every drivable source has an adapter",
+   set(m.APPLY_DRIVABLE) == set(ADAPTERS),
+   f"{sorted(m.APPLY_DRIVABLE)} vs {sorted(ADAPTERS)}")
+ck("and every adapter is one we are allowed to drive",
+   set(ADAPTERS) <= set(m.APPLY_SOURCES), sorted(ADAPTERS))
+for banned in ("linkedin", "indeed", "naukri", "dice"):
+    ck(f"there is no {banned} adapter", banned not in ADAPTERS)
+
+print("\nthe worker's copy of filler.js is the extension's, unchanged")
+a = io.open(os.path.join(ROOT, "extension", "filler.js"),
+            encoding="utf-8").read().replace("\r\n", "\n")
+b = io.open(os.path.join(ROOT, "worker", "filler.js"),
+            encoding="utf-8").read().replace("\r\n", "\n")
+ck("byte for byte", a == b,
+   "the worker must not fork the field matcher: a divergence means the "
+   "extension and the worker fill the same form differently")
+# The rule is stated in its header AND kept in the code. Checking only for
+# the words would pass a file that documents a guard it no longer has, and
+# checking only the code would not notice the rule being quietly deleted.
+code = "\n".join(l for l in b.split("\n")
+                 if not l.strip().startswith(("*", "/*", "//")))
+ck("it still says it never submits", "It never submits." in b)
+ck("and there is no submit call in the code to contradict it",
+   ".submit()" not in code and ".click()" not in code,
+   "the guard is right for code running in somebody else's browser; the "
+   "worker does its submitting in Python")
+
+print("\nno model is called anywhere in the apply path")
+src = ""
+for base, _, files in os.walk(os.path.join(ROOT, "worker")):
+    for f in files:
+        if f.endswith((".py", ".js")):
+            src += io.open(os.path.join(base, f), encoding="utf-8").read()
+for token in ("_ai_text", "_ai_json", "openai", "anthropic", "gemini",
+              "generativelanguage"):
+    ck(f"no {token}", token not in src.lower().replace("_ai_", "_ai_"),
+       "answers come from a table, not a guess")
+
+print("\nand no employer domain is reachable from the worker or the fixture")
+fixture = io.open(FIXTURE, encoding="utf-8").read()
+for host in ("greenhouse.io", "lever.co", "ashbyhq.com", "myworkdayjobs.com",
+             "linkedin.com", "indeed.com", "naukri.com"):
+    ck(f"{host} appears in no request", f"//{host}" not in src
+       and f"//boards.{host}" not in src and host not in fixture,
+       "the fixture and file:// exist so that no test ever posts to a real "
+       "board")
+
+# ------------------------------------------------ the real browser, if present
+print("\na real Chromium against the fixture")
+try:
+    from playwright.sync_api import sync_playwright   # noqa: F401
+    HAVE_PW = True
+except Exception:
+    HAVE_PW = False
+
+if not HAVE_PW:
+    skip("the full worker run", "skipped (no playwright)")
+    skip("the answer bank against a real select", "skipped (no playwright)")
+else:
+    from worker.adapters.greenhouse import GreenhouseAdapter
+    from playwright.async_api import async_playwright
+
+    async def real_run(row, resume_path):
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(args=["--no-sandbox"])
+            ctx = await browser.new_context()
+            page = await ctx.new_page()
+            try:
+                return await flow.run_row(db, m, row, GreenhouseAdapter(),
+                                          page, SHOTS, resume_path)
+            finally:
+                await ctx.close()
+                await browser.close()
+
+    clear_bank()
+    resume = resume_file_for(db, me.id, m, SHOTS)
+    row = new_row()
+    out = run(real_run(row, resume))
+    ck("an unanswered required question parks the row",
+       out == "needs_answer", f"{out}: {(row.error or '')[:90]}")
+    ck("and it is the work-authorisation one",
+       "authorized to work" in (row.missing_json or "").lower(),
+       (row.missing_json or "")[:120])
+    ck("the optional question did not park it",
+       "how did you hear" not in (row.missing_json or "").lower(),
+       "parking on every optional question would park every application")
+
+    db.add(m.AnswerBank(
+        user_id=me.id,
+        question_norm=m.question_norm(
+            "Are you legally authorized to work in the United States?"),
+        answer="Yes", created_at=m.now()))
+    row.status = "prepared"
+    db.commit()
+    os.environ["APPLY_HOLD_MINUTES"] = "0"
+    out = run(real_run(row, resume))
+    os.environ["APPLY_HOLD_MINUTES"] = "15"
+    ck("with the answer banked, the whole form goes through",
+       out == "confirmed", f"{out}: {(row.error or '')[:140]}")
+    ck("and the employer's confirmation is what proves it",
+       "thank you for applying" in (row.confirmation or "").lower(),
+       row.confirmation)
+    ck("the resume really was attached",
+       "problem with your application" not in (row.confirmation or "").lower(),
+       "the fixture refuses without a file, exactly as a real board would")
+    ck("a screenshot was kept for the record",
+       bool(row.screenshot_path) and os.path.exists(row.screenshot_path or ""),
+       row.screenshot_path)
+
+# ------------------------------------------------- the loop, not just a row
+print("")
+print("and the switch stops the LOOP, mid-queue")
+
+
+class StubCtx:
+    async def new_page(self):
+        return StubPage()
+
+    async def close(self):
+        pass
+
+
+class StubBrowser:
+    """Enough of a browser for run.pass_once, which is all that is under
+    test here: the loop must stop on the switch rather than walking the
+    rest of the queue."""
+
+    def __init__(self):
+        self.opened = 0
+
+    async def new_context(self, **kw):
+        self.opened += 1
+        return StubCtx()
+
+
+from worker import run as wrun     # noqa: E402  (needs no playwright)
+
+db.query(m.ApplyQueue).filter(
+    m.ApplyQueue.user_id.in_([me.id, other.id])).delete(
+    synchronize_session=False)
+db.commit()
+for _ in range(3):
+    new_row()
+os.environ["APPLY_GAP_MIN"] = "0"
+os.environ["APPLY_GAP_MAX"] = "0"
+wrun.GAP_SECONDS = (0, 0)
+os.environ["APPLY_KILL_SWITCH"] = "1"
+br = StubBrowser()
+stopped = False
+try:
+    run(wrun.pass_once(br, db))
+except flow.Halted:
+    stopped = True
+os.environ.pop("APPLY_KILL_SWITCH", None)
+ck("pass_once raises rather than draining the queue", stopped)
+ck("and not one browser context was opened", br.opened == 0,
+   "checked before the row, not after: a switch that stops the NEXT "
+   "application is not a kill switch")
+ck("every row is left exactly where it was",
+   all(r.status == "prepared" and (r.attempt or 0) == 0
+       for r in db.query(m.ApplyQueue).filter(
+           m.ApplyQueue.user_id == me.id).all()),
+   "halting must not mark anything failed; it is a pause, not a verdict")
+
+# ------------------------------------------------------------------ cleanup
+db.query(m.ApplyQueue).filter(
+    m.ApplyQueue.user_id.in_([me.id, other.id])).delete(
+    synchronize_session=False)
+db.query(m.JobTrack).filter(
+    m.JobTrack.user_id == me.id).delete(synchronize_session=False)
+db.commit()
+
+print("\n".join("FAIL " + x for x in F) if F else "")
+print(f"\nPASSED {len(P)}   FAILED {len(F)}"
+      + (f"   SKIPPED {len(S)}" if S else ""))
+sys.exit(1 if F else 0)

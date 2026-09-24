@@ -10,6 +10,7 @@ Admin panel:   http://localhost:8000/admin
 import os
 import re
 import sys
+from urllib.parse import urlparse as _urlparse
 import json
 import math
 import calendar
@@ -691,6 +692,112 @@ TRACK_LABELS = {"viewed": "Recently viewed", "saved": "Saved",
                 "applied": "Applied", "interviewing": "Interviewing",
                 "offer": "Offer received", "rejected": "Rejected",
                 "archived": "Archived"}
+
+
+# Where an automatic application has got to. Same shape as TRACK_STATUSES
+# above, and deliberately beside it, because the two describe the same thing
+# from different ends: this is the machine doing the applying, that is the
+# person recording it afterwards. A row that reaches "submitted" writes a
+# JobTrack row too, so the history has one home and not two.
+#
+# "holding" is the one that is not obvious. A filled form does not go
+# straight out: it waits, with a screenshot of what it is about to send, for
+# as long as APPLY_HOLD_MINUTES. That window is the difference between a tool
+# somebody trusts with their name and one they daren't switch on.
+#
+# "needs_answer" is the honest end of a question nothing could resolve. No
+# model is asked to invent one — the row stops and a person is asked, once,
+# and the answer goes into the bank so nothing asks again.
+APPLY_STATUSES = ["prepared", "needs_answer", "holding", "submitted",
+                  "confirmed", "failed", "cancelled"]
+APPLY_LABELS = {"prepared": "Ready to send", "needs_answer": "Needs an answer",
+                "holding": "Sending shortly — you can still stop it",
+                "submitted": "Sent", "confirmed": "Confirmed by the employer",
+                "failed": "Could not be sent", "cancelled": "Cancelled"}
+# Terminal states. Nothing moves out of these, and the worker must not pick
+# them up however long they have been sitting there.
+APPLY_DONE = {"submitted", "confirmed", "failed", "cancelled"}
+
+
+class ApplyConsent(Base):
+    """Permission to apply in somebody's name, with a date on it.
+
+    Not a boolean on the user row. The question a complaint asks is "was
+    there consent at the time, and to what" — a flag that has since been
+    flipped back cannot answer it, and neither can a deleted row. So
+    revoking sets revoked_at and the row stays.
+
+    Live consent means: a row for this user with no revoked_at. Checked in
+    code on every enqueue and again before every submit, because the gap
+    between those two is exactly where somebody changes their mind.
+    """
+    __tablename__ = "apply_consent"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    granted_at = Column(DateTime(timezone=True), default=now)
+    # The wording that was on screen, kept verbatim rather than as a version
+    # number: the text IS the agreement, and a number is only as good as the
+    # copy of the text it points at.
+    scope = Column(Text, default="")
+    revoked_at = Column(DateTime(timezone=True))
+
+
+class AnswerBank(Base):
+    """The nine questions every ATS asks, answered once.
+
+    Work authorisation, sponsorship, notice period, expected salary, how you
+    heard about us. Different words on every form, the same five facts. This
+    is what makes the second application cost nothing.
+
+    question_norm is the question run through the same normalisation
+    extension/filler.js does in clean(): lowercased, required-field asterisks
+    and punctuation stripped, whitespace collapsed. The worker and the bank
+    have to agree on what counts as the same question or nothing ever hits.
+    """
+    __tablename__ = "answer_bank"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    question_norm = Column(String(300), nullable=False, index=True)
+    answer = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    __table_args__ = (UniqueConstraint("user_id", "question_norm",
+                                       name="uq_answer_user_question"),)
+
+
+class ApplyQueue(Base):
+    """One automatic application, and everything that happened to it.
+
+    job_id is a plain Integer and title/company/url are copied in, for the
+    same reason JobTrack does it: postings are pruned, and a record of what
+    you applied to that disappears when the listing closes is not a record.
+
+    error is kept on failure rather than cleared. "It did not work" is not a
+    support answer; the text of what went wrong is.
+    """
+    __tablename__ = "apply_queue"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    job_id = Column(Integer, index=True)       # not a FK: jobs get pruned
+    source = Column(String(40), default="")
+    url = Column(Text, default="")
+    title = Column(String(300), default="")
+    company = Column(String(200), default="")
+    status = Column(String(20), default="prepared", index=True)
+    score = Column(Integer, default=0)
+    answers_json = Column(Text, default="")
+    missing_json = Column(Text, default="")
+    hold_until = Column(DateTime(timezone=True))
+    screenshot_path = Column(Text, default="")
+    submitted_at = Column(DateTime(timezone=True))
+    confirmation = Column(Text, default="")
+    error = Column(Text, default="")
+    attempt = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=now)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
 
 
 class Job(Base):
@@ -21631,6 +21738,692 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
         "willing_to_relocate": "", "how_heard": "",
         "synced_at": now().isoformat(),
     }
+
+
+
+# ---- applying for the job, without the candidate doing the typing --------
+#
+# Matching is free, instant and AI-free. What happens after it is forty
+# minutes of retyping the same nine answers into the same nine boxes, and
+# that is where a good match stops being an application.
+#
+# Nothing below calls a model. Field matching is the deterministic label
+# matcher the browser extension already uses; answer lookup is a dictionary
+# lookup on a normalised string. A question that cannot be resolved that way
+# parks the row and asks a person. Guessing is not available, because the
+# output goes to an employer over somebody's real name.
+#
+# Only ATS-hosted forms are ever driven. LinkedIn, Indeed, Naukri and Dice
+# are never automated: no public apply API, against their terms, and doing
+# it gets both the crawler and the candidate blocked. The aggregators
+# (Adzuna, Jooble, JSearch) hand back a redirect to somebody else's site
+# rather than an apply endpoint, so they are a discovery source and nothing
+# more.
+
+
+def apply_halted() -> bool:
+    """One switch that stops every worker everywhere without a redeploy.
+
+    Read on each pass rather than at import, so setting it takes effect on
+    the next poll instead of the next restart — which is the entire point of
+    having it.
+    """
+    return bool(env("APPLY_KILL_SWITCH"))
+
+
+def _int_env(name, default):
+    try:
+        return int(env(name, str(default)))
+    except ValueError:
+        return default
+
+
+def apply_hold_minutes() -> int:
+    """How long a filled form sits where its owner can still stop it.
+
+    0 means go straight out, which is a choice somebody can make rather than
+    one made for them.
+    """
+    return max(0, _int_env("APPLY_HOLD_MINUTES", 15))
+
+
+def apply_max_per_user_day() -> int:
+    """Per candidate, per day.
+
+    Not a politeness limit: an account firing all day is what turns one
+    enthusiastic user into a blocked domain for everybody else.
+    """
+    return max(0, _int_env("APPLY_MAX_PER_USER_DAY", 20))
+
+
+def apply_max_per_company_hour() -> int:
+    """Per employer, per hour, ACROSS ALL CANDIDATES.
+
+    Twelve applications into one company in an hour is the thing that gets a
+    whole domain blocked, and no single user's limit can prevent it.
+    """
+    return max(0, _int_env("APPLY_MAX_PER_COMPANY_HOUR", 2))
+
+
+# The ATSs a form can be driven on. All six need no candidate account, which
+# is exactly why they are the ones automated. Workday, Taleo and iCIMS each
+# require creating a per-tenant login, and creating one means accepting the
+# employer's terms as the candidate — which is not ours to do.
+APPLY_SOURCES = ("greenhouse", "lever", "ashby", "workable",
+                 "smartrecruiters", "recruitee")
+
+# The ones there is actually an adapter for TODAY. A separate list from the
+# one above, and the distinction is the difference between "we are allowed to
+# drive this" and "we can". Queueing a row for an ATS with no adapter behind
+# it buys a person a queue entry that the worker can only fail, which is a
+# worse answer than being told now and applying by hand.
+#
+# Adding an adapter is two edits: the class goes into worker/adapters and its
+# source goes in here. test_apply_worker asserts the two agree, so forgetting
+# the second one fails the build rather than shipping a queue that silently
+# refuses half of what it accepts.
+APPLY_DRIVABLE = ("greenhouse",)
+
+# Sources that reach this far get a clear refusal rather than silence. An
+# aggregator row carries a redirect, not a form; a Workday row needs an
+# account. Both are things a person can still act on, so say which.
+APPLY_MANUAL = {
+    "workday": "Workday asks every applicant to create an account with that "
+               "employer, and agreeing to their terms is not something we "
+               "can do on your behalf. Open it and apply manually.",
+    "adzuna": "This came from an aggregator, so the link goes to somebody "
+              "else's site rather than to an application form. Open it and "
+              "apply there.",
+    "jooble": "This came from an aggregator, so the link goes to somebody "
+              "else's site rather than to an application form. Open it and "
+              "apply there.",
+    "jsearch": "This came from an aggregator, so the link goes to somebody "
+               "else's site rather than to an application form. Open it and "
+               "apply there.",
+}
+
+# Dropped outright, not turned into a space. "U.S." has to normalise to the
+# same thing as "US" and "don't" to the same thing as "dont"; replacing the
+# dot with a space gives "u s", which is a different question as far as the
+# bank is concerned, and the bank missing is the whole failure mode.
+_APPLY_TIGHT = _re.compile(r"[.’ʼ']")
+# Everything else becomes a space, because "salary/compensation" is two
+# words and deleting the slash would weld them into one.
+_APPLY_PUNCT = _re.compile(r"[^\w\s]", _re.UNICODE)
+_APPLY_PARENS = _re.compile(r"\((?:optional|required)\)", _re.I)
+
+
+def question_norm(s: str) -> str:
+    """A question reduced to the thing that makes it the same question.
+
+    The same normalisation extension/filler.js does in clean() — lowercase,
+    required-field asterisks out, "(optional)" and "(required)" out,
+    whitespace collapsed — plus the rest of the punctuation, because "Are you
+    legally authorized to work in the U.S.?" and "Are you legally authorized
+    to work in the US" are one question asked twice.
+
+    This lives here and not in the worker so that there is exactly one of it.
+    Two normalisers that disagree by a comma produce an answer bank that
+    never hits, and a bank that never hits is a person being asked the same
+    five questions on every single application.
+    """
+    s = (s or "").lower().replace("*", " ").replace("∗", " ")
+    s = _APPLY_PARENS.sub(" ", s)
+    s = _APPLY_TIGHT.sub("", s)
+    s = _APPLY_PUNCT.sub(" ", s)
+    return " ".join(s.split())[:300]
+
+
+def live_consent(db, user):
+    """The consent row in force right now, or None.
+
+    Checked on enqueue AND again before submit. The gap between those two is
+    measured in minutes and is exactly where somebody changes their mind.
+    """
+    return (db.query(ApplyConsent)
+            .filter(ApplyConsent.user_id == user.id,
+                    ApplyConsent.revoked_at.is_(None))
+            .order_by(ApplyConsent.id.desc()).first())
+
+
+def _consent_json(row):
+    return {"consented": bool(row),
+            "granted_at": (row.granted_at.isoformat()
+                           if row and row.granted_at else None),
+            "scope": (row.scope if row else "") or ""}
+
+
+def _applyq_json(q):
+    try:
+        missing = json.loads(q.missing_json) if q.missing_json else []
+    except Exception:
+        missing = []
+    return {
+        "id": q.id, "job_id": q.job_id, "source": q.source or "",
+        "title": q.title or "", "company": q.company or "",
+        "url": q.url or "", "status": q.status or "",
+        "label": APPLY_LABELS.get(q.status or "", q.status or ""),
+        "score": q.score or 0, "attempt": q.attempt or 0,
+        "missing": missing,
+        "hold_until": q.hold_until.isoformat() if q.hold_until else None,
+        "submitted_at": (q.submitted_at.isoformat()
+                         if q.submitted_at else None),
+        "confirmation": (q.confirmation or "")[:400],
+        "error": (q.error or "")[:400],
+        "created_at": q.created_at.isoformat() if q.created_at else None,
+    }
+
+
+class ApplyConsentIn(BaseModel):
+    # Whatever the screen said, stored verbatim. Defaulted rather than
+    # required so that an API caller cannot accidentally record consent
+    # to the empty string.
+    scope: str = Field(default="", max_length=4000)
+
+
+class ApplyQueueIn(BaseModel):
+    job_ids: List[int] = []
+    min_score: int = 0
+    limit: int = 20
+
+
+class ApplyAnswersIn(BaseModel):
+    # question -> answer, in the employer's own words. Normalised here,
+    # never by the caller.
+    answers: dict = {}
+
+
+@app.post("/api/apply/consent")
+def apply_consent_grant(body: ApplyConsentIn,
+                        user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Record permission to apply in this person's name.
+
+    Paid, like every other part of applying. Granting twice is not an error
+    and does not stack: the live row comes back unchanged, because somebody
+    pressing a button twice has not consented twice.
+    """
+    apply_gate(db, user, 0)
+    row = live_consent(db, user)
+    if row is None:
+        row = ApplyConsent(user_id=user.id, granted_at=now(),
+                           scope=(body.scope or "").strip()[:4000])
+        db.add(row)
+        db.commit()
+    return _consent_json(row)
+
+
+@app.delete("/api/apply/consent")
+def apply_consent_revoke(user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """Withdraw it, and stop everything already in flight.
+
+    Revoking that left a queue running would be the worst possible reading of
+    the word. Every row not yet sent is cancelled in the same transaction;
+    rows already submitted are left alone, because those are facts about the
+    past and cancelling them here would only make the record wrong.
+    """
+    stopped = 0
+    for row in db.query(ApplyConsent).filter(
+            ApplyConsent.user_id == user.id,
+            ApplyConsent.revoked_at.is_(None)).all():
+        row.revoked_at = now()
+    for q in db.query(ApplyQueue).filter(
+            ApplyQueue.user_id == user.id,
+            ApplyQueue.status.in_(["prepared", "needs_answer",
+                                   "holding"])).all():
+        q.status = "cancelled"
+        q.error = "Consent was withdrawn."
+        q.updated_at = now()
+        stopped += 1
+    db.commit()
+    tail = (f"{stopped} application{'' if stopped == 1 else 's'} stopped."
+            if stopped else "Nothing was in flight.")
+    return {"consented": False, "cancelled": stopped,
+            "message": "Consent withdrawn. " + tail}
+
+
+def _queued_today(db, user_id):
+    """In flight or already sent in the last day.
+
+    Counted together deliberately. A cap that only counts sent applications
+    lets somebody queue two hundred and then discover the limit one
+    submission at a time over the following week.
+    """
+    since = now() - dt.timedelta(days=1)
+    return db.query(func.count(ApplyQueue.id)).filter(
+        ApplyQueue.user_id == user_id,
+        ApplyQueue.created_at >= since,
+        ApplyQueue.status.notin_(["cancelled", "failed"])).scalar() or 0
+
+
+def applied_today(db, user_id):
+    """How many applications actually went out for this person today.
+
+    Distinct from _queued_today, which counts everything in flight. This one
+    is the brake the worker reads immediately before a click: the enqueue cap
+    stops a queue being built too large, and this one stops it draining too
+    fast if something else put rows there.
+    """
+    since = now() - dt.timedelta(days=1)
+    return db.query(func.count(ApplyQueue.id)).filter(
+        ApplyQueue.user_id == user_id,
+        ApplyQueue.submitted_at.isnot(None),
+        ApplyQueue.submitted_at >= since).scalar() or 0
+
+
+def company_sent_last_hour(db, company):
+    """How many applications went to this employer in the last hour.
+
+    Across every candidate, which is the only way it means anything. Read by
+    the worker immediately before it submits rather than when the row was
+    queued, because an hour is a long time in a queue.
+    """
+    since = now() - dt.timedelta(hours=1)
+    name = (company or "").strip()
+    if not name:
+        return 0
+    return db.query(func.count(ApplyQueue.id)).filter(
+        ApplyQueue.company == name,
+        ApplyQueue.submitted_at.isnot(None),
+        ApplyQueue.submitted_at >= since).scalar() or 0
+
+
+@app.post("/api/apply/queue")
+def apply_queue_add(body: ApplyQueueIn, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Put matched jobs in the queue.
+
+    Either an explicit list of job ids, or a score floor applied to this
+    person's own match results — which are re-run here from the stored
+    resume rather than trusted from the caller, because a score that arrives
+    in a request body is a score anybody can type.
+    """
+    apply_gate(db, user, 0)
+    if live_consent(db, user) is None:
+        raise HTTPException(
+            403, "Nothing can be applied for in your name until you have "
+                 "given permission. Turn on automatic applications first — "
+                 "you can withdraw it at any time, and withdrawing stops "
+                 "anything already queued.")
+    if apply_halted():
+        raise HTTPException(
+            503, "Automatic applications are paused right now. Your queue is "
+                 "untouched and will carry on when they resume.")
+
+    scores = {}
+    ids = [int(i) for i in (body.job_ids or [])][:100]
+    if not ids:
+        # From the match, re-run here. jobs_match is plain deterministic
+        # Python over stored rows, so calling it directly costs a couple of
+        # seconds of CPU and nothing else — no model, no third party.
+        raw = db.query(Note).filter(Note.user_id == user.id,
+                                    Note.k == "resume_data").first()
+        try:
+            resume = json.loads(raw.v) if raw and raw.v else {}
+        except Exception:
+            resume = {}
+        up = db.query(Note).filter(Note.user_id == user.id,
+                                   Note.k == "resume_uptext").first()
+        rtext = (up.v if up and up.v else "") or ""
+        if len(rtext.strip()) < 40 and not resume:
+            raise HTTPException(
+                400, "Upload or build your resume first — there is nothing "
+                     "to match jobs against yet.")
+        found = jobs_match(
+            JobMatchIn(resume=resume, resume_text=rtext,
+                       min_score=max(0, int(body.min_score or 0)),
+                       limit=min(max(int(body.limit or 20), 1), 50)),
+            user=user, db=db)
+        for j in (found.get("jobs") or []):
+            ids.append(int(j["id"]))
+            scores[int(j["id"])] = int(j.get("score") or 0)
+
+    if not ids:
+        return {"queued": 0, "skipped": [], "rows": [],
+                "message": "No jobs matched that score. Try a lower floor."}
+
+    room = apply_max_per_user_day() - _queued_today(db, user.id)
+    queued, skipped = [], []
+    for jid in ids:
+        job = db.get(Job, jid)
+        if job is None:
+            skipped.append({"job_id": jid, "why": "That posting has gone."})
+            continue
+        src = (job.source or "").lower()
+        if src in APPLY_MANUAL:
+            skipped.append({"job_id": jid, "title": job.title,
+                            "why": APPLY_MANUAL[src]})
+            continue
+        if src not in APPLY_SOURCES:
+            skipped.append({"job_id": jid, "title": job.title,
+                            "why": "That employer's application form is not "
+                                   "one we are able to drive. Open it and "
+                                   "apply manually."})
+            continue
+        if src not in APPLY_DRIVABLE:
+            skipped.append({"job_id": jid, "title": job.title,
+                            "why": f"We do not have a {src} adapter yet, so "
+                                   "this one has to go by hand for now. Open "
+                                   "it and apply manually."})
+            continue
+        dup = db.query(ApplyQueue).filter(
+            ApplyQueue.user_id == user.id, ApplyQueue.job_id == jid,
+            ApplyQueue.status.notin_(["cancelled", "failed"])).first()
+        if dup is not None:
+            skipped.append({"job_id": jid, "title": job.title,
+                            "why": "Already queued for this one."})
+            continue
+        if room <= 0:
+            skipped.append({"job_id": jid, "title": job.title,
+                            "why": "That is today's limit of "
+                                   f"{apply_max_per_user_day()}. The rest "
+                                   "can go tomorrow."})
+            continue
+        # The score, when this came in as an explicit list rather than from
+        # a match run here. The tracker already holds it from whenever the
+        # candidate last matched, and a queue that shows 0 against every row
+        # looks broken in exactly the place somebody is deciding what to let
+        # through.
+        sc = scores.get(jid)
+        if sc is None:
+            seen = db.query(JobTrack).filter(
+                JobTrack.user_id == user.id, JobTrack.job_id == jid).first()
+            sc = (seen.score if seen else 0) or 0
+        q = ApplyQueue(user_id=user.id, job_id=jid, source=src,
+                       url=job.url or "", title=(job.title or "")[:300],
+                       company=(job.company or "")[:200], status="prepared",
+                       score=sc, created_at=now(),
+                       updated_at=now())
+        db.add(q)
+        queued.append(q)
+        room -= 1
+    db.commit()
+    return {"queued": len(queued), "skipped": skipped,
+            "rows": [_applyq_json(q) for q in queued]}
+
+
+@app.get("/api/apply/queue")
+def apply_queue_list(user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """This person's applications, newest first, gathered by status."""
+    rows = (db.query(ApplyQueue).filter(ApplyQueue.user_id == user.id)
+            .order_by(ApplyQueue.id.desc()).limit(300).all())
+    out = [_applyq_json(q) for q in rows]
+    groups = {s: [r for r in out if r["status"] == s] for s in APPLY_STATUSES}
+    return {"rows": out, "groups": groups, "labels": APPLY_LABELS,
+            "statuses": APPLY_STATUSES,
+            "consent": _consent_json(live_consent(db, user)),
+            "paused": apply_halted(),
+            "hold_minutes": apply_hold_minutes(),
+            "used_today": _queued_today(db, user.id),
+            "max_per_day": apply_max_per_user_day()}
+
+
+@app.post("/api/apply/queue/{qid}/cancel")
+def apply_queue_cancel(qid: int, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Stop one before it goes.
+
+    Anything not yet sent can be stopped, not only a holding row: somebody
+    who has changed their mind about a prepared row should not have to wait
+    for it to reach the hold window just so it can be cancelled there.
+    """
+    q = db.get(ApplyQueue, qid)
+    if q is None or q.user_id != user.id:
+        raise HTTPException(404, "No such application")
+    if q.status in APPLY_DONE:
+        raise HTTPException(
+            400, "That one has already been sent."
+            if q.status in ("submitted", "confirmed")
+            else "That one is already finished.")
+    q.status = "cancelled"
+    q.updated_at = now()
+    db.commit()
+    return _applyq_json(q)
+
+
+@app.post("/api/apply/queue/{qid}/answers")
+def apply_queue_answers(qid: int, body: ApplyAnswersIn,
+                        user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Answer what stopped a row, once, for every form after this one.
+
+    The answers go into the bank keyed by the normalised question, so the
+    same question in different words on a different employer's form resolves
+    without asking again. That is the whole reason the bank exists: the first
+    application costs five questions and the hundredth costs none.
+    """
+    q = db.get(ApplyQueue, qid)
+    if q is None or q.user_id != user.id:
+        raise HTTPException(404, "No such application")
+    if q.status in APPLY_DONE:
+        raise HTTPException(400, "That one is already finished.")
+    saved = 0
+    for question, answer in (body.answers or {}).items():
+        key = question_norm(str(question))
+        val = str(answer or "").strip()[:4000]
+        if not key or not val:
+            continue
+        row = db.query(AnswerBank).filter(
+            AnswerBank.user_id == user.id,
+            AnswerBank.question_norm == key).first()
+        if row is None:
+            row = AnswerBank(user_id=user.id, question_norm=key,
+                             created_at=now())
+            db.add(row)
+        row.answer = val
+        row.updated_at = now()
+        saved += 1
+    if not saved:
+        raise HTTPException(400, "No answers were given.")
+    # Back into the queue. attempt is NOT reset: three failures is three
+    # failures, and an answer does not buy a fresh set of retries against a
+    # form that may simply be unreadable.
+    q.status = "prepared"
+    q.missing_json = ""
+    q.error = ""
+    q.updated_at = now()
+    db.commit()
+    return {"saved": saved, "row": _applyq_json(q)}
+
+
+
+# ---- a link somebody pasted -----------------------------------------------
+#
+# The queue above starts from the board we crawl. This starts from a URL a
+# person found somewhere else — a company's careers page, a newsletter, a
+# friend. Same worker, same rails, same consent; the only new work is
+# deciding what is on the other end of the link before anything opens it.
+#
+# That decision is made from the URL alone and nothing is fetched to make it.
+# A route that followed an arbitrary pasted link to find out what it was
+# would be a request forgery primitive sitting inside the network the
+# database is on, and it would follow redirects to get there.
+
+# Host -> ATS. Matched on the registrable host, so `boards.greenhouse.io`
+# and a company's own `careers.acme.com` embed are distinguished properly
+# rather than by a substring search that "greenhouse.io.evil.com" passes.
+APPLY_HOSTS = {
+    "greenhouse.io": "greenhouse",
+    "lever.co": "lever",
+    "ashbyhq.com": "ashby",
+    "workable.com": "workable",
+    "smartrecruiters.com": "smartrecruiters",
+    "recruitee.com": "recruitee",
+}
+
+# Named, so the refusal can say which site and why rather than "unsupported".
+# Somebody pasting a LinkedIn link has not done anything wrong; they need to
+# be told that this one is not ours to automate, not given an error code.
+APPLY_REFUSED_HOSTS = {
+    "linkedin.com": "LinkedIn",
+    "indeed.com": "Indeed",
+    "naukri.com": "Naukri",
+    "dice.com": "Dice",
+    "glassdoor.com": "Glassdoor",
+    "ziprecruiter.com": "ZipRecruiter",
+}
+
+_APPLY_NEVER = (
+    "{name} has no public application API and automating it is against "
+    "their terms — it would get your account there suspended, which is a "
+    "far worse outcome than filling one form by hand. Open it and apply "
+    "yourself. If the posting is also on the company's own careers page, "
+    "paste that link instead and this can drive it."
+)
+
+
+def _registrable(host: str) -> str:
+    """The last two labels of a hostname.
+
+    `boards.greenhouse.io` and `job-boards.greenhouse.io` both reduce to
+    `greenhouse.io`; `greenhouse.io.evil.com` reduces to `evil.com`, which
+    is the whole reason this is not a substring test. Two labels is wrong
+    for `co.uk`-style suffixes, and deliberately so: erring towards not
+    recognising a host means refusing to drive something, never driving
+    something we should not.
+    """
+    bits = [b for b in (host or "").lower().split(".") if b]
+    return ".".join(bits[-2:]) if len(bits) >= 2 else ""
+
+
+def apply_source_of(url: str):
+    """(source, why) for a pasted link. `source` is None when it is refused.
+
+    Everything is decided from the URL. Nothing is fetched.
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return None, "Paste the link to the application page first."
+    if not raw.lower().startswith(("http://", "https://")):
+        raw = "https://" + raw
+    if not raw.lower().startswith("https://"):
+        return None, ("Only https links can be used. An application form "
+                      "served over plain http would send this person's name, "
+                      "address and phone number across the network in the "
+                      "clear.")
+    try:
+        host = _urlparse(raw).hostname or ""
+    except Exception:
+        host = ""
+    reg = _registrable(host)
+    if not reg:
+        return None, "That does not look like a web address."
+    if reg in APPLY_REFUSED_HOSTS:
+        return None, _APPLY_NEVER.format(name=APPLY_REFUSED_HOSTS[reg])
+    if reg == "myworkdayjobs.com" or host.endswith(".myworkdayjobs.com"):
+        return None, APPLY_MANUAL["workday"]
+    src = APPLY_HOSTS.get(reg)
+    if not src:
+        return None, ("That is not an application form we recognise. This "
+                      "drives forms hosted by Greenhouse, Lever, Ashby, "
+                      "Workable, SmartRecruiters and Recruitee — the ones "
+                      "that need no account with the employer. If the job is "
+                      "listed on one of those, paste that link.")
+    if src not in APPLY_DRIVABLE:
+        return None, (f"We do not have a {src} adapter yet, so this one has "
+                      "to go by hand for now.")
+    return src, ""
+
+
+def _named_in_url(url: str) -> str:
+    """The employer's slug out of an ATS URL, title-cased for display.
+
+    A guess at a display name, and only used when the crawler has never seen
+    the posting. `boards.greenhouse.io/stripe/jobs/4123` gives "Stripe".
+    """
+    try:
+        parts = [p for p in _urlparse(url).path.split("/") if p]
+    except Exception:
+        parts = []
+    slug = parts[0] if parts else ""
+    if slug.lower() in ("jobs", "job", "careers", "apply", "embed"):
+        slug = parts[1] if len(parts) > 1 else ""
+    slug = _re.sub(r"[-_]+", " ", slug).strip()
+    return slug.title()[:200]
+
+
+class ApplyLinkIn(BaseModel):
+    url: str = Field(default="", max_length=1000)
+
+
+@app.post("/api/apply/link")
+def apply_queue_link(body: ApplyLinkIn, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Queue an application from a link, rather than from the board.
+
+    Everything the queue route enforces applies here unchanged: Pro, live
+    consent, the kill switch, the per-day cap, no duplicates. The only extra
+    step is reading the URL to decide which ATS it is, and refusing by name
+    when it is one we do not drive.
+
+    If the crawler already has this posting, its row is used — which keeps
+    the title and the employer's real name on the queue entry, and keeps the
+    per-company hour counting the pasted link and the crawled one as the
+    same employer instead of two.
+    """
+    apply_gate(db, user, 0)
+    if live_consent(db, user) is None:
+        raise HTTPException(
+            403, "Nothing can be applied for in your name until you have "
+                 "given permission. Turn on automatic applications first — "
+                 "you can withdraw it at any time, and withdrawing stops "
+                 "anything already queued.")
+    if apply_halted():
+        raise HTTPException(
+            503, "Automatic applications are paused right now. Your queue is "
+                 "untouched and will carry on when they resume.")
+
+    url = (body.url or "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    src, why = apply_source_of(url)
+    if src is None:
+        raise HTTPException(400, why)
+
+    if _queued_today(db, user.id) >= apply_max_per_user_day():
+        raise HTTPException(
+            429, f"That is today's limit of {apply_max_per_user_day()} "
+                 "applications. This one can go tomorrow.")
+
+    # The crawler's own row for this posting, when there is one. Matched on
+    # the URL because that is the only thing a pasted link gives us.
+    known = db.query(Job).filter(Job.url == url).first()
+    if known is None and "?" in url:
+        known = db.query(Job).filter(Job.url == url.split("?")[0]).first()
+    job_id = known.id if known else None
+    title = (known.title if known else "") or "Pasted link"
+    company = (known.company if known else "") or _named_in_url(url)
+
+    dup = db.query(ApplyQueue).filter(
+        ApplyQueue.user_id == user.id, ApplyQueue.url == url,
+        ApplyQueue.status.notin_(["cancelled", "failed"])).first()
+    if dup is not None:
+        raise HTTPException(
+            400, "That one is already in your queue.")
+
+    # The match score, if this person has already matched against this
+    # posting. A pasted link usually has none, and 0 is the honest answer —
+    # it means "not scored", not "scored zero".
+    score = 0
+    if known is not None:
+        seen = db.query(JobTrack).filter(
+            JobTrack.user_id == user.id, JobTrack.job_id == known.id).first()
+        score = (seen.score if seen else 0) or 0
+    q = ApplyQueue(user_id=user.id, job_id=job_id, source=src, url=url[:2000],
+                   title=title[:300], company=company[:200], status="prepared",
+                   score=score, created_at=now(), updated_at=now())
+    db.add(q)
+    db.commit()
+    return {"queued": 1, "row": _applyq_json(q),
+            "recognised": bool(known),
+            "message": (f"Queued. It will be filled and held for "
+                        f"{apply_hold_minutes()} minutes before it is sent, "
+                        "so you can look at it first."
+                        if apply_hold_minutes()
+                        else "Queued. It will be sent as soon as it is "
+                             "filled, because the hold window is off.")}
 
 
 # ---- recall: the thing an assistant cannot do -----------------------------

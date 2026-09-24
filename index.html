@@ -11380,11 +11380,196 @@ function jbPrepHTML(){
   </div>`;
 }
 
+/* ---- apply for me: paste a link, the worker fills the form ---------------
+ *
+ * Lives inside "My applications" rather than behind a nav item of its own.
+ * That is not laziness: it is the same question — what have I sent, and what
+ * is going out — and this repo's nav chain needs four separate edits before
+ * a new page is reachable, which has been silently forgotten three times.
+ *
+ * Consent is the first thing on screen and the first thing enforced. Nothing
+ * is queued, and nothing is sent, without a live consent row; withdrawing it
+ * cancels everything still in flight. The server checks this twice and does
+ * not trust this screen for any of it.
+ */
+const AQ={consent:null, rows:[], hold:15, paused:false, used:0, max:20,
+          loaded:false, busy:false, msg:"", link:""};
+
+async function aqLoad(){
+  try{
+    const d=await api.get("/api/apply/queue");
+    AQ.consent=d.consent||{consented:false};
+    AQ.rows=d.rows||[];
+    AQ.hold=d.hold_minutes; AQ.paused=!!d.paused;
+    AQ.used=d.used_today||0; AQ.max=d.max_per_day||20;
+  }catch(e){
+    /* A free account gets a 402 here, which is not an error to shout about —
+       the section simply says what it costs. */
+    AQ.consent=null; AQ.rows=[]; AQ.msg=e.message||"";
+  }
+  AQ.loaded=true;
+}
+
+function aqRowHTML(r){
+  const tone={confirmed:"var(--ok)", submitted:"var(--ok)",
+              failed:"var(--dim)", cancelled:"var(--dim)",
+              needs_answer:"#e0b050", holding:"#e0b050"}[r.status]||"var(--body)";
+  const stoppable=!["submitted","confirmed","failed","cancelled"].includes(r.status);
+  return `<div class="card" style="margin:0 0 8px;padding:11px 13px">
+    <div class="row" style="gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:650;font-size:14px">${esc(r.title||"Pasted link")}</div>
+        <div style="font-size:12.5px;color:var(--body)">${esc(r.company||"")}
+          ${r.score?` · <b>${r.score}</b> match`:""}</div>
+        <div style="font-size:12px;color:${tone};margin-top:3px">${esc(r.label||r.status)}${
+          r.error?` — ${esc(r.error)}`:""}</div>
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        ${r.url?`<a class="btn ghost sm" href="${esc(r.url)}" target="_blank" rel="noopener">Open ↗</a>`:""}
+        ${r.status==="needs_answer"&&(r.missing||[]).length
+          ? `<button class="btn sm" data-aqans="${r.id}">Answer ${r.missing.length} question${r.missing.length===1?"":"s"}</button>` : ""}
+        ${stoppable?`<button class="btn ghost sm" data-aqcancel="${r.id}">Stop it</button>`:""}
+      </div>
+    </div>
+  </div>`;
+}
+
+function aqHTML(){
+  if(!AQ.loaded) return `<div class="card" style="margin-bottom:14px">
+    <div style="color:var(--dim);font-size:13.5px">Loading…</div></div>`;
+  if(!AQ.consent){
+    return `<div class="card" style="margin-bottom:14px">
+      <b>⚡ Apply for me</b>
+      <div style="font-size:13.5px;color:var(--dim);margin-top:6px">
+        Paste a job's application link and it is filled in and sent for you,
+        with your uploaded resume attached. ${esc(AQ.msg||"Part of Pro.")}</div>
+      <div style="margin-top:10px"><button class="btn sm" data-nav="plans">See plans</button></div>
+    </div>`;
+  }
+  if(!AQ.consent.consented){
+    return `<div class="card" style="margin-bottom:14px">
+      <b>⚡ Apply for me</b>
+      <div style="font-size:13.5px;color:var(--body);margin-top:6px">
+        Paste a job's application link and it is opened, filled in from your
+        resume, and submitted for you — with your resume attached.</div>
+      <!-- Said plainly, before the button, not in a tooltip afterwards.
+           Somebody is about to let software write their name on an
+           application to a real employer. -->
+      <ul style="font-size:13px;color:var(--dim);margin:8px 0 0 18px;padding:0">
+        <li>Only forms hosted by Greenhouse, Lever, Ashby, Workable,
+            SmartRecruiters and Recruitee — never LinkedIn, Indeed or Naukri.</li>
+        <li>Every application waits ${AQ.hold} minute${AQ.hold===1?"":"s"}
+            with a screenshot, so you can stop it before it goes.</li>
+        <li>A question your resume does not answer stops it and asks you —
+            nothing is ever guessed.</li>
+        <li>You can withdraw permission at any time, and that cancels
+            everything still waiting.</li>
+      </ul>
+      <div class="row" style="margin-top:11px;gap:8px;align-items:center">
+        <button class="btn sm" data-aqon="1" ${AQ.busy?"disabled":""}>
+          Turn it on</button>
+        <span style="font-size:12.5px;color:var(--dim)">${esc(AQ.msg||"")}</span></div>
+    </div>`;
+  }
+  const live=AQ.rows.filter(r=>!["cancelled","failed"].includes(r.status));
+  return `<div class="card" style="margin-bottom:14px">
+    <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+      <b style="flex:1">⚡ Apply for me</b>
+      <span style="font-size:12px;color:var(--dim)">${AQ.used} of ${AQ.max} today</span>
+      <button class="btn ghost sm" data-aqoff="1">Turn off</button>
+    </div>
+    ${AQ.paused?`<div style="font-size:13px;color:#e0b050;margin-top:8px">
+      Automatic applications are paused right now. Your queue is untouched.</div>`:""}
+    <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <input class="ask-input" id="aqLink" style="flex:1 1 260px"
+        placeholder="Paste the job's application link"
+        value="${esc(AQ.link)}">
+      <button class="btn sm" data-aqgo="1" ${AQ.busy?"disabled":""}>${
+        AQ.busy?"Queueing…":"Apply for me"}</button>
+    </div>
+    <div style="font-size:12.5px;color:var(--dim);margin-top:6px" id="aqMsg">${
+      esc(AQ.msg||`Filled in and held for ${AQ.hold} minute${AQ.hold===1?"":"s"} before it is sent, so you can look at it first.`)}</div>
+    ${live.length?`<div style="margin-top:12px">${live.map(aqRowHTML).join("")}</div>`:""}
+  </div>`;
+}
+
+function aqBind(){
+  const el=$("#aqLink");
+  if(el){
+    el.oninput=e=>{ AQ.link=e.target.value; };
+    el.onkeydown=e=>{ if(e.key==="Enter") aqSubmitLink(); };
+  }
+}
+
+async function aqSubmitLink(){
+  const url=(($("#aqLink")||{}).value||AQ.link||"").trim();
+  if(!url){ AQ.msg="Paste the link to the application page first."; return renderCareers(); }
+  AQ.busy=true; AQ.msg="Reading that link…"; renderCareers();
+  try{
+    const d=await api.post("/api/apply/link",{url:url});
+    AQ.link=""; AQ.msg=d.message||"Queued.";
+  }catch(e){ AQ.msg=e.message; }
+  AQ.busy=false;
+  await aqLoad();
+  renderCareers();
+}
+
+async function aqConsent(on){
+  AQ.busy=true; renderCareers();
+  try{
+    if(on){
+      await api.post("/api/apply/consent",{scope:
+        "Open job application forms on my behalf, fill them from my resume, "
+        + "attach my resume and submit them. I can withdraw this at any time."});
+      AQ.msg="On. Paste a link to send your first one.";
+    }else{
+      if(!confirm("Turn off automatic applications?\n\nAnything still waiting to be sent is cancelled.")){
+        AQ.busy=false; return renderCareers();
+      }
+      const d=await api.del("/api/apply/consent");
+      AQ.msg=d.message||"Turned off.";
+    }
+  }catch(e){ AQ.msg=e.message; }
+  AQ.busy=false;
+  await aqLoad();
+  renderCareers();
+}
+
+async function aqCancel(id){
+  try{ await api.post(`/api/apply/queue/${id}/cancel`,{}); AQ.msg="Stopped."; }
+  catch(e){ AQ.msg=e.message; }
+  await aqLoad();
+  renderCareers();
+}
+
+/* One prompt per question, in the employer's own words, with the options
+   listed when the form offered any. Crude, and honest about being the first
+   version: the answer goes into the bank, so each question is asked once
+   across every application anybody ever makes from this account. */
+async function aqAnswer(id){
+  const row=AQ.rows.find(r=>r.id===id);
+  if(!row) return;
+  const answers={};
+  for(const q of (row.missing||[])){
+    const hint=(q.options||[]).length?`\n\nOne of: ${q.options.join(", ")}`:"";
+    const got=prompt(`${q.label}${hint}`,"");
+    if(got===null) return;                 // cancelled: change nothing
+    if(got.trim()) answers[q.label]=got.trim();
+  }
+  if(!Object.keys(answers).length){ AQ.msg="No answers given."; return renderCareers(); }
+  try{
+    await api.post(`/api/apply/queue/${id}/answers`,{answers:answers});
+    AQ.msg="Saved. You will not be asked those again.";
+  }catch(e){ AQ.msg=e.message; }
+  await aqLoad();
+  renderCareers();
+}
+
 /* The pipeline view: what you saved, applied to, and how far each one got. */
 function jbTrackerHTML(){
   const t=JB.tracks;
   if(!t) return `<div class="card"><div style="color:var(--dim);font-size:13.5px">Loading your applications…</div></div>`;
-  if(!t.total) return `<div class="card">
+  if(!t.total) return aqHTML() + `<div class="card">
     <b>Nothing tracked yet</b>
     <div style="font-size:13.5px;color:var(--dim);margin-top:6px">
       Find a job you like and press <b>♡ Save</b> or <b>✓ Mark applied</b>. Everything you
@@ -11397,7 +11582,7 @@ function jbTrackerHTML(){
       data-jbtrtab="${s.id}" style="font-size:13px">${esc(s.label)} <b style="opacity:.75">${c[s.id]||0}</b></button>`).join("");
   const rows=(t.tracks||[]).filter(x=>x.status===JB.trackTab);
   const here=TRACK_LABELS[JB.trackTab]||JB.trackTab;
-  return `<div class="ask-chips" style="margin-bottom:12px">${chips}</div>
+  return aqHTML() + `<div class="ask-chips" style="margin-bottom:12px">${chips}</div>
   ${rows.length?rows.map(jbTrackCardHTML).join(""):`<div class="card">
     <div style="color:var(--dim);font-size:13.5px">Nothing at the <b>${esc(TRACK_LABELS[JB.trackTab]||JB.trackTab)}</b> stage yet.</div></div>`}`;
 }
@@ -11414,15 +11599,15 @@ function jbTrackCardHTML(t){
         <div style="font-size:11.5px;color:var(--dim);margin-top:3px">${when}</div>
       </div>
       <div class="row" style="gap:6px;flex-shrink:0;flex-wrap:wrap;align-items:center">
-        <select class="ask-input" data-jbstatus="${t.job_id}" style="min-width:150px;font-size:13px">
+        ${t.job_id?`<select class="ask-input" data-jbstatus="${t.job_id}" style="min-width:150px;font-size:13px">
           ${Object.entries(TRACK_LABELS).map(([k,v])=>`<option value="${k}" ${t.status===k?"selected":""}>${v}</option>`).join("")}
-        </select>
+        </select>`:`<span style="font-size:12px;color:var(--dim)">applied from a link</span>`}
         ${t.url?`<a class="btn ghost sm" href="${esc(t.url)}" target="_blank" rel="noopener">Open ↗</a>`:""}
         ${["applied","interviewing","offer"].includes(t.status)
           ? `<button class="btn ghost sm" data-jbprep="${t.job_id}"
                      title="Prep written from this posting and your resume"
              >🎤 Prep</button>` : ""}
-        <button class="btn ghost sm" data-jbdel="${t.job_id}" title="Remove from tracker">✕</button>
+        ${t.job_id?`<button class="btn ghost sm" data-jbdel="${t.job_id}" title="Remove from tracker">✕</button>`:""}
       </div>
     </div>
   </div>`;
@@ -11584,6 +11769,16 @@ document.addEventListener("click",e=>{
           return; }
   const pcat=e.target.closest("[data-prepcat]");
   if(pcat){ jbLoadPrep(pcat.dataset.prepcat); return; }
+  const aOn=e.target.closest("[data-aqon]");
+  if(aOn){ aqConsent(true); return; }
+  const aOff=e.target.closest("[data-aqoff]");
+  if(aOff){ aqConsent(false); return; }
+  const aGo=e.target.closest("[data-aqgo]");
+  if(aGo){ aqSubmitLink(); return; }
+  const aCan=e.target.closest("[data-aqcancel]");
+  if(aCan){ aqCancel(+aCan.dataset.aqcancel); return; }
+  const aAns=e.target.closest("[data-aqans]");
+  if(aAns){ aqAnswer(+aAns.dataset.aqans); return; }
   const tt=e.target.closest("[data-jbtrtab]");
   if(tt){ JB.trackTab=tt.dataset.jbtrtab; renderCareers(); return; }
   const sv=e.target.closest("[data-jbsave]");
@@ -11777,6 +11972,13 @@ function renderCareers(){
   // invitation sits unseen behind a tab showing nothing.
   if(!JB.invites) jbLoadInvites().then(()=>{ if(S.view.page==="careers") renderCareers(); });
   if(!JB.filters) jbFilters().then(()=>{ if(S.view.page==="careers") renderCareers(); });
+  // The apply-for-me section lives inside the tracker, so it loads with it
+  // and re-binds after every redraw. Fetched once: a redraw that refetched
+  // would put a request behind every keystroke in the paste box.
+  if(JB.tab==="track"){
+    if(!AQ.loaded) aqLoad().then(()=>{ if(S.view.page==="careers") renderCareers(); });
+    else aqBind();
+  }
   if(JB.tab==="invites" && !JB.invites)
     jbLoadInvites().then(()=>{ if(S.view.page==="careers") renderCareers(); });
 }

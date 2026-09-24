@@ -1,0 +1,14 @@
+# The worker image only. Do NOT add these to the root requirements.txt —
+# Chromium and its libraries are roughly 400 MB, and the web service has no
+# use for any of it.
+#
+# The shared dependencies come from the root file, which worker/Dockerfile
+# installs first: one pin of SQLAlchemy and the rest for both services,
+# because the worker reads the same tables the app writes.
+#
+# The browsers are installed by `playwright install chromium` in the
+# Dockerfile rather than by pinning a prebuilt mcr.microsoft.com image tag.
+# The driver refuses to run against browsers from a different release, and
+# tying the two together through THIS pin means there is one version to
+# change instead of two that can silently disagree.
+playwright==1.63.0

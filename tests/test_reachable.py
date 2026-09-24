@@ -67,6 +67,12 @@ ALLOWED = {
     "/api/admin/corpus": "operator tool: watching that build",
     "/api/admin/alerts/run": "operator tool",
     "/api/admin/reports": "operator tool",
+    # Auto-apply used to be listed here as "UI is a later slice". It is not
+    # any more: the Apply-for-me panel inside My applications calls consent,
+    # link, queue, cancel and answers, so every one of them has a real
+    # caller and this check now guards them like anything else. The panel
+    # sits inside an existing tab rather than behind a nav item of its own,
+    # which is why it needed none of the four-edit nav chain.
     "/api/hire/search": "employer surface, not built yet",
     "/api/apply/licence": "employer surface, not built yet",
     "/api/apply/profile": "employer surface, not built yet",
