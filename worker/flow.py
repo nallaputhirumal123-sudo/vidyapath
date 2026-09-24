@@ -195,6 +195,53 @@ def _record_applied(db, m, row):
     track.updated_at = m.now()
 
 
+async def _resolve(db, m, row, user, adapter, page, missing):
+    """Settle what the label matcher could not, in order of trust.
+
+    Their own details first — free, exact, and the answer the person
+    actually gave. Then the model, on whatever is left and is allowed to
+    reach it. Returns what is STILL unanswered.
+    """
+    asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
+              "options": q.options} for q in missing]
+
+    own = m.apply_from_details(db, user.id, asked)
+    if own:
+        m.apply_bank_write(db, user.id, own, by_ai=False)
+        _say(row, f"their own details answered {len(own)}")
+        missing = await adapter.answers(page, load_bank(db, m, user.id))
+        asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
+                  "options": q.options} for q in missing]
+    if not asked:
+        return missing
+
+    try:
+        got = await m.apply_ai_answers(db, user, asked)
+    except Exception as e:
+        # Never fatal. A model that is down leaves the row exactly where the
+        # deterministic path left it.
+        _say(row, f"model unavailable: {type(e).__name__}: {e}")
+        got = {}
+    if got:
+        m.apply_bank_write(db, user.id, got, by_ai=True)
+        _say(row, f"model answered {len(got)} of {len(asked)}")
+        missing = await adapter.answers(page, load_bank(db, m, user.id))
+    return missing
+
+
+def _park(db, m, row, missing):
+    """Stop and ask. Not a failure — the row is one answer from going."""
+    row.status = "needs_answer"
+    row.missing_json = json.dumps(
+        [{"label": q.label, "norm": q.norm, "kind": q.kind,
+          "options": q.options} for q in missing])[:20000]
+    row.error = ""
+    row.updated_at = m.now()
+    db.commit()
+    _say(row, f"needs {len(missing)} answer(s)")
+    return "needs_answer"
+
+
 async def prepare(db, m, row, adapter, page, shots_dir, resume_path):
     """Open the form, fill it, attach, and stop at the hold window."""
     user = db.get(m.User, row.user_id)
@@ -202,75 +249,55 @@ async def prepare(db, m, row, adapter, page, shots_dir, resume_path):
         return _fail(db, m, row, "The account is gone.")
 
     await adapter.open(page, row.url)
-    got = await adapter.fill(page, build_profile(db, m, user))
-    _say(row, f"filled {got.count}: {', '.join(got.filled) or 'nothing'}")
+    profile = build_profile(db, m, user)
 
-    missing = await adapter.answers(page, load_bank(db, m, user.id))
-
-    # What the deterministic path could not settle goes to the model — once,
-    # in one call, for the whole form. It is given this candidate's resume,
-    # the details they typed and every answer they have given before, and
-    # told to answer FROM THOSE ONLY and return nothing where the documents
-    # do not say. It is extracting, not composing.
+    # A form with pages. Fill this one, settle its questions, attach the
+    # resume wherever the file input turns up, then press Next — and stop
+    # pressing the moment a Submit button exists, because that is the click
+    # the hold window is for and it is not ours to make yet.
     #
-    # Questions that are legal declarations or protected characteristics
-    # never reach it (main.APPLY_NEVER_AI) and park for the person, as they
-    # should. Everything it does settle goes into the bank, so it is asked
-    # once across every application this account will ever make rather than
-    # once per form — which is what keeps a model in this path affordable.
-    if missing:
-        asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
-                  "options": q.options} for q in missing]
+    # Attaching inside the loop rather than after it: the file input is on
+    # page one of a Greenhouse form and page three of some others, and a
+    # resume attached to a page we have already left is not attached.
+    steps = 0
+    attached = False
+    total_filled = 0
+    while True:
+        steps += 1
+        got = await adapter.fill(page, profile)
+        total_filled += got.count
+        _say(row, f"page {steps}: filled {got.count} "
+                  f"({', '.join(got.filled) or 'nothing'})")
 
-        # Their own form first, matched on the QUESTION rather than on the
-        # field's label. filler.js already tried the label; when its reading
-        # failed, the answer was sitting in the details form unused and the
-        # row parked to ask for something they typed weeks ago. Free, exact,
-        # and it is the answer the person actually gave.
-        own = m.apply_from_details(db, user.id, asked)
-        if own:
-            m.apply_bank_write(db, user.id, own, by_ai=False)
-            _say(row, f"their own details answered {len(own)}")
-            missing = await adapter.answers(
-                page, load_bank(db, m, user.id))
-            asked = [{"label": q.label, "norm": q.norm, "kind": q.kind,
-                      "options": q.options} for q in missing]
-        try:
-            got = (await m.apply_ai_answers(db, user, asked)
-                   if asked else {})
-        except Exception as e:
-            # Never fatal. A model that is down leaves the row exactly where
-            # the deterministic path left it.
-            _say(row, f"model unavailable: {type(e).__name__}: {e}")
-            got = {}
-        if got:
-            m.apply_bank_write(db, user.id, got, by_ai=True)
-            _say(row, f"model answered {len(got)} of {len(missing)}")
-            # Filled by re-running the resolver against the enlarged bank,
-            # rather than writing values in here: one place decides how an
-            # answer reaches a field, and it already handles selects that
-            # refuse a value.
-            missing = await adapter.answers(page, load_bank(db, m, user.id))
+        missing = await adapter.answers(page, load_bank(db, m, user.id))
+        if missing:
+            missing = await _resolve(db, m, row, user, adapter, page, missing)
+        if missing:
+            return _park(db, m, row, missing)
 
-    if missing:
-        # Parked, not failed. The row is one answer away and the answer goes
-        # into the bank, so this costs the candidate once and never again.
-        row.status = "needs_answer"
-        row.missing_json = json.dumps(
-            [{"label": q.label, "norm": q.norm, "kind": q.kind,
-              "options": q.options} for q in missing])[:20000]
-        row.error = ""
-        row.updated_at = m.now()
-        db.commit()
-        _say(row, f"needs {len(missing)} answer(s)")
-        return "needs_answer"
+        if not attached and resume_path:
+            try:
+                await adapter.attach(page, resume_path)
+                attached = True
+                _say(row, f"resume attached on page {steps}")
+            except Exception as e:
+                # Not fatal here. The input may be on a later page; if it
+                # never appears, the check below catches it.
+                _say(row, f"no upload on page {steps}: {e}")
 
-    if not resume_path:
+        if steps >= adapter.MAX_STEPS:
+            _say(row, f"stopped after {steps} pages")
+            break
+        if not await adapter.next_step(page):
+            break
+
+    if not attached:
         return _fail(
             db, m, row,
             "There is no resume on this account to attach. Upload one and "
-            "queue this job again.")
-    await adapter.attach(page, resume_path)
+            "queue this job again." if not resume_path else
+            "This form has no resume upload we could find, across "
+            f"{steps} page{'' if steps == 1 else 's'}.")
 
     # The screenshot is the point of the hold window. "We are about to send
     # this" with nothing to look at is not a review, it is a countdown.

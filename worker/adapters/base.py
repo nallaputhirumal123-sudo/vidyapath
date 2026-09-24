@@ -74,6 +74,23 @@ class Adapter:
 
     source = ""
 
+    # Multi-page forms. The default is a form with one page, which is what
+    # an adapter that does not override these is saying — not an omission.
+    MAX_STEPS = 8
+
+    async def at_last_step(self, page) -> bool:
+        """Is the send button on this page? True for a single-page form."""
+        return True
+
+    async def next_step(self, page) -> bool:
+        """Advance one page. False means there is nowhere left to go.
+
+        This is the only method that presses a button the candidate has not
+        seen, which is why it is opt-in: an adapter that has not thought
+        about paging does not get to click anything.
+        """
+        return False
+
     async def open(self, page, url) -> None:
         """Get to the application form itself.
 

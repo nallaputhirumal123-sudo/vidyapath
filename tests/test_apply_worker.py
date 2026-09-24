@@ -931,6 +931,94 @@ ck("and the referrer exclusions are real word boundaries",
    "a heredoc that eats a backslash turns an exclusion into a no-op, and "
    "the failure is invisible in every editor")
 
+# --------------------------------------------------- a form with pages
+print("")
+print("a three-page form: click Next, stop at Submit")
+# The adapter only ever reached page one. A form with steps was filled,
+# found no submit button and failed -- so every multi-page application was
+# dead on arrival. It walks them now, and the one button it must NOT press
+# on its own is Submit: that is what the hold window exists for.
+if not HAVE_PW:
+    skip("multi-page walk", "skipped (no playwright)")
+else:
+    STEPS = """<!doctype html><html><body>
+    <div id="p1"><label for="a">First Name *</label><input id="a" required>
+      <label for="e">Email *</label><input type="email" id="e" required>
+      <button id="n1" type="button">Next</button></div>
+    <div id="p2" style="display:none"><label for="r">Resume *</label>
+      <input type="file" id="r" required>
+      <button id="n2" type="button">Continue</button></div>
+    <div id="p3" style="display:none"><label for="w">Why this role? *</label>
+      <input id="w" required>
+      <button id="go" type="submit">Submit Application</button></div>
+    <script>
+    var seen = [];
+    n1.onclick = function () { seen.push("n1");
+      p1.style.display = "none"; p2.style.display = ""; };
+    n2.onclick = function () { seen.push("n2");
+      p2.style.display = "none"; p3.style.display = ""; };
+    go.onclick = function (e) { e.preventDefault(); seen.push("submit");
+      if (!document.getElementById("r").files.length) {
+        document.body.innerHTML = "<h1>Attach your CV</h1>"; return; }
+      document.body.innerHTML = "<h1>Thank you for applying</h1>"; };
+    window.__seen = function () { return seen.join(","); };
+    </script></body></html>"""
+    import tempfile as _tf
+    _d = _tf.mkdtemp(prefix="vpsteps")
+    _path = os.path.join(_d, "steps.html")
+    io.open(_path, "w", encoding="utf-8").write(STEPS)
+
+    from worker.adapters.form import FormAdapter
+
+    class Stepper(FormAdapter):
+        source = "greenhouse"
+        SETTLE_MS = 150
+        FORMS = ["#p1", "body"]
+        NEXTS = ["button:has-text('Next')",
+                 "button:has-text('Continue')"]
+        SUBMITS = ["button:has-text('Submit Application')"]
+        FILE_INPUTS = ["input[type=file]"]
+        CONFIRMS = ["thank you for applying"]
+
+    clear_bank()
+    db.add(m.AnswerBank(user_id=me.id,
+                        question_norm=m.question_norm("Why this role?"),
+                        answer="The payments work.", created_at=m.now()))
+    db.commit()
+    _res = resume_file_for(db, me.id, m, SHOTS)
+    _row = new_row()
+    _row.url = "file:///" + _path.replace(chr(92), "/")
+    db.commit()
+    os.environ["APPLY_HOLD_MINUTES"] = "15"
+
+    _pressed = {}
+
+    async def _walk(r):
+        async with async_playwright() as pw:
+            b = await pw.chromium.launch(args=["--no-sandbox"])
+            ctx = await b.new_context()
+            pg = await ctx.new_page()
+            try:
+                out_ = await flow.run_row(db, m, r, Stepper(), pg, SHOTS,
+                                          _res)
+                _pressed["seen"] = await pg.evaluate("() => window.__seen()")
+                return out_
+            finally:
+                await ctx.close()
+                await b.close()
+
+    _out = run(_walk(_row))
+    ck("it reaches the hold window", _out == "holding",
+       f"{_out}: {(_row.error or '')[:90]}")
+    ck("having pressed Next on page one and Continue on page two",
+       _pressed.get("seen") == "n1,n2", str(_pressed.get("seen")))
+    ck("and NOT pressed Submit",
+       "submit" not in (_pressed.get("seen") or ""),
+       "the hold window is worthless if the form has already gone")
+    ck("the resume was attached on the page that had the input",
+       bool(_row.screenshot_path), _row.screenshot_path or "")
+    os.environ["APPLY_HOLD_MINUTES"] = "15"
+
 # ------------------------------------------------------------------ cleanup
 db.query(m.ApplyQueue).filter(
     m.ApplyQueue.user_id.in_([me.id, other.id])).delete(

@@ -590,6 +590,74 @@ db.query(main.AnswerBank).filter(
     main.AnswerBank.user_id == me.id).delete(synchronize_session=False)
 db.commit()
 
+# ------------------------------------------- the model, against a real one
+print("")
+print("what a live model does with a real CV")
+# Skipped without a key, in the repo's usual way, because a missing
+# credential must read as a missing credential and never as a pass. With
+# one, this is the check that matters most: the guardrails are pure Python
+# and easy to keep true, but "does it invent a fact when the CV is silent"
+# can only be answered by asking a model.
+if not main.ASK_ENABLED:
+    print("SKIP the live model — skipped (no GEMINI_API_KEY)")
+else:
+    import asyncio as _a
+    _r = ("RAVI KUMAR" + chr(10) + "Senior Backend Engineer" + chr(10) +
+          "SUMMARY" + chr(10) +
+          "Backend engineer with 7 years building payment systems in "
+          "Python and Go." + chr(10) +
+          "EXPERIENCE" + chr(10) +
+          "Senior Backend Engineer, Northwind Pay, 2021-2025" + chr(10) +
+          "- Rebuilt the settlement pipeline; cut reconciliation by 40%."
+          + chr(10) + "EDUCATION" + chr(10) +
+          "B.Tech Computer Science, JNTU Hyderabad, 2018")
+    _n = db.query(main.Note).filter(main.Note.user_id == me.id,
+                                    main.Note.k == "resume_uptext").first()
+    if _n is None:
+        _n = main.Note(user_id=me.id, k="resume_uptext", v="")
+        db.add(_n)
+    _was = _n.v
+    _n.v = _r
+    db.commit()
+
+    def _q(lab, opts=None, kind="text"):
+        return {"label": lab, "norm": main.question_norm(lab),
+                "kind": kind, "options": opts or []}
+
+    _qs = [
+        _q("How many years of professional software engineering "
+           "experience do you have?",
+           ["0-2 years", "3-5 years", "6-10 years", "10+ years"], "select"),
+        _q("What is your highest level of education?",
+           ["High School", "Bachelor's Degree", "Master's Degree", "PhD"],
+           "select"),
+        _q("What was your manager's name at your last job?"),
+        _q("Are you legally authorized to work in the United States?",
+           ["Yes", "No"], "select"),
+    ]
+    _got = _a.new_event_loop().run_until_complete(
+        main.apply_ai_answers(db, me, _qs))
+    ck("seven years lands in the 6-10 band",
+       _got.get(_qs[0]["norm"]) == "6-10 years",
+       str(_got.get(_qs[0]["norm"])))
+    ck("a B.Tech is a bachelor's degree",
+       _got.get(_qs[1]["norm"]) == "Bachelor's Degree",
+       str(_got.get(_qs[1]["norm"])))
+    ck("and an option is copied exactly, never paraphrased",
+       all(v in (q["options"] or [v]) for q, v in
+           [(x, _got.get(x["norm"])) for x in _qs[:2]] if v),
+       "a select holding a value it does not offer is worse than an empty "
+       "one")
+    ck("a question the CV cannot answer comes back BLANK",
+       not _got.get(_qs[2]["norm"]),
+       str(_got.get(_qs[2]["norm"])) +
+       " — the resume names no manager, and a plausible name here would "
+       "be a fabrication sent to an employer")
+    ck("and the legal declaration never reached the model at all",
+       _qs[3]["norm"] not in _got, str(_got.get(_qs[3]["norm"])))
+    _n.v = _was
+    db.commit()
+
 # ------------------------------------------------------------ the kill switch
 print("\nthe kill switch stops new work without a redeploy")
 os.environ["APPLY_KILL_SWITCH"] = "1"

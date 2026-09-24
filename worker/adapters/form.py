@@ -56,6 +56,18 @@ class FormAdapter(Adapter):
     APPLY_BUTTONS = []
     FILE_INPUTS = ["input[type=file]"]
     SUBMITS = ["button[type=submit]", "input[type=submit]"]
+    # Moving to the next page of a form that has several. Deliberately does
+    # NOT include anything that might be the send button: SUBMITS is checked
+    # first and a page offering both is treated as the last one.
+    NEXTS = ["button:has-text('Next')", "button:has-text('Continue')",
+             "button:has-text('Save and continue')",
+             "button:has-text('Save & Continue')",
+             "a:has-text('Next')",
+             "[data-automation-id='bottom-navigation-next-button']"]
+    # A form with more pages than this is not a form, it is a wizard that has
+    # gone wrong, and clicking Next forty times on somebody's behalf is worse
+    # than stopping.
+    MAX_STEPS = 8
     # Matched case-insensitively against the page text after submitting. The
     # only evidence an application landed.
     CONFIRMS = ["thank you for applying", "application submitted",
@@ -218,6 +230,87 @@ class FormAdapter(Adapter):
                 required=True, options=list(f.get("options") or [])))
         return missing
 
+    async def _first_visible(self, page, selectors):
+        """The first selector that resolves to something a person can see.
+
+        Distinct from _first, which counts hidden elements too — and must,
+        because a styled file upload is nearly always a hidden input behind
+        a pretty button.
+
+        For BUTTONS the opposite is true, and getting it wrong is subtle: a
+        three-page form has all three pages in the DOM at once with two of
+        them display:none, so the submit button on the last page exists from
+        the moment the first page loads. Counting it made the adapter believe
+        page one was the last page, so it never pressed Next and every
+        multi-page form stopped after its first screen.
+        """
+        for sel in selectors:
+            try:
+                nodes = page.locator(sel)
+                for i in range(min(await nodes.count(), 8)):
+                    node = nodes.nth(i)
+                    if await node.is_visible():
+                        return node
+            except Exception:
+                continue
+        return None
+
+    async def at_last_step(self, page) -> bool:
+        """Is this the page with the send button on it?
+
+        Checked before Next, always. A page offering both is the last one —
+        some boards keep a disabled Next beside an enabled Submit — and
+        clicking Next there would walk past the thing we came to do.
+        """
+        return (await self._first_visible(page, self.SUBMITS)) is not None
+
+    async def next_step(self, page) -> bool:
+        """Advance one page. False when there is nowhere left to go.
+
+        Never clicks anything on the last page. This is the only method that
+        presses a button the candidate did not see, so it is kept as narrow
+        as it can be: no Next while a Submit exists, no Next that is itself
+        disabled, and no Next that leaves the page looking identical.
+        """
+        if await self.at_last_step(page):
+            return False
+        btn = await self._first_visible(page, self.NEXTS)
+        if btn is None:
+            return False
+        try:
+            if not await btn.is_enabled():
+                return False
+        except Exception:
+            pass
+        before = await self._signature(page)
+        try:
+            await btn.click(timeout=10000)
+        except Exception:
+            return False
+        await page.wait_for_timeout(self.SETTLE_MS + 700)
+        # A Next that changed nothing is a validation error we cannot see,
+        # and clicking it again forever is the one failure mode a loop like
+        # this must not have.
+        return (await self._signature(page)) != before
+
+    async def _signature(self, page):
+        """Enough of the page to tell whether pressing Next did anything.
+
+        VISIBLE fields only. A wizard keeps every page in the DOM and toggles
+        display, so a signature built from all of them is identical on every
+        page — Next was pressed, nothing appeared to change, and the walk
+        stopped after the first screen believing it had hit a validation
+        error it could not see.
+        """
+        try:
+            return await page.evaluate(
+                "() => location.href + '|' + "
+                "[...document.querySelectorAll('input,select,textarea')]"
+                ".filter(e => e.offsetParent !== null)"
+                ".map(e => e.id || e.name || '').join(',')")
+        except Exception:
+            return ""
+
     async def attach(self, page, resume_path) -> None:
         node = await self._first(page, self.FILE_INPUTS)
         if node is None:
@@ -228,7 +321,8 @@ class FormAdapter(Adapter):
         await page.wait_for_timeout(1200)
 
     async def submit(self, page) -> str:
-        node = await self._first(page, self.SUBMITS)
+        node = (await self._first_visible(page, self.SUBMITS)
+                or await self._first(page, self.SUBMITS))
         if node is None:
             raise RuntimeError("No submit button on that form.")
         await node.click(timeout=15000)
