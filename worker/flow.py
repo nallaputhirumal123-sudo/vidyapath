@@ -105,7 +105,12 @@ def build_profile(db, m, user):
     edu = (r.get("edu") or [{}])[0] if r.get("edu") else {}
     full = str(r.get("name") or user.name or "").strip()
     first, _, last = full.partition(" ")
-    return {
+    # Address, notice period, salary, work authorisation: the things every
+    # form asks and no CV carries. The same stored set the extension reads,
+    # so the two fill a form identically. Applied LAST so a detail the
+    # person typed wins over anything guessed from the resume.
+    typed = m.apply_details(db, user.id)
+    out = {
         "first_name": first, "last_name": last.strip(), "full_name": full,
         "middle_name": "", "preferred_first_name": "",
         "preferred_middle_name": "", "preferred_last_name": "",
@@ -124,6 +129,8 @@ def build_profile(db, m, user):
         "summary": str(r.get("summary") or "")[:1200],
         "city": str(user.city or ""),
     }
+    out.update({k: v for k, v in typed.items() if v})
+    return out
 
 
 def _fail(db, m, row, why):

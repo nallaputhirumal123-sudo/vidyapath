@@ -693,6 +693,151 @@ ck("every row is left exactly where it was",
            m.ApplyQueue.user_id == me.id).all()),
    "halting must not mark anything failed; it is a pause, not a verdict")
 
+
+# ------------------------------------------------- all six, each on its own
+print("")
+print("every adapter is selectors over one shared behaviour")
+from worker.adapters.form import FormAdapter          # noqa: E402
+from worker.adapters import adapter_for               # noqa: E402
+
+for name, cls in sorted(ADAPTERS.items()):
+    ck(f"{name} inherits the shared driving code",
+       issubclass(cls, FormAdapter),
+       "an adapter that reimplements open/fill/submit is one that can drift "
+       "from the five that did not")
+    a = cls()
+    ck(f"{name} says which source it is", a.source == name, a.source)
+    for attr in ("FORMS", "FILE_INPUTS", "SUBMITS", "CONFIRMS"):
+        got = getattr(a, attr, None)
+        ck(f"{name} has {attr}", isinstance(got, list) and len(got) > 0,
+           str(got)[:50])
+    ck(f"{name} lists selectors, never one string",
+       all(isinstance(x, str) for x in a.FORMS) and len(a.FORMS) >= 1,
+       "every board serves more than one generation of markup at once")
+
+# A form in each board's own shape, driven end to end with a real browser.
+# Written from each ATS's documented field naming, NOT saved from anybody's
+# live page, and served over file:// — no test here may ever reach a real
+# employer.
+SHAPES = {
+    "greenhouse": ("""<div id="application_form"><form>
+        <label for="first_name">First Name *</label>
+        <input id="first_name" name="job_application[first_name]" required>
+        <label for="email">Email *</label>
+        <input type="email" id="email" name="job_application[email]" required>
+        <label for="resume">Resume *</label>
+        <input type="file" id="resume" name="job_application[resume]" required>
+        <input type="submit" id="submit_app" value="Submit Application">
+      </form></div>""", "Thank you for applying"),
+    "lever": ("""<a class="postings-btn" href="#apply">Apply for this job</a>
+      <form action="/acme/apply" class="application-form">
+        <label for="name">Full name *</label>
+        <input id="name" name="name" required>
+        <label for="email">Email *</label>
+        <input type="email" id="email" name="email" required>
+        <label for="resume">Resume *</label>
+        <input type="file" id="resume" name="resume" required>
+        <button id="btn-submit" type="submit">Submit application</button>
+      </form>""", "Thank you for applying"),
+    "ashby": ("""<button>Apply for this Job</button>
+      <form>
+        <label for="_systemfield_name">Name *</label>
+        <input id="_systemfield_name" required>
+        <label for="_systemfield_email">Email *</label>
+        <input type="email" id="_systemfield_email" required>
+        <label for="_systemfield_resume">Resume *</label>
+        <input type="file" id="_systemfield_resume" required>
+        <button type="submit">Submit Application</button>
+      </form>""", "Thanks for applying"),
+    "workable": ("""<form data-ui="application-form">
+        <label for="firstname">First name *</label>
+        <input id="firstname" name="firstname" required>
+        <label for="email">Email *</label>
+        <input type="email" id="email" name="email" required>
+        <label for="resume">Resume *</label>
+        <input type="file" id="resume" name="resume" accept=".pdf" required>
+        <button data-ui="submit-application" type="submit">Submit application</button>
+      </form>""", "Thank you for applying"),
+    "smartrecruiters": ("""<button>I'm interested</button>
+      <form data-test="application-form">
+        <label for="firstName">First name *</label>
+        <input id="firstName" name="firstName" required>
+        <label for="email">Email *</label>
+        <input type="email" id="email" name="email" required>
+        <label for="resume">Resume *</label>
+        <input type="file" id="resume" name="resume" required>
+        <button data-test="submit-application" type="submit">Submit application</button>
+      </form>""", "Thank you for applying"),
+    "recruitee": ("""<form id="job-application-form">
+        <label for="cname">Full name *</label>
+        <input id="cname" name="candidate[name]" required>
+        <label for="cemail">Email *</label>
+        <input type="email" id="cemail" name="candidate[email]" required>
+        <label for="cv">CV *</label>
+        <input type="file" id="cv" name="candidate[cv]" required>
+        <button type="submit">Apply</button>
+      </form>""", "We received your application"),
+}
+
+_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<title>{src} fixture</title></head><body>
+<h1>Backend Engineer</h1>
+{body}
+<script>
+document.querySelector("form").addEventListener("submit", function (e) {{
+  e.preventDefault();
+  var f = document.querySelector("input[type=file]");
+  /* Refuses without the file, exactly as a real board would. Otherwise the
+     test proves the adapter clicked a button, not that it completed a form. */
+  if (!f.files.length) {{
+    document.body.innerHTML = "<h1>Please attach your CV</h1>";
+    return;
+  }}
+  document.body.innerHTML = "<h1>{confirm}</h1>";
+}});
+</script></body></html>"""
+
+if not HAVE_PW:
+    skip("all six adapters against their own markup", "skipped (no playwright)")
+else:
+    import tempfile
+    from worker.adapters.base import FillResult as _FR     # noqa: F401
+
+    shapedir = tempfile.mkdtemp(prefix="vpshapes")
+    resume2 = resume_file_for(db, me.id, m, SHOTS)
+    os.environ["APPLY_HOLD_MINUTES"] = "0"
+    for src, (body, confirm) in sorted(SHAPES.items()):
+        path = os.path.join(shapedir, f"{src}.html")
+        io.open(path, "w", encoding="utf-8").write(
+            _PAGE.format(src=src, body=body, confirm=confirm))
+        row = m.ApplyQueue(user_id=me.id, job_id=None, source=src,
+                           url="file:///" + path.replace("\\", "/"),
+                           title="Backend Engineer", company=f"{src} Co",
+                           status="prepared", created_at=m.now())
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        async def drive(r, s):
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(args=["--no-sandbox"])
+                ctx = await b.new_context()
+                page = await ctx.new_page()
+                try:
+                    return await flow.run_row(db, m, r, adapter_for(s), page,
+                                              SHOTS, resume2)
+                finally:
+                    await ctx.close()
+                    await b.close()
+
+        out = run(drive(row, src))
+        ck(f"{src}: the form goes through", out == "confirmed",
+           f"{out}: {(row.error or '')[:100]}")
+        ck(f"{src}: and the employer's own words prove it",
+           confirm.lower() in (row.confirmation or "").lower(),
+           (row.confirmation or "")[:60])
+    os.environ["APPLY_HOLD_MINUTES"] = "15"
+
 # ------------------------------------------------------------------ cleanup
 db.query(m.ApplyQueue).filter(
     m.ApplyQueue.user_id.in_([me.id, other.id])).delete(

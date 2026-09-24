@@ -104,6 +104,10 @@ gh3 = mkjob("greenhouse", "Data Engineer", f"Alpha {u}")
 wd = mkjob("workday", "Cloud Engineer", f"Gamma {u}")
 agg = mkjob("adzuna", "Site Reliability", f"Delta {u}")
 lev = mkjob("lever", "Staff Engineer", f"Epsilon {u}")
+# A source with no adapter and none planned, for the refusal path. All six
+# no-login ATSs are drivable now, so proving "we do not drive that" needs a
+# source that genuinely is not one of them.
+agg2 = mkjob("himalayas", "Remote Engineer", f"Zeta {u}")
 
 
 def clean_queue():
@@ -150,17 +154,19 @@ ck("and there is exactly one live row",
 print("\nonly forms we are allowed to drive, and a reason for each refusal")
 clean_queue()
 r = c.post("/api/apply/queue",
-           json={"job_ids": [gh1.id, wd.id, agg.id, lev.id]})
+           json={"job_ids": [gh1.id, wd.id, agg.id, lev.id, agg2.id]})
 ck("the request succeeds", r.status_code == 200, r.text[:100])
 d = r.json()
-ck("the greenhouse one is queued", d.get("queued") == 1, str(d.get("queued")))
+# Two: greenhouse and lever. Both are no-login ATSs with adapters, which is
+# what "drivable" means — the list grew and this number grows with it.
+ck("the drivable ones are queued", d.get("queued") == 2, str(d.get("queued")))
 why = {s.get("job_id"): s.get("why", "") for s in d.get("skipped", [])}
 ck("workday is refused for needing an employer account",
    "account" in why.get(wd.id, "").lower(), why.get(wd.id, ""))
 ck("the aggregator is refused for being a redirect, not a form",
    "aggregator" in why.get(agg.id, "").lower(), why.get(agg.id, ""))
-ck("an ATS not in this slice is refused plainly",
-   "manually" in why.get(lev.id, "").lower(), why.get(lev.id, ""))
+ck("a source we do not drive at all is refused plainly",
+   "manually" in why.get(agg2.id, "").lower(), why.get(agg2.id, ""))
 ck("every refusal says what to do instead",
    all("apply" in v.lower() for v in why.values()), str(why)[:160])
 
@@ -210,10 +216,14 @@ if rows:
        any((x.get("score") or 0) > 0 for x in rows),
        str([x.get("score") for x in rows]))
 else:
-    # A board with nothing matching is a real outcome on a fresh database,
-    # and it has to read as one rather than as a broken button.
-    ck("an empty board says so, and what to try",
-       "lower floor" in (d.get("message") or ""), d.get("message"))
+    # Queueing nothing is a real outcome, and there are two of them: nothing
+    # matched the floor at all, or things matched and none carried a link the
+    # bot can drive. Both have to reach the screen as words. "0 queued" with
+    # a silent skipped list is indistinguishable from a broken button.
+    ck("an empty result says which kind of empty it is",
+       "lower floor" in (d.get("message") or "")
+       or "could be driven" in (d.get("message") or ""),
+       d.get("message"))
 clean_queue()
 
 # --------------------------------------------------------------- the caps
@@ -351,7 +361,7 @@ ck("but two genuinely different questions stay different",
    "application, which is worse than asking twice")
 ck("two normalisers cannot drift apart",
    "from main import question_norm" in open(
-       "worker/adapters/greenhouse.py", encoding="utf-8").read(),
+       "worker/adapters/form.py", encoding="utf-8").read(),
    "the worker reads the key the API wrote; a comma between them is a bank "
    "that never hits")
 
@@ -418,9 +428,14 @@ src, why = main.apply_source_of(
     "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite")
 ck("Workday is refused for needing an employer account",
    src is None and "account" in why, why[:70])
+# Lever has an adapter now, so the link reader should accept it. The
+# "no adapter yet" branch still exists for whatever is added next.
 src, why = main.apply_source_of("https://jobs.lever.co/cred/abc")
-ck("an ATS with no adapter yet says so rather than queueing",
-   src is None and "adapter" in why, why[:70])
+ck("a lever link is now drivable too", src == "lever", why[:70])
+ck("and the no-adapter refusal is still there for whatever comes next",
+   "adapter yet" in open("main.py", encoding="utf-8").read(),
+   "APPLY_DRIVABLE is what we can drive today; APPLY_SOURCES is what we "
+   "are allowed to")
 
 print("")
 print("queueing one goes through the same gate as everything else")

@@ -1587,6 +1587,11 @@ const api = {
   post: (p,b)   => api.call(p,{method:"POST",body:b}),
   del:  p       => api.call(p,{method:"DELETE"}),
   patch:(p,b)   => api.call(p,{method:"PATCH",body:b}),
+  /* PUT, for the one thing that genuinely replaces a whole set rather than
+     amending it: the form details. Calling patch() there would have been a
+     lie about what the route does — clearing a field means sending the set
+     without it, and PATCH semantics say a missing key is untouched. */
+  put:  (p,b)   => api.call(p,{method:"PUT",body:b}),
   /* Multipart. Every upload on the site used to be a raw fetch with its own
      copy of the error handling, and each copy forgot something different —
      the resume one had to special-case 402 by hand or the paywall reached the
@@ -11393,7 +11398,9 @@ function jbPrepHTML(){
  * not trust this screen for any of it.
  */
 const AQ={consent:null, rows:[], hold:15, paused:false, used:0, max:20,
-          loaded:false, busy:false, msg:"", link:""};
+          loaded:false, busy:false, msg:"", link:"",
+          fields:[], values:{}, detailsOpen:false, detailsMsg:"",
+          minScore:75};
 
 async function aqLoad(){
   try{
@@ -11402,6 +11409,11 @@ async function aqLoad(){
     AQ.rows=d.rows||[];
     AQ.hold=d.hold_minutes; AQ.paused=!!d.paused;
     AQ.used=d.used_today||0; AQ.max=d.max_per_day||20;
+    // Fetched with the queue, not on opening the panel: the count of what is
+    // filled is shown on the collapsed row, so it has to be known before
+    // anybody expands it.
+    const f=await api.get("/api/apply/details");
+    AQ.fields=f.fields||[]; AQ.values=f.values||{};
   }catch(e){
     /* A free account gets a 402 here, which is not an error to shout about —
        the section simply says what it costs. */
@@ -11431,6 +11443,74 @@ function aqRowHTML(r){
         ${stoppable?`<button class="btn ghost sm" data-aqcancel="${r.id}">Stop it</button>`:""}
       </div>
     </div>
+  </div>`;
+}
+
+/* The details every form asks for and no CV carries.
+ *
+ * Filled once, here, and read by both the bot and the browser extension —
+ * the same stored set, so the two cannot fill the same form differently.
+ * Before this they lived only in the extension's own browser storage, which
+ * meant the worker had never heard of them and stopped to ask for a postcode
+ * on the first application.
+ *
+ * Collapsed by default. Sixteen boxes above a paste box is a form, and the
+ * thing somebody came here to do is paste a link.
+ */
+function aqDetailsHTML(){
+  const fields=AQ.fields||[], vals=AQ.values||{};
+  const done=fields.filter(f=>(vals[f.key]||"").trim()).length;
+  if(!AQ.detailsOpen){
+    return `<div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <button class="btn ghost sm" data-aqdetails="1">📋 Your form details</button>
+      <span style="font-size:12px;color:${done?"var(--dim)":"#e0b050"}">
+        ${done} of ${fields.length} filled${done?"":" — the bot will stop and ask for each of these once"}</span>
+    </div>`;
+  }
+  const box=f=>{
+    const v=esc(vals[f.key]||"");
+    if(f.kind==="choice") return `<select class="ask-input" data-aqf="${f.key}" style="width:100%">
+      <option value="">—</option>
+      ${(f.options||[]).map(o=>`<option ${vals[f.key]===o?"selected":""}>${esc(o)}</option>`).join("")}
+    </select>`;
+    return `<input class="ask-input" data-aqf="${f.key}" style="width:100%"
+      value="${v}" placeholder="${esc(f.hint||"")}">`;
+  };
+  return `<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+      <b style="flex:1;font-size:14px">📋 Your form details</b>
+      <button class="btn ghost sm" data-aqdetails="0">Hide</button>
+    </div>
+    <div style="font-size:12.5px;color:var(--dim);margin:4px 0 10px">
+      Every application form asks for these and no CV carries them. Fill them
+      once: the bot and the browser extension both use exactly this.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px">
+      ${fields.map(f=>`<label style="display:block">
+        <div style="font-size:12px;color:var(--dim);margin-bottom:3px">${esc(f.label)}</div>
+        ${box(f)}</label>`).join("")}
+    </div>
+    <div class="row" style="margin-top:10px;gap:8px;align-items:center">
+      <button class="btn sm" data-aqsave="1">Save details</button>
+      <span style="font-size:12.5px;color:var(--dim)">${esc(AQ.detailsMsg||"")}</span>
+    </div>
+  </div>`;
+}
+
+/* Apply to everything that matched well enough.
+ *
+ * The other half of the feature, and the one that makes it worth having: the
+ * queue is filled from this person's own match results, re-run on the server
+ * rather than trusted from the browser, and the worker then works through
+ * them one at a time with a gap between each.
+ */
+function aqBulkHTML(){
+  return `<div class="row" style="gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:13px;color:var(--body)">or apply to my matches at or above</span>
+    <input class="ask-input" id="aqScore" type="number" min="40" max="99"
+      value="${AQ.minScore}" style="width:72px;text-align:center">
+    <span style="font-size:13px;color:var(--body)">%</span>
+    <button class="btn sm ghost" data-aqbulk="1" ${AQ.busy?"disabled":""}>${
+      AQ.busy?"Working…":"Queue them"}</button>
   </div>`;
 }
 
@@ -11487,8 +11567,10 @@ function aqHTML(){
       <button class="btn sm" data-aqgo="1" ${AQ.busy?"disabled":""}>${
         AQ.busy?"Queueing…":"Apply for me"}</button>
     </div>
+    ${aqBulkHTML()}
     <div style="font-size:12.5px;color:var(--dim);margin-top:6px" id="aqMsg">${
       esc(AQ.msg||`Filled in and held for ${AQ.hold} minute${AQ.hold===1?"":"s"} before it is sent, so you can look at it first.`)}</div>
+    ${aqDetailsHTML()}
     ${live.length?`<div style="margin-top:12px">${live.map(aqRowHTML).join("")}</div>`:""}
   </div>`;
 }
@@ -11499,6 +11581,45 @@ function aqBind(){
     el.oninput=e=>{ AQ.link=e.target.value; };
     el.onkeydown=e=>{ if(e.key==="Enter") aqSubmitLink(); };
   }
+  const sc=$("#aqScore");
+  if(sc) sc.oninput=e=>{ AQ.minScore=+e.target.value||75; };
+  /* Held in AQ as they are typed rather than read at save time. The panel
+     redraws on every queue change, and a redraw would otherwise throw away
+     half-typed details. */
+  document.querySelectorAll("[data-aqf]").forEach(n=>{
+    n.oninput=e=>{ AQ.values[n.dataset.aqf]=e.target.value; };
+    n.onchange=e=>{ AQ.values[n.dataset.aqf]=e.target.value; };
+  });
+}
+
+async function aqSaveDetails(){
+  AQ.detailsMsg="Saving…"; renderCareers();
+  try{
+    const d=await api.put("/api/apply/details",{values:AQ.values});
+    AQ.values=d.values||{};
+    AQ.detailsMsg=d.message||"Saved.";
+  }catch(e){ AQ.detailsMsg=e.message; }
+  renderCareers();
+}
+
+/* Queue everything that matched well enough. The score floor is re-applied
+   on the server against a match it runs itself — a score arriving in a
+   request body is a score anybody can type. */
+async function aqBulk(){
+  const floor=Math.max(40, Math.min(99, +((($("#aqScore")||{}).value)||AQ.minScore)||75));
+  AQ.minScore=floor;
+  AQ.busy=true; AQ.msg=`Matching your resume against the board…`; renderCareers();
+  try{
+    const d=await api.post("/api/apply/queue",{min_score:floor, limit:20});
+    const skipped=(d.skipped||[]).length;
+    AQ.msg=d.queued
+      ? `${d.queued} queued at ${floor}% or above${skipped?`, ${skipped} skipped`:""}. `
+        + `They go one at a time, with a gap between each.`
+      : (d.message||"Nothing matched that score. Try a lower figure.");
+  }catch(e){ AQ.msg=e.message; }
+  AQ.busy=false;
+  await aqLoad();
+  renderCareers();
 }
 
 async function aqSubmitLink(){
@@ -11775,6 +11896,13 @@ document.addEventListener("click",e=>{
   if(aOff){ aqConsent(false); return; }
   const aGo=e.target.closest("[data-aqgo]");
   if(aGo){ aqSubmitLink(); return; }
+  const aBulk=e.target.closest("[data-aqbulk]");
+  if(aBulk){ aqBulk(); return; }
+  const aDet=e.target.closest("[data-aqdetails]");
+  if(aDet){ AQ.detailsOpen=aDet.dataset.aqdetails==="1"; AQ.detailsMsg="";
+            renderCareers(); return; }
+  const aSave=e.target.closest("[data-aqsave]");
+  if(aSave){ aqSaveDetails(); return; }
   const aCan=e.target.closest("[data-aqcancel]");
   if(aCan){ aqCancel(+aCan.dataset.aqcancel); return; }
   const aAns=e.target.closest("[data-aqans]");

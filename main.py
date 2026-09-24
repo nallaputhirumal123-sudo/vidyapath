@@ -21729,16 +21729,136 @@ def apply_profile(code: str = "", db: Session = Depends(get_db)):
         "grad_year": str(edu.get("year") or ""),
         "summary": str(r.get("summary") or "")[:1200],
         # Fields a resume rarely carries but application forms almost always
-        # ask for. Blank here on purpose — the person fills them in the
-        # extension once and they are reused on every form after that.
-        "address": "", "city": str(user.city or ""), "state": "",
-        "postcode": "", "country": "",
-        "years_experience": "", "notice_period": "", "desired_salary": "",
-        "work_authorized": "", "needs_sponsorship": "",
-        "willing_to_relocate": "", "how_heard": "",
+        # ask for. These used to be blank, on the reasoning that the person
+        # fills them into the extension once — which was true, and meant they
+        # lived in one browser where the apply worker could never see them.
+        # They are stored on the account now, so the extension and the bot
+        # fill a form with the same answers and cannot disagree.
+        **{f["key"]: "" for f in APPLY_FIELDS},
+        "city": str(user.city or ""),
+        **apply_details(db, user.id),
         "synced_at": now().isoformat(),
     }
 
+
+
+
+# ---- the answers a CV never carries and every form demands ----------------
+#
+# Address, notice period, expected salary, work authorisation. A resume has
+# none of them and an application form asks for all of them, every time.
+#
+# The browser extension already solved this: the person types them once and
+# it reuses them on every form. But it stores them IN THE BROWSER, which is
+# right for the extension and useless to the worker — so the bot would have
+# parked a question for each one, on the first application, and the person
+# would have answered in a prompt box what they had already typed into the
+# extension.
+#
+# So they are kept here instead, once, and read by BOTH: the worker builds
+# its autofill profile from them, and /api/apply/profile hands the same
+# values to the extension. One set of details, two things filling forms with
+# it, and no way for the two to disagree.
+#
+# Deliberately a Note row rather than columns on users. Eleven nullable
+# columns for eleven strings nobody queries by is a migration, and a
+# migration is a production deploy that refuses to boot until it is applied.
+# This needs neither.
+_APPLY_DETAILS_KEY = "apply_details"
+
+# The list is the screen AND the validator: a field that is not here cannot
+# be stored, so a caller cannot use this as free key/value storage on the
+# account. `kind` drives the input the browser draws; `options` makes a
+# select, which is what these forms nearly always use.
+APPLY_FIELDS = [
+    {"key": "address", "label": "Street address", "kind": "text"},
+    {"key": "city", "label": "City", "kind": "text"},
+    {"key": "state", "label": "State or province", "kind": "text"},
+    {"key": "postcode", "label": "Post or ZIP code", "kind": "text"},
+    {"key": "country", "label": "Country", "kind": "text"},
+    {"key": "phone_country_code", "label": "Phone country code",
+     "kind": "text", "hint": "e.g. +91"},
+    {"key": "linkedin", "label": "LinkedIn URL", "kind": "text"},
+    {"key": "github", "label": "GitHub URL", "kind": "text"},
+    {"key": "portfolio", "label": "Portfolio or website", "kind": "text"},
+    {"key": "years_experience", "label": "Years of experience",
+     "kind": "text", "hint": "The number on its own, e.g. 6"},
+    {"key": "notice_period", "label": "Notice period",
+     "kind": "text", "hint": "e.g. 30 days, or Immediately"},
+    {"key": "desired_salary", "label": "Expected salary",
+     "kind": "text", "hint": "Written the way you would type it on a form"},
+    {"key": "work_authorized", "label": "Authorised to work where you apply",
+     "kind": "choice", "options": ["Yes", "No"]},
+    {"key": "needs_sponsorship", "label": "Will you need visa sponsorship",
+     "kind": "choice", "options": ["Yes", "No"]},
+    {"key": "willing_to_relocate", "label": "Willing to relocate",
+     "kind": "choice", "options": ["Yes", "No"]},
+    {"key": "how_heard", "label": "How you heard about the role",
+     "kind": "text", "hint": "e.g. Company website"},
+]
+APPLY_FIELD_KEYS = {f["key"] for f in APPLY_FIELDS}
+
+
+def apply_details(db, user_id) -> dict:
+    """This person's stored form answers. {} when they have set none.
+
+    Every reader goes through here — the worker, the extension route and the
+    screen — so there is one definition of what "their details" means.
+    """
+    row = db.query(Note).filter(Note.user_id == user_id,
+                                Note.k == _APPLY_DETAILS_KEY).first()
+    try:
+        got = json.loads(row.v) if row and row.v else {}
+    except Exception:
+        got = {}
+    if not isinstance(got, dict):
+        return {}
+    return {k: str(v or "")[:200] for k, v in got.items()
+            if k in APPLY_FIELD_KEYS}
+
+
+class ApplyDetailsIn(BaseModel):
+    values: dict = {}
+
+
+@app.get("/api/apply/details")
+def apply_details_get(user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """The fields to draw, and what this person has already put in them."""
+    return {"fields": APPLY_FIELDS, "values": apply_details(db, user.id)}
+
+
+@app.put("/api/apply/details")
+def apply_details_put(body: ApplyDetailsIn,
+                      user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Save them. Unknown keys are dropped rather than refused.
+
+    Dropped, not rejected: a newer screen sending a field this build does not
+    have yet should still save the fifteen it does, rather than failing the
+    whole save and losing what somebody just typed.
+    """
+    clean = {}
+    for k, v in (body.values or {}).items():
+        if k in APPLY_FIELD_KEYS:
+            val = str(v or "").strip()[:200]
+            if val:
+                clean[k] = val
+    row = db.query(Note).filter(Note.user_id == user.id,
+                                Note.k == _APPLY_DETAILS_KEY).first()
+    if row is None:
+        row = Note(user_id=user.id, k=_APPLY_DETAILS_KEY, v="")
+        db.add(row)
+    row.v = json.dumps(clean)[:20000]
+    db.commit()
+    # How many of the questions a form asks are now answerable without
+    # stopping to ask. The screen says this back, because "saved" on its own
+    # does not tell somebody whether it was worth doing.
+    return {"saved": len(clean), "total": len(APPLY_FIELDS),
+            "values": clean,
+            "message": (f"Saved. {len(clean)} of {len(APPLY_FIELDS)} details "
+                        "filled — the rest will be asked once, the first time "
+                        "a form wants them.")}
 
 
 # ---- applying for the job, without the candidate doing the typing --------
@@ -21822,7 +21942,8 @@ APPLY_SOURCES = ("greenhouse", "lever", "ashby", "workable",
 # source goes in here. test_apply_worker asserts the two agree, so forgetting
 # the second one fails the build rather than shipping a queue that silently
 # refuses half of what it accepts.
-APPLY_DRIVABLE = ("greenhouse",)
+APPLY_DRIVABLE = ("greenhouse", "lever", "ashby", "workable",
+                  "smartrecruiters", "recruitee")
 
 # Sources that reach this far get a clear refusal rather than silence. An
 # aggregator row carries a redirect, not a form; a Workday row needs an
@@ -22107,6 +22228,24 @@ def apply_queue_add(body: ApplyQueueIn, user: User = Depends(current_user),
                                    "this one has to go by hand for now. Open "
                                    "it and apply manually."})
             continue
+        # The SOURCE says greenhouse; the LINK has to agree.
+        #
+        # Measured on the crawled board: only 212 of 603 rows tagged
+        # greenhouse actually carry a greenhouse.io URL. The rest point at a
+        # company careers index — okta.com, databricks.com — because that is
+        # what the feed gave. Queueing those sent the worker to a page with
+        # no application form on it, to fail three times and give up.
+        #
+        # Checked with exactly the reader a pasted link goes through, so the
+        # two ways into this queue cannot disagree about what is drivable.
+        by_url, _ = apply_source_of(job.url or "")
+        if by_url != src:
+            skipped.append({"job_id": jid, "title": job.title,
+                            "why": "We have this posting but not a direct "
+                                   "link to its application form — the feed "
+                                   "gave a careers page. Open it, then paste "
+                                   "the form's own link here."})
+            continue
         dup = db.query(ApplyQueue).filter(
             ApplyQueue.user_id == user.id, ApplyQueue.job_id == jid,
             ApplyQueue.status.notin_(["cancelled", "failed"])).first()
@@ -22139,7 +22278,17 @@ def apply_queue_add(body: ApplyQueueIn, user: User = Depends(current_user),
         queued.append(q)
         room -= 1
     db.commit()
-    return {"queued": len(queued), "skipped": skipped,
+    # Say something when nothing was queued. "0 queued" with a silent
+    # `skipped` list reads as a broken button: the matches were found, every
+    # one of them was refused for a stateable reason, and the screen showed
+    # neither fact.
+    note = ""
+    if not queued:
+        note = (f"None of the {len(skipped)} matches could be driven "
+                "automatically — open each one and apply by hand, or paste "
+                "its application link here." if skipped
+                else "No jobs matched that score. Try a lower floor.")
+    return {"queued": len(queued), "skipped": skipped, "message": note,
             "rows": [_applyq_json(q) for q in queued]}
 
 

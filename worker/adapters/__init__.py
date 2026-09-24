@@ -10,12 +10,24 @@ added to it. No public apply API, against their terms, and automating them
 gets the crawler blocked and the candidate's account with it.
 """
 from .base import Adapter, FillResult, Question          # noqa: F401
+from .form import FormAdapter                            # noqa: F401
 from .greenhouse import GreenhouseAdapter
+from .ats import (LeverAdapter, AshbyAdapter, WorkableAdapter,
+                  SmartRecruitersAdapter, RecruiteeAdapter)
 
-# Slice 1 ships one. The other five are the same six methods with different
-# selectors; each goes in here as it is written, and nothing else changes.
+# All six no-login ATSs. Everything behavioural lives in FormAdapter; each
+# of these is the selectors that board uses and the words it says back.
+#
+# APPLY_DRIVABLE in main.py must list exactly these keys — test_apply_worker
+# asserts it, so adding an adapter and forgetting the other edit fails the
+# build instead of shipping a queue that accepts what it cannot drive.
 ADAPTERS = {
     GreenhouseAdapter.source: GreenhouseAdapter,
+    LeverAdapter.source: LeverAdapter,
+    AshbyAdapter.source: AshbyAdapter,
+    WorkableAdapter.source: WorkableAdapter,
+    SmartRecruitersAdapter.source: SmartRecruitersAdapter,
+    RecruiteeAdapter.source: RecruiteeAdapter,
 }
 
 
