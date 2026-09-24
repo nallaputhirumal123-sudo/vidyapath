@@ -28,6 +28,22 @@ def _js(name):
         return fh.read()
 
 
+async def _inject(page, name):
+    """Run one of our scripts in the page, CSP or no CSP.
+
+    Deliberately NOT page.add_script_tag: that injects a <script> element,
+    which a Content-Security-Policy header is entitled to refuse — and Ashby
+    does, with "Executing inline script violates the following Content
+    Security Policy directive". Every Ashby application failed on that line,
+    after the adapter had correctly found the form.
+
+    evaluate() goes through the debugger protocol rather than the DOM, so
+    the page's CSP does not apply to it. Wrapped in a function body because
+    these files are statements, not an expression.
+    """
+    await page.evaluate("() => {" + _js(name) + "}")
+
+
 class FormAdapter(Adapter):
     """Everything except the selectors."""
 
@@ -62,25 +78,74 @@ class FormAdapter(Adapter):
                 continue
         return None
 
+    # Some boards put the application on its own URL. Tried first, and only
+    # used if it actually produces fields — Ashby's is <posting>/application,
+    # and Greenhouse's equivalent 404s, so this has to be attempted rather
+    # than assumed.
+    APPLY_PATHS = []
+
+    async def _fields(self, page):
+        """How many things on this page can be filled in."""
+        try:
+            return await page.locator(
+                "input:not([type=hidden]):not([type=submit])"
+                ":not([type=button]),select,textarea").count()
+        except Exception:
+            return 0
+
+    async def _ready(self, page):
+        """Is there an application form here — by fields, not by tag.
+
+        The original test was "does a <form> element exist", and it is wrong
+        for most of the modern boards. Measured against real listings: Ashby
+        renders twenty inputs and two file pickers with NO <form> element at
+        all, because it POSTs through fetch. That check reported "the listing
+        has probably closed" on every Ashby posting there is, which was a
+        confident lie about a page that was working perfectly.
+        """
+        if await self._fields(page) >= 3:
+            return True
+        return (await self._first(page, self.FORMS)) is not None
+
     async def open(self, page, url) -> None:
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        await page.wait_for_timeout(self.SETTLE_MS)
+
+        # Already on the form?
+        if await self._ready(page):
+            return
+
+        # A dedicated application URL, if this board has one.
+        for suffix in self.APPLY_PATHS:
+            target = url.rstrip("/") + suffix
+            try:
+                r = await page.goto(target, wait_until="domcontentloaded",
+                                    timeout=45000)
+                await page.wait_for_timeout(self.SETTLE_MS)
+                if (r is None or r.status < 400) and await self._ready(page):
+                    return
+            except Exception:
+                continue
+        # Back to the posting, then try whatever button it offers.
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            await page.wait_for_timeout(self.SETTLE_MS)
+        except Exception:
+            pass
         btn = await self._first(page, self.APPLY_BUTTONS)
         if btn is not None:
             try:
                 await btn.click(timeout=5000)
-                await page.wait_for_timeout(self.SETTLE_MS)
+                await page.wait_for_timeout(self.SETTLE_MS + 600)
             except Exception:
                 pass            # an anchor that only scrolls; carry on
-        form = await self._first(page, self.FORMS)
-        if form is None:
+        if not await self._ready(page):
             raise RuntimeError(
-                "No application form on that page — the listing has probably "
-                "closed, or the link goes to a careers index rather than to "
-                "a posting.")
-        await page.wait_for_timeout(self.SETTLE_MS)
+                "No application form on that page — the listing has closed, "
+                "or the link goes to a careers index rather than a posting.")
 
     async def fill(self, page, profile) -> FillResult:
-        await page.add_script_tag(content=_js("filler.js"))
+        await _inject(page, "filler.js")
         got = await page.evaluate("(p) => window.__vpFill(p)", profile) or {}
         return FillResult(filled=list(got.get("filled") or []),
                           count=int(got.get("count") or 0),
@@ -95,7 +160,7 @@ class FormAdapter(Adapter):
         """
         from main import question_norm          # one normaliser, not two
 
-        await page.add_script_tag(content=_js("probe.js"))
+        await _inject(page, "probe.js")
         fields = await page.evaluate("() => window.__vpAsk()") or []
         missing = []
         for f in fields:

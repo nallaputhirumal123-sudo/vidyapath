@@ -8,15 +8,25 @@
  *                actually called on screen.
  *   __vpSet()  — put this exact value in that exact field.
  *
- * The label reading here is deliberately simpler than filler.js's. That one
- * walks up through wrappers because it has to decide a VALUE from a caption
- * and a wrong decision writes the wrong thing into somebody's application.
- * This one only has to produce a question to show a human, so it stops at
- * the sources that are unambiguous — a <label for>, an aria-label, a
- * wrapping <label>, a placeholder — and reports an empty label rather than
- * guessing from a distant div. An unlabelled field becomes "a question on
- * the form we could not read", which is true, instead of the caption
- * belonging to the input above it, which is not.
+ * The label reading takes the unambiguous sources first — a <label for>, an
+ * aria-label, a wrapping <label>, a placeholder — and only then walks up for
+ * a caption in a plain div.
+ *
+ * It started without that walk, on the reasoning that a guessed caption
+ * risks showing somebody the wrong question. Measured against twenty real
+ * postings, leaving it out cost more than it saved: twenty required fields
+ * came back as "a question on the form we could not read", which is a
+ * question nobody can answer and a row parked for good. Greenhouse's React
+ * boards and Ashby render every caption as a div.
+ *
+ * The walk is safe here in a way it would not be inside filler.js: that file
+ * picks a VALUE from a caption, and a wrong caption writes the wrong thing
+ * into an application. This only produces text to show a person, who is
+ * looking at the same form and will notice if it reads oddly.
+ *
+ * Eighteen of the twenty are still unreadable after it — custom comboboxes
+ * whose caption is further away than four hops. Worth more work; not worth
+ * pretending it is solved.
  */
 (function () {
   const clean = (s) => (s || "").toLowerCase()
@@ -52,6 +62,47 @@
       take(wrap.innerText);
     }
     take(el.getAttribute("placeholder"));
+
+    /* Walk up for a caption, when none of the unambiguous sources had one.
+     *
+     * This was deliberately left out, on the reasoning that guessing a label
+     * from a nearby div risks showing somebody the wrong question. Measured
+     * against twenty real postings, the cost of leaving it out was worse:
+     * twenty required fields came back as "A question on the form we could
+     * not read", which is a question nobody can answer and a row parked
+     * forever. Greenhouse's React boards and Ashby render every caption as a
+     * plain div.
+     *
+     * Safe in a way the same walk is not inside filler.js: that one picks a
+     * VALUE from a caption, and a wrong caption writes the wrong thing into
+     * an application. This only produces text to show a person, who can see
+     * the form and will notice if it reads oddly.
+     *
+     * Stops at any container holding more than one field, so a caption is
+     * never borrowed from a sibling input's group.
+     */
+    const FIELDS = "input,textarea,select";
+    let node = el, hops = 0;
+    while (node && hops < 4 && !out) {
+      node = node.parentElement;
+      if (!node) break;
+      hops++;
+      if (node.querySelectorAll(FIELDS).length > 1) break;
+      for (const lb of node.children) {
+        if (out) break;
+        if (lb.contains(el) || lb.querySelector(FIELDS)) continue;
+        const t = text(lb.innerText);
+        if (t && t.length <= 120) take(t);
+      }
+      let sib = node.previousElementSibling;
+      while (sib && !out) {
+        if (!sib.querySelector(FIELDS) && !sib.matches(FIELDS)) {
+          const t = text(sib.innerText);
+          if (t && t.length <= 120) take(t);
+        }
+        sib = sib.previousElementSibling;
+      }
+    }
     return out.slice(0, 300);
   }
 

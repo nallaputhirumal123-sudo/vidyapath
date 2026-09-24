@@ -22228,23 +22228,15 @@ def apply_queue_add(body: ApplyQueueIn, user: User = Depends(current_user),
                                    "this one has to go by hand for now. Open "
                                    "it and apply manually."})
             continue
-        # The SOURCE says greenhouse; the LINK has to agree.
-        #
-        # Measured on the crawled board: only 212 of 603 rows tagged
-        # greenhouse actually carry a greenhouse.io URL. The rest point at a
-        # company careers index — okta.com, databricks.com — because that is
-        # what the feed gave. Queueing those sent the worker to a page with
-        # no application form on it, to fail three times and give up.
-        #
-        # Checked with exactly the reader a pasted link goes through, so the
-        # two ways into this queue cannot disagree about what is drivable.
-        by_url, _ = apply_source_of(job.url or "")
-        if by_url != src:
+        # The SOURCE says greenhouse; the LINK has to agree — and when it
+        # does not, the canonical one for that ATS is rebuilt from the token
+        # and job id we already hold. See apply_url_for.
+        form_url = apply_url_for(job)
+        if not form_url:
             skipped.append({"job_id": jid, "title": job.title,
-                            "why": "We have this posting but not a direct "
-                                   "link to its application form — the feed "
-                                   "gave a careers page. Open it, then paste "
-                                   "the form's own link here."})
+                            "why": "We have this posting but no way to reach "
+                                   "its application form. Open it, then "
+                                   "paste the form's own link here."})
             continue
         dup = db.query(ApplyQueue).filter(
             ApplyQueue.user_id == user.id, ApplyQueue.job_id == jid,
@@ -22270,7 +22262,7 @@ def apply_queue_add(body: ApplyQueueIn, user: User = Depends(current_user),
                 JobTrack.user_id == user.id, JobTrack.job_id == jid).first()
             sc = (seen.score if seen else 0) or 0
         q = ApplyQueue(user_id=user.id, job_id=jid, source=src,
-                       url=job.url or "", title=(job.title or "")[:300],
+                       url=form_url, title=(job.title or "")[:300],
                        company=(job.company or "")[:200], status="prepared",
                        score=sc, created_at=now(),
                        updated_at=now())
@@ -22474,6 +22466,56 @@ def apply_source_of(url: str):
         return None, (f"We do not have a {src} adapter yet, so this one has "
                       "to go by hand for now.")
     return src, ""
+
+
+# The canonical form URL each ATS uses, rebuilt from what the crawler
+# already stored. `company` on these rows IS the board token — the fetchers
+# pass the token straight into that field — and `external_id` is the job id
+# on their side.
+#
+# This exists because the feed's own URL is often not a form. Measured on
+# the live board: 393 of 623 greenhouse rows carried a company careers index
+# (okta.com, databricks.com) rather than a posting, because that is what
+# `absolute_url` returns for an embedded board. Those postings are perfectly
+# applicable; we simply had the wrong link to them.
+#
+# Checked against the rows where we DO hold a real URL: ashby 61/61,
+# smartrecruiters 73/73, lever 39/48, greenhouse 203/230 — the differences
+# being host variants (job-boards vs boards) that the adapter drives either
+# way. It is a fallback, never an override: a stored URL that is already
+# drivable is always preferred, because it came from the employer.
+#
+# A wrong guess fails safely. The board answers 404, the adapter reports the
+# listing as closed, and nothing is submitted anywhere.
+APPLY_URL_SHAPES = {
+    "greenhouse": "https://boards.greenhouse.io/{token}/jobs/{jid}",
+    "lever": "https://jobs.lever.co/{token}/{jid}",
+    "ashby": "https://jobs.ashbyhq.com/{token}/{jid}",
+    "smartrecruiters": "https://jobs.smartrecruiters.com/{token}/{jid}",
+    "workable": "https://apply.workable.com/{token}/j/{jid}/",
+    "recruitee": "https://{token}.recruitee.com/o/{jid}",
+}
+
+
+def apply_url_for(job):
+    """The link the worker should open for this posting, or None.
+
+    The stored URL when it is already a form we drive; the canonical one for
+    that ATS otherwise. None means we hold the posting but have no way to
+    reach its form, which is a real answer and has to be said out loud
+    rather than queued and failed three times.
+    """
+    stored = (getattr(job, "url", "") or "").strip()
+    src = (getattr(job, "source", "") or "").lower()
+    if apply_source_of(stored)[0] == src:
+        return stored
+    shape = APPLY_URL_SHAPES.get(src)
+    token = (getattr(job, "company", "") or "").strip()
+    jid = str(getattr(job, "external_id", "") or "").strip()
+    if not shape or not token or not jid:
+        return None
+    guess = shape.format(token=token, jid=jid)
+    return guess if apply_source_of(guess)[0] == src else None
 
 
 def _named_in_url(url: str) -> str:

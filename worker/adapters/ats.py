@@ -20,6 +20,7 @@ class LeverAdapter(FormAdapter):
     """jobs.lever.co/<company>/<id> — the form is on /apply."""
 
     source = "lever"
+    APPLY_PATHS = ["/apply"]
     # Lever splits the posting and the form across two URLs. The posting
     # carries a prominent Apply button; following it is how the form is
     # reached when somebody pastes the posting rather than the form.
@@ -49,6 +50,10 @@ class AshbyAdapter(FormAdapter):
 
     source = "ashby"
     SETTLE_MS = 1200
+    # Ashby keeps the posting and the form on different URLs, and the form
+    # carries no <form> element — see FormAdapter._ready. Measured: the
+    # posting page has 0 fields, <posting>/application has 9 to 20.
+    APPLY_PATHS = ["/application"]
     APPLY_BUTTONS = ["button:has-text('Apply for this Job')",
                      "button:has-text('Apply for this job')",
                      "a:has-text('Apply')"]
@@ -68,6 +73,7 @@ class WorkableAdapter(FormAdapter):
 
     source = "workable"
     SETTLE_MS = 800
+    APPLY_PATHS = ["/apply"]
     APPLY_BUTTONS = ["a[href*='/apply']",
                      "button:has-text('Apply for this job')",
                      "a:has-text('Apply for this job')",
