@@ -16449,6 +16449,11 @@ def _level_of(resume_text: str):
 
 def _job_json(j, extra=None):
     d = {
+        # Which ATS this came from. The screen needs it to decide whether to
+        # offer "Apply for me" on a match: a source with no adapter would
+        # queue and park immediately, which is a button that looks like it
+        # worked and did not.
+        "source": j.source or "",
         "id": j.id, "title": j.title, "company": j.company,
         "location": j.location or ("Remote" if j.remote else ""),
         "country": j.country, "remote": bool(j.remote), "url": j.url,
@@ -16884,6 +16889,58 @@ def _mark_tracked(db, user, items):
                         JobTrack.job_id.in_(ids)).all())
     for d in items:
         d["tracked"] = seen.get(d["id"], "")
+
+
+# What the matcher last scored, per user, so queueing a job from a match card
+# can show the number the person was looking at.
+#
+# The alternative was taking the score from the request body, and a score that
+# arrives in a request body is a score anybody can type — it decides which
+# applications go out first. The other alternative was writing a JobTrack row
+# for every scored job, which would fill somebody's tracker with a hundred
+# postings they never touched.
+#
+# So: a note, written by the matcher, read by the queue. Bounded to the page
+# that was actually shown, and stale by definition — a score from last week is
+# still the score that was on screen when they pressed the button, which is
+# the number they are owed an explanation for.
+_MATCH_SCORES = "last_match_scores"
+
+
+def remember_scores(db, user_id, items):
+    """Keep the scores from this page of results, for the apply queue."""
+    got = {str(d["id"]): int(d.get("score") or 0) for d in items
+           if d.get("id") is not None}
+    if not got:
+        return
+    row = db.query(Note).filter(Note.user_id == user_id,
+                                Note.k == _MATCH_SCORES).first()
+    if row is None:
+        row = Note(user_id=user_id, k=_MATCH_SCORES, v="")
+        db.add(row)
+    try:
+        had = json.loads(row.v) if row.v else {}
+    except Exception:
+        had = {}
+    if not isinstance(had, dict):
+        had = {}
+    had.update(got)
+    # Bounded: the newest 400 are plenty for a queue that caps at 20 a day,
+    # and an unbounded note is a column that grows for ever.
+    if len(had) > 400:
+        had = dict(list(had.items())[-400:])
+    row.v = json.dumps(had)[:40000]
+    db.commit()
+
+
+def remembered_score(db, user_id, job_id):
+    row = db.query(Note).filter(Note.user_id == user_id,
+                                Note.k == _MATCH_SCORES).first()
+    try:
+        return int((json.loads(row.v) if row and row.v else {})
+                   .get(str(job_id)) or 0)
+    except Exception:
+        return 0
 
 
 @app.get("/api/jobs/categories")
@@ -20912,6 +20969,9 @@ def jobs_match(body: JobMatchIn, user: User = Depends(current_user),
     lim = min(max(body.limit, 1), 50)
     page = scored[off:off + lim]
     _mark_tracked(db, user, page)
+    # Keep this page's scores, so queueing one of these for the apply
+    # worker shows the number the person is looking at rather than 0.
+    remember_scores(db, user.id, page)
     # One request, not one page: allowing off>0 through after the allowance is
     # spent would be unlimited matching behind a query parameter. The free go
     # returns a full page of ranked jobs, which is the thing worth seeing.
@@ -22693,6 +22753,11 @@ def apply_queue_add(body: ApplyQueueIn, user: User = Depends(current_user),
             seen = db.query(JobTrack).filter(
                 JobTrack.user_id == user.id, JobTrack.job_id == jid).first()
             sc = (seen.score if seen else 0) or 0
+        if not sc:
+            # Queued straight from a match card, which is the common case:
+            # nothing has written a JobTrack row yet, so the score comes from
+            # what the matcher itself last recorded for this person.
+            sc = remembered_score(db, user.id, jid)
         q = ApplyQueue(user_id=user.id, job_id=jid, source=src,
                        url=form_url, title=(job.title or "")[:300],
                        company=(job.company or "")[:200], status="prepared",
@@ -22730,6 +22795,10 @@ def apply_queue_list(user: User = Depends(current_user),
             "paused": apply_halted(),
             "hold_minutes": apply_hold_minutes(),
             "used_today": _queued_today(db, user.id),
+            # So the job cards can offer "Apply for me" only where there is
+            # an adapter. Sent rather than hardcoded in the page: a list that
+            # drifts puts a button on a job that can only ever park.
+            "drivable": list(APPLY_DRIVABLE),
             "max_per_day": apply_max_per_user_day()}
 
 

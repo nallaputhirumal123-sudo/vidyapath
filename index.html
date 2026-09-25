@@ -10832,10 +10832,63 @@ function jbCardHTML(j){
           :j.tracked==="saved"
             ?`<button class="btn ghost sm" data-jbsave="${j.id}" data-on="1" title="Saved — click to remove">♥ Saved</button>`
             :`<button class="btn ghost sm" data-jbsave="${j.id}">♡ Save</button>`)}
+        <!-- Apply for me, where the decision is actually made.
+             The panel for this lives in My applications, which is where it
+             is MANAGED — but the moment somebody wants it is looking at a
+             match they like, and making them go and find another tab first
+             is how a feature goes unused. Only offered for a source there is
+             an adapter for; the rest would queue and immediately park. -->
+        ${closed||!APPLY_DRIVABLE_UI.includes((j.source||"").toLowerCase())
+          ? "" : (j.tracked==="applied"||j.tracked==="interviewing"||j.tracked==="offer"
+            ? "" : `<button class="btn sm" data-jbauto="${j.id}"
+                 title="Fill and send this one for me — held for review first"
+               >⚡ Apply for me</button>`)}
       </div>
     </div>
     ${JB.kitFor===j.id?jbKitHTML():""}</div>`;
 }
+/* Queue one match for the worker, from the card the person is looking at.
+ *
+ * Consent is asked here rather than assumed, and asked ONCE — after that the
+ * server holds the row and the button just queues. The wording says what is
+ * about to happen in the order it happens, because "apply for me" on its own
+ * does not tell somebody that a real application goes to a real employer
+ * with their name on it.
+ */
+async function jbAutoApply(id, btn){
+  const was=btn?btn.textContent:"";
+  try{
+    const st=await api.get("/api/apply/queue");
+    if(!((st.consent||{}).consented)){
+      if(!confirm("Turn on Apply for me?" + "\n\n" +
+      "• The form is opened and filled from your resume\n" +
+      "• Your resume is attached\n" +
+      "• It waits " + (st.hold_minutes||15) +
+      " minutes with a screenshot, so you can stop it\n" +
+      "• Then it is submitted to the employer in your name\n\n" +
+      "Anything your resume cannot answer stops and asks you. You can " +
+      "turn this off at any time, which cancels whatever is still " +
+      "waiting.")) return;
+      await api.post("/api/apply/consent",{scope:
+        "Open job application forms on my behalf, fill them from my resume, "
+        +"attach my resume and submit them. I can withdraw this at any time."});
+    }
+    if(btn){ btn.disabled=true; btn.textContent="Queueing…"; }
+    const d=await api.post("/api/apply/queue",{job_ids:[id]});
+    if(d.queued){
+      if(btn){ btn.textContent="⚡ Queued"; }
+      toast("Queued. It is filled and held before anything is sent — see My applications.");
+    }else{
+      const why=((d.skipped||[])[0]||{}).why||d.message||"It could not be queued.";
+      if(btn){ btn.disabled=false; btn.textContent=was; }
+      toast(why);
+    }
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent=was; }
+    toast(e.message);
+  }
+}
+
 /* The kit prepares the application; the person still submits it themselves on
    the employer's site. Nothing is ever sent on their behalf. */
 async function jbApplyKit(id){
@@ -11465,6 +11518,7 @@ async function aqLoad(){
     AQ.rows=d.rows||[];
     AQ.hold=d.hold_minutes; AQ.paused=!!d.paused;
     AQ.used=d.used_today||0; AQ.max=d.max_per_day||20;
+    if(Array.isArray(d.drivable)) APPLY_DRIVABLE_UI=d.drivable;
     // Fetched with the queue, not on opening the panel: the count of what is
     // filled is shown on the collapsed row, so it has to be known before
     // anybody expands it.
@@ -11853,6 +11907,11 @@ async function aqAnswer(id){
  * worse, so it is computed from the image's own naturalWidth rather than
  * from any assumption about the layout.
  */
+/* Which sources the worker has an adapter for. Filled from the server on
+   the first queue load rather than hardcoded here, because a list that
+   drifts shows an Apply-for-me button on a job that will only ever park. */
+let APPLY_DRIVABLE_UI = [];
+
 const SESS = {id:0, shot:"", w:1100, h:760, note:"", status:"", url:"",
               timer:0, busy:false};
 
@@ -12199,6 +12258,8 @@ document.addEventListener("click",e=>{
   if(aCan){ aqCancel(+aCan.dataset.aqcancel); return; }
   const aLog=e.target.closest("[data-aqlogin]");
   if(aLog){ aqLogin(+aLog.dataset.aqlogin); return; }
+  const auto=e.target.closest("[data-jbauto]");
+  if(auto){ jbAutoApply(+auto.dataset.jbauto, auto); return; }
   const sOpen=e.target.closest("[data-sessopen]");
   if(sOpen){ sessOpen(+sOpen.dataset.sessopen); return; }
   const sCls=e.target.closest("[data-sessclose]");
