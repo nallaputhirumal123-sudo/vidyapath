@@ -1,8 +1,27 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
+  "_comment": [
+    "Shared by every service built from this repo, which is why",
+    "dockerfilePath is NOT pinned here any more.",
+    "",
+    "It used to say \"Dockerfile\". A config file beats the environment, so",
+    "the apply-worker service ignored its own",
+    "RAILWAY_DOCKERFILE_PATH=worker/Dockerfile and built the WEB image --",
+    "and came up running uvicorn, looking for all the world like a",
+    "successful deploy. A second copy of the site, serving nothing anybody",
+    "visits, while the apply queue sat untouched.",
+    "",
+    "Left unset, Railway uses ./Dockerfile by default, which is what the web",
+    "service wants, and RAILWAY_DOCKERFILE_PATH now actually applies to any",
+    "service that sets it.",
+    "",
+    "healthcheckPath stays, and is shared on purpose: the worker answers",
+    "/api/health itself now (see worker/run.py). A worker nobody can ask",
+    "'are you alive and is the queue moving' is one you hear about from a",
+    "candidate whose applications quietly stopped."
+  ],
   "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "Dockerfile"
+    "builder": "DOCKERFILE"
   },
   "deploy": {
     "healthcheckPath": "/api/health",

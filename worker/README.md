@@ -41,13 +41,46 @@ Run it locally against the fixture rather than against a board:
 
 ## Deploying it
 
-A second Railway service from this repository. **Set the service's config
-file to `worker/railway.json`.** Without that it inherits the root
-`railway.json`, which sets `healthcheckPath: /api/health` — and this service
-binds no port and answers nothing, so Railway waits for an endpoint that
-will never exist and reports a crash that has nothing to do with the code.
+A second Railway service from this repository. Everything below can be done
+from the CLI; none of it needs the dashboard.
 
-It needs `DATABASE_URL` and `JWT_SECRET`, the same as the app.
+    railway add --service apply-worker --repo <owner>/<repo> --branch main
+    railway link -p <project> -s apply-worker
+    railway variables --set "RAILWAY_DOCKERFILE_PATH=worker/Dockerfile"
+    railway up --service apply-worker --detach
+
+**`RAILWAY_DOCKERFILE_PATH` is not optional.** Without it the service builds
+the ROOT Dockerfile — the web app — and you get a second copy of the site
+running as a worker, which looks like it deployed fine.
+
+**It answers `/api/health` itself**, which is why `worker/railway.json` is
+now belt to that braces rather than a requirement. A service built from this
+repo inherits the root `railway.json` and its `healthcheckPath`, and the
+first worker deploy was killed for not answering an endpoint it was never
+designed to have. It answers now, and reports something worth reading:
+
+    {"ok": true, "halted": false, "prepared": 3, "holding": 1,
+     "ever_sent": 128, "live_sessions": 0, "adapters": [...]}
+
+That is the difference between "is the container up" and "is the queue
+moving" — and the second is the question you actually have.
+
+**Variables it needs**, beyond `DATABASE_URL` and `JWT_SECRET`:
+
+  APPLY_CRED_KEY    Fernet key for stored employer sign-ins. MUST be the
+                    same value as the web service: the app encrypts with it
+                    and the worker decrypts with it. Generate with
+                    `python -c "from cryptography.fernet import Fernet;
+                    print(Fernet.generate_key().decode())"`. With no key the
+                    app refuses to store a credential rather than storing it
+                    in the clear, so the worker simply never sees one.
+  AI_PROVIDER       gemini, matching the web service, for the answer
+                    fallback. Without it the worker still applies; it just
+                    parks more rows for a person.
+
+**Never pass a secret on a `railway add -v` command line.** That CLI echoes
+its prompts, so the value lands in whatever is capturing the terminal. Use
+`railway variables --set` with the output redirected, or the dashboard.
 
 Set `APPLY_KILL_SWITCH=1` on it for the first deploy. It boots, idles and
 sends nothing until you clear it, which takes effect on the next poll.
