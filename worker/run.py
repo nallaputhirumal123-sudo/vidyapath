@@ -28,6 +28,7 @@ detect those blacklist the applicant rather than the bot, and the applicant
 is the person we are supposed to be helping.
 """
 import asyncio
+import json
 import os
 import random
 import sys
@@ -130,6 +131,84 @@ async def pass_once(browser, db):
     return moved
 
 
+async def health_server():
+    """Answer a healthcheck, and say something worth reading while doing it.
+
+    This service processes a queue and serves nothing, so the original
+    design had no port at all — and that was what killed it. A service
+    built from this repo inherits the root railway.json, which sets
+    healthcheckPath /api/health, so the platform waited for an endpoint
+    that would never exist and reported a crash that had nothing to do
+    with the code.
+
+    Two ways out of that: a per-service config file saying "no healthcheck",
+    which needs somebody in a dashboard, or answering the healthcheck. This
+    is the second, and it is the better one — a worker nobody can ask "are
+    you alive and what are you doing" is a worker you find out about from
+    a candidate whose applications stopped going.
+
+    Deliberately not a web framework. One socket, two routes, no
+    dependency, and it must never be able to take the loop down: anything
+    it raises is caught here and the queue carries on.
+    """
+    port = int(m.env("PORT", "8080") or 8080)
+
+    async def handle(reader, writer):
+        try:
+            raw = await asyncio.wait_for(reader.read(2048), timeout=5)
+            line = (raw.split(b"\r\n", 1)[0] or b"").decode("latin-1")
+            path = (line.split(" ") + ["", ""])[1]
+            db = m.SessionLocal()
+            try:
+                waiting = db.query(m.ApplyQueue).filter(
+                    m.ApplyQueue.status == "prepared").count()
+                holding = db.query(m.ApplyQueue).filter(
+                    m.ApplyQueue.status == "holding").count()
+                sent = db.query(m.ApplyQueue).filter(
+                    m.ApplyQueue.submitted_at.isnot(None)).count()
+            finally:
+                db.close()
+            body = json.dumps({
+                "ok": True,
+                "service": "apply-worker",
+                "halted": m.apply_halted(),
+                "prepared": waiting,
+                "holding": holding,
+                "ever_sent": sent,
+                "live_sessions": len(sessions._LIVE),
+                "hold_minutes": m.apply_hold_minutes(),
+                "adapters": sorted(m.APPLY_DRIVABLE),
+                "path": path,
+            }).encode()
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                         b"Content-Length: " + str(len(body)).encode()
+                         + b"\r\nConnection: close\r\n\r\n" + body)
+            await writer.drain()
+        except Exception:
+            try:
+                writer.write(b"HTTP/1.1 500 Internal Server Error\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                await writer.drain()
+            except Exception:
+                pass
+        finally:
+            try:
+                writer.close()
+            except Exception:
+                pass
+
+    try:
+        server = await asyncio.start_server(handle, "0.0.0.0", port)
+        print(f"health on :{port} (any path answers)", flush=True)
+        async with server:
+            await server.serve_forever()
+    except Exception as e:
+        # Never fatal. A worker that cannot bind a port should still apply
+        # for jobs; it just cannot be asked how it is getting on.
+        print(f"health server did not start: {type(e).__name__}: {e}",
+              flush=True)
+
+
 async def main_loop():
     from playwright.async_api import async_playwright
 
@@ -178,8 +257,22 @@ async def main_loop():
             await browser.close()
 
 
+async def both():
+    """The queue and the healthcheck, side by side.
+
+    The health server is a background task rather than a thread: it shares
+    the loop, reads the same database session factory, and dies with the
+    process. If it stops, the queue does not.
+    """
+    task = asyncio.ensure_future(health_server())
+    try:
+        await main_loop()
+    finally:
+        task.cancel()
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main_loop())
+        asyncio.run(both())
     except KeyboardInterrupt:
         print("apply worker stopped", flush=True)
